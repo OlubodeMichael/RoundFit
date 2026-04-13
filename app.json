@@ -9,7 +9,13 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSHealthShareUsageDescription": "CaloreFit reads your health data to track steps, workouts, and active calories so you never have to log them manually.",
+        "NSHealthUpdateUsageDescription": "CaloreFit can write body weight and nutrition entries to Apple Health to keep everything in sync.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.michaelolu.calorefit"
     },
     "android": {
       "adaptiveIcon": {
@@ -28,6 +34,13 @@
     "plugins": [
       "expo-router",
       [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "CaloreFit reads your health data to track steps, workouts, and active calories so you never have to log them manually.",
+          "NSHealthUpdateUsageDescription": "CaloreFit can write body weight and nutrition entries to Apple Health to keep everything in sync."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
@@ -43,6 +56,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "31d23d7f-e878-4ac9-8733-c3fc77f86fa3"
+      }
     }
   }
 }
