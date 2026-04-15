@@ -3,7 +3,6 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useTheme } from '@/hooks/use-theme';
 import Constants from 'expo-constants';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 
@@ -35,13 +34,12 @@ export default function HealthConnectScreen() {
     goal: string; activity: string; unit: string;
   }>();
   const insets = useSafeAreaInsets();
-  const { isDark } = useTheme();
 
-  const bg   = isDark ? '#0A0A0A' : '#FAFAF8';
-  const hi   = isDark ? '#F5F5F5' : '#111111';
-  const mid  = isDark ? '#777'    : '#888';
-  const lo   = isDark ? '#2A2A2A' : '#E8E3DC';
-  const surf = isDark ? '#141414' : '#FFFFFF';
+  const bg   = '#FAFAF8';
+  const hi   = '#111111';
+  const mid  = '#888';
+  const lo   = '#E8E3DC';
+  const surf = '#FFFFFF';
   const isExpoGo = Constants.executionEnvironment === 'storeClient';
 
   // ── Entrance animations ───────────────────────────────────────────────────
@@ -89,9 +87,12 @@ export default function HealthConnectScreen() {
 
     if (Platform.OS === 'ios') {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const Healthkit = require('@kingstinct/react-native-healthkit').default;
-        await Healthkit.requestAuthorization(READ_TYPES);
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { requestAuthorization } = require('@kingstinct/react-native-healthkit');
+        await requestAuthorization({ toRead: READ_TYPES });
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        await AsyncStorage.setItem('@roundfit/health_connected', 'true');
       } catch {
         // Not available in Expo Go — proceed without HealthKit
       }
@@ -104,22 +105,22 @@ export default function HealthConnectScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={9} total={9} onBack={() => router.back()} isDark={isDark} />
+        <ProgressBar step={9} total={9} onBack={() => router.back()} isDark={false} />
       </View>
 
       {/* ── Headline ─────────────────────────────────────────────────────── */}
       <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
         <Text style={[s.headline, { color: hi }]}>Connect{'\n'}Health app.</Text>
         <Text style={[s.sub, { color: mid }]}>
-          CaloreFit reads your Apple Health data to give you a complete picture — no manual logging.
+          RoundFit reads your Apple Health data to give you a complete picture — no manual logging.
         </Text>
       </Animated.View>
 
       {/* ── Health icon ──────────────────────────────────────────────────── */}
       <Animated.View style={[s.iconArea, { opacity: iconFade, transform: [{ scale: iconScale }] }]}>
         <View style={s.glowOuter} />
-        <View style={[s.glowInner, { backgroundColor: isDark ? 'rgba(249,115,22,0.12)' : 'rgba(249,115,22,0.10)' }]} />
-        <View style={[s.iconCard, { backgroundColor: surf, shadowColor: isDark ? '#000' : '#1A0800' }]}>
+        <View style={[s.glowInner, { backgroundColor: 'rgba(249,115,22,0.10)' }]} />
+        <View style={[s.iconCard, { backgroundColor: surf, shadowColor: '#1A0800' }]}>
           <Ionicons name="heart" size={44} color="#F97316" />
         </View>
         <View style={[s.appleBadge, { backgroundColor: surf, borderColor: lo }]}>

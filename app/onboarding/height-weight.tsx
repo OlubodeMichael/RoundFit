@@ -1,6 +1,5 @@
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 import { WheelColumn } from '@/components/onboarding/wheel-column';
-import { useTheme } from '@/hooks/use-theme';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -38,15 +37,14 @@ export default function HeightWeightScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string }>();
   const insets = useSafeAreaInsets();
-  const { isDark } = useTheme();
 
   const [heightCm,   setHeightCm]   = useState(170);
   const [weightKg,   setWeightKg]   = useState(70);
   const [unitSystem, setUnitSystem] = useState<'imperial' | 'metric'>('imperial');
 
-  const bg  = isDark ? '#0F0F0F' : '#FAFAF8';
-  const hi  = isDark ? '#F5F5F5' : '#111111';
-  const mid = isDark ? '#666'    : '#999';
+  const bg  = '#FAFAF8';
+  const hi  = '#111111';
+  const mid = '#999';
 
   // ── Entrance animation ─────────────────────────────────────────────────
   const fade   = useRef(new Animated.Value(0)).current;
@@ -104,11 +102,11 @@ export default function HeightWeightScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 20 }]}>
       <View style={s.progress}>
-        <ProgressBar step={5} total={9} onBack={() => router.back()} isDark={isDark} />
+        <ProgressBar step={4} total={9} onBack={() => router.back()} isDark={false} />
       </View>
 
       <Animated.View style={[s.hero, { opacity: fade, transform: [{ translateY: slideY }] }]}>
-        <Text style={[s.headline, { color: hi }]}>Height &{'\n'}weight.</Text>
+        <Text style={[s.headline, { color: hi }]}>Height &weight.</Text>
       </Animated.View>
 
       {/* ── Unit toggle: Imperial ⬤ Metric ─────────────────────────────── */}
@@ -129,11 +127,11 @@ export default function HeightWeightScreen() {
           value={unitSystem === 'metric'}
           onValueChange={v => setUnit(v ? 'metric' : 'imperial')}
           trackColor={{
-            false: isDark ? '#2C2C2C' : '#DDDAD4',
+            false: '#DDDAD4',
             true:  '#F97316',
           }}
           thumbColor='#FFFFFF'
-          ios_backgroundColor={isDark ? '#2C2C2C' : '#DDDAD4'}
+          ios_backgroundColor={'#DDDAD4'}
           style={s.switch}
         />
 
@@ -163,14 +161,14 @@ export default function HeightWeightScreen() {
                   labels={feetLabels}
                   selectedIndex={feetIndex >= 0 ? feetIndex : 0}
                   onChange={onFeetIndex}
-                  isDark={isDark}
+                  isDark={false}
                 />
                 <WheelColumn
                   key={`in-${ft}`}
                   labels={inchLabels}
                   selectedIndex={Math.max(0, Math.min(inchLabels.length - 1, inchIndex))}
                   onChange={onInchIndex}
-                  isDark={isDark}
+                  isDark={false}
                 />
               </View>
             </View>
@@ -183,7 +181,7 @@ export default function HeightWeightScreen() {
                 labels={lbLabels}
                 selectedIndex={lbIndex}
                 onChange={onLbIndex}
-                isDark={isDark}
+                isDark={false}
               />
             </View>
           </View>
@@ -197,7 +195,7 @@ export default function HeightWeightScreen() {
                 labels={cmLabels}
                 selectedIndex={cmIndex}
                 onChange={onCmIndex}
-                isDark={isDark}
+                isDark={false}
               />
             </View>
 
@@ -209,7 +207,7 @@ export default function HeightWeightScreen() {
                 labels={kgLabels}
                 selectedIndex={kgIndex}
                 onChange={onKgIndex}
-                isDark={isDark}
+                isDark={false}
               />
             </View>
           </View>

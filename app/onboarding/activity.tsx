@@ -3,7 +3,6 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useTheme } from '@/hooks/use-theme';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 
 const LEVELS = [
@@ -17,14 +16,12 @@ export default function ActivityScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string; height: string; weight: string; goal: string }>();
   const insets = useSafeAreaInsets();
-  const { isDark } = useTheme();
   const [selected, setSelected] = useState<string | null>(null);
 
-  const bg   = isDark ? '#0A0A0A' : '#FAFAF8';
-  const hi   = isDark ? '#F5F5F5' : '#111111';
-  const mid  = isDark ? '#777'    : '#888';
-  const lo   = isDark ? '#2A2A2A' : '#E8E3DC';
-  const surf = isDark ? '#141414' : '#FFFFFF';
+  const bg   = '#FAFAF8';
+  const hi   = '#111111';
+  const mid  = '#888';
+  const lo   = '#E8E3DC';
 
   const fade  = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;
@@ -49,11 +46,11 @@ export default function ActivityScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={7} total={9} onBack={() => router.back()} isDark={isDark} />
+        <ProgressBar step={6} total={9} onBack={() => router.back()} isDark={false} />
       </View>
 
       <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
-        <Text style={[s.headline, { color: hi }]}>Your{'\n'}lifestyle.</Text>
+        <Text style={[s.headline, { color: hi }]}>Your{'\n'}activity.</Text>
       </Animated.View>
 
       <View style={s.list}>
@@ -73,7 +70,7 @@ export default function ActivityScreen() {
                 onPress={() => setSelected(lvl.id)}
                 activeOpacity={0.75}
               >
-                <Text style={[s.rowNum, { color: active ? 'rgba(249,115,22,0.5)' : (isDark ? '#333' : '#DDD') }]}>
+                <Text style={[s.rowNum, { color: active ? 'rgba(249,115,22,0.5)' : ('#DDD') }]}>
                   {lvl.num}
                 </Text>
                 <View style={s.rowText}>

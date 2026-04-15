@@ -3,7 +3,6 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useTheme } from '@/hooks/use-theme';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -19,14 +18,13 @@ export default function GoalScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string; height: string; weight: string }>();
   const insets = useSafeAreaInsets();
-  const { isDark } = useTheme();
   const [selected, setSelected] = useState<string | null>(null);
 
-  const bg   = isDark ? '#0A0A0A' : '#FAFAF8';
-  const hi   = isDark ? '#F5F5F5' : '#111111';
-  const mid  = isDark ? '#777'    : '#888';
-  const lo   = isDark ? '#2A2A2A' : '#E8E3DC';
-  const surf = isDark ? '#141414' : '#FFFFFF';
+  const bg   = '#FAFAF8';
+  const hi   = '#111111';
+  const mid  = '#888';
+  const lo   = '#E8E3DC';
+  const surf = '#FFFFFF';
 
   const fade  = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;
@@ -57,7 +55,7 @@ export default function GoalScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={6} total={9} onBack={() => router.back()} isDark={isDark} />
+        <ProgressBar step={5} total={9} onBack={() => router.back()} isDark={false} />
       </View>
 
       <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
@@ -82,7 +80,7 @@ export default function GoalScreen() {
                 onPress={() => setSelected(g.id)}
                 activeOpacity={0.8}
               >
-                <View style={[s.iconWrap, { backgroundColor: active ? 'rgba(249,115,22,0.12)' : (isDark ? '#1C1C1C' : '#F2EFE9') }]}>
+                <View style={[s.iconWrap, { backgroundColor: active ? 'rgba(249,115,22,0.12)' : ('#F2EFE9') }]}>
                   <Ionicons name={g.icon} size={22} color={active ? '#F97316' : mid} />
                 </View>
                 <Text style={[s.cardLabel, { color: active ? '#F97316' : hi }]}>{g.label}</Text>

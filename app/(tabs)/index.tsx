@@ -4,10 +4,12 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
+import { useProfile } from '@/hooks/use-profile';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -135,6 +137,7 @@ function themeIconName(pref: string): IoniconsName {
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const { isDark, preference, cycleTheme } = useTheme();
+  const { profile, avatarUrl, avatarLetter, firstName } = useProfile();
   const insets = useSafeAreaInsets();
 
   const bg       = isDark ? '#0C0C0C' : '#F7F7F5';
@@ -163,7 +166,7 @@ export default function HomeScreen() {
       <View style={s.row}>
         <View style={{ gap: 3 }}>
           <Text style={[s.greet, { color: mid }]}>{greeting()}</Text>
-          <Text style={[s.name, { color: hi }]}>Michael</Text>
+          <Text style={[s.name, { color: hi }]}>{profile?.name || firstName || '—'}</Text>
         </View>
 
         <View style={s.row}>
@@ -181,7 +184,10 @@ export default function HomeScreen() {
 
           {/* Avatar */}
           <View style={[s.avatar, { backgroundColor: O20, borderColor: O35 }]}>
-            <Text style={[s.avatarLetter, { color: O }]}>M</Text>
+            {avatarUrl
+              ? <Image source={{ uri: avatarUrl }} style={s.avatarImg} />
+              : <Text style={[s.avatarLetter, { color: O }]}>{avatarLetter}</Text>
+            }
           </View>
         </View>
       </View>
@@ -319,7 +325,9 @@ const s = StyleSheet.create({
   avatar: {
     width: 42, height: 42, borderRadius: 21,
     alignItems: 'center', justifyContent: 'center', borderWidth: 1.5,
+    overflow: 'hidden',
   },
+  avatarImg:    { width: 42, height: 42, borderRadius: 21 },
   avatarLetter: { fontSize: 17, fontWeight: '800' },
 
   // Card

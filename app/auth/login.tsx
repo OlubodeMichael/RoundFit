@@ -7,11 +7,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
+import { useAuth } from '@/hooks/use-auth';
 
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
+  const { signIn, isLoading, error, clearError, isAuth } = useAuth();
 
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
@@ -48,7 +50,18 @@ export default function LoginScreen() {
     }).start();
   }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canSubmit = email.trim().length > 4 && password.length >= 6;
+  // Navigate once auth succeeds
+  useEffect(() => {
+    if (isAuth) router.replace('/(tabs)');
+  }, [isAuth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const canSubmit = email.trim().length > 4 && password.length >= 6 && !isLoading;
+
+  const ERROR_LABELS: Record<string, string> = {
+    INVALID_CREDENTIALS: 'Incorrect email or password.',
+    INVALID_EMAIL:       'Please enter a valid email address.',
+    UNKNOWN:             'Something went wrong. Please try again.',
+  };
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -136,13 +149,19 @@ export default function LoginScreen() {
 
           {/* CTA */}
           <Animated.View style={[s.bottom, { opacity: fade }]}>
+            {error && ERROR_LABELS[error] && (
+              <TouchableOpacity onPress={clearError} activeOpacity={0.8}>
+                <Text style={s.errorText}>{ERROR_LABELS[error]}</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={[s.cta, { opacity: canSubmit ? 1 : 0.35 }]}
               activeOpacity={0.85}
               disabled={!canSubmit}
-              onPress={() => router.replace('/(tabs)')}
+              onPress={() => signIn(email.trim(), password)}
             >
-              <Text style={s.ctaText}>Log in  →</Text>
+              <Text style={s.ctaText}>{isLoading ? 'Logging in…' : 'Log in  →'}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity onPress={() => router.push('/onboarding/value-hook')} activeOpacity={0.7}>
@@ -178,6 +197,7 @@ const s = StyleSheet.create({
   underlineTrack: { height: 1.5, overflow: 'hidden' },
   underlineFill:  { height: 1.5, backgroundColor: '#F97316' },
 
+  errorText:  { fontSize: 13, color: '#EF4444', textAlign: 'center', lineHeight: 18 },
   bottom:     { gap: 14 },
   cta:    {
     backgroundColor: '#F97316', borderRadius: 14,

@@ -1,7 +1,8 @@
-import { ScrollView, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { ScrollView, View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
+import { useSteps } from '@/hooks/use-steps';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -10,14 +11,17 @@ const O10 = 'rgba(249,115,22,0.10)';
 const O20 = 'rgba(249,115,22,0.20)';
 const O35 = 'rgba(249,115,22,0.35)';
 
+const STEP_GOAL = 10_000;
+
 const WORKOUTS = [
-  { id: '1', name: 'Morning Run',      type: 'Outdoor Run',   duration: '32 min', cals: 310, icon: 'walk-outline' as IoniconsName },
-  { id: '2', name: 'Upper Body',       type: 'Strength',      duration: '45 min', cals: 240, icon: 'barbell-outline' as IoniconsName },
+  { id: '1', name: 'Morning Run',  type: 'Outdoor Run', duration: '32 min', cals: 310, icon: 'walk-outline'    as IoniconsName },
+  { id: '2', name: 'Upper Body',   type: 'Strength',    duration: '45 min', cals: 240, icon: 'barbell-outline' as IoniconsName },
 ];
 
 export default function ActivityScreen() {
   const { isDark } = useTheme();
-  const insets = useSafeAreaInsets();
+  const insets     = useSafeAreaInsets();
+  const { days, todaySteps, weekTotal, isLoading, isConnected, refetch } = useSteps();
 
   const bg      = isDark ? '#0C0C0C' : '#F7F7F5';
   const surface = isDark ? '#161616' : '#FFFFFF';
@@ -26,6 +30,11 @@ export default function ActivityScreen() {
   const lo      = isDark ? '#2A2A2A' : '#F0EDE8';
   const green   = '#22C55E';
   const blue    = '#3B82F6';
+
+  const stepProgress  = Math.min(todaySteps / STEP_GOAL, 1);
+  const stepsLeft     = Math.max(STEP_GOAL - todaySteps, 0);
+  const stepsDisplay  = isConnected ? todaySteps.toLocaleString() : '—';
+  const barMax        = Math.max(...days.map(d => d.steps), STEP_GOAL, 1);
 
   return (
     <ScrollView
@@ -39,30 +48,119 @@ export default function ActivityScreen() {
           <Text style={[s.eyebrow, { color: mid }]}>Today</Text>
           <Text style={[s.pageTitle, { color: hi }]}>Activity</Text>
         </View>
-        <TouchableOpacity style={[s.syncBtn, { backgroundColor: O10, borderColor: O35 }]}>
-          <Ionicons name="watch-outline" size={14} color={O} />
-          <Text style={[s.syncLabel, { color: O }]}>Sync Watch</Text>
-        </TouchableOpacity>
+        {isConnected && (
+          <TouchableOpacity
+            style={[s.syncBtn, { backgroundColor: O10, borderColor: O35 }]}
+            onPress={refetch}
+            activeOpacity={0.7}
+          >
+            <Ionicons name={isLoading ? 'sync-outline' : 'refresh-outline'} size={14} color={O} />
+            <Text style={[s.syncLabel, { color: O }]}>Refresh</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Ring stats row */}
       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <RingStat label="Calories" value="550" unit="kcal" icon="flame-outline"    color={O}     bg={O10}                              borderColor={O35}    hi={hi} mid={mid} surface={surface} lo={lo} />
-        <RingStat label="Steps"    value="7,240" unit="steps" icon="footsteps-outline" color={green} bg="rgba(34,197,94,0.10)"  borderColor="rgba(34,197,94,0.35)" hi={hi} mid={mid} surface={surface} lo={lo} />
-        <RingStat label="Active"   value="48"   unit="min"  icon="timer-outline"   color={blue}  bg="rgba(59,130,246,0.10)"  borderColor="rgba(59,130,246,0.35)" hi={hi} mid={mid} surface={surface} lo={lo} />
+        <RingStat label="Calories"  value="550"          unit="kcal"  icon="flame-outline"     color={O}     bg={O10}                           borderColor={O35}                    hi={hi} mid={mid} surface={surface} lo={lo} />
+        <RingStat label="Steps"     value={stepsDisplay} unit="steps" icon="footsteps-outline" color={green} bg="rgba(34,197,94,0.10)"          borderColor="rgba(34,197,94,0.35)"   hi={hi} mid={mid} surface={surface} lo={lo} />
+        <RingStat label="Active"    value="48"           unit="min"   icon="timer-outline"     color={blue}  bg="rgba(59,130,246,0.10)"         borderColor="rgba(59,130,246,0.35)"  hi={hi} mid={mid} surface={surface} lo={lo} />
       </View>
 
-      {/* Step goal bar */}
+      {/* Step goal card */}
       <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
           <Text style={[s.cardLabel, { color: hi }]}>Step Goal</Text>
-          <Text style={[s.cardSub, { color: mid }]}>7,240 / 10,000</Text>
+          <Text style={[s.cardSub, { color: mid }]}>
+            {isConnected ? `${todaySteps.toLocaleString()} / ${STEP_GOAL.toLocaleString()}` : '— / 10,000'}
+          </Text>
         </View>
         <View style={[s.track, { backgroundColor: 'rgba(34,197,94,0.12)' }]}>
-          <View style={[s.fill, { width: '72%', backgroundColor: green }]} />
+          <View style={[s.fill, { width: `${Math.round(stepProgress * 100)}%`, backgroundColor: green }]} />
         </View>
-        <Text style={[s.trackNote, { color: mid }]}>2,760 steps to your daily goal</Text>
+        {isConnected
+          ? <Text style={[s.trackNote, { color: mid }]}>
+              {stepsLeft === 0
+                ? 'Daily goal reached!'
+                : `${stepsLeft.toLocaleString()} steps to your daily goal`}
+            </Text>
+          : <Text style={[s.trackNote, { color: mid }]}>Connect Apple Health to track steps</Text>
+        }
       </View>
+
+      {/* Weekly steps chart */}
+      {Platform.OS === 'ios' && (
+        <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <View>
+              <Text style={[s.cardLabel, { color: hi }]}>This Week</Text>
+              {isConnected && (
+                <Text style={[s.cardSub, { color: mid, marginTop: 2 }]}>
+                  {weekTotal.toLocaleString()} total steps
+                </Text>
+              )}
+            </View>
+            {!isConnected && (
+              <View style={[s.connectPill, { borderColor: O35, backgroundColor: O10 }]}>
+                <Ionicons name="heart-outline" size={12} color={O} />
+                <Text style={[s.connectPillText, { color: O }]}>Connect Health</Text>
+              </View>
+            )}
+          </View>
+
+          {isConnected && days.length > 0 ? (
+            <View style={s.barChart}>
+              {days.map((day) => {
+                const pct   = day.steps / barMax;
+                const color = day.isToday ? green : day.steps >= STEP_GOAL ? green : O;
+                const alpha = day.isToday ? 1 : 0.55;
+                return (
+                  <View key={day.date} style={s.barCol}>
+                    <Text style={[s.barSteps, { color: day.isToday ? green : mid }]}>
+                      {day.steps > 0 ? (day.steps >= 1000 ? `${(day.steps / 1000).toFixed(1)}k` : `${day.steps}`) : ''}
+                    </Text>
+                    <View style={[s.barTrack, { backgroundColor: isDark ? '#2A2A2A' : '#F0EDE8' }]}>
+                      <View
+                        style={[
+                          s.barFill,
+                          {
+                            height: `${Math.max(pct * 100, day.steps > 0 ? 4 : 0)}%`,
+                            backgroundColor: color,
+                            opacity: alpha,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={[s.barLabel, { color: day.isToday ? green : mid, fontWeight: day.isToday ? '700' : '500' }]}>
+                      {day.label}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={s.barChart}>
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                <View key={d} style={s.barCol}>
+                  <Text style={[s.barSteps, { color: 'transparent' }]}>0</Text>
+                  <View style={[s.barTrack, { backgroundColor: isDark ? '#2A2A2A' : '#F0EDE8' }]}>
+                    <View style={[s.barFill, { height: '0%', backgroundColor: green }]} />
+                  </View>
+                  <Text style={[s.barLabel, { color: mid }]}>{d}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Goal line label */}
+          {isConnected && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
+              <View style={{ width: 16, height: 1.5, backgroundColor: green, opacity: 0.5 }} />
+              <Text style={{ fontSize: 11, color: mid }}>10,000 step goal</Text>
+            </View>
+          )}
+        </View>
+      )}
 
       {/* Heart rate */}
       <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
@@ -78,9 +176,9 @@ export default function ActivityScreen() {
           <Text style={[s.bigNumUnit, { color: mid }]}>bpm</Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 20, marginTop: 10 }}>
-          <HRStat label="Resting" value="58 bpm" color={mid} textColor={hi} />
-          <HRStat label="Peak"    value="142 bpm" color="#EF4444" textColor={hi} />
-          <HRStat label="Zone"    value="Fat Burn" color={green} textColor={hi} />
+          <HRStat label="Resting" value="58 bpm"  color={mid}      textColor={hi} />
+          <HRStat label="Peak"    value="142 bpm"  color="#EF4444"  textColor={hi} />
+          <HRStat label="Zone"    value="Fat Burn" color={green}    textColor={hi} />
         </View>
       </View>
 
@@ -88,7 +186,7 @@ export default function ActivityScreen() {
       <View>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <Text style={[s.sectionTitle, { color: hi }]}>Workouts</Text>
-          <TouchableOpacity style={[s.logBtn, { backgroundColor: O, }]}>
+          <TouchableOpacity style={[s.logBtn, { backgroundColor: O }]}>
             <Ionicons name="add" size={14} color="#FFF" />
             <Text style={s.logBtnLabel}>Log</Text>
           </TouchableOpacity>
@@ -114,6 +212,8 @@ export default function ActivityScreen() {
   );
 }
 
+// ── Sub-components ──────────────────────────────────────────────────────────
+
 function RingStat({ label, value, unit, icon, color, bg, borderColor, hi, mid, surface, lo }: {
   label: string; value: string; unit: string; icon: IoniconsName;
   color: string; bg: string; borderColor: string; hi: string; mid: string; surface: string; lo: string;
@@ -133,12 +233,14 @@ function RingStat({ label, value, unit, icon, color, bg, borderColor, hi, mid, s
 function HRStat({ label, value, color, textColor }: { label: string; value: string; color: string; textColor: string }) {
   return (
     <View style={{ gap: 3 }}>
-      <View style={[{ width: 4, height: 4, borderRadius: 2, backgroundColor: color }]} />
+      <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: color }} />
       <Text style={{ fontSize: 13, fontWeight: '700', color: textColor }}>{value}</Text>
       <Text style={{ fontSize: 11, color }}>{label}</Text>
     </View>
   );
 }
+
+// ── Styles ──────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
   eyebrow:   { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.2 },
@@ -147,11 +249,11 @@ const s = StyleSheet.create({
   syncBtn:   { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
   syncLabel: { fontSize: 12, fontWeight: '600' },
 
-  ringStat:     { flex: 1, borderRadius: 16, padding: 14, alignItems: 'center', gap: 5, borderWidth: 1 },
-  ringStatIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 1, marginBottom: 2 },
-  ringStatVal:  { fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
-  ringStatUnit: { fontSize: 10, fontWeight: '600', marginTop: -3 },
-  ringStatLabel:{ fontSize: 11, fontWeight: '500' },
+  ringStat:      { flex: 1, borderRadius: 16, padding: 14, alignItems: 'center', gap: 5, borderWidth: 1 },
+  ringStatIcon:  { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 1, marginBottom: 2 },
+  ringStatVal:   { fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
+  ringStatUnit:  { fontSize: 10, fontWeight: '600', marginTop: -3 },
+  ringStatLabel: { fontSize: 11, fontWeight: '500' },
 
   card:      { borderRadius: 18, padding: 18, borderWidth: 1 },
   cardLabel: { fontSize: 15, fontWeight: '700' },
@@ -160,10 +262,21 @@ const s = StyleSheet.create({
   fill:      { height: 7, borderRadius: 4 },
   trackNote: { fontSize: 12, marginTop: 8 },
 
-  livePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
-  liveDot:  { width: 6, height: 6, borderRadius: 3 },
-  bigNum:   { fontSize: 42, fontWeight: '800', letterSpacing: -1 },
-  bigNumUnit:{ fontSize: 16, fontWeight: '600' },
+  connectPill:     { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
+  connectPillText: { fontSize: 11, fontWeight: '700' },
+
+  // Weekly bar chart
+  barChart: { flexDirection: 'row', height: 120, gap: 6, alignItems: 'flex-end' },
+  barCol:   { flex: 1, alignItems: 'center', gap: 4 },
+  barSteps: { fontSize: 9, fontWeight: '700', letterSpacing: -0.2 },
+  barTrack: { flex: 1, width: '100%', borderRadius: 4, overflow: 'hidden', justifyContent: 'flex-end' },
+  barFill:  { width: '100%', borderRadius: 4 },
+  barLabel: { fontSize: 10, letterSpacing: 0.2 },
+
+  livePill:   { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
+  liveDot:    { width: 6, height: 6, borderRadius: 3 },
+  bigNum:     { fontSize: 42, fontWeight: '800', letterSpacing: -1 },
+  bigNumUnit: { fontSize: 16, fontWeight: '600' },
 
   sectionTitle: { fontSize: 17, fontWeight: '700' },
   logBtn:       { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },

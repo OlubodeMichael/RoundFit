@@ -3,27 +3,25 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useTheme } from '@/hooks/use-theme';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 const FEATURES: { icon: IoniconsName; label: string; sub: string }[] = [
-  { icon: 'flame-outline',       label: 'Know your fuel',   sub: 'Log every meal in seconds and understand what powers you.' },
-  { icon: 'barbell-outline',     label: 'Train smarter',    sub: 'Sync workouts, track activity, and hit every target.' },
-  { icon: 'trending-up-outline', label: 'See real results', sub: 'Weekly trends and smart predictions keep you on track.' },
+  { icon: 'barbell-outline',     label: 'Train',    sub: 'Log workouts, sync activity, and hit every target.' },
+  { icon: 'flame-outline',       label: 'Track',    sub: 'Log every meal in seconds and understand what powers you.' },
+  { icon: 'moon-outline',        label: 'Recover',  sub: 'Monitor rest, reduce fatigue, and come back stronger.' },
 ];
 
 export default function ValueHookScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isDark } = useTheme();
 
-  const bg   = isDark ? '#0A0A0A' : '#FAFAF8';
-  const hi   = isDark ? '#F5F5F5' : '#111111';
-  const mid  = isDark ? '#777'    : '#888';
-  const lo   = isDark ? '#2A2A2A' : '#E8E3DC';
-  const surf = isDark ? '#141414' : '#FFFFFF';
+  const bg   = '#FAFAF8';
+  const hi   = '#111111';
+  const mid  = '#888';
+  const lo   = '#E8E3DC';
+  const surf = '#FFFFFF';
 
   const headerFade = useRef(new Animated.Value(0)).current;
   const headerY    = useRef(new Animated.Value(20)).current;
@@ -50,13 +48,13 @@ export default function ValueHookScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={2} total={9} onBack={() => router.back()} isDark={isDark} />
+        <ProgressBar step={2} total={9} onBack={() => router.back()} isDark={false} />
       </View>
 
       <Animated.View style={[s.headBlock, { opacity: headerFade, transform: [{ translateY: headerY }] }]}>
-        <Text style={[s.headLine, { color: hi }]}>Track.</Text>
         <Text style={[s.headLine, { color: hi }]}>Train.</Text>
-        <Text style={[s.headLineAccent]}>Transform.</Text>
+        <Text style={[s.headLine, { color: hi }]}>Track.</Text>
+        <Text style={[s.headLineAccent]}>Recover.</Text>
       </Animated.View>
 
       <View style={s.cards}>
@@ -79,7 +77,7 @@ export default function ValueHookScreen() {
       </View>
 
       <Animated.View style={[s.bottom, { opacity: btnFade }]}>
-        <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={() => router.push('/onboarding/name')}>
+        <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={() => router.push('/onboarding/age-sex')}>
           <Text style={s.ctaText}>Let's build your plan  →</Text>
         </TouchableOpacity>
       </Animated.View>
@@ -92,8 +90,8 @@ const s = StyleSheet.create({
   progress: { marginBottom: 8 },
 
   headBlock:      { marginBottom: 32, gap: 0 },
-  headLine:       { fontSize: 52, fontWeight: '900', letterSpacing: -2.5, lineHeight: 56 },
-  headLineAccent: { fontSize: 52, fontWeight: '900', letterSpacing: -2.5, lineHeight: 56, color: '#F97316' },
+  headLine:       { fontFamily: 'Syne_800ExtraBold', fontSize: 52, letterSpacing: -2.5, lineHeight: 56 },
+  headLineAccent: { fontFamily: 'Syne_800ExtraBold', fontSize: 52, letterSpacing: -2.5, lineHeight: 56, color: '#F97316' },
 
   cards: { flex: 1, gap: 12, justifyContent: 'center' },
   card:  {

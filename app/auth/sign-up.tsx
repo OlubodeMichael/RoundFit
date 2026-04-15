@@ -7,12 +7,51 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
+import { useAuth } from '@/hooks/use-auth';
+import type { UserProfile, AuthError } from '@/context/auth-context';
+
+// ── Onboarding ID → API value maps ─────────────────────────────────────────
+
+function mapGoal(raw: string): UserProfile['goal'] {
+  const map: Record<string, UserProfile['goal']> = {
+    lose:     'lose_weight',
+    muscle:   'build_muscle',
+    energy:   'boost_energy',
+    maintain: 'maintain',
+  };
+  return map[raw] ?? 'maintain';
+}
+
+function mapActivity(raw: string): UserProfile['activityLevel'] {
+  const map: Record<string, UserProfile['activityLevel']> = {
+    sedentary: 'sedentary',
+    light:     'lightly_active',
+    moderate:  'moderately_active',
+    very:      'very_active',
+  };
+  return map[raw] ?? 'lightly_active';
+}
+
+const ERROR_LABELS: Record<AuthError, string> = {
+  EMAIL_IN_USE:        'An account with this email already exists.',
+  INVALID_CREDENTIALS: 'Invalid email or password.',
+  WEAK_PASSWORD:       'Password must be at least 6 characters.',
+  INVALID_EMAIL:       'Please enter a valid email address.',
+  UNKNOWN:             'Something went wrong. Please try again.',
+};
+
+// ── Screen ──────────────────────────────────────────────────────────────────
 
 export default function SignUpScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ name: string; goal: string }>();
+  const params = useLocalSearchParams<{
+    name: string; age: string; sex: string;
+    height: string; weight: string;
+    goal: string; activity: string; unit: string;
+  }>();
   const { isDark } = useTheme();
+  const { signUp, isLoading, isAuth, error, clearError } = useAuth();
 
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
@@ -27,7 +66,7 @@ export default function SignUpScreen() {
   const mid = isDark ? '#777'    : '#888';
   const lo  = isDark ? '#2A2A2A' : '#E8E3DC';
 
-  const fade  = useRef(new Animated.Value(0)).current;
+  const fade   = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;
 
   useEffect(() => {
@@ -49,8 +88,31 @@ export default function SignUpScreen() {
     }).start();
   }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canSubmit = email.trim().length > 4 && password.length >= 6;
+  // Navigate once authenticated
+  useEffect(() => {
+    if (isAuth) router.replace('/(tabs)');
+  }, [isAuth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const canSubmit = email.trim().length > 4 && password.length >= 6 && !isLoading;
   const firstName = params.name || 'there';
+
+  async function handleSignUp() {
+    if (!canSubmit) return;
+    clearError();
+
+    const profile: Omit<UserProfile, 'id' | 'email' | 'createdAt' | 'tdee' | 'calorieBudget'> = {
+      name:          params.name   ?? '',
+      age:           params.age    ? Number(params.age)    : 0,
+      sex:           (params.sex   === 'female' ? 'female' : 'male') as UserProfile['sex'],
+      heightCm:      params.height ? Number(params.height) : 0,
+      weightKg:      params.weight ? Number(params.weight) : 0,
+      goal:          mapGoal(params.goal ?? ''),
+      activityLevel: mapActivity(params.activity ?? ''),
+      unit:          (params.unit === 'imperial' ? 'imperial' : 'metric') as UserProfile['unit'],
+    };
+
+    await signUp(email.trim(), password, profile);
+  }
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -79,6 +141,15 @@ export default function SignUpScreen() {
 
           {/* Form */}
           <Animated.View style={[s.form, { opacity: fade }]}>
+
+            {/* Error banner */}
+            {error && (
+              <TouchableOpacity style={s.errorBanner} onPress={clearError} activeOpacity={0.8}>
+                <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
+                <Text style={s.errorText}>{ERROR_LABELS[error]}</Text>
+              </TouchableOpacity>
+            )}
+
             {/* Email */}
             <View style={s.fieldWrap}>
               <Text style={[s.fieldLabel, { color: mid }]}>Email</Text>
@@ -86,7 +157,7 @@ export default function SignUpScreen() {
                 <TextInput
                   style={[s.fieldInput, { color: hi }]}
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={t => { setEmail(t); if (error) clearError(); }}
                   placeholder="you@example.com"
                   placeholderTextColor={lo}
                   keyboardType="email-address"
@@ -110,7 +181,7 @@ export default function SignUpScreen() {
                 <TextInput
                   style={[s.fieldInput, { color: hi }]}
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={t => { setPassword(t); if (error) clearError(); }}
                   placeholder="Min. 6 characters"
                   placeholderTextColor={lo}
                   secureTextEntry={!showPass}
@@ -134,6 +205,7 @@ export default function SignUpScreen() {
                 <Text style={s.hint}>At least 6 characters required</Text>
               )}
             </View>
+
           </Animated.View>
 
           <View style={{ flex: 1 }} />
@@ -144,9 +216,11 @@ export default function SignUpScreen() {
               style={[s.cta, { opacity: canSubmit ? 1 : 0.35 }]}
               activeOpacity={0.85}
               disabled={!canSubmit}
-              onPress={() => router.replace('/(tabs)')}
+              onPress={handleSignUp}
             >
-              <Text style={s.ctaText}>Create account  →</Text>
+              <Text style={s.ctaText}>
+                {isLoading ? 'Creating account…' : 'Create account  →'}
+              </Text>
             </TouchableOpacity>
 
             <Text style={[s.legal, { color: mid }]}>
@@ -187,6 +261,19 @@ const s = StyleSheet.create({
   underlineTrack: { height: 1.5, overflow: 'hidden' },
   underlineFill:  { height: 1.5, backgroundColor: '#F97316' },
   hint:           { fontSize: 12, color: '#EF4444', marginTop: 4 },
+
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(239,68,68,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.25)',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  errorText: { flex: 1, fontSize: 13, color: '#EF4444', fontWeight: '500' },
 
   bottom:    { gap: 14 },
   cta:    {

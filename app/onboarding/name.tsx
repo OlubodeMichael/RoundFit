@@ -2,25 +2,24 @@ import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
   Animated, KeyboardAvoidingView, Platform, Easing,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
-import { useTheme } from '@/hooks/use-theme';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 
 export default function NameScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ age: string; sex: string; height: string; weight: string; goal: string; activity: string; unit: string }>();
   const insets = useSafeAreaInsets();
-  const { isDark } = useTheme();
   const inputRef = useRef<TextInput>(null);
 
   const [name, setName]   = useState('');
   const [isFocused, setFocus] = useState(false);
 
-  const bg  = isDark ? '#0A0A0A' : '#FAFAF8';
-  const hi  = isDark ? '#F5F5F5' : '#111111';
-  const mid = isDark ? '#777'    : '#888';
-  const lo  = isDark ? '#2A2A2A' : '#E8E3DC';
+  const bg  = '#FAFAF8';
+  const hi  = '#111111';
+  const mid = '#888';
+  const lo  = '#E8E3DC';
 
   const fade       = useRef(new Animated.Value(0)).current;
   const slideY     = useRef(new Animated.Value(24)).current;
@@ -54,7 +53,7 @@ export default function NameScreen() {
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
         <View style={s.progress}>
-          <ProgressBar step={3} total={9} onBack={() => router.back()} isDark={isDark} />
+          <ProgressBar step={8} total={9} onBack={() => router.back()} isDark={false} />
         </View>
 
         <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>
@@ -78,7 +77,7 @@ export default function NameScreen() {
               returnKeyType="done"
               onFocus={() => setFocus(true)}
               onBlur={() => setFocus(false)}
-              onSubmitEditing={() => canContinue && router.push({ pathname: '/onboarding/age-sex', params: { name: name.trim() } })}
+              onSubmitEditing={() => canContinue && router.push({ pathname: '/onboarding/health-connect', params: { ...params, name: name.trim() } })}
             />
             {/* Underline */}
             <View style={[s.underlineTrack, { backgroundColor: lo }]}>
@@ -100,7 +99,7 @@ export default function NameScreen() {
           style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
           activeOpacity={0.85}
           disabled={!canContinue}
-          onPress={() => router.push({ pathname: '/onboarding/age-sex', params: { name: name.trim() } })}
+          onPress={() => router.push({ pathname: '/onboarding/health-connect', params: { ...params, name: name.trim() } })}
         >
           <Text style={s.ctaText}>Continue</Text>
         </TouchableOpacity>

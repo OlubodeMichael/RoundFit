@@ -1,21 +1,21 @@
 {
   "expo": {
-    "name": "calorefit",
-    "slug": "calorefit",
+    "name": "RoundFit",
+    "slug": "roundfit",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "calorefit",
+    "scheme": "roundfit",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSHealthShareUsageDescription": "CaloreFit reads your health data to track steps, workouts, and active calories so you never have to log them manually.",
-        "NSHealthUpdateUsageDescription": "CaloreFit can write body weight and nutrition entries to Apple Health to keep everything in sync.",
+        "NSHealthShareUsageDescription": "RoundFit reads your health data to track steps, workouts, and active calories so you never have to log them manually.",
+        "NSHealthUpdateUsageDescription": "RoundFit can write body weight and nutrition entries to Apple Health to keep everything in sync.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "bundleIdentifier": "com.michaelolu.calorefit"
+      "bundleIdentifier": "com.michaelolu.roundfit"
     },
     "android": {
       "adaptiveIcon": {
@@ -32,12 +32,13 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+
       "expo-router",
       [
         "@kingstinct/react-native-healthkit",
         {
-          "NSHealthShareUsageDescription": "CaloreFit reads your health data to track steps, workouts, and active calories so you never have to log them manually.",
-          "NSHealthUpdateUsageDescription": "CaloreFit can write body weight and nutrition entries to Apple Health to keep everything in sync."
+          "NSHealthShareUsageDescription": "RoundFit reads your health data to track steps, workouts, and active calories so you never have to log them manually.",
+          "NSHealthUpdateUsageDescription": "RoundFit can write body weight and nutrition entries to Apple Health to keep everything in sync."
         }
       ],
       [
@@ -51,7 +52,17 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow RoundFit to access your camera",
+          "microphonePermission": "Allow RoundFit to access your microphone",
+          "recordAudioAndroid": true,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

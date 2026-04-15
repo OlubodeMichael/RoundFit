@@ -7,7 +7,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
-    <string>calorefit</string>
+    <string>RoundFit</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -27,14 +27,14 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
-          <string>calorefit</string>
-          <string>com.michaelolu.calorefit</string>
+          <string>roundfit</string>
+          <string>com.michaelolu.roundfit</string>
         </array>
       </dict>
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
-          <string>exp+calorefit</string>
+          <string>exp+roundfit</string>
         </array>
       </dict>
     </array>
@@ -53,10 +53,12 @@
       <key>NSAllowsLocalNetworking</key>
       <true/>
     </dict>
+    <key>NSFaceIDUsageDescription</key>
+    <string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
     <key>NSHealthShareUsageDescription</key>
-    <string>CaloreFit reads your health data to track steps, workouts, and active calories so you never have to log them manually.</string>
+    <string>RoundFit reads your health data to track steps, workouts, and active calories so you never have to log them manually.</string>
     <key>NSHealthUpdateUsageDescription</key>
-    <string>CaloreFit can write body weight and nutrition entries to Apple Health to keep everything in sync.</string>
+    <string>RoundFit can write body weight and nutrition entries to Apple Health to keep everything in sync.</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>

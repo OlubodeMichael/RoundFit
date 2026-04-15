@@ -2,23 +2,21 @@ import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'reac
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
-import { useTheme } from '@/hooks/use-theme';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 
 export default function AgeSexScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string }>();
   const insets = useSafeAreaInsets();
-  const { isDark } = useTheme();
 
   const [age, setAge] = useState(25);
   const [sex, setSex] = useState<'male' | 'female' | null>(null);
 
-  const bg   = isDark ? '#0A0A0A' : '#FAFAF8';
-  const hi   = isDark ? '#F5F5F5' : '#111111';
-  const mid  = isDark ? '#777'    : '#888';
-  const lo   = isDark ? '#2A2A2A' : '#E8E3DC';
-  const surf = isDark ? '#141414' : '#FFFFFF';
+  const bg   = '#FAFAF8';
+  const hi   = '#111111';
+  const mid  = '#888';
+  const lo   = '#E8E3DC';
+  const surf = '#FFFFFF';
 
   const fade  = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;
@@ -36,7 +34,7 @@ export default function AgeSexScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={4} total={9} onBack={() => router.back()} isDark={isDark} />
+        <ProgressBar step={3} total={9} onBack={() => router.back()} isDark={false} />
       </View>
 
       <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>
@@ -104,7 +102,7 @@ export default function AgeSexScreen() {
         disabled={!canContinue}
         onPress={() => router.push({
           pathname: '/onboarding/height-weight',
-          params: { name: params.name, age: String(age), sex },
+          params: { age: String(age), sex },
         })}
       >
         <Text style={s.ctaText}>Continue</Text>
