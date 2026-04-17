@@ -147,3 +147,6 @@ tsconfig.tsbuildinfo
 
 expo-env.d.ts
 # @end expo-cli
+
+#ignore the todo file
+TODO.md

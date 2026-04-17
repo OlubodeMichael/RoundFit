@@ -13,6 +13,8 @@
       "infoPlist": {
         "NSHealthShareUsageDescription": "RoundFit reads your health data to track steps, workouts, and active calories so you never have to log them manually.",
         "NSHealthUpdateUsageDescription": "RoundFit can write body weight and nutrition entries to Apple Health to keep everything in sync.",
+        "NSCameraUsageDescription": "Allow RoundFit to access your camera to take photos of meals and log food.",
+        "NSMicrophoneUsageDescription": "Allow RoundFit to access your microphone for video when logging meals.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.michaelolu.roundfit"

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import {
   Modal, View, Text, TouchableWithoutFeedback,
-  Animated, StyleSheet, PanResponder, Dimensions,
+  Animated, StyleSheet, PanResponder, Dimensions, Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/use-theme';
@@ -23,6 +23,8 @@ export interface AppModalProps {
    * - 'full'     → 92 % of screen height
    */
   sheetHeight?: number | 'full';
+  /** Use "ease" for smooth bottom-up timing animation instead of spring. */
+  openAnimation?: 'spring' | 'ease';
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -33,6 +35,7 @@ export function AppModal({
   children,
   title,
   sheetHeight = 0.55,
+  openAnimation = 'ease',
 }: AppModalProps) {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
@@ -47,11 +50,22 @@ export function AppModal({
   useEffect(() => {
     if (visible) {
       dragY.setValue(0);
+      const openSheetAnim = openAnimation === 'ease'
+        ? Animated.timing(slideY, {
+            toValue: 0,
+            duration: 280,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          })
+        : Animated.spring(slideY, {
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 22,
+            stiffness: 220,
+            mass: 0.9,
+          });
       Animated.parallel([
-        Animated.spring(slideY, {
-          toValue: 0, useNativeDriver: true,
-          damping: 22, stiffness: 220, mass: 0.9,
-        }),
+        openSheetAnim,
         Animated.timing(backdropOp, {
           toValue: 1, duration: 280, useNativeDriver: true,
         }),
@@ -66,7 +80,7 @@ export function AppModal({
         }),
       ]).start();
     }
-  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [openAnimation, visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Drag to dismiss ────────────────────────────────────────────────────
   const pan = useRef(
