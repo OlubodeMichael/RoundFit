@@ -32,6 +32,13 @@ type ManualMealInputModalProps = {
   visible: boolean;
   onClose: () => void;
   onSubmit: (value: ManualMealInput) => void;
+  /**
+   * When set, the modal opens with this meal label already chosen and hides
+   * the picker (a compact "Adding to …" chip is shown instead). Use this when
+   * the user entered the modal from a specific meal section so they don't
+   * have to pick the label again.
+   */
+  presetLabel?: MealLabel;
 };
 
 const LABELS: { id: MealLabel; title: string }[] = [
@@ -60,10 +67,11 @@ export function ManualMealInputModal({
   visible,
   onClose,
   onSubmit,
+  presetLabel,
 }: ManualMealInputModalProps) {
   const { isDark } = useTheme();
   const [name, setName] = useState("");
-  const [label, setLabel] = useState<MealLabel>("breakfast");
+  const [label, setLabel] = useState<MealLabel>(presetLabel ?? "breakfast");
   const [calories, setCalories] = useState("");
   const [showMacros, setShowMacros] = useState(false);
   const [protein, setProtein] = useState("");
@@ -73,13 +81,13 @@ export function ManualMealInputModal({
   useEffect(() => {
     if (!visible) return;
     setName("");
-    setLabel("breakfast");
+    setLabel(presetLabel ?? "breakfast");
     setCalories("");
     setShowMacros(false);
     setProtein("");
     setCarbs("");
     setFat("");
-  }, [visible]);
+  }, [visible, presetLabel]);
 
   const bg = isDark ? "#121212" : "#FFFFFF";
   const hi = isDark ? "#FFFFFF" : "#111111";
@@ -143,33 +151,49 @@ export function ManualMealInputModal({
           />
         </View>
 
-        <View style={s.row}>
-          <Text style={[s.label, { color: mid }]}>Meal label</Text>
-          <View style={s.tagWrap}>
-            {LABELS.map((opt) => {
-              const active = opt.id === label;
-              return (
-                <TouchableOpacity
-                  key={opt.id}
-                  onPress={() => setLabel(opt.id)}
-                  style={[
-                    s.tag,
-                    {
-                      borderColor: active ? "#F97316" : line,
-                      backgroundColor: active
-                        ? "rgba(249,115,22,0.14)"
-                        : "transparent",
-                    },
-                  ]}
-                >
-                  <Text style={[s.tagText, { color: active ? "#F97316" : hi }]}>
-                    {opt.title}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+        {presetLabel ? (
+          <View style={s.row}>
+            <Text style={[s.label, { color: mid }]}>Adding to</Text>
+            <View
+              style={[
+                s.presetChip,
+                { borderColor: "#F97316", backgroundColor: "rgba(249,115,22,0.14)" },
+              ]}
+            >
+              <Text style={[s.presetChipText, { color: "#F97316" }]}>
+                {LABELS.find((l) => l.id === presetLabel)?.title ?? presetLabel}
+              </Text>
+            </View>
           </View>
-        </View>
+        ) : (
+          <View style={s.row}>
+            <Text style={[s.label, { color: mid }]}>Meal label</Text>
+            <View style={s.tagWrap}>
+              {LABELS.map((opt) => {
+                const active = opt.id === label;
+                return (
+                  <TouchableOpacity
+                    key={opt.id}
+                    onPress={() => setLabel(opt.id)}
+                    style={[
+                      s.tag,
+                      {
+                        borderColor: active ? "#F97316" : line,
+                        backgroundColor: active
+                          ? "rgba(249,115,22,0.14)"
+                          : "transparent",
+                      },
+                    ]}
+                  >
+                    <Text style={[s.tagText, { color: active ? "#F97316" : hi }]}>
+                      {opt.title}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         <View style={s.row}>
           <Text style={[s.label, { color: mid }]}>Calories</Text>
@@ -299,6 +323,18 @@ const s = StyleSheet.create({
     paddingVertical: 7,
   },
   tagText: { fontSize: 12, fontWeight: "700" },
+  presetChip: {
+    alignSelf:         "flex-start",
+    borderWidth:       1,
+    borderRadius:      999,
+    paddingHorizontal: 14,
+    paddingVertical:   8,
+  },
+  presetChipText: {
+    fontSize:      12,
+    fontWeight:    "800",
+    letterSpacing: 0.1,
+  },
   collapseBtn: {
     marginTop: 4,
     borderWidth: 1,

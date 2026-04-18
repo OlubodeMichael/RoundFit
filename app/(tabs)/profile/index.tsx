@@ -55,7 +55,6 @@ export default function ProfileScreen() {
     'HKWorkoutTypeIdentifier',
   ] as const;
 
-  // Read persisted connection flag on mount
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
     (async () => {
@@ -65,7 +64,7 @@ export default function ProfileScreen() {
         const val = await AsyncStorage.getItem(HEALTH_KEY);
         if (val === 'true') setHealthConnected(true);
       } catch {
-        // AsyncStorage not available — leave as disconnected
+        // AsyncStorage unavailable; leave as disconnected
       }
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -114,7 +113,6 @@ export default function ProfileScreen() {
       contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 48, paddingHorizontal: 20, gap: 20 }}
       showsVerticalScrollIndicator={false}
     >
-      {/* Avatar + name */}
       <View style={[s.profileCard, { backgroundColor: surface, borderColor: lo }]}>
         <View style={[s.avatar, { backgroundColor: O20, borderColor: O35 }]}>
           {avatarUrl
@@ -135,7 +133,6 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Stats strip */}
       <View style={[s.statsRow, { backgroundColor: surface, borderColor: lo }]}>
         <StatCell label="Goal"     value={goalDisplay}     hi={hi} mid={mid} />
         <View style={[s.statDivider, { backgroundColor: lo }]} />
@@ -144,7 +141,6 @@ export default function ProfileScreen() {
         <StatCell label="Weight"   value={weightDisplay}   hi={hi} mid={mid} />
       </View>
 
-      {/* Goals */}
       <SectionHeader title="Goals" hi={hi} />
       <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
         <GoalRow icon="flame-outline"   label="Daily Calories"  value={calorieDisplay} hi={hi} mid={mid} lo={lo} />
@@ -153,15 +149,26 @@ export default function ProfileScreen() {
         <GoalRow icon="walk-outline"    label="Daily Steps"     value="10,000"         hi={hi} mid={mid} lo={lo} last />
       </View>
 
-      {/* Notifications */}
-      <SectionHeader title="Notifications" hi={hi} />
+      <SectionHeader title="Tracking" hi={hi} />
       <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
-        <NotifRow label="Meal reminders"  sub="9:00 AM, 1:00 PM, 7:00 PM" hi={hi} mid={mid} lo={lo} defaultOn />
-        <NotifRow label="Daily summary"   sub="9:00 PM each evening"       hi={hi} mid={mid} lo={lo} defaultOn />
-        <NotifRow label="Streak alerts"   sub="When streak is at risk"     hi={hi} mid={mid} lo={lo} defaultOn={false} last />
+        {profile?.sex === 'female' && (
+          <NavRow icon="moon-outline" label="Cycle tracking" hi={hi} mid={mid} lo={lo}
+            onPress={() => router.push('/(tabs)/profile/cycle')} />
+        )}
+        <NavRow icon="heart-outline" label="Wearable & Health" hi={hi} mid={mid} lo={lo}
+          onPress={() => router.push('/(tabs)/profile/wearable')} />
+        <NavRow icon="notifications-outline" label="Notifications" hi={hi} mid={mid} lo={lo}
+          onPress={() => router.push('/(tabs)/profile/notifications')} last />
       </View>
 
-      {/* Health */}
+      <SectionHeader title="Subscription" hi={hi} />
+      <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
+        <NavRow icon="sparkles-outline" label="Subscription" hi={hi} mid={mid} lo={lo}
+          onPress={() => router.push('/(tabs)/profile/subscription')} />
+        <NavRow icon="star-outline" label="Upgrade to Premium" hi={hi} mid={mid} lo={lo}
+          onPress={() => router.push('/(tabs)/profile/paywall')} last />
+      </View>
+
       {Platform.OS === 'ios' && (
         <>
           <SectionHeader title="Health" hi={hi} />
@@ -192,7 +199,13 @@ export default function ProfileScreen() {
         </>
       )}
 
-      {/* Appearance */}
+      <SectionHeader title="Notifications" hi={hi} />
+      <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
+        <NotifRow label="Meal reminders"  sub="9:00 AM, 1:00 PM, 7:00 PM" hi={hi} mid={mid} lo={lo} defaultOn />
+        <NotifRow label="Daily summary"   sub="9:00 PM each evening"       hi={hi} mid={mid} lo={lo} defaultOn />
+        <NotifRow label="Streak alerts"   sub="When streak is at risk"     hi={hi} mid={mid} lo={lo} defaultOn={false} last />
+      </View>
+
       <SectionHeader title="Appearance" hi={hi} />
       <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
         {(['light', 'dark', 'system'] as const).map((p, i, arr) => (
@@ -216,7 +229,6 @@ export default function ProfileScreen() {
         ))}
       </View>
 
-      {/* Account */}
       <SectionHeader title="Account" hi={hi} />
       <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
         <ActionRow icon="lock-closed-outline"  label="Change Password" hi={hi} mid={mid} lo={lo} />
@@ -225,7 +237,6 @@ export default function ProfileScreen() {
         <ActionRow icon="log-out-outline"      label="Sign Out"        hi={hi} mid={mid} lo={lo} destructive last onPress={signOut} />
       </View>
 
-      {/* Version */}
       <Text style={[s.version, { color: mid }]}>RoundFit v1.0.0</Text>
     </ScrollView>
   );
@@ -256,6 +267,18 @@ function GoalRow({ icon, label, value, hi, mid, lo, last }: { icon: IoniconsName
       <Text style={[s.rowValue, { color: mid }]}>{value}</Text>
       <Ionicons name="chevron-forward" size={14} color={mid} />
     </View>
+  );
+}
+
+function NavRow({ icon, label, hi, mid, lo, onPress, last }: { icon: IoniconsName; label: string; hi: string; mid: string; lo: string; onPress: () => void; last?: boolean }) {
+  return (
+    <TouchableOpacity style={[s.row, !last && { borderBottomWidth: 1, borderBottomColor: lo }]} activeOpacity={0.7} onPress={onPress}>
+      <View style={[s.rowIcon, { backgroundColor: O10, borderColor: O20 }]}>
+        <Ionicons name={icon} size={16} color={O} />
+      </View>
+      <Text style={[s.rowLabel, { color: hi }]}>{label}</Text>
+      <Ionicons name="chevron-forward" size={14} color={mid} />
+    </TouchableOpacity>
   );
 }
 

@@ -26,9 +26,9 @@ const NOTCH_D = 34; // how far the notch dips down
 const TABS: { name: string; icon: IoniconsName; label: string; fab?: true }[] =
   [
     { name: "index", icon: "home-outline", label: "Home" },
-    { name: "activity", icon: "pulse-outline", label: "Activity" },
+    { name: "insights", icon: "bulb-outline", label: "Insights" },
     { name: "log", icon: "add", label: "Log", fab: true },
-    { name: "progress", icon: "trending-up-outline", label: "Recovery" },
+    { name: "progress", icon: "trending-up-outline", label: "Progress" },
     { name: "profile", icon: "person-outline", label: "Profile" },
   ];
 
@@ -151,9 +151,9 @@ export default function TabLayout() {
       screenOptions={{ headerShown: false }}
     >
       <Tabs.Screen name="index" options={{ title: "Home" }} />
-      <Tabs.Screen name="activity" options={{ title: "Log" }} />
-      <Tabs.Screen name="log" options={{ title: "Activities" }} />
-      <Tabs.Screen name="progress" options={{ title: "Recovery" }} />
+      <Tabs.Screen name="insights" options={{ title: "Insights" }} />
+      <Tabs.Screen name="log" options={{ title: "Log" }} />
+      <Tabs.Screen name="progress" options={{ title: "Progress" }} />
       <Tabs.Screen name="profile" options={{ title: "Profile" }} />
     </Tabs>
   );

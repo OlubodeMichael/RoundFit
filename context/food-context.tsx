@@ -1,6 +1,7 @@
 import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useState,
 } from 'react';
+import { useAuth } from '@/context/auth-context';
 import type { ManualMealInput } from '@/components/log/ManualMealInputModal';
 
 // ── Config ─────────────────────────────────────────────────────────────────
@@ -88,9 +89,24 @@ function deriveMealLabel(date: Date): string {
   return 'Snack';
 }
 
+function prettifyMealLabel(raw: string): string {
+  return raw
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+    .join(' ');
+}
+
 function fromApiLog(row: Record<string, unknown>): MealItem {
   const createdAt = typeof row.created_at === 'string' ? new Date(row.created_at) : new Date();
   const time      = createdAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+  // Prefer an explicit label from the server; fall back to a time-based guess.
+  const rawLabel =
+    typeof row.meal_label === 'string' ? row.meal_label :
+    typeof row.meal       === 'string' ? row.meal       :
+    null;
+  const meal = rawLabel ? prettifyMealLabel(rawLabel) : deriveMealLabel(createdAt);
 
   // meal_name may be a JS array, a JSON array string, or a plain string
   const rawName = row.meal_name;
@@ -114,7 +130,7 @@ function fromApiLog(row: Record<string, unknown>): MealItem {
 
   return {
     id:       String(row.id ?? ''),
-    meal:     deriveMealLabel(createdAt),
+    meal,
     name,
     cals:     typeof row.calories === 'number' ? row.calories : 0,
     protein:  typeof row.protein  === 'number' ? row.protein  : undefined,
@@ -149,14 +165,25 @@ const FoodContext = createContext<FoodContextValue | null>(null);
 // ── Provider ───────────────────────────────────────────────────────────────
 
 export function FoodProvider({ children }: { children: React.ReactNode }) {
+  const { status, user } = useAuth();
+
   const [meals,     setMeals]     = useState<MealItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [mealGoal]                = useState(DEFAULT_MEAL_GOAL);
+
+  // Meal goal tracks the current user's calorie budget. Falls back to TDEE,
+  // then to the app-wide default when we haven't loaded a profile yet.
+  const mealGoal = useMemo(() => {
+    if (!user) return DEFAULT_MEAL_GOAL;
+    return user.calorieBudget ?? user.tdee ?? DEFAULT_MEAL_GOAL;
+  }, [user]);
 
   const totalCalories = useMemo(() => meals.reduce((sum, m) => sum + m.cals, 0), [meals]);
   const remaining     = mealGoal - totalCalories;
 
-  // ── Fetch today's logs on mount ──────────────────────────────────────────
+  // ── Fetch today's logs ──────────────────────────────────────────────────
+  // We refetch whenever the auth state resolves or the signed-in user
+  // changes so every account sees its own data and nothing leaks across
+  // sign-in boundaries.
   const fetchLogs = useCallback(async () => {
     const { ok, body } = await foodFetch(`/food/logs?date=${todayDateString()}`);
     if (!ok) return;
@@ -165,10 +192,33 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Wait for the auth layer to settle before deciding what to fetch.
+    if (status === 'loading') return;
+
+    // No session → make sure we never show another user's data.
+    if (status === 'unauthenticated') {
+      setMeals([]);
+      setIsLoading(false);
+      return;
+    }
+
+    // Authenticated → clear whatever we had and pull today's logs for this
+    // user. `user?.id` in the dep array guarantees we refetch after account
+    // switches too.
+    let cancelled = false;
+    setIsLoading(true);
+    setMeals([]);
+
     (async () => {
-      try { await fetchLogs(); } finally { setIsLoading(false); }
+      try {
+        await fetchLogs();
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
     })();
-  }, [fetchLogs]);
+
+    return () => { cancelled = true; };
+  }, [status, user?.id, fetchLogs]);
 
   // ── Add meal (manual) ────────────────────────────────────────────────────
   const addMeal = useCallback(async (entry: ManualMealInput) => {
@@ -190,21 +240,24 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     const { ok, body } = await foodFetch('/food/log', {
       method: 'POST',
       body:   JSON.stringify({
-        meal_name: entry.name,
-        calories:  entry.calories,
-        protein:   entry.protein,
-        carbs:     entry.carbs,
-        fat:       entry.fat,
+        meal_name:  entry.name,
+        meal_label: entry.label,
+        calories:   entry.calories,
+        protein:    entry.protein,
+        carbs:      entry.carbs,
+        fat:        entry.fat,
       }),
     });
 
     if (ok && body.data) {
       const saved = fromApiLog(body.data as Record<string, unknown>);
       setMeals((prev) => prev.map((m) => m.id === tempId ? saved : m));
-    } else {
-      // rollback
-      setMeals((prev) => prev.filter((m) => m.id !== tempId));
+      return;
     }
+
+    // rollback on failure
+    setMeals((prev) => prev.filter((m) => m.id !== tempId));
+    throw new Error('Failed to log meal');
   }, []);
 
   // ── Analyze via photo ────────────────────────────────────────────────────
@@ -230,7 +283,9 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       method: 'POST',
       body:   JSON.stringify({ barcode }),
     });
-    if (!ok || !body.data) return;
+    if (!ok || !body.data) {
+      throw new Error('Failed to look up barcode');
+    }
     setMeals((prev) => [...prev, fromApiLog(body.data as Record<string, unknown>)]);
   }, []);
 
@@ -240,7 +295,10 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     setMeals((prev) => prev.filter((m) => m.id !== id));
 
     const { ok } = await foodFetch(`/food/log/${id}`, { method: 'DELETE' });
-    if (!ok) setMeals(snapshot); // rollback
+    if (!ok) {
+      setMeals(snapshot); // rollback
+      throw new Error('Failed to delete meal');
+    }
   }, [meals]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────

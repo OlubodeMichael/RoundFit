@@ -9,6 +9,7 @@ import { useFood } from '@/hooks/use-food';
 import type { MealItem } from '@/hooks/use-food';
 import { ZeroCaloriesError } from '@/context/food-context';
 import { useTheme } from '@/hooks/use-theme';
+import { useToast } from '@/components/ui/Toast';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 
@@ -73,6 +74,7 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
   const insets         = useSafeAreaInsets();
   const { isDark }     = useTheme();
   const { analyzePhoto } = useFood();
+  const toast            = useToast();
 
   const [status, setStatus] = useState<Status>('analyzing');
   const [result, setResult] = useState<MealItem | null>(null);
@@ -103,9 +105,20 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
         if (cancelled) return;
         setResult(item);
         setStatus(item ? 'done' : 'error');
+        if (item) {
+          toast.success('Food logged', item.name);
+        } else {
+          toast.error('Analysis failed', 'Please try another photo.');
+        }
       } catch (err) {
         if (cancelled) return;
-        setStatus(err instanceof ZeroCaloriesError ? 'retry' : 'error');
+        const isZero = err instanceof ZeroCaloriesError;
+        setStatus(isZero ? 'retry' : 'error');
+        if (isZero) {
+          toast.warning('No food detected', 'Try a clearer photo of your meal.');
+        } else {
+          toast.error('Analysis failed', 'Please try again.');
+        }
       }
     })();
 

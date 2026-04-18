@@ -4,12 +4,15 @@ import { StatusBar } from 'expo-status-bar';
 import { useLayoutEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts, Syne_700Bold, Syne_800ExtraBold } from '@expo-google-fonts/syne';
 
 import { ThemeProvider } from '@/context/theme-context';
 import { AuthProvider } from '@/context/auth-context';
 import { ProfileProvider } from '@/context/profile-context';
 import { FoodProvider } from '@/context/food-context';
+import { ToastProvider } from '@/components/ui/Toast';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/hooks/use-auth';
 
@@ -50,12 +53,12 @@ function AppNavigator() {
   return (
     <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <View style={styles.navRoot}>
-        <Stack>
-          <Stack.Screen name="auth"       options={{ headerShown: false }} />
-          <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-          <Stack.Screen name="(tabs)"     options={{ headerShown: false }} />
-          <Stack.Screen name="modal"          options={{ presentation: 'modal', title: 'Modal' }} />
-          <Stack.Screen name="edit-profile"   options={{ presentation: 'modal', headerShown: false }} />
+        <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
+          <Stack.Screen name="auth" />
+          <Stack.Screen name="onboarding" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="modal"        options={{ presentation: 'modal' }} />
+          <Stack.Screen name="edit-profile" options={{ presentation: 'modal' }} />
         </Stack>
         {showAuthSplash && (
           <View
@@ -75,15 +78,21 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <AuthProvider>
-      <ProfileProvider>
-        <FoodProvider>
-          <ThemeProvider>
-            <AppNavigator />
-          </ThemeProvider>
-        </FoodProvider>
-      </ProfileProvider>
-    </AuthProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <ProfileProvider>
+                <FoodProvider>
+                  <AppNavigator />
+                </FoodProvider>
+              </ProfileProvider>
+            </AuthProvider>
+          </ToastProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

@@ -1,5 +1,6 @@
 import { ScrollView, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -8,7 +9,6 @@ const O10 = 'rgba(249,115,22,0.10)';
 const O20 = 'rgba(249,115,22,0.20)';
 const O35 = 'rgba(249,115,22,0.35)';
 
-// Weekly calorie data (Mon–Sun), max for bar scaling
 const WEEK = [
   { day: 'M', cals: 1980 },
   { day: 'T', cals: 2200 },
@@ -16,7 +16,7 @@ const WEEK = [
   { day: 'T', cals: 2050 },
   { day: 'F', cals: 1900 },
   { day: 'S', cals: 2310 },
-  { day: 'S', cals: 1340 }, // today (partial)
+  { day: 'S', cals: 1340 },
 ];
 const MAX_CALS = Math.max(...WEEK.map(d => d.cals));
 const GOAL     = 2100;
@@ -34,6 +34,7 @@ const WEIGHT_LOG = [
 export default function ProgressScreen() {
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   const bg      = isDark ? '#0C0C0C' : '#F7F7F5';
   const surface = isDark ? '#161616' : '#FFFFFF';
@@ -52,13 +53,11 @@ export default function ProgressScreen() {
       contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 48, paddingHorizontal: 20, gap: 20 }}
       showsVerticalScrollIndicator={false}
     >
-      {/* Header */}
       <View>
         <Text style={[s.eyebrow, { color: mid }]}>This Week</Text>
         <Text style={[s.pageTitle, { color: hi }]}>Progress</Text>
       </View>
 
-      {/* Streak + score row */}
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <View style={[s.scoreCard, { backgroundColor: O, flex: 1 }]}>
           <Ionicons name="flame" size={22} color="rgba(255,255,255,0.9)" />
@@ -77,14 +76,12 @@ export default function ProgressScreen() {
         </View>
       </View>
 
-      {/* Weekly calorie bar chart */}
       <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
           <Text style={[s.cardTitle, { color: hi }]}>Calories This Week</Text>
           <Text style={[s.cardSub, { color: mid }]}>Avg 2,047</Text>
         </View>
 
-        {/* Goal line label */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
           <View style={[s.dash, { backgroundColor: O35 }]} />
           <Text style={[{ fontSize: 10, color: mid, fontWeight: '600' }]}>Goal {GOAL}</Text>
@@ -100,7 +97,6 @@ export default function ProgressScreen() {
             return (
               <View key={i} style={s.barCol}>
                 <View style={s.barWrap}>
-                  {/* Goal line marker */}
                   <View style={[s.goalLine, { bottom: `${goalPct * 100}%`, borderColor: O35 }]} />
                   <View style={[s.bar, { height: `${pct * 100}%`, backgroundColor: barColor, opacity: isToday ? 1 : 0.7 }]} />
                 </View>
@@ -111,8 +107,11 @@ export default function ProgressScreen() {
         </View>
       </View>
 
-      {/* Weight trend */}
-      <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
+      <TouchableOpacity
+        style={[s.card, { backgroundColor: surface, borderColor: lo }]}
+        activeOpacity={0.75}
+        onPress={() => router.push('/(tabs)/progress/weight')}
+      >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <Text style={[s.cardTitle, { color: hi }]}>Weight</Text>
           <View style={[s.trendPill, { backgroundColor: 'rgba(34,197,94,0.10)', borderColor: 'rgba(34,197,94,0.3)' }]}>
@@ -121,11 +120,10 @@ export default function ProgressScreen() {
           </View>
         </View>
 
-        {/* Mini dot chart */}
         <View style={s.dotChart}>
           {WEIGHT_LOG.map((w, i) => {
             const normalized = (w.kg - weightMin) / weightRange;
-            const bottom = 8 + normalized * 44; // px from bottom of 60px container
+            const bottom = 8 + normalized * 44;
             return (
               <View key={i} style={[s.dotCol, { justifyContent: 'flex-end' }]}>
                 <View style={[s.dotPoint, {
@@ -151,20 +149,24 @@ export default function ProgressScreen() {
             <Text style={[s.weightNote, { color: mid }]}>Goal</Text>
           </View>
         </View>
-      </View>
+      </TouchableOpacity>
 
-      {/* Prediction */}
-      <View style={[s.card, { backgroundColor: O10, borderColor: O35 }]}>
+      <TouchableOpacity
+        style={[s.card, { backgroundColor: O10, borderColor: O35 }]}
+        activeOpacity={0.8}
+        onPress={() => router.push('/(tabs)/progress/mirror')}
+      >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <View style={[s.predIcon, { backgroundColor: O20 }]}>
             <Ionicons name="analytics-outline" size={20} color={O} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[s.predTitle, { color: hi }]}>On track for goal</Text>
-            <Text style={[s.predSub, { color: mid }]}>At this rate you'll reach 78 kg by <Text style={{ color: O, fontWeight: '700' }}>Jul 14</Text></Text>
+            <Text style={[s.predTitle, { color: hi }]}>30-day mirror</Text>
+            <Text style={[s.predSub, { color: mid }]}>Premium report of your habits, correlations, and biggest wins.</Text>
           </View>
+          <Ionicons name="chevron-forward" size={16} color={mid} />
         </View>
-      </View>
+      </TouchableOpacity>
     </ScrollView>
   );
 }

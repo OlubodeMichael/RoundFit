@@ -150,3 +150,7 @@ expo-env.d.ts
 
 #ignore the todo file
 TODO.md
+
+Plan.md
+
+.claude
