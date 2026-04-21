@@ -97,7 +97,7 @@ export default function ActivityScreen() {
         activeOpacity={0.85}
         disabled={!canContinue}
         onPress={() => router.push({
-          pathname: '/onboarding/units',
+          pathname: params.sex === 'female' ? '/onboarding/cycle-length' : '/onboarding/units',
           params: { ...params, activity: selected! },
         })}
       >

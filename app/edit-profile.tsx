@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTheme } from '@/hooks/use-theme';
 import { useProfile } from '@/hooks/use-profile';
 import { normaliseGoal, type UserProfile } from '@/context/auth-context';
@@ -174,7 +174,49 @@ export default function EditProfileScreen() {
   const mid     = isDark ? '#666'    : '#999';
   const lo      = isDark ? '#232323' : '#EBEBEB';
 
+  /**
+   * True when at least one visible form value differs from what the server has.
+   *
+   * We compare *displayed* field strings (not re-parsed numbers) so that
+   * display-rounding round-trips — e.g. 70 kg ⇄ "154 lb" ⇄ 69.85 kg — don't
+   * falsely register as edits. Enum fields (sex / goal / activity / unit) and
+   * text fields (name / age) are compared by value, with empty inputs treated
+   * as "no change" since `handleSave` omits them from the patch.
+   */
+  const isDirty = useMemo(() => {
+    if (!profile) return false;
+
+    const nextName = name.trim();
+    if (nextName && nextName !== profile.name) return true;
+
+    const nextAge = age ? Number(age) : undefined;
+    if (nextAge !== undefined && nextAge !== profile.age) return true;
+
+    if (sex           !== profile.sex)           return true;
+    if (unit          !== profile.unit)          return true;
+    if (activityLevel !== profile.activityLevel) return true;
+    if (goal          !== profile.goal)          return true;
+
+    if (weightKg !== formatWeightKgField(profile.weightKg, unit)) return true;
+
+    if (unit === 'imperial') {
+      const current = formatHeightImperialFields(profile.heightCm);
+      if (heightFeet !== current.feet || heightInches !== current.inches) return true;
+    } else if (heightCm !== formatHeightCmField(profile.heightCm)) {
+      return true;
+    }
+
+    return false;
+  }, [
+    profile, name, age, sex, unit,
+    heightCm, heightFeet, heightInches, weightKg,
+    activityLevel, goal,
+  ]);
+
+  const canSave = isDirty && !saving;
+
   async function handleSave() {
+    if (!canSave) return;
     setSaving(true);
     try {
       await updateProfile({
@@ -205,10 +247,24 @@ export default function EditProfileScreen() {
 
           <Text style={[s.headerTitle, { color: hi }]}>Edit Profile</Text>
 
-          <TouchableOpacity onPress={handleSave} disabled={saving} activeOpacity={0.7} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <TouchableOpacity
+            onPress={handleSave}
+            disabled={!canSave}
+            activeOpacity={0.7}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
             {saving
               ? <ActivityIndicator size="small" color={O} />
-              : <Text style={[s.headerAction, { color: O, fontFamily: 'Syne_700Bold' }]}>Save</Text>
+              : (
+                <Text
+                  style={[
+                    s.headerAction,
+                    { color: isDirty ? O : mid, fontFamily: 'Syne_700Bold' },
+                  ]}
+                >
+                  Save
+                </Text>
+              )
             }
           </TouchableOpacity>
         </View>

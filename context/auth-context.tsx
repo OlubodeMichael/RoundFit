@@ -1,63 +1,88 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useRef, useState,
-} from 'react';
+    createContext,
+    useCallback,
+    useContext,
+    useEffect,
+    useRef,
+    useState,
+} from "react";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
+const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000/api";
 const TIMEOUT_MS = 10_000;
 /** How long sign-in / sign-up error banners stay visible before auto-clearing. */
 const AUTH_ERROR_DISPLAY_MS = 4_000;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+/**
+ * Canonical UI / app-state goal.
+ * What every screen, store, and prop in the app speaks.
+ */
+export type UserGoal = "lose_weight" | "build_muscle" | "boost_energy" | "maintain";
+
+/**
+ * What the RoundFit API stores and expects on the wire.
+ * NEVER place a UserGoal value directly into a request body — translate via
+ * `toApiGoal` first.
+ */
+export type ApiGoal = "lose" | "maintain" | "gain" | "energy";
+
 export interface UserProfile {
-  id:            string;
-  email:         string;
-  name:          string;
-  age:           number;
-  sex:           'male' | 'female';
-  heightCm:      number;
-  weightKg:      number;
+  id: string;
+  email: string;
+  name: string;
+  age: number;
+  sex: "male" | "female";
+  heightCm: number;
+  weightKg: number;
   /**
    * How active the user is on a weekly basis.
    * Drives the activity multiplier used in TDEE calculation.
    */
-  activityLevel: 'sedentary' | 'lightly_active' | 'moderately_active' | 'very_active';
+  activityLevel:
+    | "sedentary"
+    | "lightly_active"
+    | "moderately_active"
+    | "very_active";
   /**
    * The user's primary fitness goal.
    * `maintain` is the neutral baseline; all others shift the calorie budget.
    */
-  goal:          'lose_weight' | 'build_muscle' | 'boost_energy' | 'maintain';
-  unit:          'metric' | 'imperial';
-  avatarUrl?:    string | null;
-  tdee?:         number;
+  goal: UserGoal;
+  unit: "metric" | "imperial";
+  avatarUrl?: string | null;
+  tdee?: number;
   calorieBudget?: number;
-  createdAt:     string;
+  createdAt: string;
 }
 
-export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
+export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
 export type AuthError =
-  | 'EMAIL_IN_USE'
-  | 'INVALID_CREDENTIALS'
-  | 'WEAK_PASSWORD'
-  | 'INVALID_EMAIL'
-  | 'UNKNOWN';
+  | "EMAIL_IN_USE"
+  | "INVALID_CREDENTIALS"
+  | "WEAK_PASSWORD"
+  | "INVALID_EMAIL"
+  | "UNKNOWN";
 
 interface AuthContextValue {
-  user:      UserProfile | null;
-  status:    AuthStatus;
-  isAuth:    boolean;
+  user: UserProfile | null;
+  status: AuthStatus;
+  isAuth: boolean;
   /** True while signIn / signUp / updateProfile is in-flight. */
   isLoading: boolean;
-  error:     AuthError | null;
+  error: AuthError | null;
 
   /** Registers a new account and signs in. */
   signUp: (
-    email:    string,
+    email: string,
     password: string,
-    profile:  Omit<UserProfile, 'id' | 'email' | 'createdAt' | 'tdee' | 'calorieBudget'>,
+    profile: Omit<
+      UserProfile,
+      "id" | "email" | "createdAt" | "tdee" | "calorieBudget"
+    >,
   ) => Promise<void>;
 
   /** Signs in with email + password. */
@@ -67,7 +92,9 @@ interface AuthContextValue {
   signOut: () => Promise<void>;
 
   /** Sends a partial profile update to the server. TDEE recalculates automatically. */
-  updateProfile: (patch: Partial<Omit<UserProfile, 'id' | 'email' | 'createdAt'>>) => Promise<void>;
+  updateProfile: (
+    patch: Partial<Omit<UserProfile, "id" | "email" | "createdAt">>,
+  ) => Promise<void>;
 
   /** Clears the last error. */
   clearError: () => void;
@@ -76,79 +103,135 @@ interface AuthContextValue {
 // ── API helpers ────────────────────────────────────────────────────────────
 
 /** Maps API values (including legacy `km` / `miles`) to `metric` | `imperial`. */
-export function normaliseProfileUnit(raw: string | undefined | null): UserProfile['unit'] {
-  const s = (raw ?? 'metric').trim().toLowerCase();
-  if (s === 'imperial' || s === 'miles') return 'imperial';
-  return 'metric';
+export function normaliseProfileUnit(
+  raw: string | undefined | null,
+): UserProfile["unit"] {
+  const s = (raw ?? "metric").trim().toLowerCase();
+  if (s === "imperial" || s === "miles") return "imperial";
+  return "metric";
 }
 
-/** Normalises a raw goal string to the canonical API value. */
-export function normaliseGoal(g: string): UserProfile['goal'] {
-  if (g === 'lose_weight'  || g === 'lose')     return 'lose_weight';
-  if (g === 'build_muscle' || g === 'gain')     return 'build_muscle';
-  if (g === 'boost_energy')                     return 'boost_energy';
-  return 'maintain';
+/**
+ * Accepts either a canonical UI goal (`lose_weight` / `build_muscle` /
+ * `boost_energy` / `maintain`) or a raw API goal (`lose` / `gain` / `energy` /
+ * `maintain`) and returns the canonical UI value. Use this anywhere a goal
+ * enters the app — legacy UI strings, GET /me payloads, query params, etc.
+ */
+export function normaliseGoal(g: string): UserGoal {
+  if (g === "lose_weight"  || g === "lose")   return "lose_weight";
+  if (g === "build_muscle" || g === "gain")   return "build_muscle";
+  if (g === "boost_energy" || g === "energy") return "boost_energy";
+  return "maintain";
+}
+
+/**
+ * Translate a UI goal into the wire value the API stores.
+ * Call this immediately before building any POST /register or PATCH /profile
+ * body — never ship a `UserGoal` value straight to the backend.
+ */
+export function toApiGoal(g: UserGoal): ApiGoal {
+  switch (g) {
+    case "lose_weight":  return "lose";
+    case "build_muscle": return "gain";
+    case "boost_energy": return "energy";
+    case "maintain":     return "maintain";
+  }
+}
+
+/**
+ * Translate an API goal (from GET /me or any response containing
+ * `profile.goal`) into the canonical UI goal. Prefer `normaliseGoal` when the
+ * input is `string` (it accepts both shapes); use this when the input is
+ * already typed as `ApiGoal`.
+ */
+export function fromApiGoal(g: ApiGoal): UserGoal {
+  switch (g) {
+    case "lose":     return "lose_weight";
+    case "gain":     return "build_muscle";
+    case "energy":   return "boost_energy";
+    case "maintain": return "maintain";
+  }
 }
 
 /** Normalises a raw activity string to the canonical API value. */
-function normaliseActivity(a: string): UserProfile['activityLevel'] {
-  if (a === 'sedentary')                                   return 'sedentary';
-  if (a === 'moderately_active' || a === 'moderate')       return 'moderately_active';
-  if (a === 'very_active')                                 return 'very_active';
-  return 'lightly_active';
+function normaliseActivity(a: string): UserProfile["activityLevel"] {
+  if (a === "sedentary") return "sedentary";
+  if (a === "moderately_active" || a === "moderate") return "moderately_active";
+  if (a === "very_active") return "very_active";
+  return "lightly_active";
 }
 
 /** Converts camelCase UserProfile fields to the API's snake_case shape. */
-function toApiBody(profile: Partial<Omit<UserProfile, 'id' | 'email' | 'createdAt'>>) {
+function toApiBody(
+  profile: Partial<Omit<UserProfile, "id" | "email" | "createdAt">>,
+) {
   const out: Record<string, unknown> = {};
-  if (profile.name          !== undefined) out.name           = profile.name;
-  if (profile.age           !== undefined) out.age            = profile.age;
-  if (profile.sex           !== undefined) out.sex            = profile.sex;
-  if (profile.heightCm      !== undefined) out.height_cm      = profile.heightCm;
-  if (profile.weightKg      !== undefined) out.weight_kg      = profile.weightKg;
-  if (profile.activityLevel !== undefined) out.activity_level = normaliseActivity(profile.activityLevel);
-  if (profile.goal          !== undefined) out.goal           = normaliseGoal(profile.goal);
+  if (profile.name !== undefined) out.name = profile.name;
+  if (profile.age !== undefined) out.age = profile.age;
+  if (profile.sex !== undefined) out.sex = profile.sex;
+  if (profile.heightCm !== undefined) out.height_cm = profile.heightCm;
+  if (profile.weightKg !== undefined) out.weight_kg = profile.weightKg;
+  if (profile.activityLevel !== undefined)
+    out.activity_level = normaliseActivity(profile.activityLevel);
+  if (profile.goal !== undefined) {
+    // Translate UI → API at the one place we talk to the backend.
+    // `normaliseGoal` first so legacy/raw strings are accepted defensively.
+    out.goal = toApiGoal(normaliseGoal(profile.goal));
+  }
   if (profile.unit !== undefined) out.unit = profile.unit;
   return out;
 }
 
 /** Normalises a raw API profile row into our camelCase UserProfile. */
 function fromApiProfile(row: Record<string, unknown>): UserProfile {
-  const str = (v: unknown, fb = '') => (typeof v === 'string' ? v : fb);
-  const num = (v: unknown, fb = 0)  => (typeof v === 'number' ? v : fb);
+  const str = (v: unknown, fb = "") => (typeof v === "string" ? v : fb);
+  const num = (v: unknown, fb = 0) => (typeof v === "number" ? v : fb);
   return {
-    id:            str(row.id   ?? row.user_id),
-    email:         str(row.email),
-    name:          str(row.name),
-    age:           num(row.age),
-    sex:           str(row.sex, 'male')                 as UserProfile['sex'],
-    heightCm:      num(row.height_cm),
-    weightKg:      num(row.weight_kg),
-    activityLevel: str(row.activity_level, 'sedentary') as UserProfile['activityLevel'],
-    goal:          str(row.goal, 'maintain')            as UserProfile['goal'],
-    unit:          normaliseProfileUnit(str(row.unit ?? row.distance_unit, 'metric')),
+    id: str(row.id ?? row.user_id),
+    email: str(row.email),
+    name: str(row.name),
+    age: num(row.age),
+    sex: str(row.sex, "male") as UserProfile["sex"],
+    heightCm: num(row.height_cm),
+    weightKg: num(row.weight_kg),
+    activityLevel: str(
+      row.activity_level,
+      "sedentary",
+    ) as UserProfile["activityLevel"],
+    goal: normaliseGoal(str(row.goal, "maintain")),
+    unit: normaliseProfileUnit(str(row.unit ?? row.distance_unit, "metric")),
     // Server has a typo: 'avater_url' — handle both spellings
-    avatarUrl:     (typeof (row.avatar_url ?? row.avater_url) === 'string'
-                     ? (row.avatar_url ?? row.avater_url) as string
-                     : null),
-    tdee:          typeof row.tdee           === 'number' ? row.tdee           : undefined,
-    calorieBudget: typeof row.calorie_budget === 'number' ? row.calorie_budget : undefined,
-    createdAt:     str(row.created_at, new Date().toISOString()),
+    avatarUrl:
+      typeof (row.avatar_url ?? row.avater_url) === "string"
+        ? ((row.avatar_url ?? row.avater_url) as string)
+        : null,
+    tdee: typeof row.tdee === "number" ? row.tdee : undefined,
+    calorieBudget:
+      typeof row.calorie_budget === "number" ? row.calorie_budget : undefined,
+    createdAt: str(row.created_at, new Date().toISOString()),
   };
 }
 
 /** Maps HTTP status / response body to a typed AuthError code. */
-function parseApiError(status: number, body: Record<string, unknown>): AuthError {
-  const raw = typeof body.message === 'string' ? body.message
-            : typeof body.error   === 'string' ? body.error
-            : '';
+function parseApiError(
+  status: number,
+  body: Record<string, unknown>,
+): AuthError {
+  const raw =
+    typeof body.message === "string"
+      ? body.message
+      : typeof body.error === "string"
+        ? body.error
+        : "";
   const msg = raw.toLowerCase();
 
-  if (status === 409 || msg.includes('already') || msg.includes('in use')) return 'EMAIL_IN_USE';
-  if (status === 401 || msg.includes('invalid') || msg.includes('credentials')) return 'INVALID_CREDENTIALS';
-  if (msg.includes('weak') || msg.includes('password')) return 'WEAK_PASSWORD';
-  if (msg.includes('email')) return 'INVALID_EMAIL';
-  return 'UNKNOWN';
+  if (status === 409 || msg.includes("already") || msg.includes("in use"))
+    return "EMAIL_IN_USE";
+  if (status === 401 || msg.includes("invalid") || msg.includes("credentials"))
+    return "INVALID_CREDENTIALS";
+  if (msg.includes("weak") || msg.includes("password")) return "WEAK_PASSWORD";
+  if (msg.includes("email")) return "INVALID_EMAIL";
+  return "UNKNOWN";
 }
 
 /**
@@ -162,15 +245,20 @@ async function apiFetch(
   options: RequestInit = {},
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
 
   const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   const run = (signal: AbortSignal) =>
-    fetch(`${API_BASE}${path}`, { ...options, headers, credentials: 'include', signal });
+    fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+      credentials: "include",
+      signal,
+    });
 
   try {
     const res = await run(controller.signal);
@@ -178,12 +266,12 @@ async function apiFetch(
     // Cookie-based refresh: if 401, ask the server to rotate the cookie then retry
     if (res.status === 401) {
       const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
-        method:      'POST',
-        credentials: 'include',
-        signal:      controller.signal,
+        method: "POST",
+        credentials: "include",
+        signal: controller.signal,
       });
       if (refreshRes.ok) {
-        const retryRes  = await run(controller.signal);
+        const retryRes = await run(controller.signal);
         const retryBody = await retryRes.json().catch(() => ({}));
         return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
       }
@@ -200,28 +288,30 @@ async function apiFetch(
  * Fetches and normalises the current user from GET /auth/me.
  * Throws if the request fails — callers handle the error.
  */
-async function fetchMe(emailFallback = ''): Promise<UserProfile> {
-  const { ok, body } = await apiFetch('/auth/me');
-  if (!ok) throw new Error('fetch_me_failed');
+async function fetchMe(emailFallback = ""): Promise<UserProfile> {
+  const { ok, body } = await apiFetch("/auth/me");
+  if (!ok) throw new Error("fetch_me_failed");
 
   // Response shape: { data: { user, profile } }
-  const data       = (body.data ?? body) as Record<string, unknown>;
+  const data = (body.data ?? body) as Record<string, unknown>;
   const profileRow = (data.profile ?? data) as Record<string, unknown>;
-  const authUser   = data.user as Record<string, unknown> | undefined;
-  const userMeta   = authUser?.user_metadata as Record<string, unknown> | undefined;
+  const authUser = data.user as Record<string, unknown> | undefined;
+  const userMeta = authUser?.user_metadata as
+    | Record<string, unknown>
+    | undefined;
 
   // Name lives in the profile row; fallback to Supabase user_metadata
   const name =
-    (typeof profileRow.name     === 'string' && profileRow.name)    ||
-    (typeof userMeta?.name      === 'string' && userMeta.name)      ||
-    (typeof userMeta?.full_name === 'string' && userMeta.full_name) ||
-    '';
+    (typeof profileRow.name === "string" && profileRow.name) ||
+    (typeof userMeta?.name === "string" && userMeta.name) ||
+    (typeof userMeta?.full_name === "string" && userMeta.full_name) ||
+    "";
 
   return fromApiProfile({
     ...profileRow,
     name,
     email: (authUser?.email ?? profileRow.email ?? emailFallback) as string,
-    id:    (authUser?.id    ?? profileRow.id    ?? profileRow.user_id) as string,
+    id: (authUser?.id ?? profileRow.id ?? profileRow.user_id) as string,
   });
 }
 
@@ -232,16 +322,16 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 // ── Provider ───────────────────────────────────────────────────────────────
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user,      setUser]      = useState<UserProfile | null>(null);
-  const [status,    setStatus]    = useState<AuthStatus>('loading');
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [status, setStatus] = useState<AuthStatus>("loading");
   const [isLoading, setIsLoading] = useState(false);
-  const [error,     setError]     = useState<AuthError | null>(null);
+  const [error, setError] = useState<AuthError | null>(null);
 
   // Stable ref so updateProfile's rollback always sees the latest snapshot.
   const userRef = useRef<UserProfile | null>(null);
   userRef.current = user;
 
-  const isAuth = status === 'authenticated';
+  const isAuth = status === "authenticated";
 
   // ── Restore session on mount ─────────────────────────────────────────────
   // Cookie present and valid → 200 → authenticated
@@ -250,9 +340,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         setUser(await fetchMe());
-        setStatus('authenticated');
+        setStatus("authenticated");
       } catch {
-        setStatus('unauthenticated');
+        setStatus("unauthenticated");
       }
     })();
   }, []);
@@ -264,36 +354,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [error]);
 
   // ── Sign up ──────────────────────────────────────────────────────────────
-  const signUp = useCallback(async (
-    email:    string,
-    password: string,
-    profile:  Omit<UserProfile, 'id' | 'email' | 'createdAt' | 'tdee' | 'calorieBudget'>,
-  ) => {
-    setError(null);
-    setIsLoading(true);
+  const signUp = useCallback(
+    async (
+      email: string,
+      password: string,
+      profile: Omit<
+        UserProfile,
+        "id" | "email" | "createdAt" | "tdee" | "calorieBudget"
+      >,
+    ) => {
+      setError(null);
+      setIsLoading(true);
 
-    try {
-      const { ok, status: s, body } = await apiFetch('/auth/register', {
-        method: 'POST',
-        body:   JSON.stringify({ email, password, ...toApiBody(profile) }),
-      });
-
-      if (!ok) { setError(parseApiError(s, body)); return; }
-
-      // Server sets the session cookie — fetch profile to populate state
       try {
-        setUser(await fetchMe(email));
-      } catch {
-        // Cookie is set; profile fetch failed — session restore on next mount retries
-      }
+        const {
+          ok,
+          status: s,
+          body,
+        } = await apiFetch("/auth/register", {
+          method: "POST",
+          body: JSON.stringify({ email, password, ...toApiBody(profile) }),
+        });
 
-      setStatus('authenticated');
-    } catch {
-      setError('UNKNOWN');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+        if (!ok) {
+          setError(parseApiError(s, body));
+          return;
+        }
+
+        // Server sets the session cookie — fetch profile to populate state
+        try {
+          setUser(await fetchMe(email));
+        } catch {
+          // Cookie is set; profile fetch failed — session restore on next mount retries
+        }
+
+        setStatus("authenticated");
+      } catch {
+        setError("UNKNOWN");
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [],
+  );
 
   // ── Sign in ──────────────────────────────────────────────────────────────
   const signIn = useCallback(async (email: string, password: string) => {
@@ -301,12 +404,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
 
     try {
-      const { ok, status: s, body } = await apiFetch('/auth/login', {
-        method: 'POST',
-        body:   JSON.stringify({ email, password }),
+      const {
+        ok,
+        status: s,
+        body,
+      } = await apiFetch("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
       });
 
-      if (!ok) { setError(parseApiError(s, body)); return; }
+      if (!ok) {
+        setError(parseApiError(s, body));
+        return;
+      }
 
       // Server sets the session cookie — fetch profile to populate state
       try {
@@ -315,9 +425,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Cookie is set; profile fetch failed — session restore on next mount retries
       }
 
-      setStatus('authenticated');
+      setStatus("authenticated");
     } catch {
-      setError('UNKNOWN');
+      setError("UNKNOWN");
     } finally {
       setIsLoading(false);
     }
@@ -326,56 +436,79 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ── Sign out ─────────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
     // Fire-and-forget — server clears the cookie; don't block the UI
-    apiFetch('/auth/logout', { method: 'POST' }).catch(() => {});
+    apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
     setUser(null);
-    setStatus('unauthenticated');
+    setStatus("unauthenticated");
   }, []);
 
   // ── Update profile ───────────────────────────────────────────────────────
-  const updateProfile = useCallback(async (
-    patch: Partial<Omit<UserProfile, 'id' | 'email' | 'createdAt'>>,
-  ) => {
-    const previous = userRef.current;
+  const updateProfile = useCallback(
+    async (patch: Partial<Omit<UserProfile, "id" | "email" | "createdAt">>) => {
+      const previous = userRef.current;
 
-    // Optimistic update
-    setUser(prev => prev ? { ...prev, ...patch } : prev);
+      // Optimistic update
+      setUser((prev) => (prev ? { ...prev, ...patch } : prev));
 
-    try {
-      const { ok, status: s, body } = await apiFetch('/auth/profile', {
-        method: 'PATCH',
-        body:   JSON.stringify(toApiBody(patch)),
-      });
+      try {
+        const {
+          ok,
+          status: s,
+          body,
+        } = await apiFetch("/auth/profile", {
+          method: "PATCH",
+          body: JSON.stringify(toApiBody(patch)),
+        });
 
-      if (!ok) {
-        setUser(previous);                          // rollback
-        if (s === 401) {
-          // Refresh already failed inside apiFetch — session is dead
-          setUser(null);
-          setStatus('unauthenticated');
+        if (!ok) {
+          setUser(previous); // rollback
+          if (s === 401) {
+            // Refresh already failed inside apiFetch — session is dead
+            setUser(null);
+            setStatus("unauthenticated");
+          }
+          return;
         }
-        return;
-      }
 
-      if (body.profile) {
-        const profileRow = body.profile as Record<string, unknown>;
-        setUser(prev => prev
-          ? { ...prev, ...fromApiProfile({ ...profileRow, email: prev.email, id: prev.id }) }
-          : prev
-        );
+        if (body.profile) {
+          const profileRow = body.profile as Record<string, unknown>;
+          setUser((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  ...fromApiProfile({
+                    ...profileRow,
+                    email: prev.email,
+                    id: prev.id,
+                  }),
+                }
+              : prev,
+          );
+        }
+      } catch {
+        setUser(previous); // rollback on network error
       }
-    } catch {
-      setUser(previous);                            // rollback on network error
-    }
-  }, []);
+    },
+    [],
+  );
 
   // ── Clear error ──────────────────────────────────────────────────────────
   const clearError = useCallback(() => setError(null), []);
 
   return (
-    <AuthContext.Provider value={{
-      user, status, isAuth, isLoading, error,
-      signUp, signIn, signOut, updateProfile, clearError,
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        status,
+        isAuth,
+        isLoading,
+        error,
+        signUp,
+        signIn,
+        signOut,
+        updateProfile,
+        clearError,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -385,6 +518,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>');
+  if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");
   return ctx;
 }

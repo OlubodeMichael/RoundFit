@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo } from 'react';
-import { normaliseProfileUnit, useAuth } from '@/context/auth-context';
+import { normaliseGoal, normaliseProfileUnit, useAuth } from '@/context/auth-context';
 import type { UserProfile } from '@/context/auth-context';
 import { formatHeightForStats, formatWeightForStats, LB_PER_KG } from '@/utils/body-units';
 
@@ -124,7 +124,9 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
         heightCm:      (profileRow.height_cm)                                as number  | undefined,
         weightKg:      (profileRow.weight_kg)                                as number  | undefined,
         activityLevel: (profileRow.activity_level)                           as UserProfile['activityLevel'] | undefined,
-        goal:          (profileRow.goal)                                     as UserProfile['goal'] | undefined,
+        goal:          typeof profileRow.goal === 'string'
+          ? normaliseGoal(profileRow.goal)
+          : undefined,
         unit:          normaliseProfileUnit(
           String(profileRow.unit ?? profileRow.distance_unit ?? ''),
         ),

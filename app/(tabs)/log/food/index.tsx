@@ -21,7 +21,7 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
 
 import { useRouter } from 'expo-router';
 import { useFood, type MealItem } from '@/hooks/use-food';
-import { ManualMealInputModal, type MealLabel } from '@/components/log/ManualMealInputModal';
+import { ManualMealInputModal, type MealLabel, type ManualMealInput } from '@/components/log/ManualMealInputModal';
 import { PhotoAnalysisModal } from '@/components/log/PhotoAnalysisModal';
 import { useToast } from '@/components/ui/Toast';
 import { usePalette, type Palette } from '@/lib/log-theme';
@@ -94,25 +94,80 @@ async function ensureCameraPermission(): Promise<boolean> {
 // ───────────────────────────────────────────────────────────────────────────────
 // Screen
 // ───────────────────────────────────────────────────────────────────────────────
+function localCalendarFromDate(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+function offsetDate(base: string, days: number): string {
+  const d = new Date(`${base}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return localCalendarFromDate(d);
+}
+
+function formatNavDate(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  const today = localCalendarFromDate(new Date());
+  if (iso === today) return 'Today';
+  const yesterday = offsetDate(today, -1);
+  if (iso === yesterday) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 export default function FoodLogScreen() {
   const P       = usePalette();
   const insets  = useSafeAreaInsets();
   const router  = useRouter();
   const {
     meals, mealGoal, totalCalories, remaining,
-    addMeal, logBarcode, deleteMeal, refreshLogs,
+    addMeal, logBarcode, deleteMeal, refreshLogs, activeDate,
   } = useFood();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
 
+  const today = localCalendarFromDate(new Date());
+  const isToday = activeDate === today;
+
+  const navigateDate = async (direction: -1 | 1) => {
+    const next = offsetDate(activeDate, direction);
+    if (next > today) return; // no future dates
+    await refreshLogs(next);
+  };
+
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await refreshLogs();
+      await refreshLogs(activeDate);
     } catch {
       toast.error('Could not refresh', 'Please try again.');
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  // ── Edit serving ────────────────────────────────────────────────────────
+  const [editItem,    setEditItem]    = useState<MealItem | null>(null);
+  const [editVisible, setEditVisible] = useState(false);
+
+  const openEdit = (item: MealItem) => {
+    setEditItem(item);
+    setEditVisible(true);
+  };
+  const closeEdit = () => {
+    setEditItem(null);
+    setEditVisible(false);
+  };
+
+  const handleEditSubmit = async (entry: ManualMealInput) => {
+    if (!editItem) return;
+    try {
+      // Delete the old entry then re-add with the new values
+      await deleteMeal(editItem.id);
+      await addMeal(entry);
+      toast.success('Meal updated', entry.name);
+    } catch {
+      toast.error('Could not update meal', 'Please try again.');
     }
   };
 
@@ -239,11 +294,6 @@ export default function FoodLogScreen() {
   const cycleFlash = () => setFlash((f) => f === 'off' ? 'on' : f === 'on' ? 'auto' : 'off');
   const scanLineY = scanLineAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 220] });
 
-  const todayLabel = useMemo(
-    () => new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
-    [],
-  );
-
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <ScrollView
@@ -273,21 +323,48 @@ export default function FoodLogScreen() {
             <Ionicons name="chevron-back" size={20} color={P.text} />
           </TouchableOpacity>
 
-          <View style={{ flex: 1, marginLeft: 14 }}>
-            <Text style={[styles.eyebrow, { color: P.textFaint }]}>
-              {todayLabel.toUpperCase()}
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <Text style={[styles.eyebrow, { color: P.textFaint, marginBottom: 10 }]}>
+              FOOD LOG
             </Text>
-            <Text style={[styles.title, { color: P.text }]}>
-              Food Log<Text style={{ color: P.calories }}>.</Text>
-            </Text>
+            {/* Date pill navigator */}
+            <View style={[styles.datePill, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
+              <TouchableOpacity
+                onPress={() => navigateDate(-1)}
+                hitSlop={8}
+                activeOpacity={0.6}
+                style={styles.dateArrow}
+              >
+                <Ionicons name="chevron-back" size={16} color={P.textDim} />
+              </TouchableOpacity>
+
+              <View style={styles.dateLabelWrap}>
+                {isToday && (
+                  <View style={[styles.todayDot, { backgroundColor: P.calories }]} />
+                )}
+                <Text style={[styles.dateLabel, { color: P.text }]}>
+                  {formatNavDate(activeDate)}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => navigateDate(1)}
+                hitSlop={8}
+                activeOpacity={isToday ? 1 : 0.6}
+                disabled={isToday}
+                style={styles.dateArrow}
+              >
+                <Ionicons
+                  name="chevron-forward"
+                  size={16}
+                  color={isToday ? P.cardEdge : P.textDim}
+                />
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <TouchableOpacity
-            style={[styles.iconBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="calendar-outline" size={18} color={P.text} />
-          </TouchableOpacity>
+          {/* Spacer to balance the back button */}
+          <View style={{ width: 40 }} />
         </View>
 
         {/* ── SUMMARY CARD ─────────────────────────────────────── */}
@@ -315,7 +392,12 @@ export default function FoodLogScreen() {
             </View>
 
             <View style={[styles.summaryFoot, { borderTopColor: P.hair }]}>
-              <SummaryStat label="EATEN"     value={totalCalories.toLocaleString()} ink={P.text}     sub={P.textFaint} />
+              <SummaryStat
+                label={isToday ? 'EATEN' : 'ATE'}
+                value={totalCalories.toLocaleString()}
+                ink={P.text}
+                sub={P.textFaint}
+              />
               <View style={[styles.vDiv, { backgroundColor: P.hair }]} />
               <SummaryStat label="REMAINING" value={Math.max(0, remaining).toLocaleString()} ink={P.sage} sub={P.textFaint} />
               <View style={[styles.vDiv, { backgroundColor: P.hair }]} />
@@ -363,7 +445,6 @@ export default function FoodLogScreen() {
         <View style={{ paddingHorizontal: 20, gap: 14, marginTop: 24 }}>
           {GROUP_ORDER.map((key, idx) => {
             const items = grouped[key];
-            // Skip 'other' when empty to avoid visual noise
             if (key === 'other' && items.length === 0) return null;
             return (
               <MealGroup
@@ -374,6 +455,7 @@ export default function FoodLogScreen() {
                 delay={340 + idx * 70}
                 onDelete={handleDeleteMeal}
                 onAdd={(preset) => openManual(preset)}
+                onEdit={openEdit}
               />
             );
           })}
@@ -515,6 +597,27 @@ export default function FoodLogScreen() {
           onRetry={() => { void openPhoto(); }}
         />
       )}
+
+      {/* ── EDIT MODAL ───────────────────────────────────────── */}
+      {editItem && (
+        <ManualMealInputModal
+          visible={editVisible}
+          onClose={closeEdit}
+          onSubmit={handleEditSubmit}
+          presetLabel={groupFor(editItem.meal) === 'breakfast' ? 'breakfast'
+            : groupFor(editItem.meal) === 'lunch'    ? 'lunch'
+            : groupFor(editItem.meal) === 'dinner'   ? 'dinner'
+            : groupFor(editItem.meal) === 'snack'    ? 'snack'
+            : undefined}
+          initialValues={{
+            name:     editItem.name,
+            calories: editItem.cals,
+            protein:  editItem.protein,
+            carbs:    editItem.carbs,
+            fat:      editItem.fat,
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -640,12 +743,13 @@ const GROUP_TO_LABEL: Partial<Record<GroupKey, MealLabel>> = {
 };
 
 function MealGroup({
-  groupKey, items, P, delay, onDelete, onAdd,
+  groupKey, items, P, delay, onDelete, onAdd, onEdit,
 }: {
   groupKey: GroupKey; items: MealItem[]; P: Palette;
   delay: number;
   onDelete: (id: string) => void;
   onAdd: (preset?: MealLabel) => void;
+  onEdit: (item: MealItem) => void;
 }) {
   const meta       = GROUP_META[groupKey];
   const accent     = P[meta.accent] as string;
@@ -688,7 +792,15 @@ function MealGroup({
         items.map((item, i) => (
           <View key={item.id}>
             {i > 0 && <View style={[styles.rowDivider, { backgroundColor: P.hair }]} />}
-            <MealRow item={item} accent={accent} accentSoft={accentSoft} icon={meta.icon} P={P} onDelete={() => onDelete(item.id)} />
+            <MealRow
+              item={item}
+              accent={accent}
+              accentSoft={accentSoft}
+              icon={meta.icon}
+              P={P}
+              onDelete={() => onDelete(item.id)}
+              onEdit={() => onEdit(item)}
+            />
           </View>
         ))
       )}
@@ -700,9 +812,10 @@ function MealGroup({
 // Swipeable row
 // ───────────────────────────────────────────────────────────────────────────────
 function MealRow({
-  item, accent, accentSoft, icon, P, onDelete,
+  item, accent, accentSoft, icon, P, onDelete, onEdit,
 }: {
-  item: MealItem; accent: string; accentSoft: string; icon: IoniconsName; P: Palette; onDelete: () => void;
+  item: MealItem; accent: string; accentSoft: string; icon: IoniconsName;
+  P: Palette; onDelete: () => void; onEdit: () => void;
 }) {
   const swipeRef = useRef<Swipeable>(null);
 
@@ -745,7 +858,10 @@ function MealRow({
       rightThreshold={56}
       onSwipeableOpen={(direction) => { if (direction === 'right') handleDelete(); }}
     >
-      <View style={[styles.mealRow, { backgroundColor: P.card }]}>
+      <Pressable
+        onPress={onEdit}
+        style={({ pressed }) => [styles.mealRow, { backgroundColor: P.card }, pressed && { backgroundColor: P.sunken }]}
+      >
         <View style={[styles.thumb, { backgroundColor: accentSoft }]}>
           <Ionicons name={icon} size={16} color={accent} />
         </View>
@@ -772,7 +888,7 @@ function MealRow({
           <Text style={[styles.mealCals, { color: P.text }]}>{item.cals}</Text>
           <Text style={[styles.mealUnit, { color: P.textFaint }]}>kcal</Text>
         </View>
-      </View>
+      </Pressable>
     </Swipeable>
   );
 }
@@ -824,7 +940,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 1.8,
-    marginBottom: 4,
   },
   title: {
     fontSize: 28,
@@ -835,6 +950,45 @@ const styles = StyleSheet.create({
     width: 42, height: 42, borderRadius: 21,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  datePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    gap: 2,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    ...Platform.select({ android: { elevation: 1 } }),
+  },
+  dateArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateLabelWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    minWidth: 90,
+    justifyContent: 'center',
+  },
+  todayDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  dateLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
 
   // Summary

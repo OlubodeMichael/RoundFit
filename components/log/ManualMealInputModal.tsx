@@ -28,6 +28,14 @@ export type ManualMealInput = {
   fat?: number;
 };
 
+export type ManualMealInitialValues = {
+  name?: string;
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+};
+
 type ManualMealInputModalProps = {
   visible: boolean;
   onClose: () => void;
@@ -39,6 +47,8 @@ type ManualMealInputModalProps = {
    * have to pick the label again.
    */
   presetLabel?: MealLabel;
+  /** Pre-fills all fields — used when editing an existing entry. */
+  initialValues?: ManualMealInitialValues;
 };
 
 const LABELS: { id: MealLabel; title: string }[] = [
@@ -68,6 +78,7 @@ export function ManualMealInputModal({
   onClose,
   onSubmit,
   presetLabel,
+  initialValues,
 }: ManualMealInputModalProps) {
   const { isDark } = useTheme();
   const [name, setName] = useState("");
@@ -78,16 +89,30 @@ export function ManualMealInputModal({
   const [carbs, setCarbs] = useState("");
   const [fat, setFat] = useState("");
 
+  const isEditing = !!initialValues;
+
   useEffect(() => {
     if (!visible) return;
-    setName("");
-    setLabel(presetLabel ?? "breakfast");
-    setCalories("");
-    setShowMacros(false);
-    setProtein("");
-    setCarbs("");
-    setFat("");
-  }, [visible, presetLabel]);
+    if (initialValues) {
+      setName(initialValues.name ?? "");
+      setLabel(presetLabel ?? "breakfast");
+      setCalories(initialValues.calories != null ? String(initialValues.calories) : "");
+      setProtein(initialValues.protein  != null ? String(initialValues.protein)  : "");
+      setCarbs(  initialValues.carbs    != null ? String(initialValues.carbs)    : "");
+      setFat(    initialValues.fat      != null ? String(initialValues.fat)      : "");
+      setShowMacros(
+        initialValues.protein != null || initialValues.carbs != null || initialValues.fat != null,
+      );
+    } else {
+      setName("");
+      setLabel(presetLabel ?? "breakfast");
+      setCalories("");
+      setShowMacros(false);
+      setProtein("");
+      setCarbs("");
+      setFat("");
+    }
+  }, [visible, presetLabel, initialValues]);
 
   const bg = isDark ? "#121212" : "#FFFFFF";
   const hi = isDark ? "#FFFFFF" : "#111111";
@@ -121,7 +146,7 @@ export function ManualMealInputModal({
     <AppModal
       visible={visible}
       onClose={onClose}
-      title="Manual Entry"
+      title={isEditing ? "Edit Entry" : "Manual Entry"}
       sheetHeight="full"
     >
       <ScrollView
@@ -297,7 +322,7 @@ export function ManualMealInputModal({
           <Text style={[s.secondaryText, { color: hi }]}>Cancel</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.primaryBtn} onPress={submit}>
-          <Text style={s.primaryText}>Add meal</Text>
+          <Text style={s.primaryText}>{isEditing ? 'Save changes' : 'Add meal'}</Text>
         </TouchableOpacity>
       </View>
     </AppModal>

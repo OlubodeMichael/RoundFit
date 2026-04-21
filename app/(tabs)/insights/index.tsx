@@ -1,74 +1,586 @@
-import { ScrollView, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useMemo } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useTheme } from '@/hooks/use-theme';
+import type { ComponentProps } from 'react';
 
-const O = '#F97316';
+import { AnimatedCard, usePalette } from '@/lib/log-theme';
+import { useProfile } from '@/hooks/use-profile';
+
+type IoniconName = ComponentProps<typeof Ionicons>['name'];
+
+// ─── Dummy data ─────────────────────────────────────────────────────────────
+// Today's AI-powered insight, plus a chronological tail of past insights.
+// Wire to `insights-context` and Claude fallback chain once available.
+type Tint = 'protein' | 'carbs' | 'fat' | 'water' | 'sleep' | 'workout' | 'calories';
+
+type Insight = {
+  id:       string;
+  date:     string;
+  dateLong: string;
+  tag:      string;
+  tint:     Tint;
+  icon:     IoniconName;
+  title:    string;
+  body:     string;
+  source:   'ai' | 'rule';
+};
+
+const TODAY: Insight = {
+  id:       '2026-04-18',
+  date:     'Today',
+  dateLong: 'Saturday, April 18',
+  tag:      'Protein rhythm',
+  tint:     'protein',
+  icon:     'flash',
+  title:    'Afternoon protein dip',
+  body:
+    'Your protein intake drops 34% between 2–5 PM on weekdays. A Greek yogurt or a handful of almonds keeps dinner cravings steadier and helps you land inside your macro window.',
+  source:   'ai',
+};
+
+const PAST: Insight[] = [
+  {
+    id:       '2026-04-17',
+    date:     'Yesterday',
+    dateLong: 'Friday, April 17',
+    tag:      'Sleep recovery',
+    tint:     'sleep',
+    icon:     'moon',
+    title:    'Short sleep, soft training',
+    body:     'You slept 5h 42m. On nights under 6h your average step count falls 22% — keep tomorrow gentle.',
+    source:   'ai',
+  },
+  {
+    id:       '2026-04-16',
+    date:     'Thu',
+    dateLong: 'Thursday, April 16',
+    tag:      'Hydration',
+    tint:     'water',
+    icon:     'water',
+    title:    'Hydration stayed flat',
+    body:     'Only 4 glasses logged three days running. Setting a lunchtime refill ritual closed this gap for 68% of users.',
+    source:   'rule',
+  },
+  {
+    id:       '2026-04-15',
+    date:     'Wed',
+    dateLong: 'Wednesday, April 15',
+    tag:      'Consistency',
+    tint:     'calories',
+    icon:     'trending-up',
+    title:    '3 days in a row on target',
+    body:     'You stayed inside your calorie band Mon–Wed. That\'s your longest streak in two weeks — great tempo.',
+    source:   'ai',
+  },
+  {
+    id:       '2026-04-14',
+    date:     'Tue',
+    dateLong: 'Tuesday, April 14',
+    tag:      'Cycle phase',
+    tint:     'fat',
+    icon:     'leaf',
+    title:    'Follicular energy window',
+    body:     'You\'re entering your follicular phase. Expect a natural lift — a good moment to push intensity +10%.',
+    source:   'rule',
+  },
+  {
+    id:       '2026-04-13',
+    date:     'Mon',
+    dateLong: 'Monday, April 13',
+    tag:      'Recovery',
+    tint:     'workout',
+    icon:     'fitness',
+    title:    'Recovery beats PR',
+    body:     'After Sunday\'s long run, an active-rest day lifted next-day step count by 14% on average.',
+    source:   'ai',
+  },
+];
+
+const FEMALE_ONLY_TAGS = ['Cycle phase', 'Menstrual', 'Ovulation', 'Follicular', 'Luteal'];
 
 export default function InsightsScreen() {
-  const { isDark } = useTheme();
+  const P      = usePalette();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { profile } = useProfile();
 
-  const bg      = isDark ? '#0C0C0C' : '#F7F7F5';
-  const surface = isDark ? '#161616' : '#FFFFFF';
-  const hi      = isDark ? '#FFFFFF' : '#0C0C0C';
-  const mid     = isDark ? '#888'    : '#888';
-  const lo      = isDark ? '#2A2A2A' : '#F0EDE8';
+  const isFemale = profile?.sex === 'female';
+  const visiblePast = useMemo(
+    () => isFemale ? PAST : PAST.filter(i => !FEMALE_ONLY_TAGS.includes(i.tag)),
+    [isFemale],
+  );
+
+  const longDate = useMemo(
+    () =>
+      new Date().toLocaleDateString(undefined, {
+        weekday: 'long',
+        month:   'long',
+        day:     'numeric',
+      }),
+    [],
+  );
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: bg }}
-      contentContainerStyle={{
-        paddingTop: insets.top + 8,
-        paddingBottom: insets.bottom + 48,
-        paddingHorizontal: 20,
-        gap: 20,
-      }}
-      showsVerticalScrollIndicator={false}
-    >
-      <View>
-        <Text style={[s.eyebrow, { color: mid }]}>Today</Text>
-        <Text style={[s.pageTitle, { color: hi }]}>Insights</Text>
-      </View>
-
-      <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
-        <Text style={[s.cardTitle, { color: hi }]}>Today&apos;s insight</Text>
-        <Text style={[s.cardSub, { color: mid }]}>
-          Personalised insight card will appear here once data is wired up.
-        </Text>
-      </View>
-
-      <TouchableOpacity
-        style={[s.weeklyBtn, { backgroundColor: O }]}
-        onPress={() => router.push('/(tabs)/insights/weekly')}
-        activeOpacity={0.85}
+    <View style={{ flex: 1, backgroundColor: P.bg }}>
+      <ScrollView
+        contentContainerStyle={{
+          paddingTop:    insets.top + 12,
+          paddingBottom: insets.bottom + 48,
+        }}
+        showsVerticalScrollIndicator={false}
       >
-        <Ionicons name="calendar-outline" size={18} color="#FFF" />
-        <Text style={s.weeklyBtnLabel}>View weekly report</Text>
-      </TouchableOpacity>
+        {/* ── Header ──────────────────────────────────────────── */}
+        <View style={styles.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.eyebrow, { color: P.textFaint }]}>
+              {longDate.toUpperCase()}
+            </Text>
+            <Text style={[styles.title, { color: P.text }]}>
+              Insights<Text style={{ color: P.fat }}>.</Text>
+            </Text>
+          </View>
+          <Pressable
+            hitSlop={10}
+            style={[styles.iconBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
+          >
+            <Ionicons name="sparkles" size={16} color={P.fat} />
+          </Pressable>
+        </View>
 
-      <Text style={[s.sectionTitle, { color: hi }]}>Past insights</Text>
-      <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
-        <Text style={[s.cardSub, { color: mid }]}>No past insights yet. Check back tomorrow.</Text>
-      </View>
-    </ScrollView>
+        <View style={styles.stack}>
+          {/* ── Hero AI insight ───────────────────────────────── */}
+          <HeroInsightCard insight={TODAY} delay={60} />
+
+          {/* ── Weekly report CTA ─────────────────────────────── */}
+          <WeeklyReportCard
+            onPress={() => router.push('/(tabs)/insights/weekly')}
+            delay={140}
+          />
+
+          {/* ── Past insights header ──────────────────────────── */}
+          <View style={styles.sectionHead}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[styles.sectionTitle, { color: P.text }]}>Past insights</Text>
+              <Text style={[styles.sectionCaption, { color: P.textFaint }]}>
+                {visiblePast.length} earlier reflections
+              </Text>
+            </View>
+          </View>
+
+          {/* ── Past insights list ────────────────────────────── */}
+          {visiblePast.map((i, idx) => (
+            <PastInsightCard key={i.id} insight={i} delay={220 + idx * 50} />
+          ))}
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
-const s = StyleSheet.create({
-  eyebrow:   { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.2 },
-  pageTitle: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5, marginTop: 3 },
-  sectionTitle: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
+// ─── Hero AI insight card ──────────────────────────────────────────────────
+function HeroInsightCard({ insight, delay }: { insight: Insight; delay: number }) {
+  const P     = usePalette();
+  const tint  = P[insight.tint];
+  const soft  = P[`${insight.tint}Soft` as keyof ReturnType<typeof usePalette>] as string;
 
-  card:      { borderRadius: 18, padding: 18, borderWidth: 1, gap: 8 },
-  cardTitle: { fontSize: 15, fontWeight: '700' },
-  cardSub:   { fontSize: 13, lineHeight: 19 },
+  return (
+    <AnimatedCard delay={delay} style={{ overflow: 'hidden' }}>
+      {/* ambient glow */}
+      <View
+        pointerEvents="none"
+        style={[
+          styles.glow,
+          {
+            backgroundColor: soft,
+            width: 260, height: 260, borderRadius: 130,
+            top: -80, right: -80,
+          },
+        ]}
+      />
 
-  weeklyBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, paddingVertical: 14, borderRadius: 14,
+      <View style={styles.heroHead}>
+        <View style={[styles.iconTile, { backgroundColor: P.fatSoft }]}>
+          <Ionicons name="sparkles" size={16} color={P.fat} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={[styles.heroEyebrow, { color: P.fat }]}>TODAY'S INSIGHT</Text>
+          <Text style={[styles.heroMeta, { color: P.textFaint }]}>
+            {insight.dateLong}
+          </Text>
+        </View>
+        {insight.source === 'ai' && (
+          <View style={[styles.aiBadge, { backgroundColor: P.fatSoft }]}>
+            <Ionicons name="flash" size={10} color={P.fat} />
+            <Text style={[styles.aiBadgeText, { color: P.fat }]}>AI</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={[styles.tagPill, { backgroundColor: soft }]}>
+        <Ionicons name={insight.icon} size={10} color={tint} />
+        <Text style={[styles.tagPillText, { color: tint }]}>{insight.tag.toUpperCase()}</Text>
+      </View>
+
+      <Text style={[styles.heroTitle, { color: P.text }]}>{insight.title}</Text>
+      <Text style={[styles.heroBody, { color: P.textDim }]}>{insight.body}</Text>
+
+      <View style={[styles.heroFoot, { borderTopColor: P.hair }]}>
+        <Pressable style={({ pressed }) => [styles.footBtn, pressed && { opacity: 0.6 }]} hitSlop={8}>
+          <Ionicons name="thumbs-up-outline" size={14} color={P.textDim} />
+          <Text style={[styles.footBtnText, { color: P.textDim }]}>Helpful</Text>
+        </Pressable>
+        <View style={[styles.footDivider, { backgroundColor: P.hair }]} />
+        <Pressable style={({ pressed }) => [styles.footBtn, pressed && { opacity: 0.6 }]} hitSlop={8}>
+          <Ionicons name="eye-off-outline" size={14} color={P.textDim} />
+          <Text style={[styles.footBtnText, { color: P.textDim }]}>Dismiss</Text>
+        </Pressable>
+        <View style={[styles.footDivider, { backgroundColor: P.hair }]} />
+        <Pressable style={({ pressed }) => [styles.footBtn, pressed && { opacity: 0.6 }]} hitSlop={8}>
+          <Ionicons name="share-outline" size={14} color={P.textDim} />
+          <Text style={[styles.footBtnText, { color: P.textDim }]}>Share</Text>
+        </Pressable>
+      </View>
+    </AnimatedCard>
+  );
+}
+
+// ─── Weekly report promo card ──────────────────────────────────────────────
+function WeeklyReportCard({ onPress, delay }: { onPress: () => void; delay: number }) {
+  const P = usePalette();
+
+  return (
+    <AnimatedCard delay={delay} padding={0} style={{ overflow: 'hidden' }}>
+      <Pressable onPress={onPress} style={({ pressed }) => [
+        styles.weeklyWrap,
+        { backgroundColor: P.calories },
+        pressed && { opacity: 0.92 },
+      ]}>
+        <View pointerEvents="none" style={[styles.weeklyGlow, { backgroundColor: 'rgba(255,255,255,0.12)' }]} />
+
+        <View style={[styles.premiumPill, { backgroundColor: 'rgba(255,255,255,0.16)' }]}>
+          <Ionicons name="diamond" size={10} color="#fff" />
+          <Text style={styles.premiumPillText}>PREMIUM</Text>
+        </View>
+
+        <Text style={styles.weeklyTitle}>Weekly report</Text>
+        <Text style={styles.weeklySub}>
+          Consistency score, averages, top pattern, and a fresh Claude recommendation — refreshed every Sunday.
+        </Text>
+
+        <View style={styles.weeklyFoot}>
+          <View style={styles.weeklyRowItem}>
+            <Ionicons name="stats-chart" size={12} color="rgba(255,255,255,0.9)" />
+            <Text style={styles.weeklyFootLabel}>7 days</Text>
+          </View>
+          <View style={styles.weeklyRowItem}>
+            <Ionicons name="trending-up" size={12} color="rgba(255,255,255,0.9)" />
+            <Text style={styles.weeklyFootLabel}>1 pattern</Text>
+          </View>
+          <View style={[styles.weeklyCta, { backgroundColor: '#fff' }]}>
+            <Text style={[styles.weeklyCtaText, { color: P.calories }]}>Open</Text>
+            <Ionicons name="arrow-forward" size={13} color={P.calories} />
+          </View>
+        </View>
+      </Pressable>
+    </AnimatedCard>
+  );
+}
+
+// ─── Past insight row card ─────────────────────────────────────────────────
+function PastInsightCard({ insight, delay }: { insight: Insight; delay: number }) {
+  const P    = usePalette();
+  const tint = P[insight.tint];
+  const soft = P[`${insight.tint}Soft` as keyof ReturnType<typeof usePalette>] as string;
+
+  return (
+    <AnimatedCard delay={delay} padding={18}>
+      <View style={styles.pastHead}>
+        <View style={[styles.pastIcon, { backgroundColor: soft }]}>
+          <Ionicons name={insight.icon} size={16} color={tint} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <View style={styles.pastTopRow}>
+            <Text style={[styles.pastTag, { color: tint }]}>{insight.tag.toUpperCase()}</Text>
+            {insight.source === 'ai' && (
+              <View style={[styles.miniAi, { backgroundColor: P.fatSoft }]}>
+                <Ionicons name="sparkles" size={8} color={P.fat} />
+                <Text style={[styles.miniAiText, { color: P.fat }]}>AI</Text>
+              </View>
+            )}
+          </View>
+          <Text style={[styles.pastDate, { color: P.textFaint }]}>{insight.date}</Text>
+        </View>
+      </View>
+
+      <Text style={[styles.pastTitle, { color: P.text }]}>{insight.title}</Text>
+      <Text style={[styles.pastBody, { color: P.textDim }]} numberOfLines={2}>
+        {insight.body}
+      </Text>
+    </AnimatedCard>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    paddingHorizontal: 20,
+    paddingTop:        4,
+    paddingBottom:     18,
+    gap:               12,
   },
-  weeklyBtnLabel: { color: '#FFF', fontSize: 14, fontWeight: '800' },
+  eyebrow: {
+    fontSize:      10,
+    fontWeight:    '700',
+    letterSpacing: 1.8,
+    marginBottom:  4,
+  },
+  title: {
+    fontSize:      30,
+    fontWeight:    '800',
+    letterSpacing: -0.8,
+  },
+  iconBtn: {
+    width: 42, height: 42, borderRadius: 21,
+    alignItems:     'center',
+    justifyContent: 'center',
+    borderWidth:    StyleSheet.hairlineWidth,
+  },
+
+  stack: {
+    paddingHorizontal: 20,
+    gap:               14,
+  },
+
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems:    'flex-end',
+    marginTop:     12,
+    marginBottom:  -2,
+  },
+  sectionTitle: {
+    fontSize:      16,
+    fontWeight:    '800',
+    letterSpacing: -0.4,
+  },
+  sectionCaption: {
+    fontSize:   11,
+    fontWeight: '500',
+  },
+
+  // ─── Hero ──
+  glow: { position: 'absolute' },
+  heroHead: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           12,
+    marginBottom:  14,
+  },
+  iconTile: {
+    width: 36, height: 36, borderRadius: 12,
+    alignItems:     'center',
+    justifyContent: 'center',
+  },
+  heroEyebrow: {
+    fontSize:      10,
+    fontWeight:    '800',
+    letterSpacing: 1.8,
+  },
+  heroMeta: {
+    fontSize:   11,
+    fontWeight: '500',
+  },
+  aiBadge: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               4,
+    paddingHorizontal: 8,
+    paddingVertical:   4,
+    borderRadius:      8,
+  },
+  aiBadgeText: {
+    fontSize:      9,
+    fontWeight:    '800',
+    letterSpacing: 0.6,
+  },
+  tagPill: {
+    alignSelf:         'flex-start',
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               5,
+    paddingHorizontal: 8,
+    paddingVertical:   4,
+    borderRadius:      8,
+    marginBottom:      10,
+  },
+  tagPillText: {
+    fontSize:      9,
+    fontWeight:    '800',
+    letterSpacing: 1.0,
+  },
+  heroTitle: {
+    fontSize:      22,
+    fontWeight:    '800',
+    letterSpacing: -0.6,
+    marginBottom:  10,
+  },
+  heroBody: {
+    fontSize:      14,
+    fontWeight:    '500',
+    lineHeight:    22,
+    letterSpacing: -0.1,
+  },
+  heroFoot: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    marginTop:      18,
+    paddingTop:     14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  footBtn: {
+    flex:           1,
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'center',
+    gap:            6,
+    paddingVertical:6,
+  },
+  footBtnText: {
+    fontSize:   11,
+    fontWeight: '700',
+  },
+  footDivider: { width: StyleSheet.hairlineWidth, height: 16 },
+
+  // ─── Weekly report ──
+  weeklyWrap: {
+    padding:   22,
+    overflow:  'hidden',
+    position:  'relative',
+  },
+  weeklyGlow: {
+    position:     'absolute',
+    top:          -60,
+    right:        -60,
+    width:        220,
+    height:       220,
+    borderRadius: 110,
+  },
+  premiumPill: {
+    alignSelf:         'flex-start',
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               5,
+    paddingHorizontal: 8,
+    paddingVertical:   4,
+    borderRadius:      8,
+    marginBottom:      12,
+  },
+  premiumPillText: {
+    color:         '#fff',
+    fontSize:      9,
+    fontWeight:    '800',
+    letterSpacing: 1.2,
+  },
+  weeklyTitle: {
+    fontSize:      22,
+    fontWeight:    '800',
+    letterSpacing: -0.6,
+    color:         '#fff',
+    marginBottom:  6,
+  },
+  weeklySub: {
+    fontSize:      13,
+    fontWeight:    '500',
+    lineHeight:    19,
+    color:         'rgba(255,255,255,0.85)',
+    marginBottom:  16,
+  },
+  weeklyFoot: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           14,
+  },
+  weeklyRowItem: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           5,
+  },
+  weeklyFootLabel: {
+    fontSize:      11,
+    fontWeight:    '700',
+    color:         'rgba(255,255,255,0.9)',
+  },
+  weeklyCta: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               5,
+    paddingHorizontal: 12,
+    paddingVertical:   7,
+    borderRadius:      10,
+    marginLeft:        'auto',
+  },
+  weeklyCtaText: {
+    fontSize:   12,
+    fontWeight: '800',
+  },
+
+  // ─── Past list ──
+  pastHead: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           12,
+    marginBottom:  10,
+  },
+  pastIcon: {
+    width: 36, height: 36, borderRadius: 12,
+    alignItems:     'center',
+    justifyContent: 'center',
+  },
+  pastTopRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           8,
+  },
+  pastTag: {
+    fontSize:      9,
+    fontWeight:    '800',
+    letterSpacing: 1.0,
+  },
+  miniAi: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               3,
+    paddingHorizontal: 5,
+    paddingVertical:   2,
+    borderRadius:      6,
+  },
+  miniAiText: {
+    fontSize:      8,
+    fontWeight:    '800',
+    letterSpacing: 0.4,
+  },
+  pastDate: {
+    fontSize:   11,
+    fontWeight: '500',
+  },
+  pastTitle: {
+    fontSize:      15,
+    fontWeight:    '700',
+    letterSpacing: -0.3,
+    marginBottom:  4,
+  },
+  pastBody: {
+    fontSize:      13,
+    fontWeight:    '500',
+    lineHeight:    19,
+    letterSpacing: -0.1,
+  },
 });

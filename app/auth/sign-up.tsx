@@ -9,28 +9,12 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/hooks/use-auth';
 import type { UserProfile, AuthError } from '@/context/auth-context';
-
-// ── Onboarding ID → API value maps ─────────────────────────────────────────
-
-function mapGoal(raw: string): UserProfile['goal'] {
-  const map: Record<string, UserProfile['goal']> = {
-    lose:     'lose_weight',
-    muscle:   'build_muscle',
-    energy:   'boost_energy',
-    maintain: 'maintain',
-  };
-  return map[raw] ?? 'maintain';
-}
-
-function mapActivity(raw: string): UserProfile['activityLevel'] {
-  const map: Record<string, UserProfile['activityLevel']> = {
-    sedentary: 'sedentary',
-    light:     'lightly_active',
-    moderate:  'moderately_active',
-    very:      'very_active',
-  };
-  return map[raw] ?? 'lightly_active';
-}
+import {
+  mapOnboardingActivity,
+  mapOnboardingGoal,
+  mapOnboardingSex,
+  mapOnboardingUnit,
+} from '@/utils/onboarding-mapping';
 
 const ERROR_LABELS: Record<AuthError, string> = {
   EMAIL_IN_USE:        'An account with this email already exists.',
@@ -103,12 +87,12 @@ export default function SignUpScreen() {
     const profile: Omit<UserProfile, 'id' | 'email' | 'createdAt' | 'tdee' | 'calorieBudget'> = {
       name:          params.name   ?? '',
       age:           params.age    ? Number(params.age)    : 0,
-      sex:           (params.sex   === 'female' ? 'female' : 'male') as UserProfile['sex'],
+      sex:           mapOnboardingSex(params.sex),
       heightCm:      params.height ? Number(params.height) : 0,
       weightKg:      params.weight ? Number(params.weight) : 0,
-      goal:          mapGoal(params.goal ?? ''),
-      activityLevel: mapActivity(params.activity ?? ''),
-      unit:          (params.unit === 'imperial' ? 'imperial' : 'metric') as UserProfile['unit'],
+      goal:          mapOnboardingGoal(params.goal),
+      activityLevel: mapOnboardingActivity(params.activity),
+      unit:          mapOnboardingUnit(params.unit),
     };
 
     await signUp(email.trim(), password, profile);

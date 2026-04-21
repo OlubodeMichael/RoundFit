@@ -1,6 +1,7 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useMemo, useState,
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
 import type { ManualMealInput } from '@/components/log/ManualMealInputModal';
 
@@ -24,7 +25,7 @@ export interface MealItem {
 }
 
 export interface FoodContextValue {
-  /** All meals logged for today. */
+  /** All meals logged for the active date. */
   meals: MealItem[];
 
   /** Daily calorie goal. */
@@ -35,6 +36,18 @@ export interface FoodContextValue {
 
   /** Calories remaining until the daily goal is reached. */
   remaining: number;
+
+  /** Total protein consumed across all meals (grams). */
+  totalProtein: number;
+
+  /** Total carbs consumed across all meals (grams). */
+  totalCarbs: number;
+
+  /** Total fat consumed across all meals (grams). */
+  totalFat: number;
+
+  /** The date currently being viewed (YYYY-MM-DD). */
+  activeDate: string;
 
   /** True while the initial log fetch is in-flight. */
   isLoading: boolean;
@@ -51,12 +64,16 @@ export interface FoodContextValue {
   /** Removes a meal — hits DELETE /food/log/:id. */
   deleteMeal: (id: string) => Promise<void>;
 
-  /** Re-fetches today's log from the server. */
-  refreshLogs: () => Promise<void>;
+  /** Re-fetches logs for the given date (defaults to today). Changes activeDate when a date is passed. */
+  refreshLogs: (date?: string) => Promise<void>;
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────
 
+/**
+ * Same behaviour as auth `apiFetch`: cookies + timeout, and one retry on 401
+ * after POST /auth/refresh so cold-start GETs succeed when the session rotates.
+ */
 async function foodFetch(
   path: string,
   options: RequestInit = {},
@@ -67,15 +84,48 @@ async function foodFetch(
   };
   const controller = new AbortController();
   const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
+
+  const run = (signal: AbortSignal) =>
+    fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+      credentials: 'include',
+      signal,
     });
+
+  try {
+    const res = await run(controller.signal);
+
+    if (res.status === 401) {
+      const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        signal: controller.signal,
+      });
+      if (refreshRes.ok) {
+        const retryRes = await run(controller.signal);
+        const retryBody = await retryRes.json().catch(() => ({}));
+        return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
+      }
+    }
+
     const body = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, body };
   } finally {
     clearTimeout(timer);
   }
+}
+
+function foodLogRowsFromResponse(body: Record<string, unknown>): Record<string, unknown>[] {
+  const d = body.data;
+  if (Array.isArray(d)) return d as Record<string, unknown>[];
+  if (d && typeof d === 'object') {
+    const o = d as Record<string, unknown>;
+    const nested = o.logs ?? o.items ?? o.meals;
+    if (Array.isArray(nested)) return nested as Record<string, unknown>[];
+  }
+  if (Array.isArray(body.logs)) return body.logs as Record<string, unknown>[];
+  return [];
 }
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
@@ -98,15 +148,18 @@ function prettifyMealLabel(raw: string): string {
 }
 
 function fromApiLog(row: Record<string, unknown>): MealItem {
-  const createdAt = typeof row.created_at === 'string' ? new Date(row.created_at) : new Date();
-  const time      = createdAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const raw = row.logged_at ?? row.created_at;
+  const loggedAt = typeof raw === 'string' && raw ? new Date(raw) : null;
+  const time = loggedAt
+    ? loggedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : '—';
 
   // Prefer an explicit label from the server; fall back to a time-based guess.
   const rawLabel =
     typeof row.meal_label === 'string' ? row.meal_label :
     typeof row.meal       === 'string' ? row.meal       :
     null;
-  const meal = rawLabel ? prettifyMealLabel(rawLabel) : deriveMealLabel(createdAt);
+  const meal = rawLabel ? prettifyMealLabel(rawLabel) : deriveMealLabel(loggedAt ?? new Date());
 
   // meal_name may be a JS array, a JSON array string, or a plain string
   const rawName = row.meal_name;
@@ -142,7 +195,10 @@ function fromApiLog(row: Record<string, unknown>): MealItem {
 }
 
 function todayDateString(): string {
-  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
 function titleMealLabel(value: ManualMealInput['label']): string {
@@ -167,8 +223,10 @@ const FoodContext = createContext<FoodContextValue | null>(null);
 export function FoodProvider({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
 
-  const [meals,     setMeals]     = useState<MealItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [meals,      setMeals]      = useState<MealItem[]>([]);
+  const [isLoading,  setIsLoading]  = useState(true);
+  const [activeDate, setActiveDate] = useState(todayDateString);
+  const appStateRef = useRef(AppState.currentState);
 
   // Meal goal tracks the current user's calorie budget. Falls back to TDEE,
   // then to the app-wide default when we haven't loaded a profile yet.
@@ -177,19 +235,38 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     return user.calorieBudget ?? user.tdee ?? DEFAULT_MEAL_GOAL;
   }, [user]);
 
-  const totalCalories = useMemo(() => meals.reduce((sum, m) => sum + m.cals, 0), [meals]);
+  const totalCalories = useMemo(() => meals.reduce((sum, m) => sum + m.cals,              0), [meals]);
+  const totalProtein  = useMemo(() => meals.reduce((sum, m) => sum + (m.protein ?? 0),    0), [meals]);
+  const totalCarbs    = useMemo(() => meals.reduce((sum, m) => sum + (m.carbs   ?? 0),    0), [meals]);
+  const totalFat      = useMemo(() => meals.reduce((sum, m) => sum + (m.fat     ?? 0),    0), [meals]);
   const remaining     = mealGoal - totalCalories;
 
-  // ── Fetch today's logs ──────────────────────────────────────────────────
-  // We refetch whenever the auth state resolves or the signed-in user
-  // changes so every account sees its own data and nothing leaks across
-  // sign-in boundaries.
-  const fetchLogs = useCallback(async () => {
-    const { ok, body } = await foodFetch(`/food/logs?date=${todayDateString()}`);
+  // ── Fetch logs for a given date ─────────────────────────────────────────
+  const fetchLogs = useCallback(async (date: string) => {
+    const { ok, body } = await foodFetch(`/food/logs?date=${encodeURIComponent(date)}`);
     if (!ok) return;
-    const rows = Array.isArray(body.data) ? body.data as Record<string, unknown>[] : [];
+    const rows = foodLogRowsFromResponse(body);
     setMeals(rows.map(fromApiLog));
   }, []);
+
+  // ── Reset to today when app returns to foreground on a new day ──────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (prev.match(/inactive|background/) && next === 'active') {
+        const today = todayDateString();
+        setActiveDate((cur) => {
+          if (cur !== today) {
+            void fetchLogs(today);
+            return today;
+          }
+          return cur;
+        });
+      }
+    });
+    return () => sub.remove();
+  }, [fetchLogs]);
 
   useEffect(() => {
     // Wait for the auth layer to settle before deciding what to fetch.
@@ -205,13 +282,15 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     // Authenticated → clear whatever we had and pull today's logs for this
     // user. `user?.id` in the dep array guarantees we refetch after account
     // switches too.
+    const today = todayDateString();
     let cancelled = false;
     setIsLoading(true);
     setMeals([]);
+    setActiveDate(today);
 
     (async () => {
       try {
-        await fetchLogs();
+        await fetchLogs(today);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -246,6 +325,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
         protein:    entry.protein,
         carbs:      entry.carbs,
         fat:        entry.fat,
+        log_date:   todayDateString(),
       }),
     });
 
@@ -264,7 +344,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const analyzePhoto = useCallback(async (base64Image: string): Promise<MealItem | null> => {
     const { ok, body } = await foodFetch('/food/photo', {
       method: 'POST',
-      body:   JSON.stringify({ base64Image }),
+      body:   JSON.stringify({ base64Image, log_date: todayDateString() }),
     });
     if (!ok || !body.data) return null;
     const item = fromApiLog(body.data as Record<string, unknown>);
@@ -281,7 +361,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const logBarcode = useCallback(async (barcode: string) => {
     const { ok, body } = await foodFetch('/food/barcode', {
       method: 'POST',
-      body:   JSON.stringify({ barcode }),
+      body:   JSON.stringify({ barcode, log_date: todayDateString() }),
     });
     if (!ok || !body.data) {
       throw new Error('Failed to look up barcode');
@@ -302,13 +382,16 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   }, [meals]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
-  const refreshLogs = useCallback(async () => {
-    await fetchLogs();
-  }, [fetchLogs]);
+  const refreshLogs = useCallback(async (date?: string) => {
+    const target = date ?? activeDate;
+    if (date && date !== activeDate) setActiveDate(date);
+    await fetchLogs(target);
+  }, [activeDate, fetchLogs]);
 
   return (
     <FoodContext.Provider value={{
-      meals, mealGoal, totalCalories, remaining, isLoading,
+      meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
+      remaining, activeDate, isLoading,
       addMeal, analyzePhoto, logBarcode, deleteMeal, refreshLogs,
     }}>
       {children}

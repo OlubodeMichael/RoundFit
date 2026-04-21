@@ -5,25 +5,18 @@ import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
-
-// Lazy-loaded — NitroModules crash Expo Go at import time.
-// We require() inside the handler so the screen always renders.
-const READ_TYPES = [
-  'HKQuantityTypeIdentifierStepCount',
-  'HKQuantityTypeIdentifierActiveEnergyBurned',
-  'HKQuantityTypeIdentifierBodyMass',
-  'HKQuantityTypeIdentifierHeight',
-  'HKWorkoutTypeIdentifier',
-] as const;
-
+import { useHealth } from '@/hooks/use-health';
+import { HEALTHKIT_READ_IDENTIFIERS } from '@/utils/healthkit';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 const PERMISSIONS: { icon: IoniconsName; label: string; desc: string }[] = [
-  { icon: 'footsteps-outline',  label: 'Steps & movement',   desc: 'Daily steps, distance walked' },
-  { icon: 'flame-outline',      label: 'Active calories',    desc: 'Calories burned during activity' },
-  { icon: 'barbell-outline',    label: 'Workouts',           desc: 'Exercise sessions & duration' },
-  { icon: 'scale-outline',      label: 'Body weight',        desc: 'Weight entries & BMI trends' },
+  { icon: 'footsteps-outline', label: 'Steps & movement',  desc: 'Daily steps, distance walked' },
+  { icon: 'flame-outline',     label: 'Calories & effort', desc: 'Active & resting calories, exercise minutes' },
+  { icon: 'heart-outline',     label: 'Heart & recovery',  desc: 'Resting heart rate, HRV, VO2 max' },
+  { icon: 'moon-outline',      label: 'Sleep',             desc: 'Stages, efficiency, time in bed' },
+  { icon: 'barbell-outline',   label: 'Workouts',          desc: 'Exercise sessions & duration' },
+  { icon: 'scale-outline',     label: 'Body weight',       desc: 'Weight entries & BMI trends' },
 ];
 
 export default function HealthConnectScreen() {
@@ -34,24 +27,27 @@ export default function HealthConnectScreen() {
     goal: string; activity: string; unit: string;
   }>();
   const insets = useSafeAreaInsets();
-
-  const bg   = '#FAFAF8';
-  const hi   = '#111111';
-  const mid  = '#888';
-  const lo   = '#E8E3DC';
-  const surf = '#FFFFFF';
-  const isExpoGo = Constants.executionEnvironment === 'storeClient';
+  const { syncFromDevice } = useHealth();
 
   // ── Entrance animations ───────────────────────────────────────────────────
-  const fade    = useRef(new Animated.Value(0)).current;
-  const slideY  = useRef(new Animated.Value(24)).current;
-  const iconScale = useRef(new Animated.Value(0.72)).current;
-  const iconFade  = useRef(new Animated.Value(0)).current;
-  const rowFades  = PERMISSIONS.map(() => useRef(new Animated.Value(0)).current); // eslint-disable-line react-hooks/rules-of-hooks
-  const rowYs     = PERMISSIONS.map(() => useRef(new Animated.Value(18)).current); // eslint-disable-line react-hooks/rules-of-hooks
+  const fade       = useRef(new Animated.Value(0)).current;
+  const slideY     = useRef(new Animated.Value(24)).current;
+  const iconScale  = useRef(new Animated.Value(0.72)).current;
+  const iconFade   = useRef(new Animated.Value(0)).current;
   const bottomFade = useRef(new Animated.Value(0)).current;
+  const rowAnims   = useRef(
+    PERMISSIONS.map(() => ({ fade: new Animated.Value(0), y: new Animated.Value(18) })),
+  ).current;
+
+  // Android has no health integration — skip this screen immediately
+  useEffect(() => {
+    if (Platform.OS !== 'ios') {
+      router.replace({ pathname: '/onboarding/reveal', params });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (Platform.OS !== 'ios') return;
     // Headline
     Animated.parallel([
       Animated.timing(fade,   { toValue: 1, duration: 480, useNativeDriver: true }),
@@ -65,16 +61,25 @@ export default function HealthConnectScreen() {
     ]).start();
 
     // Permission rows stagger in
-    rowFades.forEach((f, i) => {
+    rowAnims.forEach((a, i) => {
       Animated.parallel([
-        Animated.timing(f,        { toValue: 1, duration: 360, delay: 300 + i * 80, useNativeDriver: true }),
-        Animated.timing(rowYs[i], { toValue: 0, duration: 320, delay: 300 + i * 80, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(a.fade, { toValue: 1, duration: 360, delay: 300 + i * 80, useNativeDriver: true }),
+        Animated.timing(a.y,    { toValue: 0, duration: 320, delay: 300 + i * 80, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       ]).start();
     });
 
     // Bottom CTA
     Animated.timing(bottomFade, { toValue: 1, duration: 400, delay: 680, useNativeDriver: true }).start();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (Platform.OS !== 'ios') return null;
+
+  const bg   = '#FAFAF8';
+  const hi   = '#111111';
+  const mid  = '#888';
+  const lo   = '#E8E3DC';
+  const surf = '#FFFFFF';
+  const isExpoGo = Constants.executionEnvironment === 'storeClient';
 
   const goToReveal = () =>
     router.push({ pathname: '/onboarding/reveal', params });
@@ -89,10 +94,12 @@ export default function HealthConnectScreen() {
       try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { requestAuthorization } = require('@kingstinct/react-native-healthkit');
-        await requestAuthorization({ toRead: READ_TYPES });
+        await requestAuthorization({ toRead: HEALTHKIT_READ_IDENTIFIERS });
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
         await AsyncStorage.setItem('@roundfit/health_connected', 'true');
+        // First sync — fires in background, don't block navigation
+        void syncFromDevice();
       } catch {
         // Not available in Expo Go — proceed without HealthKit
       }
@@ -105,7 +112,12 @@ export default function HealthConnectScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={9} total={9} onBack={() => router.back()} isDark={false} />
+        <ProgressBar
+          step={params.sex === 'female' ? 12 : 9}
+          total={params.sex === 'female' ? 12 : 9}
+          onBack={() => router.back()}
+          isDark={false}
+        />
       </View>
 
       {/* ── Headline ─────────────────────────────────────────────────────── */}
@@ -136,7 +148,7 @@ export default function HealthConnectScreen() {
             style={[
               s.row,
               { backgroundColor: surf, borderColor: lo },
-              { opacity: rowFades[i], transform: [{ translateY: rowYs[i] }] },
+              { opacity: rowAnims[i].fade, transform: [{ translateY: rowAnims[i].y }] },
             ]}
           >
             <View style={s.iconWrap}>

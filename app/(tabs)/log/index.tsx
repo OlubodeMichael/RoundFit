@@ -23,6 +23,13 @@ import { useToast } from '@/components/ui/Toast';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
+function localCalendarToday(): string {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
 // ── Screen ─────────────────────────────────────────────────────────────────
 export default function DailyLogScreen() {
   const P      = usePalette();
@@ -30,9 +37,11 @@ export default function DailyLogScreen() {
   const pad    = useScreenPadding();
   const insets = useSafeAreaInsets();
 
-  const { meals, mealGoal, totalCalories, refreshLogs } = useFood();
+  const { meals, mealGoal, totalCalories, refreshLogs, activeDate } = useFood();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
+
+  const isFoodDayToday = activeDate === localCalendarToday();
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -128,7 +137,7 @@ export default function DailyLogScreen() {
             accentSoft={P.caloriesSoft}
             icon="flame"
             title="Food"
-            eyebrow="EATEN"
+            eyebrow={isFoodDayToday ? 'EATEN' : 'ATE'}
             valueBig={totalCalories.toLocaleString()}
             valueSmall="kcal"
             caption={

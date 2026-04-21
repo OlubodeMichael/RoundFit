@@ -64,7 +64,12 @@ export default function UnitsScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={7} total={9} onBack={() => router.back()} isDark={false} />
+        <ProgressBar
+          step={params.sex === 'female' ? 10 : 7}
+          total={params.sex === 'female' ? 12 : 9}
+          onBack={() => router.back()}
+          isDark={false}
+        />
       </View>
 
       <Animated.View style={{ opacity: fade, transform: [{ translateY: slideY }] }}>

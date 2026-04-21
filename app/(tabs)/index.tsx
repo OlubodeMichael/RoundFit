@@ -1,7 +1,16 @@
-import { useFood } from "@/hooks/use-food";
+import { useFood } from "@/context/food-context";
 import { useProfile } from "@/hooks/use-profile";
+import { useHealth } from "@/hooks/use-health";
+import { calculateNutritionPlan } from "@/utils/nutrition";
+import { useRouter } from "expo-router";
 import { useTheme } from "@/hooks/use-theme";
 import { useToast } from "@/components/ui/Toast";
+import { BurnCoachStrip } from "@/components/home/burn-coach-strip";
+import {
+  BURN_ACTIVITIES,
+  BurnActivityPicker,
+  type BurnActivity,
+} from "@/components/home/burn-activity-picker";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -108,239 +117,112 @@ function usePalette() {
 
 type Palette = ReturnType<typeof usePalette>;
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Mock data (wire to contexts later)
-// ───────────────────────────────────────────────────────────────────────────────
-const GOAL = 2100;
-const EATEN = 1340;
-const BURNED = 210;
-const REMAINING = Math.max(0, GOAL - EATEN + BURNED);
+const MEAL_ICONS: Record<string, IoniconsName> = {
+  breakfast: 'cafe',
+  lunch:     'restaurant',
+  dinner:    'moon',
+  snack:     'nutrition',
+  other:     'fast-food',
+};
 
-const MACROS = [
-  {
-    key: "protein",
-    label: "Protein",
-    cur: 82,
-    goal: 140,
-    unit: "g",
-    accent: "protein" as const,
-  },
-  {
-    key: "carbs",
-    label: "Carbs",
-    cur: 160,
-    goal: 220,
-    unit: "g",
-    accent: "carbs" as const,
-  },
-  {
-    key: "fat",
-    label: "Fat",
-    cur: 38,
-    goal: 65,
-    unit: "g",
-    accent: "fat" as const,
-  },
-];
-
-const MEALS: {
-  name: string;
-  kind: string;
-  time: string;
-  cals: number;
-  icon: IoniconsName;
-  tint: "calories" | "protein" | "carbs" | "fat";
-}[] = [
-  {
-    name: "Oatmeal & wild berries",
-    kind: "Breakfast",
-    time: "8:12 AM",
-    cals: 320,
-    icon: "cafe",
-    tint: "carbs",
-  },
-  {
-    name: "Grilled chicken herb wrap",
-    kind: "Lunch",
-    time: "12:45 PM",
-    cals: 510,
-    icon: "restaurant",
-    tint: "protein",
-  },
-  {
-    name: "Greek yogurt & granola",
-    kind: "Snack",
-    time: "3:30 PM",
-    cals: 150,
-    icon: "nutrition",
-    tint: "fat",
-  },
-];
-
-const WATER_GOAL = 8;
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Ring primitives
+// SegmentedDial — precision-instrument progress indicator.
 //
-// DonutRing uses the two-half-clip technique: the track is a full circle
-// with a border; the progress arc is rendered as two rotated half-circles
-// inside clipping wrappers. Pure Views — no SVG dependency.
+// Renders `TICK_COUNT` tick marks radiating around a centre, filled in sequence
+// as progress advances. The "leading" tick (the one currently being filled)
+// is taller and brighter with a soft halo behind it — a live cursor that
+// chases around the ring as the value animates in. This replaces the generic
+// donut ring with something that reads more as an instrument than a gauge.
 // ───────────────────────────────────────────────────────────────────────────────
-function DonutRing({
+const TICK_COUNT = 36;
+const TICK_ANGLE_STEP = 360 / TICK_COUNT;
+const TICK_WIDTH = 1.5;
+const TICK_HEIGHT = 7;
+const TICK_RADIUS = 1.5;
+const LEADING_TICK_WIDTH = 2.5;
+const LEADING_TICK_HEIGHT = 10;
+const LEADING_HALO_SIZE = 14;
+const LEADING_HALO_OFFSET = -2;
+const TICK_TOP_INSET = 3;
+
+function SegmentedDial({
   size,
-  thickness,
   progress,
   trackColor,
   fillColor,
-}: {
-  size: number;
-  thickness: number;
-  progress: number;
-  trackColor: string;
-  fillColor: string;
-}) {
-  const pct = Math.min(Math.max(progress, 0), 1);
-  const deg = pct * 360;
-  const rightDeg = Math.min(deg, 180);
-  const showLeft = deg > 180;
-  const leftDeg = showLeft ? deg - 180 : 0;
-
-  const base: any = {
-    position: "absolute",
-    width: size,
-    height: size,
-    borderRadius: size / 2,
-    borderWidth: thickness,
-  };
-
-  return (
-    <View style={{ width: size, height: size }}>
-      <View style={[base, { borderColor: trackColor }]} />
-
-      <View
-        style={{
-          position: "absolute",
-          width: size,
-          height: size,
-          overflow: "hidden",
-          left: size / 2,
-        }}
-      >
-        <View
-          style={[
-            base,
-            {
-              borderColor: fillColor,
-              right: size / 2,
-              transform: [{ rotate: `${rightDeg}deg` }],
-            },
-          ]}
-        />
-      </View>
-
-      {showLeft && (
-        <View
-          style={{
-            position: "absolute",
-            width: size,
-            height: size,
-            overflow: "hidden",
-            right: size / 2,
-          }}
-        >
-          <View
-            style={[
-              base,
-              {
-                borderColor: fillColor,
-                left: size / 2,
-                transform: [{ rotate: `${leftDeg}deg` }],
-              },
-            ]}
-          />
-        </View>
-      )}
-    </View>
-  );
-}
-
-// Orbital end-cap dot at the tip of the progress arc.
-function EndCapDot({
-  size,
-  progress,
-  color,
-  thickness,
-}: {
-  size: number;
-  progress: number;
-  color: string;
-  thickness: number;
-}) {
-  const angle = Math.min(Math.max(progress, 0), 1) * 360;
-  return (
-    <View
-      pointerEvents="none"
-      style={[
-        StyleSheet.absoluteFill,
-        { transform: [{ rotate: `${angle}deg` }] },
-      ]}
-    >
-      <View
-        style={{
-          alignSelf: "center",
-          width: thickness + 4,
-          height: thickness + 4,
-          borderRadius: (thickness + 4) / 2,
-          backgroundColor: color,
-          marginTop: -2,
-          shadowColor: color,
-          shadowOpacity: 0.55,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 0 },
-        }}
-      />
-    </View>
-  );
-}
-
-// Mini ring for macros — same approach, smaller scale, no end-cap.
-function MiniRing({
-  size,
-  thickness,
-  progress,
-  trackColor,
-  fillColor,
+  haloColor,
   children,
 }: {
   size: number;
-  thickness: number;
   progress: number;
   trackColor: string;
   fillColor: string;
+  haloColor: string;
   children?: React.ReactNode;
 }) {
+  const pct = Math.min(Math.max(progress, 0), 1);
+  const fractional = pct * TICK_COUNT;
+  const filledCount = Math.floor(fractional);
+  const isComplete = pct >= 1;
+  const leadingIdx = pct > 0 && !isComplete ? filledCount : -1;
+
   return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <DonutRing
-        size={size}
-        thickness={thickness}
-        progress={progress}
-        trackColor={trackColor}
-        fillColor={fillColor}
-      />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <View
-          style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
-        >
-          {children}
-        </View>
+    <View style={{ width: size, height: size }}>
+      {Array.from({ length: TICK_COUNT }).map((_, i) => {
+        const isFilled = i < filledCount || isComplete;
+        const isLeading = i === leadingIdx;
+        const tickColor = isFilled || isLeading ? fillColor : trackColor;
+        const w = isLeading ? LEADING_TICK_WIDTH : TICK_WIDTH;
+        const h = isLeading ? LEADING_TICK_HEIGHT : TICK_HEIGHT;
+
+        return (
+          <View
+            key={i}
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              width: size,
+              height: size,
+              alignItems: "center",
+              transform: [{ rotate: `${i * TICK_ANGLE_STEP}deg` }],
+            }}
+          >
+            {isLeading && (
+              <View
+                style={{
+                  position: "absolute",
+                  top: LEADING_HALO_OFFSET,
+                  width: LEADING_HALO_SIZE,
+                  height: LEADING_HALO_SIZE,
+                  borderRadius: LEADING_HALO_SIZE / 2,
+                  backgroundColor: haloColor,
+                }}
+              />
+            )}
+            <View
+              style={{
+                position: "absolute",
+                top: TICK_TOP_INSET,
+                width: w,
+                height: h,
+                borderRadius: TICK_RADIUS,
+                backgroundColor: tickColor,
+                opacity: isFilled || isLeading ? 1 : 0.9,
+              }}
+            />
+          </View>
+        );
+      })}
+
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { alignItems: "center", justifyContent: "center" },
+        ]}
+        pointerEvents="none"
+      >
+        {children}
       </View>
     </View>
   );
@@ -586,12 +468,6 @@ const weekStyles = StyleSheet.create({
 });
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Animated calorie ring card — hero of the screen
-// ───────────────────────────────────────────────────────────────────────────────
-const HERO_RING = 268;
-const HERO_THICKNESS = 14;
-
-// ───────────────────────────────────────────────────────────────────────────────
 // Cycle phase indicator — women only. Compact pill card with 4 phases, the
 // active one highlighted, plus a "Day N of M" caption.
 // ───────────────────────────────────────────────────────────────────────────────
@@ -654,175 +530,258 @@ function CyclePhaseCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
   );
 }
 
-function HeroCalorieRing({ P, delay = 0 }: { P: Palette; delay?: number }) {
-  const target = Math.min(EATEN / GOAL, 1);
+type HeroCoach = {
+  caloriesToBurn: number;
+  activity:       { label: string; icon?: IoniconsName };
+  goalProgress:   number;
+  isLive?:        boolean;
+  onPress?:       () => void;
+};
+
+// ───────────────────────────────────────────────────────────────────────────────
+// HeroBudgetLedger — today's calorie budget, stripped to essentials.
+//
+// Composition (top → bottom):
+//   1. Date stamp
+//   2. Big display number (calories remaining) + quiet subhead
+//   3. One thin progress bar
+//   4. One inline row of numbers: eaten · burned · net
+//   5. Fused BurnCoachStrip when there's still burn to do
+// No status chip, no eyebrows, no legends, no boxed stat trio.
+// ───────────────────────────────────────────────────────────────────────────────
+
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAYS_SHORT   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function HeroBudgetLedger({
+  P,
+  delay = 0,
+  eaten,
+  goal,
+  burned,
+  stepsToday,
+  remaining,
+  coach,
+}: {
+  P: Palette;
+  delay?: number;
+  eaten: number;
+  goal: number;
+  burned: number;
+  /** Apple Health step count for today — shown next to burned when available. */
+  stepsToday?: number;
+  remaining: number;
+  coach?: HeroCoach;
+}) {
+  const eatenPct = Math.min(eaten / Math.max(goal, 1), 1);
+
   const animated = useRef(new Animated.Value(0)).current;
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     const id = animated.addListener(({ value }) => setProgress(value));
     Animated.timing(animated, {
-      toValue: target,
+      toValue: 1,
       duration: 1100,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
     return () => animated.removeListener(id);
-  }, [animated, target]);
+  }, [animated]);
+
+  const displayed = Math.round(progress * Math.max(remaining, 0));
+  const fillPct   = `${Math.round(progress * eatenPct * 100)}%`;
+
+  const now       = useMemo(() => new Date(), []);
+  const dateStamp = `${DAYS_SHORT[now.getDay()]}, ${MONTHS_SHORT[now.getMonth()]} ${now.getDate()}`;
+
+  const isOver = eaten > goal;
 
   return (
-    <Card padding={24} delay={delay} style={{ overflow: "hidden" }}>
-      {/* Ambient glow halo behind the ring — stacked translucent circles */}
-      <View pointerEvents="none" style={styles.glowWrap}>
-        <View
-          style={[
-            styles.glow,
-            {
-              width: 360,
-              height: 360,
-              borderRadius: 180,
-              backgroundColor: P.caloriesSoft,
-              opacity: P.isDark ? 0.6 : 0.9,
-            },
-          ]}
-        />
-        <View
-          style={[
-            styles.glow,
-            {
-              width: 280,
-              height: 280,
-              borderRadius: 140,
-              backgroundColor: P.caloriesSoft,
-              opacity: P.isDark ? 0.9 : 1,
-            },
-          ]}
-        />
+    <Card padding={0} delay={delay} style={{ overflow: 'hidden' }}>
+      {/* ── Ambient halo ───────────────────────────────────────── */}
+      <View pointerEvents="none" style={styles.haloWrap}>
+        <View style={[styles.haloOuter, { backgroundColor: P.caloriesSoft, opacity: P.isDark ? 0.45 : 0.75 }]} />
+        <View style={[styles.haloInner, { backgroundColor: P.caloriesSoft, opacity: P.isDark ? 0.65 : 0.95 }]} />
       </View>
 
-      <View style={styles.ringHeader}>
-        <View style={[styles.pill, { backgroundColor: P.caloriesSoft }]}>
-          <View style={[styles.pillDot, { backgroundColor: P.calories }]} />
-          <Text style={[styles.pillText, { color: P.calories }]}>
-            TODAY&apos;S BUDGET
-          </Text>
+      <View style={{ padding: 22 }}>
+        {/* ── Date row ─────────────────────────────────────────── */}
+        <View style={styles.ledgerTop}>
+          <Text style={[styles.dateStamp, { color: P.textDim }]}>{dateStamp}</Text>
+          <TouchableOpacity hitSlop={10} style={styles.moreBtnMini}>
+            <Ionicons name="ellipsis-horizontal" size={16} color={P.textFaint} />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity hitSlop={10} style={styles.moreBtn}>
-          <Ionicons name="ellipsis-horizontal" size={18} color={P.textDim} />
-        </TouchableOpacity>
-      </View>
 
-      <View style={styles.ringStage}>
-        <DonutRing
-          size={HERO_RING}
-          thickness={HERO_THICKNESS}
-          progress={progress}
-          trackColor={P.caloriesTrack}
-          fillColor={P.calories}
-        />
-        <EndCapDot
-          size={HERO_RING}
-          progress={progress}
-          color={P.calories}
-          thickness={HERO_THICKNESS}
-        />
+        {/* ── Stat chips ───────────────────────────────────────── */}
+        <View style={styles.chipRow}>
+          <View style={[styles.chip, { backgroundColor: P.proteinSoft }]}>
+            <Ionicons name="restaurant" size={12} color={P.protein} />
+            <Text style={[styles.chipVal, { color: P.text }]}>{eaten.toLocaleString()}</Text>
+            <Text style={[styles.chipLbl, { color: P.textFaint }]}>eaten</Text>
+          </View>
+          <View style={[styles.chip, { backgroundColor: P.caloriesSoft }]}>
+            <Ionicons name="flame" size={12} color={P.calories} />
+            <Text style={[styles.chipVal, { color: P.text }]}>{burned.toLocaleString()}</Text>
+            <Text style={[styles.chipLbl, { color: P.textFaint }]}>
+              burned
+              {stepsToday !== undefined ? ` · ${stepsToday.toLocaleString()} steps` : ''}
+            </Text>
+          </View>
+          <View style={[styles.chip, { backgroundColor: isOver ? P.caloriesSoft : P.waterSoft }]}>
+            <Ionicons name="trending-up" size={12} color={isOver ? P.calories : P.water} />
+            <Text style={[styles.chipVal, { color: P.text }]}>{(eaten - burned).toLocaleString()}</Text>
+            <Text style={[styles.chipLbl, { color: P.textFaint }]}>net</Text>
+          </View>
+        </View>
 
-        <View style={styles.ringCentre} pointerEvents="none">
-          <Text style={[styles.ringValue, { color: P.text }]}>
-            {REMAINING.toLocaleString()}
-          </Text>
-          <Text style={[styles.ringUnit, { color: P.textFaint }]}>
-            calories left
-          </Text>
-          <View
-            style={[
-              styles.ringBadge,
-              { backgroundColor: P.sunken, borderColor: P.cardEdge },
-            ]}
+        {/* ── Big remaining number ──────────────────────────────── */}
+        <View style={styles.ledgerNumberRow}>
+          <Text
+            style={[styles.ledgerNumber, { color: isOver ? P.calories : P.text }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.5}
           >
-            <Ionicons name="flame" size={11} color={P.calories} />
-            <Text style={[styles.ringBadgeText, { color: P.textDim }]}>
-              {Math.round(target * 100)}% of goal
+            {displayed.toLocaleString()}
+          </Text>
+          <View style={{ gap: 2 }}>
+            <Text style={[styles.ledgerNumberUnit, { color: P.textFaint }]}>cal</Text>
+          </View>
+        </View>
+        <Text style={[styles.ledgerSubhead, { color: P.textFaint }]}>
+          {isOver ? 'over ' : 'remaining of '}
+          <Text style={{ color: isOver ? P.calories : P.textDim, fontWeight: '800' }}>{goal.toLocaleString()}</Text>
+          {' '}daily goal
+        </Text>
+
+        {/* ── Progress bar ─────────────────────────────────────── */}
+        <View style={[styles.barTrack, { backgroundColor: P.hair }]}>
+          <Animated.View
+            style={[styles.barFill, {
+              backgroundColor: isOver ? P.calories : P.protein,
+              width:           fillPct as `${number}%`,
+              shadowColor:     isOver ? P.calories : P.protein,
+            }]}
+          />
+          <View style={[styles.barPctBadge, { backgroundColor: isOver ? P.caloriesSoft : P.proteinSoft }]}>
+            <Text style={[styles.barPctText, { color: isOver ? P.calories : P.protein }]}>
+              {Math.round(eatenPct * 100)}%
             </Text>
           </View>
         </View>
       </View>
 
-      {/* Stat trio */}
-      <View style={[styles.statRow, { borderColor: P.hair }]}>
-        <StatBlock
-          icon="restaurant-outline"
-          label="Eaten"
-          value={EATEN.toLocaleString()}
-          color={P.calories}
-          P={P}
+      {/* ── Burn coach ───────────────────────────────────────── */}
+      {coach && (
+        <BurnCoachStrip
+          caloriesToBurn={coach.caloriesToBurn}
+          activity={coach.activity}
+          goalProgress={coach.goalProgress}
+          isLive={coach.isLive ?? true}
+          onPress={coach.onPress}
         />
-        <View style={[styles.statDivider, { backgroundColor: P.hair }]} />
-        <StatBlock
-          icon="flash-outline"
-          label="Burned"
-          value={BURNED.toString()}
-          color={P.sage}
-          P={P}
-        />
-        <View style={[styles.statDivider, { backgroundColor: P.hair }]} />
-        <StatBlock
-          icon="trending-down-outline"
-          label="Net"
-          value={(EATEN - BURNED).toLocaleString()}
-          color={P.text}
-          P={P}
-        />
-      </View>
+      )}
     </Card>
   );
 }
 
-function StatBlock({
-  icon,
-  label,
-  value,
-  color,
-  P,
-}: {
-  icon: IoniconsName;
-  label: string;
-  value: string;
-  color: string;
-  P: Palette;
-}) {
+// ───────────────────────────────────────────────────────────────────────────────
+// Activity card — steps, distance, active calories from HealthKit (iOS only)
+// ───────────────────────────────────────────────────────────────────────────────
+const STEPS_GOAL = 10_000;
+
+function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data: import('@/context/health-context').HealthData }) {
+  const stepPct  = Math.min(data.steps / STEPS_GOAL, 1);
+  const stepFill = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(stepFill, {
+      toValue: stepPct,
+      duration: 900,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [stepFill, stepPct]);
+
+  const fillWidth = stepFill.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+
+  const distLabel = data.distance_unit === 'km' || data.distance_unit === 'metric'
+    ? `${data.distance.toFixed(1)} km`
+    : `${data.distance.toFixed(1)} mi`;
+
   return (
-    <View style={{ flex: 1, alignItems: "center", gap: 6 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-        <Ionicons name={icon} size={13} color={color} />
-        <Text style={[styles.statLabel, { color: P.textFaint }]}>
-          {label.toUpperCase()}
-        </Text>
+    <Card delay={delay}>
+      <SectionHead title="Activity" caption="from Apple Health" P={P} />
+      <View style={styles.activityRow}>
+
+        {/* Steps */}
+        <View style={styles.activityStat}>
+          <View style={[styles.activityIconBox, { backgroundColor: P.waterSoft }]}>
+            <Ionicons name="footsteps" size={16} color={P.water} />
+          </View>
+          <Text style={[styles.activityVal, { color: P.text }]}>
+            {data.steps.toLocaleString()}
+          </Text>
+          <Text style={[styles.activityLbl, { color: P.textFaint }]}>steps</Text>
+          <View style={[styles.activityTrack, { backgroundColor: P.hair }]}>
+            <Animated.View style={[styles.activityFill, { backgroundColor: P.water, width: fillWidth }]} />
+          </View>
+          <Text style={[styles.activitySub, { color: P.textFaint }]}>
+            goal {STEPS_GOAL.toLocaleString()}
+          </Text>
+        </View>
+
+        <View style={[styles.activityDivider, { backgroundColor: P.hair }]} />
+
+        {/* Distance */}
+        <View style={styles.activityStat}>
+          <View style={[styles.activityIconBox, { backgroundColor: P.proteinSoft }]}>
+            <Ionicons name="map" size={16} color={P.protein} />
+          </View>
+          <Text style={[styles.activityVal, { color: P.text }]}>{distLabel}</Text>
+          <Text style={[styles.activityLbl, { color: P.textFaint }]}>distance</Text>
+        </View>
+
+        <View style={[styles.activityDivider, { backgroundColor: P.hair }]} />
+
+        {/* Active calories */}
+        <View style={styles.activityStat}>
+          <View style={[styles.activityIconBox, { backgroundColor: P.caloriesSoft }]}>
+            <Ionicons name="flame" size={16} color={P.calories} />
+          </View>
+          <Text style={[styles.activityVal, { color: P.text }]}>
+            {data.active_calories.toLocaleString()}
+          </Text>
+          <Text style={[styles.activityLbl, { color: P.textFaint }]}>active cal</Text>
+        </View>
+
       </View>
-      <Text style={[styles.statValue, { color: P.text }]}>{value}</Text>
-    </View>
+    </Card>
   );
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Macros — three mini rings inside a single card
 // ───────────────────────────────────────────────────────────────────────────────
-function MacrosCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
+type MacroItem = { key: string; label: string; cur: number; goal: number; accent: 'protein' | 'carbs' | 'fat' };
+
+const MACRO_DIAL_SIZE = 102;
+
+function MacrosCard({ P, delay = 0, macros }: { P: Palette; delay?: number; macros: MacroItem[] }) {
   return (
     <Card delay={delay}>
       <SectionHead title="Macros" caption="grams today" P={P} />
       <View style={styles.macrosRow}>
-        {MACROS.map((m, i) => (
+        {macros.map((m, i) => (
           <MacroCell
             key={m.key}
             label={m.label}
             cur={m.cur}
             goal={m.goal}
-            fill={P[m.accent]}
-            track={P[`${m.accent}Track` as keyof Palette] as string}
-            textColor={P.text}
-            faintColor={P.textFaint}
-            dimColor={P.textDim}
+            accent={m.accent}
+            P={P}
             delay={delay + 200 + i * 100}
           />
         ))}
@@ -832,14 +791,20 @@ function MacrosCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
 }
 
 function MacroCell({
-  label, cur, goal, fill, track, textColor, faintColor, dimColor, delay,
+  label, cur, goal, accent, P, delay,
 }: {
-  label: string; cur: number; goal: number;
-  fill: string; track: string;
-  textColor: string; faintColor: string; dimColor: string;
+  label: string;
+  cur: number;
+  goal: number;
+  accent: MacroItem["accent"];
+  P: Palette;
   delay: number;
 }) {
-  const target = Math.min(cur / goal, 1);
+  const fill = P[accent];
+  const track = P[`${accent}Track` as keyof Palette] as string;
+  const soft = P[`${accent}Soft` as keyof Palette] as string;
+
+  const target = goal > 0 ? Math.min(cur / goal, 1) : 0;
   const animated = useRef(new Animated.Value(0)).current;
   const [progress, setProgress] = useState(0);
 
@@ -855,22 +820,32 @@ function MacroCell({
     return () => animated.removeListener(id);
   }, [animated, target, delay]);
 
+  const pctLabel = Math.round(progress * 100);
+
   return (
     <View style={styles.macroCell}>
-      <MiniRing size={86} thickness={7} progress={progress} trackColor={track} fillColor={fill}>
-        <Text style={[styles.macroCur, { color: textColor }]}>{cur}</Text>
-        <Text style={[styles.macroOf, { color: faintColor }]}>of {goal}g</Text>
-      </MiniRing>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 5,
-          marginTop: 12,
-        }}
+      <SegmentedDial
+        size={MACRO_DIAL_SIZE}
+        progress={progress}
+        trackColor={track}
+        fillColor={fill}
+        haloColor={soft}
       >
-        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: fill }} />
-        <Text style={[styles.macroLabel, { color: dimColor }]}>{label}</Text>
+        <Text style={[styles.macroCur, { color: P.text }]}>{cur}</Text>
+        <View style={[styles.macroDivider, { backgroundColor: fill }]} />
+        <Text style={[styles.macroOf, { color: P.textFaint }]}>
+          OF {goal}G
+        </Text>
+      </SegmentedDial>
+
+      <View style={[styles.macroPill, { backgroundColor: soft }]}>
+        <Text style={[styles.macroPillLabel, { color: fill }]}>
+          {label.toUpperCase()}
+        </Text>
+        <View style={[styles.macroPillDot, { backgroundColor: fill }]} />
+        <Text style={[styles.macroPillPct, { color: fill }]}>
+          {pctLabel}%
+        </Text>
       </View>
     </View>
   );
@@ -879,8 +854,10 @@ function MacroCell({
 // ───────────────────────────────────────────────────────────────────────────────
 // Hydration — droplet row
 // ───────────────────────────────────────────────────────────────────────────────
-function HydrationCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
-  const [water, setWater] = useState(6);
+function HydrationCard({
+  P, delay = 0, waterGoal = 8,
+}: { P: Palette; delay?: number; waterGoal?: number }) {
+  const [water, setWater] = useState(0);
 
   return (
     <Card delay={delay}>
@@ -889,22 +866,16 @@ function HydrationCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
           <Ionicons name="water" size={16} color={P.water} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.hydrationTitle, { color: P.text }]}>
-            Water
-          </Text>
+          <Text style={[styles.hydrationTitle, { color: P.text }]}>Water</Text>
         </View>
         <View style={styles.hydrationNum}>
-          <Text style={[styles.hydrationCount, { color: P.water }]}>
-            {water}
-          </Text>
-          <Text style={[styles.hydrationGoal, { color: P.textFaint }]}>
-            / {WATER_GOAL}
-          </Text>
+          <Text style={[styles.hydrationCount, { color: P.water }]}>{water}</Text>
+          <Text style={[styles.hydrationGoal, { color: P.textFaint }]}>/ {waterGoal}</Text>
         </View>
       </View>
 
       <View style={styles.dropRow}>
-        {Array.from({ length: WATER_GOAL }).map((_, i) => {
+        {Array.from({ length: waterGoal }).map((_, i) => {
           const filled = i < water;
           return (
             <Pressable
@@ -936,78 +907,88 @@ function HydrationCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
 // ───────────────────────────────────────────────────────────────────────────────
 // Today's meals — rows in a card
 // ───────────────────────────────────────────────────────────────────────────────
-function MealsCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
+function MealsCard({
+  P, delay = 0, meals, totalCalories, onLogMore,
+}: {
+  P: Palette;
+  delay?: number;
+  meals: import('@/hooks/use-food').MealItem[];
+  totalCalories: number;
+  onLogMore: () => void;
+}) {
+  const TINT_KEYS = ['calories', 'protein', 'carbs', 'fat'] as const;
+
   return (
     <Card padding={0} delay={delay}>
-      <View
-        style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 }}
-      >
+      <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 }}>
         <SectionHead
           title="Today's Meals"
-          caption={`${MEALS.length} entries  ·  ${MEALS.reduce((a, m) => a + m.cals, 0)} kcal`}
+          caption={meals.length === 0
+            ? 'Nothing logged yet'
+            : `${meals.length} ${meals.length === 1 ? 'entry' : 'entries'}  ·  ${totalCalories.toLocaleString()} kcal`}
           action="See all"
           P={P}
+          onAction={onLogMore}
         />
       </View>
 
-      <View>
-        {MEALS.map((meal, i) => {
-          const tint = P[meal.tint];
-          const tintSoft = P[`${meal.tint}Soft` as keyof Palette] as string;
+      {meals.length === 0 ? (
+        <Pressable
+          onPress={onLogMore}
+          style={({ pressed }) => [
+            { paddingHorizontal: 20, paddingBottom: 20, flexDirection: 'row', alignItems: 'center', gap: 10 },
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Ionicons name="add-circle-outline" size={18} color={P.textFaint} />
+          <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '600' }}>Log your first meal</Text>
+        </Pressable>
+      ) : (
+        <View>
+          {meals.slice(0, 5).map((meal, i) => {
+            const tintKey = TINT_KEYS[i % TINT_KEYS.length];
+            const tint     = P[tintKey] as string;
+            const tintSoft = P[`${tintKey}Soft` as keyof Palette] as string;
+            const icon     = MEAL_ICONS[meal.meal.toLowerCase()] ?? 'fast-food';
 
-          return (
-            <View key={meal.name}>
-              {i > 0 && (
-                <View
-                  style={[styles.mealDivider, { backgroundColor: P.hair }]}
-                />
-              )}
-              <Pressable
-                style={({ pressed }) => [
-                  styles.mealRow,
-                  pressed && { backgroundColor: P.sunken },
-                ]}
-              >
-                <View style={[styles.mealIcon, { backgroundColor: tintSoft }]}>
-                  <Ionicons name={meal.icon} size={18} color={tint} />
-                </View>
-
-                <View style={{ flex: 1, gap: 3 }}>
-                  <Text
-                    style={[styles.mealName, { color: P.text }]}
-                    numberOfLines={1}
-                  >
-                    {meal.name}
-                  </Text>
-                  <Text style={[styles.mealMeta, { color: P.textFaint }]}>
-                    {meal.kind} · {meal.time}
-                  </Text>
-                </View>
-
-                <View style={{ alignItems: "flex-end", gap: 2 }}>
-                  <Text style={[styles.mealCals, { color: P.text }]}>
-                    {meal.cals}
-                  </Text>
-                  <Text style={[styles.mealUnit, { color: P.textFaint }]}>
-                    kcal
-                  </Text>
-                </View>
-              </Pressable>
-            </View>
-          );
-        })}
-      </View>
+            return (
+              <View key={meal.id}>
+                {i > 0 && <View style={[styles.mealDivider, { backgroundColor: P.hair }]} />}
+                <Pressable
+                  onPress={onLogMore}
+                  style={({ pressed }) => [styles.mealRow, pressed && { backgroundColor: P.sunken }]}
+                >
+                  <View style={[styles.mealIcon, { backgroundColor: tintSoft }]}>
+                    <Ionicons name={icon} size={18} color={tint} />
+                  </View>
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Text style={[styles.mealName, { color: P.text }]} numberOfLines={1}>
+                      {meal.name}
+                    </Text>
+                    <Text style={[styles.mealMeta, { color: P.textFaint }]}>
+                      {meal.meal} · {meal.time}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                    <Text style={[styles.mealCals, { color: P.text }]}>{meal.cals}</Text>
+                    <Text style={[styles.mealUnit, { color: P.textFaint }]}>kcal</Text>
+                  </View>
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
+      )}
 
       <TouchableOpacity
+        onPress={onLogMore}
         activeOpacity={0.7}
         style={[styles.addMealBtn, { borderTopColor: P.hair }]}
       >
         <View style={[styles.addMealIcon, { backgroundColor: P.caloriesSoft }]}>
           <Ionicons name="add" size={16} color={P.calories} />
         </View>
-        <Text style={[styles.addMealText, { color: P.text }]}>
-          Log another meal
-        </Text>
+        <Text style={[styles.addMealText, { color: P.text }]}>Log another meal</Text>
         <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
       </TouchableOpacity>
     </Card>
@@ -1071,31 +1052,23 @@ function InsightCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
 // Shared section heading
 // ───────────────────────────────────────────────────────────────────────────────
 function SectionHead({
-  title,
-  caption,
-  action,
-  P,
+  title, caption, action, onAction, P,
 }: {
   title: string;
   caption?: string;
   action?: string;
+  onAction?: () => void;
   P: Palette;
 }) {
   return (
     <View style={styles.sectionHead}>
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={[styles.sectionTitle, { color: P.text }]}>{title}</Text>
-        {caption && (
-          <Text style={[styles.sectionCaption, { color: P.textFaint }]}>
-            {caption}
-          </Text>
-        )}
+        {caption && <Text style={[styles.sectionCaption, { color: P.textFaint }]}>{caption}</Text>}
       </View>
       {action && (
-        <TouchableOpacity activeOpacity={0.7}>
-          <Text style={[styles.sectionAction, { color: P.calories }]}>
-            {action}
-          </Text>
+        <TouchableOpacity activeOpacity={0.7} onPress={onAction}>
+          <Text style={[styles.sectionAction, { color: P.calories }]}>{action}</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -1115,19 +1088,64 @@ function greetingFor(h = new Date().getHours()) {
 // Screen
 // ───────────────────────────────────────────────────────────────────────────────
 export default function HomeScreen() {
-  const P = usePalette();
+  const P      = usePalette();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { profile, avatarUrl, avatarLetter, firstName, refreshProfile } = useProfile();
-  const { refreshLogs } = useFood();
+  const {
+    meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
+    remaining, refreshLogs,
+  } = useFood();
+  const { today: healthToday, isConnected: healthConnected, refresh: refreshHealth } = useHealth();
   const toast = useToast();
 
-  const [date, setDate] = useState(new Date());
+  const [date, setDate]         = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
+
+  // Macro targets from the same nutrition plan used on the reveal screen
+  const nutritionPlan = useMemo(() => {
+    if (!profile) return null;
+    return calculateNutritionPlan({
+      sex:           profile.sex,
+      age:           profile.age,
+      heightCm:      profile.heightCm,
+      weightKg:      profile.weightKg,
+      activityLevel: profile.activityLevel,
+      goal:          profile.goal,
+    });
+  }, [profile]);
+
+  const macros = useMemo<MacroItem[]>(() => [
+    { key: 'protein', label: 'Protein', cur: Math.round(totalProtein), goal: nutritionPlan?.macros.proteinG ?? 140, accent: 'protein' },
+    { key: 'carbs',   label: 'Carbs',   cur: Math.round(totalCarbs),   goal: nutritionPlan?.macros.carbsG   ?? 250, accent: 'carbs'   },
+    { key: 'fat',     label: 'Fat',     cur: Math.round(totalFat),     goal: nutritionPlan?.macros.fatG     ??  65, accent: 'fat'     },
+  ], [totalProtein, totalCarbs, totalFat, nutritionPlan]);
+
+  const weightKg = profile?.weightKg ?? 70;
+  const [coachActivity, setCoachActivity] = useState<BurnActivity>(
+    () => BURN_ACTIVITIES.find(a => a.id === 'walk') ?? BURN_ACTIVITIES[0],
+  );
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Burn coach — recommend burning 15% of daily goal; more if over budget.
+  const coachData = useMemo(() => {
+    const base = Math.round(mealGoal * 0.15);
+    const over = Math.max(totalCalories - mealGoal, 0);
+    const caloriesToBurn = Math.max(base + over, 80);
+    // minutes = cals / (MET × kg / 60)
+    const minutes = Math.round(caloriesToBurn / (coachActivity.met * weightKg / 60) / 5) * 5;
+    const activeBurned = healthToday?.active_calories ?? 0;
+    return {
+      caloriesToBurn: Math.max(caloriesToBurn - activeBurned, 0),
+      activity: { label: `${coachActivity.verb} ${minutes} min`, icon: coachActivity.icon },
+      goalProgress: caloriesToBurn > 0 ? Math.min(activeBurned / caloriesToBurn, 1) : 0,
+    };
+  }, [mealGoal, totalCalories, coachActivity, weightKg, healthToday]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refreshLogs(), refreshProfile()]);
+      await Promise.all([refreshLogs(), refreshProfile(), refreshHealth()]);
     } catch {
       toast.error('Could not refresh', 'Please try again.');
     } finally {
@@ -1135,25 +1153,18 @@ export default function HomeScreen() {
     }
   };
 
-  const isFemale = profile?.sex === "female";
+  const isFemale = profile?.sex === 'female';
+  const waterGoal = 8; // will wire to summary context later
 
   const longDate = useMemo(
-    () =>
-      date.toLocaleDateString(undefined, {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-      }),
+    () => date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
     [date],
   );
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <ScrollView
-        contentContainerStyle={{
-          paddingTop: insets.top + 12,
-          paddingBottom: insets.bottom + 48,
-        }}
+        contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 48 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -1168,32 +1179,20 @@ export default function HomeScreen() {
         {/* ── Header ──────────────────────────────────────────── */}
         <AnimatedHeader style={styles.header}>
           <View style={{ flex: 1, gap: 4 }}>
-            <Text style={[styles.eyebrow, { color: P.textFaint }]}>
-              {longDate.toUpperCase()}
-            </Text>
+            <Text style={[styles.eyebrow, { color: P.textFaint }]}>{longDate.toUpperCase()}</Text>
             <Text style={[styles.greeting, { color: P.text }]}>
-              {greetingFor()},{"\n"}
-              <Text style={{ color: P.calories }}>
-                {profile?.name || firstName || "there"}
-              </Text>
+              {greetingFor()},{'\n'}
+              <Text style={{ color: P.calories }}>{profile?.name || firstName || 'there'}</Text>
             </Text>
           </View>
 
-          <View style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
             <TouchableOpacity
               activeOpacity={0.7}
-              style={[
-                styles.iconBtn,
-                { backgroundColor: P.card, borderColor: P.cardEdge },
-              ]}
+              style={[styles.iconBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
             >
               <Ionicons name="notifications-outline" size={18} color={P.text} />
-              <View
-                style={[
-                  styles.notifDot,
-                  { backgroundColor: P.calories, borderColor: P.bg },
-                ]}
-              />
+              <View style={[styles.notifDot, { backgroundColor: P.calories, borderColor: P.bg }]} />
             </TouchableOpacity>
 
             <View style={[styles.avatarRing, { borderColor: P.calories }]}>
@@ -1201,9 +1200,7 @@ export default function HomeScreen() {
                 {avatarUrl ? (
                   <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
                 ) : (
-                  <Text style={[styles.avatarLetter, { color: P.calories }]}>
-                    {avatarLetter}
-                  </Text>
+                  <Text style={[styles.avatarLetter, { color: P.calories }]}>{avatarLetter}</Text>
                 )}
               </View>
             </View>
@@ -1216,13 +1213,46 @@ export default function HomeScreen() {
         {/* ── Content stack ───────────────────────────────────── */}
         <View style={styles.stack}>
           {isFemale && <CyclePhaseCard P={P} delay={60} />}
-          <HeroCalorieRing P={P} delay={120} />
-          <InsightCard P={P} delay={200} />
-          <MacrosCard P={P} delay={280} />
-          <MealsCard P={P} delay={360} />
-          <HydrationCard P={P} delay={440} />
+          <HeroBudgetLedger
+            P={P}
+            delay={120}
+            eaten={totalCalories}
+            goal={mealGoal}
+            burned={healthToday?.active_calories ?? 0}
+            stepsToday={healthToday?.steps}
+            remaining={remaining}
+            coach={{
+              ...coachData,
+              isLive: true,
+              onPress: () => setPickerOpen(true),
+            }}
+          />
+          <InsightCard P={P} delay={280} />
+          <MacrosCard P={P} delay={360} macros={macros} />
+          {Platform.OS === 'ios' && healthToday && (
+            <ActivityCard P={P} delay={430} data={healthToday} />
+          )}
+          <MealsCard
+            P={P}
+            delay={440}
+            meals={meals}
+            totalCalories={totalCalories}
+            onLogMore={() => router.replace('/(tabs)/log/food')}
+          />
+          <HydrationCard P={P} delay={520} waterGoal={waterGoal} />
         </View>
       </ScrollView>
+
+      <BurnActivityPicker
+        visible={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        caloriesToBurn={coachData.caloriesToBurn}
+        weightKg={weightKg}
+        currentId={coachActivity.id}
+        onSelect={(activity) => {
+          setCoachActivity(activity);
+        }}
+      />
     </View>
   );
 }
@@ -1291,95 +1321,199 @@ const styles = StyleSheet.create({
     gap: 16,
   },
 
-  // Hero ring
-  glowWrap: {
-    position: "absolute",
-    top: -60,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    justifyContent: "center",
+  // ── Hero: today's budget (minimalist, warm) ─────────────────────────
+  // Atmospheric halo stack: two offset circles at different opacities fake a
+  // soft radial gradient without pulling in a gradient library.
+  haloWrap: {
+    position:       'absolute',
+    top:            60,
+    left:           -120,
+    width:          360,
+    height:         360,
+    alignItems:     'center',
+    justifyContent: 'center',
   },
-  glow: { position: "absolute" },
-  ringHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 20,
+  haloOuter: {
+    position:     'absolute',
+    width:        360,
+    height:       360,
+    borderRadius: 180,
   },
-  pill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  pillDot: { width: 6, height: 6, borderRadius: 3 },
-  pillText: { fontSize: 10, fontWeight: "800", letterSpacing: 1.4 },
-  moreBtn: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ringStage: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    height: HERO_RING + 24,
-  },
-  ringCentre: {
-    position: "absolute",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-  },
-  ringValue: {
-    fontSize: 64,
-    fontWeight: "800",
-    letterSpacing: -2.5,
-    lineHeight: 68,
-  },
-  ringUnit: {
-    fontSize: 13,
-    fontWeight: "500",
-    letterSpacing: 0.2,
-    marginTop: 2,
-  },
-  ringBadge: {
-    marginTop: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  ringBadgeText: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.5,
+  haloInner: {
+    position:     'absolute',
+    width:        220,
+    height:       220,
+    borderRadius: 110,
   },
 
-  statRow: {
-    flexDirection: "row",
-    marginTop: 20,
-    paddingTop: 18,
-    borderTopWidth: StyleSheet.hairlineWidth,
+  ledgerTop: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+    marginBottom:   20,
   },
-  statDivider: { width: StyleSheet.hairlineWidth },
-  statLabel: {
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 1.2,
+  dateStamp: {
+    fontFamily:    'BarlowCondensed_600SemiBold',
+    fontSize:      14,
+    letterSpacing: 1.4,
   },
-  statValue: {
-    fontSize: 19,
-    fontWeight: "800",
-    letterSpacing: -0.6,
+  moreBtnMini: {
+    width:  24,
+    height: 24,
+    alignItems:     'center',
+    justifyContent: 'center',
+    marginRight:    -6,
   },
+
+  chipRow: {
+    flexDirection: 'row',
+    gap:           8,
+    marginBottom:  20,
+  },
+  chip: {
+    flex:           1,
+    flexDirection:  'row',
+    alignItems:     'center',
+    gap:            5,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius:   12,
+  },
+  chipVal: {
+    fontSize:      13,
+    fontWeight:    '800',
+    letterSpacing: -0.3,
+  },
+  chipLbl: {
+    fontSize:   10,
+    fontWeight: '600',
+  },
+
+  ledgerNumberRow: {
+    flexDirection: 'row',
+    alignItems:    'baseline',
+    gap:           8,
+  },
+  ledgerNumber: {
+    fontFamily:    'BarlowCondensed_800ExtraBold',
+    fontSize:      88,
+    lineHeight:    84,
+    letterSpacing: -2,
+    flexShrink:    1,
+  },
+  ledgerNumberUnit: {
+    fontFamily:    'BarlowCondensed_700Bold',
+    fontSize:      22,
+    letterSpacing: 0.5,
+  },
+  ledgerSubhead: {
+    marginTop:  6,
+    fontSize:   13,
+    fontWeight: '500',
+  },
+
+  barTrack: {
+    height:         10,
+    borderRadius:   6,
+    overflow:       'hidden',
+    marginTop:      20,
+    position:       'relative',
+  },
+  barFill: {
+    height:         '100%',
+    borderRadius:   6,
+    shadowOpacity:  0.5,
+    shadowRadius:   8,
+    shadowOffset:   { width: 0, height: 0 },
+  },
+  barPctBadge: {
+    position:       'absolute',
+    right:          0,
+    top:            -22,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius:   8,
+  },
+  barPctText: {
+    fontSize:      11,
+    fontWeight:    '800',
+    letterSpacing: 0.2,
+  },
+
+  // Activity card
+  activityRow: {
+    flexDirection: 'row',
+    alignItems:    'flex-start',
+  },
+  activityStat: {
+    flex:      1,
+    alignItems: 'center',
+    gap:        4,
+  },
+  activityIconBox: {
+    width:          36,
+    height:         36,
+    borderRadius:   12,
+    alignItems:     'center',
+    justifyContent: 'center',
+    marginBottom:   4,
+  },
+  activityVal: {
+    fontSize:      16,
+    fontWeight:    '800',
+    letterSpacing: -0.4,
+    fontVariant:   ['tabular-nums'],
+  },
+  activityLbl: {
+    fontSize:      10,
+    fontWeight:    '600',
+    letterSpacing: 0.3,
+  },
+  activityTrack: {
+    width:        '80%',
+    height:       3,
+    borderRadius: 2,
+    overflow:     'hidden',
+    marginTop:    4,
+  },
+  activityFill: {
+    height:       '100%',
+    borderRadius: 2,
+  },
+  activitySub: {
+    fontSize:  9,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  activityDivider: {
+    width:          StyleSheet.hairlineWidth,
+    alignSelf:      'stretch',
+    marginTop:      8,
+    marginBottom:   8,
+  },
+
+  statLine: {
+    flexDirection: 'row',
+    alignItems:    'baseline',
+    flexWrap:      'wrap',
+    marginTop:     16,
+  },
+  statNum: {
+    fontFamily:    'BarlowCondensed_700Bold',
+    fontSize:      15,
+    letterSpacing: 0.2,
+  },
+  statLbl: {
+    fontSize:      12,
+    fontWeight:    '500',
+    letterSpacing: 0.1,
+  },
+  statSep: {
+    fontSize:   12,
+    fontWeight: '700',
+  },
+
+  coachSlot: { marginTop: 0 },
 
   // Section heading
   sectionHead: {
@@ -1411,20 +1545,48 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   macroCur: {
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: "800",
-    letterSpacing: -0.5,
+    letterSpacing: -0.8,
+    lineHeight: 26,
+  },
+  macroDivider: {
+    width: 14,
+    height: 1,
+    marginTop: 4,
+    marginBottom: 4,
+    opacity: 0.45,
   },
   macroOf: {
-    fontSize: 9,
-    fontWeight: "600",
-    letterSpacing: 0.4,
-    marginTop: 2,
-  },
-  macroLabel: {
-    fontSize: 11,
+    fontSize: 8.5,
     fontWeight: "700",
-    letterSpacing: 0.3,
+    letterSpacing: 1.1,
+  },
+  macroPill: {
+    marginTop: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  macroPillLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+  },
+  macroPillDot: {
+    width: 2,
+    height: 2,
+    borderRadius: 1,
+    opacity: 0.6,
+  },
+  macroPillPct: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    fontVariant: ["tabular-nums"],
   },
 
   // Cycle phase
@@ -1517,26 +1679,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
   },
-  quickAdds: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  chip: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  chipText: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.1,
-  },
-
   // Meals
   mealRow: {
     flexDirection: "row",

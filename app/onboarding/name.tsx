@@ -53,7 +53,12 @@ export default function NameScreen() {
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
         <View style={s.progress}>
-          <ProgressBar step={8} total={9} onBack={() => router.back()} isDark={false} />
+          <ProgressBar
+            step={params.sex === 'female' ? 11 : 8}
+            total={params.sex === 'female' ? 12 : 9}
+            onBack={() => router.back()}
+            isDark={false}
+          />
         </View>
 
         <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>

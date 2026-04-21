@@ -1,13 +1,22 @@
+import { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
+import { useProfile } from '@/hooks/use-profile';
 
 export default function CycleTrackingScreen() {
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { profile } = useProfile();
+
+  useEffect(() => {
+    if (profile && profile.sex !== 'female') {
+      router.replace('/(tabs)/profile');
+    }
+  }, [profile, router]);
 
   const bg  = isDark ? '#0C0C0C' : '#F7F7F5';
   const hi  = isDark ? '#FFFFFF' : '#0C0C0C';
