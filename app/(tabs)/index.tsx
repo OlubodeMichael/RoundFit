@@ -1,6 +1,8 @@
 import { useFood } from "@/context/food-context";
 import { useProfile } from "@/hooks/use-profile";
 import { useHealth } from "@/hooks/use-health";
+import { useCycle } from "@/hooks/use-cycle";
+import type { CurrentCycle } from "@/hooks/use-cycle";
 import { calculateNutritionPlan } from "@/utils/nutrition";
 import { router, useRouter } from "expo-router";
 import { useTheme } from "@/hooks/use-theme";
@@ -477,17 +479,21 @@ const weekStyles = StyleSheet.create({
 // active one highlighted, plus a "Day N of M" caption.
 // ───────────────────────────────────────────────────────────────────────────────
 const CYCLE_PHASES = [
-  { key: 'menstrual',  label: 'Menstrual',  icon: 'water'           as const },
-  { key: 'follicular', label: 'Follicular', icon: 'leaf'            as const },
-  { key: 'ovulation',  label: 'Ovulation',  icon: 'sunny'           as const },
-  { key: 'luteal',     label: 'Luteal',     icon: 'moon'            as const },
+  { key: 'menstrual',  label: 'Menstrual',  icon: 'water' as const },
+  { key: 'follicular', label: 'Follicular', icon: 'leaf'  as const },
+  { key: 'ovulation',  label: 'Ovulation',  icon: 'sunny' as const },
+  { key: 'luteal',     label: 'Luteal',     icon: 'moon'  as const },
 ];
-const CURRENT_PHASE_INDEX = 1;
-const CYCLE_DAY  = 8;
-const CYCLE_LEN  = 28;
 
-function CyclePhaseCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
-  const phase = CYCLE_PHASES[CURRENT_PHASE_INDEX];
+function CyclePhaseCard({ P, delay = 0, current }: { P: Palette; delay?: number; current: CurrentCycle }) {
+  const phaseIdx   = CYCLE_PHASES.findIndex((p) => p.key === current.phase);
+  const activeIdx  = phaseIdx >= 0 ? phaseIdx : 0;
+  const phase      = CYCLE_PHASES[activeIdx];
+  const dayLabel   = current.day_of_cycle != null && current.cycle_length != null
+    ? `Day ${current.day_of_cycle} of ${current.cycle_length}`
+    : current.days_remaining != null
+      ? `${current.days_remaining}d remaining`
+      : null;
 
   return (
     <Card delay={delay} padding={18}>
@@ -499,15 +505,23 @@ function CyclePhaseCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
           <Text style={[styles.cycleTitle, { color: P.text }]}>
             {phase.label} <Text style={{ color: P.textFaint, fontWeight: '500' }}>phase</Text>
           </Text>
-          <Text style={[styles.cycleSub, { color: P.textFaint }]}>
-            Day {CYCLE_DAY} of {CYCLE_LEN}
-          </Text>
+          {dayLabel && (
+            <Text style={[styles.cycleSub, { color: P.textFaint }]}>{dayLabel}</Text>
+          )}
         </View>
+        {current.predicted_next_period && (
+          <View style={[styles.iconTile, { backgroundColor: P.hair, paddingHorizontal: 8, width: 'auto', gap: 2, flexDirection: 'row' }]}>
+            <Ionicons name="calendar-outline" size={11} color={P.textFaint} />
+            <Text style={{ fontSize: 10, fontWeight: '700', color: P.textFaint }}>
+              {new Date(current.predicted_next_period).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.phaseRow}>
         {CYCLE_PHASES.map((p, i) => {
-          const isActive = i === CURRENT_PHASE_INDEX;
+          const isActive = i === activeIdx;
           return (
             <View key={p.key} style={styles.phaseTick}>
               <View
@@ -1128,6 +1142,7 @@ export default function HomeScreen() {
     remaining, refreshLogs,
   } = useFood();
   const { today: healthToday, isConnected: healthConnected, refresh: refreshHealth } = useHealth();
+  const { current: cycleData } = useCycle();
   const toast = useToast();
 
   const [date, setDate]         = useState(new Date());
@@ -1188,6 +1203,7 @@ export default function HomeScreen() {
   const adjustedRemaining = remaining + burnedToday;
 
   const isFemale = profile?.sex === 'female';
+  const showCycleCard = isFemale && cycleData?.available === true && cycleData?.phase !== null;
   const waterGoal = 8; // will wire to summary context later
 
   const longDate = useMemo(
@@ -1246,7 +1262,7 @@ export default function HomeScreen() {
 
         {/* ── Content stack ───────────────────────────────────── */}
         <View style={styles.stack}>
-          {isFemale && <CyclePhaseCard P={P} delay={60} />}
+          {showCycleCard && cycleData && <CyclePhaseCard P={P} delay={60} current={cycleData} />}
           <HeroBudgetLedger
             P={P}
             delay={120}

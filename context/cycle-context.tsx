@@ -11,14 +11,17 @@ const TIMEOUT_MS = 10_000;
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type CyclePhase = 'menstrual' | 'follicular' | 'ovulation' | 'luteal' | null;
+export type LifeStage  = 'regular' | 'postpartum' | 'perimenopause' | 'menopause';
 
 export interface CycleLog {
-  id:                   string;
-  user_id:              string;
-  period_start_date:    string;
-  cycle_length:         number;
+  id:                    string;
+  user_id:               string;
+  period_start_date:     string;
+  cycle_length:          number;
   predicted_next_period: string | null;
-  created_at:           string;
+  phase:                 CyclePhase;
+  notes:                 string | null;
+  created_at:            string;
 }
 
 export interface AdjustedTargets {
@@ -29,31 +32,42 @@ export interface AdjustedTargets {
 }
 
 export interface CurrentCycle {
+  available:             boolean;
   phase:                 CyclePhase;
+  day_of_cycle:          number | null;
   days_remaining:        number | null;
+  cycle_length:          number | null;
+  last_period_date:      string | null;
   predicted_next_period: string | null;
   adjusted_targets:      AdjustedTargets | null;
   adjustment_reason:     string | null;
+  phase_insight:         string | null;
+  life_stage:            LifeStage | null;
+  message?:              string;
+}
+
+export interface CycleStats {
+  available:        boolean;
+  total_cycles:     number;
+  avg_cycle_length?: number;
+  shortest_cycle?:  number;
+  longest_cycle?:   number;
+  first_logged?:    string;
+  latest_logged?:   string;
+  message?:         string;
 }
 
 export interface CycleContextValue {
-  /** Current cycle phase + adjusted nutrition targets. Null until loaded. */
-  current: CurrentCycle | null;
-
-  /** Last 6 logged cycles, newest first. */
-  history: CycleLog[];
-
-  /** True while any fetch is in-flight. */
+  current:   CurrentCycle | null;
+  history:   CycleLog[];
+  stats:     CycleStats | null;
   isLoading: boolean;
 
-  /** Logs a new period start — hits POST /cycle/log. */
-  logPeriod: (periodStartDate: string, cycleLength?: number) => Promise<CycleLog>;
-
-  /** Updates the user's default cycle length — hits PATCH /cycle/length. */
-  updateCycleLength: (cycleLength: number) => Promise<void>;
-
-  /** Re-fetches current phase and history from the server. */
-  refresh: () => Promise<void>;
+  logPeriod:         (periodStartDate: string, cycleLength?: number, notes?: string) => Promise<CycleLog>;
+  updateCycleLength: (cycleLength: number)     => Promise<{ predicted_next_period: string | null }>;
+  updateLifeStage:   (lifeStage: LifeStage)    => Promise<{ adjusted_targets: AdjustedTargets; adjustment_reason: string }>;
+  deleteLog:         (id: string)              => Promise<void>;
+  refresh:           ()                        => Promise<void>;
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────
@@ -88,6 +102,8 @@ function fromApiLog(row: Record<string, unknown>): CycleLog {
     period_start_date:     String(row.period_start_date ?? ''),
     cycle_length:          typeof row.cycle_length === 'number' ? row.cycle_length : 28,
     predicted_next_period: typeof row.predicted_next_period === 'string' ? row.predicted_next_period : null,
+    phase:                 (row.phase as CyclePhase) ?? null,
+    notes:                 typeof row.notes === 'string' ? row.notes : null,
     created_at:            typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
   };
 }
@@ -104,11 +120,31 @@ function fromApiCurrent(body: Record<string, unknown>): CurrentCycle {
     : null;
 
   return {
+    available:             body.available === true,
     phase:                 (body.phase as CyclePhase) ?? null,
-    days_remaining:        typeof body.days_remaining === 'number' ? body.days_remaining : null,
+    day_of_cycle:          typeof body.day_of_cycle    === 'number' ? body.day_of_cycle    : null,
+    days_remaining:        typeof body.days_remaining   === 'number' ? body.days_remaining   : null,
+    cycle_length:          typeof body.cycle_length     === 'number' ? body.cycle_length     : null,
+    last_period_date:      typeof body.last_period_date === 'string' ? body.last_period_date : null,
     predicted_next_period: typeof body.predicted_next_period === 'string' ? body.predicted_next_period : null,
     adjusted_targets,
     adjustment_reason:     typeof body.adjustment_reason === 'string' ? body.adjustment_reason : null,
+    phase_insight:         typeof body.phase_insight    === 'string' ? body.phase_insight    : null,
+    life_stage:            (body.life_stage as LifeStage) ?? null,
+    message:               typeof body.message          === 'string' ? body.message          : undefined,
+  };
+}
+
+function fromApiStats(body: Record<string, unknown>): CycleStats {
+  return {
+    available:        body.available === true,
+    total_cycles:     typeof body.total_cycles    === 'number' ? body.total_cycles    : 0,
+    avg_cycle_length: typeof body.avg_cycle_length === 'number' ? body.avg_cycle_length : undefined,
+    shortest_cycle:   typeof body.shortest_cycle  === 'number' ? body.shortest_cycle  : undefined,
+    longest_cycle:    typeof body.longest_cycle   === 'number' ? body.longest_cycle   : undefined,
+    first_logged:     typeof body.first_logged    === 'string' ? body.first_logged    : undefined,
+    latest_logged:    typeof body.latest_logged   === 'string' ? body.latest_logged   : undefined,
+    message:          typeof body.message         === 'string' ? body.message         : undefined,
   };
 }
 
@@ -121,8 +157,9 @@ const CycleContext = createContext<CycleContextValue | null>(null);
 export function CycleProvider({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
 
-  const [current,  setCurrent]  = useState<CurrentCycle | null>(null);
-  const [history,  setHistory]  = useState<CycleLog[]>([]);
+  const [current,   setCurrent]   = useState<CurrentCycle | null>(null);
+  const [history,   setHistory]   = useState<CycleLog[]>([]);
+  const [stats,     setStats]     = useState<CycleStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
@@ -138,12 +175,18 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
     setHistory(rows.map(fromApiLog));
   }, []);
 
+  const fetchStats = useCallback(async () => {
+    const { ok, body } = await cycleFetch('/cycle/stats');
+    if (ok) setStats(fromApiStats(body));
+  }, []);
+
   useEffect(() => {
     if (status === 'loading') return;
 
     if (status === 'unauthenticated') {
       setCurrent(null);
       setHistory([]);
+      setStats(null);
       setIsLoading(false);
       return;
     }
@@ -153,57 +196,88 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        await Promise.all([fetchCurrent(), fetchHistory()]);
+        await Promise.all([fetchCurrent(), fetchHistory(), fetchStats()]);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, fetchCurrent, fetchHistory]);
+  }, [status, user?.id, fetchCurrent, fetchHistory, fetchStats]);
 
   // ── Log period ───────────────────────────────────────────────────────────
   const logPeriod = useCallback(async (
     periodStartDate: string,
     cycleLength = 28,
+    notes?: string,
   ): Promise<CycleLog> => {
     const { ok, body } = await cycleFetch('/cycle/log', {
       method: 'POST',
-      body:   JSON.stringify({ period_start_date: periodStartDate, cycle_length: cycleLength }),
+      body:   JSON.stringify({ period_start_date: periodStartDate, cycle_length: cycleLength, notes }),
     });
-    if (!ok || !body.cycle_log) throw new Error('Failed to log period');
+    if (!ok || !body.cycle_log) throw new Error((body.error as string) || 'Failed to log period');
 
     const saved = fromApiLog(body.cycle_log as Record<string, unknown>);
     setHistory((prev) => [saved, ...prev]);
-
-    // Refresh current phase since a new period changes the phase calculation
-    await fetchCurrent();
-
+    await Promise.all([fetchCurrent(), fetchStats()]);
     return saved;
-  }, [fetchCurrent]);
+  }, [fetchCurrent, fetchStats]);
 
   // ── Update cycle length ──────────────────────────────────────────────────
   const updateCycleLength = useCallback(async (cycleLength: number) => {
-    const { ok } = await cycleFetch('/cycle/length', {
+    const { ok, body } = await cycleFetch('/cycle/length', {
       method: 'PATCH',
       body:   JSON.stringify({ cycle_length: cycleLength }),
     });
-    if (!ok) throw new Error('Failed to update cycle length');
+    if (!ok) throw new Error((body.error as string) || 'Failed to update cycle length');
 
-    // Reflect the new length in history entries optimistically
+    const predicted = typeof body.predicted_next_period === 'string' ? body.predicted_next_period : null;
     setHistory((prev) => prev.map((c) => ({ ...c, cycle_length: cycleLength })));
-    await fetchCurrent();
-  }, [fetchCurrent]);
+    setCurrent((prev) => prev ? { ...prev, cycle_length: cycleLength, predicted_next_period: predicted } : prev);
+    return { predicted_next_period: predicted };
+  }, []);
+
+  // ── Update life stage ────────────────────────────────────────────────────
+  const updateLifeStage = useCallback(async (lifeStage: LifeStage) => {
+    const { ok, body } = await cycleFetch('/cycle/life-stage', {
+      method: 'PATCH',
+      body:   JSON.stringify({ life_stage: lifeStage }),
+    });
+    if (!ok) throw new Error((body.error as string) || 'Failed to update life stage');
+
+    const raw = body.adjusted_targets as Record<string, unknown> | null | undefined;
+    const adjusted_targets: AdjustedTargets = raw
+      ? {
+          calories: typeof raw.calories === 'number' ? raw.calories : 0,
+          protein:  typeof raw.protein  === 'number' ? raw.protein  : 0,
+          carbs:    typeof raw.carbs    === 'number' ? raw.carbs    : 0,
+          fat:      typeof raw.fat      === 'number' ? raw.fat      : 0,
+        }
+      : { calories: 0, protein: 0, carbs: 0, fat: 0 };
+
+    const adjustment_reason = typeof body.adjustment_reason === 'string' ? body.adjustment_reason : '';
+    setCurrent((prev) => prev ? { ...prev, life_stage: lifeStage, adjusted_targets, adjustment_reason } : prev);
+    return { adjusted_targets, adjustment_reason };
+  }, []);
+
+  // ── Delete log ───────────────────────────────────────────────────────────
+  const deleteLog = useCallback(async (id: string) => {
+    const { ok, body } = await cycleFetch(`/cycle/${id}`, { method: 'DELETE' });
+    if (!ok) throw new Error((body.error as string) || 'Failed to delete cycle log');
+
+    setHistory((prev) => prev.filter((c) => c.id !== id));
+    await Promise.all([fetchCurrent(), fetchStats()]);
+  }, [fetchCurrent, fetchStats]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
-    await Promise.all([fetchCurrent(), fetchHistory()]);
-  }, [fetchCurrent, fetchHistory]);
+    await Promise.all([fetchCurrent(), fetchHistory(), fetchStats()]);
+  }, [fetchCurrent, fetchHistory, fetchStats]);
 
   return (
     <CycleContext.Provider value={{
-      current, history, isLoading,
-      logPeriod, updateCycleLength, refresh,
+      current, history, stats, isLoading,
+      logPeriod, updateCycleLength, updateLifeStage, deleteLog, refresh,
     }}>
       {children}
     </CycleContext.Provider>

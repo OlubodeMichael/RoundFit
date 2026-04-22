@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Platform, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
@@ -110,7 +110,7 @@ export default function HealthConnectScreen() {
   const handleSkip = () => goToReveal();
 
   return (
-    <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
+    <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top }]}>
       <View style={s.progress}>
         <ProgressBar
           step={params.sex === 'female' ? 12 : 9}
@@ -120,69 +120,76 @@ export default function HealthConnectScreen() {
         />
       </View>
 
-      {/* ── Headline ─────────────────────────────────────────────────────── */}
-      <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
-        <Text style={[s.headline, { color: hi }]}>Connect{'\n'}Health app.</Text>
-        <Text style={[s.sub, { color: mid }]}>
-          RoundFit reads your Apple Health data to give you a complete picture — no manual logging.
-        </Text>
-      </Animated.View>
+      <ScrollView
+        contentContainerStyle={[s.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* ── Headline ─────────────────────────────────────────────────────── */}
+        <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
+          <Text style={[s.headline, { color: hi }]}>Connect{'\n'}Health app.</Text>
+          <Text style={[s.sub, { color: mid }]}>
+            RoundFit reads your Apple Health data to give you a complete picture — no manual logging.
+          </Text>
+        </Animated.View>
 
-      {/* ── Health icon ──────────────────────────────────────────────────── */}
-      <Animated.View style={[s.iconArea, { opacity: iconFade, transform: [{ scale: iconScale }] }]}>
-        <View style={s.glowOuter} />
-        <View style={[s.glowInner, { backgroundColor: 'rgba(249,115,22,0.10)' }]} />
-        <View style={[s.iconCard, { backgroundColor: surf, shadowColor: '#1A0800' }]}>
-          <Ionicons name="heart" size={44} color="#F97316" />
+        {/* ── Health icon ──────────────────────────────────────────────────── */}
+        <Animated.View style={[s.iconArea, { opacity: iconFade, transform: [{ scale: iconScale }] }]}>
+          <View style={s.glowOuter} />
+          <View style={[s.glowInner, { backgroundColor: 'rgba(249,115,22,0.10)' }]} />
+          <View style={[s.iconCard, { backgroundColor: surf, shadowColor: '#1A0800' }]}>
+            <Ionicons name="heart" size={44} color="#F97316" />
+          </View>
+          <View style={[s.appleBadge, { backgroundColor: surf, borderColor: lo }]}>
+            <Text style={s.appleBadgeText}>Apple Health</Text>
+          </View>
+        </Animated.View>
+
+        {/* ── Permissions list ─────────────────────────────────────────────── */}
+        <View style={s.list}>
+          {PERMISSIONS.map((p, i) => (
+            <Animated.View
+              key={p.label}
+              style={[
+                s.row,
+                { backgroundColor: surf, borderColor: lo },
+                { opacity: rowAnims[i].fade, transform: [{ translateY: rowAnims[i].y }] },
+              ]}
+            >
+              <View style={s.iconWrap}>
+                <Ionicons name={p.icon} size={20} color="#F97316" />
+              </View>
+              <View style={s.rowText}>
+                <Text style={[s.rowLabel, { color: hi }]}>{p.label}</Text>
+                <Text style={[s.rowDesc,  { color: mid }]}>{p.desc}</Text>
+              </View>
+              <Ionicons name="checkmark-circle" size={20} color="rgba(249,115,22,0.55)" />
+            </Animated.View>
+          ))}
         </View>
-        <View style={[s.appleBadge, { backgroundColor: surf, borderColor: lo }]}>
-          <Text style={s.appleBadgeText}>Apple Health</Text>
-        </View>
-      </Animated.View>
 
-      {/* ── Permissions list ─────────────────────────────────────────────── */}
-      <View style={s.list}>
-        {PERMISSIONS.map((p, i) => (
-          <Animated.View
-            key={p.label}
-            style={[
-              s.row,
-              { backgroundColor: surf, borderColor: lo },
-              { opacity: rowAnims[i].fade, transform: [{ translateY: rowAnims[i].y }] },
-            ]}
-          >
-            <View style={s.iconWrap}>
-              <Ionicons name={p.icon} size={20} color="#F97316" />
-            </View>
-            <View style={s.rowText}>
-              <Text style={[s.rowLabel, { color: hi }]}>{p.label}</Text>
-              <Text style={[s.rowDesc,  { color: mid }]}>{p.desc}</Text>
-            </View>
-            <Ionicons name="checkmark-circle" size={20} color="rgba(249,115,22,0.55)" />
-          </Animated.View>
-        ))}
-      </View>
+        <View style={{ flex: 1, minHeight: 24 }} />
 
-      <View style={{ flex: 1, minHeight: 12 }} />
+        {/* ── CTAs ─────────────────────────────────────────────────────────── */}
+        <Animated.View style={[s.ctaBlock, { opacity: bottomFade }]}>
+          <TouchableOpacity style={s.ctaPrimary} activeOpacity={0.85} onPress={handleConnect}>
+            <Ionicons name="heart" size={17} color="#FFF" style={{ marginRight: 8 }} />
+            <Text style={s.ctaPrimaryText}>{isExpoGo ? 'Continue' : 'Connect Health'}</Text>
+          </TouchableOpacity>
 
-      {/* ── CTAs ─────────────────────────────────────────────────────────── */}
-      <Animated.View style={[s.ctaBlock, { opacity: bottomFade }]}>
-        <TouchableOpacity style={s.ctaPrimary} activeOpacity={0.85} onPress={handleConnect}>
-          <Ionicons name="heart" size={17} color="#FFF" style={{ marginRight: 8 }} />
-          <Text style={s.ctaPrimaryText}>{isExpoGo ? 'Continue' : 'Connect Health'}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={s.ctaSkip} activeOpacity={0.6} onPress={handleSkip}>
-          <Text style={[s.ctaSkipText, { color: mid }]}>Skip for now</Text>
-        </TouchableOpacity>
-      </Animated.View>
+          <TouchableOpacity style={s.ctaSkip} activeOpacity={0.6} onPress={handleSkip}>
+            <Text style={[s.ctaSkipText, { color: mid }]}>Skip for now</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </ScrollView>
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  root:     { flex: 1, paddingHorizontal: 28 },
-  progress: { marginBottom: 8 },
+  root:          { flex: 1, paddingHorizontal: 28 },
+  progress:      { marginBottom: 8 },
+  scrollContent: { flexGrow: 1 },
 
   headline: { fontSize: 40, fontWeight: '900', letterSpacing: -2, lineHeight: 44, marginBottom: 10 },
   sub:      { fontSize: 14, lineHeight: 21, fontWeight: '400', marginBottom: 0 },

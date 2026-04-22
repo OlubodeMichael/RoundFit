@@ -437,6 +437,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     // Fire-and-forget — server clears the cookie; don't block the UI
     apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
+
+    // Clear device-local flags so the next account starts clean
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const AsyncStorage = require("@react-native-async-storage/async-storage").default;
+      await AsyncStorage.multiRemove([
+        "@roundfit/health_connected",
+        "@roundfit/last_health_sync",
+      ]);
+    } catch { /* storage unavailable */ }
+
     setUser(null);
     setStatus("unauthenticated");
   }, []);
