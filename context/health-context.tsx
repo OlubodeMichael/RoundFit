@@ -137,6 +137,12 @@ async function healthFetch(
 
     const body = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, body };
+  } catch (error: unknown) {
+    const isAbort = error instanceof Error && error.name === 'AbortError';
+    if (isAbort) {
+      return { ok: false, status: 408, body: { error: 'Request timed out' } };
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }

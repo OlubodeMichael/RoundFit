@@ -651,23 +651,36 @@ function HeroBudgetLedger({
         {/* ── Stat chips ───────────────────────────────────────── */}
         <View style={styles.chipRow}>
           <View style={[styles.chip, { backgroundColor: P.proteinSoft }]}>
-            <Ionicons name="restaurant" size={12} color={P.protein} />
-            <Text style={[styles.chipVal, { color: P.text }]}>{eaten.toLocaleString()}</Text>
+            <View style={styles.chipTopRow}>
+              <Ionicons name="restaurant" size={11} color={P.protein} />
+              <Text style={[styles.chipVal, { color: P.text }]}>{eaten.toLocaleString()}</Text>
+            </View>
             <Text style={[styles.chipLbl, { color: P.textFaint }]}>eaten</Text>
           </View>
           <View style={[styles.chip, { backgroundColor: P.caloriesSoft }]}>
-            <Ionicons name="flame" size={12} color={P.calories} />
-            <Text style={[styles.chipVal, { color: P.text }]}>{burned.toLocaleString()}</Text>
-            <Text style={[styles.chipLbl, { color: P.textFaint }]}>
-              burned
-              {stepsToday !== undefined ? ` · ${stepsToday.toLocaleString()} steps` : ''}
-            </Text>
+            <View style={styles.chipTopRow}>
+              <Ionicons name="flame" size={11} color={P.calories} />
+              <Text style={[styles.chipVal, { color: P.text }]}>{burned.toLocaleString()}</Text>
+            </View>
+            <Text style={[styles.chipLbl, { color: P.textFaint }]}>burned</Text>
           </View>
-          <View style={[styles.chip, { backgroundColor: isOver ? P.caloriesSoft : P.waterSoft }]}>
-            <Ionicons name="trending-up" size={12} color={isOver ? P.calories : P.water} />
-            <Text style={[styles.chipVal, { color: P.text }]}>{(eaten - burned).toLocaleString()}</Text>
-            <Text style={[styles.chipLbl, { color: P.textFaint }]}>net</Text>
-          </View>
+          {stepsToday !== undefined ? (
+            <View style={[styles.chip, { backgroundColor: P.waterSoft }]}>
+              <View style={styles.chipTopRow}>
+                <Ionicons name="footsteps" size={11} color={P.water} />
+                <Text style={[styles.chipVal, { color: P.text }]}>{stepsToday.toLocaleString()}</Text>
+              </View>
+              <Text style={[styles.chipLbl, { color: P.textFaint }]}>steps</Text>
+            </View>
+          ) : (
+            <View style={[styles.chip, { backgroundColor: isOver ? P.caloriesSoft : P.waterSoft }]}>
+              <View style={styles.chipTopRow}>
+                <Ionicons name="trending-up" size={11} color={isOver ? P.calories : P.water} />
+                <Text style={[styles.chipVal, { color: P.text }]}>{(eaten - burned).toLocaleString()}</Text>
+              </View>
+              <Text style={[styles.chipLbl, { color: P.textFaint }]}>net</Text>
+            </View>
+          )}
         </View>
       </View>
 
@@ -1405,13 +1418,18 @@ const styles = StyleSheet.create({
     marginBottom:  20,
   },
   chip: {
-    flex:           1,
-    flexDirection:  'row',
-    alignItems:     'center',
-    gap:            5,
-    paddingVertical: 8,
+    flex:              1,
+    flexDirection:     'column',
+    alignItems:        'flex-start',
+    gap:               3,
+    paddingVertical:   9,
     paddingHorizontal: 10,
-    borderRadius:   12,
+    borderRadius:      12,
+  },
+  chipTopRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           4,
   },
   chipVal: {
     fontSize:      13,

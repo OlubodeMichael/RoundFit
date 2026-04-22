@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import * as Haptics from "expo-haptics";
 import { Tabs } from "expo-router";
+import { useState } from "react";
 import {
     Dimensions,
     StyleSheet,
@@ -11,6 +12,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { CheckinModal } from "@/components/checkin/CheckinModal";
+import { useCheckin } from "@/hooks/use-checkin";
 import { useTheme } from "@/hooks/use-theme";
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>["name"];
@@ -143,19 +146,30 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
+// ── Checkin Gate ──────────────────────────────────────────────────────────────
+function CheckinGate() {
+  const { shouldShowCheckin, isLoading } = useCheckin();
+  const [dismissed, setDismissed] = useState(false);
+  const visible = !isLoading && shouldShowCheckin && !dismissed;
+  return <CheckinModal visible={visible} onClose={() => setDismissed(true)} />;
+}
+
 // ── Layout ────────────────────────────────────────────────────────────────────
 export default function TabLayout() {
   return (
-    <Tabs
-      tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{ headerShown: false }}
-    >
-      <Tabs.Screen name="index" options={{ title: "Home" }} />
-      <Tabs.Screen name="insights" options={{ title: "Insights" }} />
-      <Tabs.Screen name="log" options={{ title: "Log" }} />
-      <Tabs.Screen name="progress" options={{ title: "Progress" }} />
-      <Tabs.Screen name="profile" options={{ title: "Profile" }} />
-    </Tabs>
+    <>
+      <Tabs
+        tabBar={(props) => <CustomTabBar {...props} />}
+        screenOptions={{ headerShown: false }}
+      >
+        <Tabs.Screen name="index" options={{ title: "Home" }} />
+        <Tabs.Screen name="insights" options={{ title: "Insights" }} />
+        <Tabs.Screen name="log" options={{ title: "Log" }} />
+        <Tabs.Screen name="progress" options={{ title: "Progress" }} />
+        <Tabs.Screen name="profile" options={{ title: "Profile" }} />
+      </Tabs>
+      <CheckinGate />
+    </>
   );
 }
 
