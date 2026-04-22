@@ -2,6 +2,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
 import { AppState, type AppStateStatus, Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import { useAuth } from '@/context/auth-context';
 import {
   ensureHealthKitAuthorized,
@@ -46,12 +47,12 @@ export interface HealthData {
 
 export interface SyncHealthInput {
   source:                 HealthSource;
+  distance_unit?:         string;
   active_calories?:       number;
   resting_calories?:      number;
   total_calories_burned?: number;
   steps?:                 number;
   distance?:              number;
-  unit?:                  'metric' | 'imperial';
   avg_heart_rate?:        number;
   max_heart_rate?:        number;
   resting_heart_rate?:    number;
@@ -93,27 +94,44 @@ async function healthFetch(
   path: string,
   options: RequestInit = {},
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
+  const token  = await SecureStore.getItemAsync('access_token');
+  const apiKey = process.env.EXPO_PUBLIC_API_SECRET_KEY;
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    ...(token  ? { Authorization: `Bearer ${token}` } : {}),
+    ...(apiKey ? { 'x-api-key': apiKey }              : {}),
     ...(options.headers as Record<string, string>),
   };
+
   const controller = new AbortController();
   const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-  const run = (signal: AbortSignal) =>
-    fetch(`${API_BASE}${path}`, { ...options, headers, credentials: 'include', signal });
+  const run = (signal: AbortSignal, overrideHeaders?: Record<string, string>) =>
+    fetch(`${API_BASE}${path}`, { ...options, headers: overrideHeaders ?? headers, signal });
 
   try {
     const res = await run(controller.signal);
 
     if (res.status === 401) {
-      const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
-        method: 'POST', credentials: 'include', signal: controller.signal,
-      });
-      if (refreshRes.ok) {
-        const retryRes  = await run(controller.signal);
-        const retryBody = await retryRes.json().catch(() => ({}));
-        return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
+      const refreshToken = await SecureStore.getItemAsync('refresh_token');
+      if (refreshToken) {
+        const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ refresh_token: refreshToken }),
+          signal:  controller.signal,
+        });
+        if (refreshRes.ok) {
+          const { access_token, refresh_token } = await refreshRes.json();
+          await SecureStore.setItemAsync('access_token', access_token);
+          await SecureStore.setItemAsync('refresh_token', refresh_token);
+
+          const retryHeaders = { ...headers, Authorization: `Bearer ${access_token}` };
+          const retryRes     = await run(controller.signal, retryHeaders);
+          const retryBody    = await retryRes.json().catch(() => ({}));
+          return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
+        }
       }
     }
 
@@ -149,7 +167,7 @@ function isEmptySummary(s: HealthKitSummary): boolean {
 function toSyncInput(s: HealthKitSummary): SyncHealthInput {
   const input: SyncHealthInput = {
     source:                'healthkit',
-    unit:                  'metric',
+    distance_unit:         'km',
     steps:                 s.steps,
     active_calories:       s.active_calories,
     resting_calories:      s.resting_calories,
@@ -225,10 +243,8 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     const { ok, status, body } = await healthFetch('/health/today');
     console.log('[HealthKit] GET /health/today →', status, JSON.stringify(body));
 
-    if (ok && body.data) {
-      // data may be a single object or an array (backend may return multiple rows)
-      const row = Array.isArray(body.data) ? body.data[0] : body.data;
-      if (row) setToday(fromApiData(row as Record<string, unknown>));
+    if (ok && body.health_data) {
+      setToday(fromApiData(body.health_data as Record<string, unknown>));
     }
   }, []);
 
@@ -275,8 +291,8 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       method: 'POST',
       body:   JSON.stringify(input),
     });
-    if (!ok || !body.data) throw new Error('Failed to sync health data');
-    const saved = fromApiData(body.data as Record<string, unknown>);
+    if (!ok || !body.health_data) throw new Error('Failed to sync health data');
+    const saved = fromApiData(body.health_data as Record<string, unknown>);
     setToday(saved);
     return saved;
   }, []);
@@ -287,6 +303,19 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     if (!hk) return;
 
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      const lastSync     = await AsyncStorage.getItem('@roundfit/last_health_sync');
+      const now          = Date.now();
+
+      if (lastSync) {
+        const minutesSince = (now - parseInt(lastSync)) / 60000;
+        if (minutesSince < 30) {
+          console.log('[HealthKit] skipping sync — last sync was', Math.round(minutesSince), 'mins ago');
+          return;
+        }
+      }
+
       const authorized = await ensureHealthKitAuthorized(hk);
       if (!authorized) return;
 
@@ -304,6 +333,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
 
       await syncHealth(payload);
       await persistConnectedFlag();
+      await AsyncStorage.setItem('@roundfit/last_health_sync', now.toString());
       setIsConnected(true);
     } catch {
       // HealthKit not available in Expo Go or simulator without data

@@ -2,7 +2,7 @@ import { useFood } from "@/context/food-context";
 import { useProfile } from "@/hooks/use-profile";
 import { useHealth } from "@/hooks/use-health";
 import { calculateNutritionPlan } from "@/utils/nutrition";
-import { useRouter } from "expo-router";
+import { router, useRouter } from "expo-router";
 import { useTheme } from "@/hooks/use-theme";
 import { useToast } from "@/components/ui/Toast";
 import { BurnCoachStrip } from "@/components/home/burn-coach-strip";
@@ -43,34 +43,34 @@ function usePalette() {
   if (isDark) {
     return {
       bg: "#0A0B0F",
-      bgGlow: "rgba(255,120,73,0.04)",
-      card: "#141519",
-      cardEdge: "rgba(255,255,255,0.06)",
+      bgGlow: "rgba(255,120,73,0.06)",
+      card: "#1C1D23",          // lifted from #141519 — cards now visually separate from the page bg
+      cardEdge: "rgba(255,255,255,0.10)", // up from 0.06 — hairline borders are now perceptible
       sunken: "#0E0F13",
       text: "#F4F4F5",
-      textDim: "#A1A1AA",
-      textFaint: "#71717A",
-      hair: "rgba(255,255,255,0.08)",
+      textDim: "#C4C4C8",       // up from #A1A1AA — secondary labels pass WCAG AA on #1C1D23
+      textFaint: "#909096",     // up from #71717A — tertiary text (units, timestamps) now readable
+      hair: "rgba(255,255,255,0.10)",
 
       calories: "#FF7849",
-      caloriesSoft: "rgba(255,120,73,0.14)",
-      caloriesTrack: "rgba(255,120,73,0.12)",
+      caloriesSoft: "rgba(255,120,73,0.22)",  // up from 0.14 — icon pill bgs are now clearly tinted
+      caloriesTrack: "rgba(255,120,73,0.22)", // up from 0.12 — progress track grooves are visible
 
       protein: "#34D399",
-      proteinSoft: "rgba(52,211,153,0.14)",
-      proteinTrack: "rgba(52,211,153,0.14)",
+      proteinSoft: "rgba(52,211,153,0.22)",   // up from 0.14
+      proteinTrack: "rgba(52,211,153,0.22)",  // up from 0.14
 
       carbs: "#FBBF24",
-      carbsSoft: "rgba(251,191,36,0.14)",
-      carbsTrack: "rgba(251,191,36,0.14)",
+      carbsSoft: "rgba(251,191,36,0.22)",     // up from 0.14
+      carbsTrack: "rgba(251,191,36,0.22)",    // up from 0.14
 
       fat: "#A78BFA",
-      fatSoft: "rgba(167,139,250,0.14)",
-      fatTrack: "rgba(167,139,250,0.14)",
+      fatSoft: "rgba(167,139,250,0.22)",      // up from 0.14
+      fatTrack: "rgba(167,139,250,0.22)",     // up from 0.14
 
       water: "#38BDF8",
-      waterSoft: "rgba(56,189,248,0.14)",
-      waterTrack: "rgba(56,189,248,0.14)",
+      waterSoft: "rgba(56,189,248,0.22)",     // up from 0.14
+      waterTrack: "rgba(56,189,248,0.22)",    // up from 0.14
 
       flame: "#F97066",
       sage: "#34D399",
@@ -91,23 +91,23 @@ function usePalette() {
 
     calories: "#EA580C",
     caloriesSoft: "rgba(234,88,12,0.10)",
-    caloriesTrack: "rgba(234,88,12,0.10)",
+    caloriesTrack: "rgba(234,88,12,0.50)",
 
     protein: "#10B981",
     proteinSoft: "rgba(16,185,129,0.10)",
-    proteinTrack: "rgba(16,185,129,0.12)",
+    proteinTrack: "rgba(16,185,129,0.50)",
 
     carbs: "#D97706",
     carbsSoft: "rgba(217,119,6,0.10)",
-    carbsTrack: "rgba(217,119,6,0.12)",
+    carbsTrack: "rgba(217,119,6,0.50)",
 
     fat: "#7C3AED",
     fatSoft: "rgba(124,58,237,0.10)",
-    fatTrack: "rgba(124,58,237,0.12)",
+    fatTrack: "rgba(124,58,237,0.50)",
 
     water: "#0EA5E9",
     waterSoft: "rgba(14,165,233,0.10)",
-    waterTrack: "rgba(14,165,233,0.14)",
+    waterTrack: "rgba(14,165,233,0.50)",
 
     flame: "#DC2626",
     sage: "#059669",
@@ -137,11 +137,13 @@ const MEAL_ICONS: Record<string, IoniconsName> = {
 // ───────────────────────────────────────────────────────────────────────────────
 const TICK_COUNT = 36;
 const TICK_ANGLE_STEP = 360 / TICK_COUNT;
-const TICK_WIDTH = 1.5;
+const TICK_WIDTH = 2;
 const TICK_HEIGHT = 7;
-const TICK_RADIUS = 1.5;
-const LEADING_TICK_WIDTH = 2.5;
-const LEADING_TICK_HEIGHT = 10;
+const TICK_FILLED_WIDTH = 4;
+const TICK_FILLED_HEIGHT = 9;
+const TICK_RADIUS = 2;
+const LEADING_TICK_WIDTH = 5;
+const LEADING_TICK_HEIGHT = 11;
 const LEADING_HALO_SIZE = 14;
 const LEADING_HALO_OFFSET = -2;
 const TICK_TOP_INSET = 3;
@@ -152,6 +154,7 @@ function SegmentedDial({
   trackColor,
   fillColor,
   haloColor,
+  tickCount = TICK_COUNT,
   children,
 }: {
   size: number;
@@ -159,22 +162,24 @@ function SegmentedDial({
   trackColor: string;
   fillColor: string;
   haloColor: string;
+  tickCount?: number;
   children?: React.ReactNode;
 }) {
+  const tickAngleStep = 360 / tickCount;
   const pct = Math.min(Math.max(progress, 0), 1);
-  const fractional = pct * TICK_COUNT;
+  const fractional = pct * tickCount;
   const filledCount = Math.floor(fractional);
   const isComplete = pct >= 1;
   const leadingIdx = pct > 0 && !isComplete ? filledCount : -1;
 
   return (
     <View style={{ width: size, height: size }}>
-      {Array.from({ length: TICK_COUNT }).map((_, i) => {
+      {Array.from({ length: tickCount }).map((_, i) => {
         const isFilled = i < filledCount || isComplete;
         const isLeading = i === leadingIdx;
         const tickColor = isFilled || isLeading ? fillColor : trackColor;
-        const w = isLeading ? LEADING_TICK_WIDTH : TICK_WIDTH;
-        const h = isLeading ? LEADING_TICK_HEIGHT : TICK_HEIGHT;
+        const w = isLeading ? LEADING_TICK_WIDTH : isFilled ? TICK_FILLED_WIDTH : TICK_WIDTH;
+        const h = isLeading ? LEADING_TICK_HEIGHT : isFilled ? TICK_FILLED_HEIGHT : TICK_HEIGHT;
 
         return (
           <View
@@ -185,7 +190,7 @@ function SegmentedDial({
               width: size,
               height: size,
               alignItems: "center",
-              transform: [{ rotate: `${i * TICK_ANGLE_STEP}deg` }],
+              transform: [{ rotate: `${i * tickAngleStep}deg` }],
             }}
           >
             {isLeading && (
@@ -208,7 +213,7 @@ function SegmentedDial({
                 height: h,
                 borderRadius: TICK_RADIUS,
                 backgroundColor: tickColor,
-                opacity: isFilled || isLeading ? 1 : 0.9,
+                opacity: 1,
               }}
             />
           </View>
@@ -590,7 +595,6 @@ function HeroBudgetLedger({
   }, [animated]);
 
   const displayed = Math.round(progress * Math.max(remaining, 0));
-  const fillPct   = `${Math.round(progress * eatenPct * 100)}%`;
 
   const now       = useMemo(() => new Date(), []);
   const dateStamp = `${DAYS_SHORT[now.getDay()]}, ${MONTHS_SHORT[now.getMonth()]} ${now.getDate()}`;
@@ -614,6 +618,36 @@ function HeroBudgetLedger({
           </TouchableOpacity>
         </View>
 
+        {/* ── Calorie ring ─────────────────────────────────────── */}
+        <View style={styles.calRingWrap}>
+          <SegmentedDial
+            size={200}
+            progress={progress * eatenPct}
+            trackColor={P.caloriesTrack}
+            fillColor={P.calories}
+            haloColor={P.caloriesSoft}
+            tickCount={60}
+          >
+            <Text
+              style={[styles.calRingNumber, { color: isOver ? P.calories : P.text }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.5}
+            >
+              {displayed.toLocaleString()}
+            </Text>
+            <Text style={[styles.calRingUnit, { color: P.textFaint }]}>cal</Text>
+            <Text style={[styles.calRingLabel, { color: P.textFaint }]}>
+              {isOver ? 'over budget' : 'remaining'}
+            </Text>
+            <View style={[styles.calRingGoalPill, { backgroundColor: P.hair }]}>
+              <Text style={[styles.calRingGoalText, { color: isOver ? P.calories : P.textDim }]}>
+                {goal.toLocaleString()} daily goal
+              </Text>
+            </View>
+          </SegmentedDial>
+        </View>
+
         {/* ── Stat chips ───────────────────────────────────────── */}
         <View style={styles.chipRow}>
           <View style={[styles.chip, { backgroundColor: P.proteinSoft }]}>
@@ -633,42 +667,6 @@ function HeroBudgetLedger({
             <Ionicons name="trending-up" size={12} color={isOver ? P.calories : P.water} />
             <Text style={[styles.chipVal, { color: P.text }]}>{(eaten - burned).toLocaleString()}</Text>
             <Text style={[styles.chipLbl, { color: P.textFaint }]}>net</Text>
-          </View>
-        </View>
-
-        {/* ── Big remaining number ──────────────────────────────── */}
-        <View style={styles.ledgerNumberRow}>
-          <Text
-            style={[styles.ledgerNumber, { color: isOver ? P.calories : P.text }]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.5}
-          >
-            {displayed.toLocaleString()}
-          </Text>
-          <View style={{ gap: 2 }}>
-            <Text style={[styles.ledgerNumberUnit, { color: P.textFaint }]}>cal</Text>
-          </View>
-        </View>
-        <Text style={[styles.ledgerSubhead, { color: P.textFaint }]}>
-          {isOver ? 'over ' : 'remaining of '}
-          <Text style={{ color: isOver ? P.calories : P.textDim, fontWeight: '800' }}>{goal.toLocaleString()}</Text>
-          {' '}daily goal
-        </Text>
-
-        {/* ── Progress bar ─────────────────────────────────────── */}
-        <View style={[styles.barTrack, { backgroundColor: P.hair }]}>
-          <Animated.View
-            style={[styles.barFill, {
-              backgroundColor: isOver ? P.calories : P.protein,
-              width:           fillPct as `${number}%`,
-              shadowColor:     isOver ? P.calories : P.protein,
-            }]}
-          />
-          <View style={[styles.barPctBadge, { backgroundColor: isOver ? P.caloriesSoft : P.proteinSoft }]}>
-            <Text style={[styles.barPctText, { color: isOver ? P.calories : P.protein }]}>
-              {Math.round(eatenPct * 100)}%
-            </Text>
           </View>
         </View>
       </View>
@@ -692,48 +690,80 @@ function HeroBudgetLedger({
 // ───────────────────────────────────────────────────────────────────────────────
 const STEPS_GOAL = 10_000;
 
-function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data: import('@/context/health-context').HealthData }) {
-  const stepPct  = Math.min(data.steps / STEPS_GOAL, 1);
+function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data: import('@/context/health-context').HealthData | null }) {
+  const steps      = data?.steps ?? 0;
+  const activeCals = data?.active_calories ?? 0;
+  const distance   = data?.distance ?? 0;
+
+  const stepPct  = Math.min(steps / STEPS_GOAL, 1);
   const stepFill = useRef(new Animated.Value(0)).current;
+  const [displayedSteps, setDisplayedSteps] = useState(0);
 
   useEffect(() => {
-    Animated.timing(stepFill, {
-      toValue: stepPct,
-      duration: 900,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [stepFill, stepPct]);
+    const countAnim = new Animated.Value(0);
+    const id = countAnim.addListener(({ value }) => setDisplayedSteps(Math.round(value)));
+    Animated.parallel([
+      Animated.timing(stepFill, {
+        toValue: stepPct,
+        duration: 900,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(countAnim, {
+        toValue: steps,
+        duration: 900,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+    ]).start(() => countAnim.removeListener(id));
+    return () => countAnim.removeListener(id);
+  }, [steps, stepPct]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fillWidth = stepFill.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+  const pctLabel  = Math.round(stepPct * 100);
 
-  const distLabel = data.distance_unit === 'km' || data.distance_unit === 'metric'
-    ? `${data.distance.toFixed(1)} km`
-    : `${data.distance.toFixed(1)} mi`;
+  const distLabel = data?.distance_unit === 'km' || data?.distance_unit === 'metric'
+    ? `${distance.toFixed(1)} km`
+    : `${distance.toFixed(1)} mi`;
 
   return (
     <Card delay={delay}>
-      <SectionHead title="Activity" caption="from Apple Health" P={P} />
-      <View style={styles.activityRow}>
-
-        {/* Steps */}
-        <View style={styles.activityStat}>
-          <View style={[styles.activityIconBox, { backgroundColor: P.waterSoft }]}>
-            <Ionicons name="footsteps" size={16} color={P.water} />
-          </View>
-          <Text style={[styles.activityVal, { color: P.text }]}>
-            {data.steps.toLocaleString()}
-          </Text>
-          <Text style={[styles.activityLbl, { color: P.textFaint }]}>steps</Text>
-          <View style={[styles.activityTrack, { backgroundColor: P.hair }]}>
-            <Animated.View style={[styles.activityFill, { backgroundColor: P.water, width: fillWidth }]} />
-          </View>
-          <Text style={[styles.activitySub, { color: P.textFaint }]}>
-            goal {STEPS_GOAL.toLocaleString()}
+      <View style={styles.activityHead}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={[styles.sectionTitle, { color: P.text }]}>Activity</Text>
+          <Text style={[styles.sectionCaption, { color: P.textFaint }]}>from Apple Health</Text>
+        </View>
+        <View style={[styles.stepsPctPill, { backgroundColor: stepPct >= 1 ? P.proteinSoft : P.waterSoft }]}>
+          {stepPct >= 1 && <Ionicons name="checkmark" size={10} color={P.protein} />}
+          <Text style={[styles.stepsPctText, { color: stepPct >= 1 ? P.protein : P.water }]}>
+            {stepPct >= 1 ? 'Goal!' : `${pctLabel}%`}
           </Text>
         </View>
+      </View>
 
-        <View style={[styles.activityDivider, { backgroundColor: P.hair }]} />
+      {/* Steps progress bar */}
+      <View style={styles.stepsBarWrap}>
+        <View style={styles.stepsBarTop}>
+          <View style={styles.stepsBarLeft}>
+            <Ionicons name="footsteps" size={13} color={P.water} />
+            <Text style={[styles.stepsBarVal, { color: P.text }]}>{displayedSteps.toLocaleString()}</Text>
+            <Text style={[styles.stepsBarGoal, { color: P.textFaint }]}>/ {STEPS_GOAL.toLocaleString()}</Text>
+          </View>
+          <Text style={[styles.stepsBarRemain, { color: P.textFaint }]}>
+            {steps >= STEPS_GOAL ? 'Complete' : `${Math.max(STEPS_GOAL - steps, 0).toLocaleString()} to go`}
+          </Text>
+        </View>
+        <View style={[styles.stepsTrack, { backgroundColor: P.hair }]}>
+          <Animated.View
+            style={[
+              styles.stepsFill,
+              { width: fillWidth, backgroundColor: stepPct >= 1 ? P.protein : P.water },
+            ]}
+          />
+        </View>
+      </View>
+
+      <View style={styles.activityRow}>
 
         {/* Distance */}
         <View style={styles.activityStat}>
@@ -752,7 +782,7 @@ function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data
             <Ionicons name="flame" size={16} color={P.calories} />
           </View>
           <Text style={[styles.activityVal, { color: P.text }]}>
-            {data.active_calories.toLocaleString()}
+            {activeCals.toLocaleString()}
           </Text>
           <Text style={[styles.activityLbl, { color: P.textFaint }]}>active cal</Text>
         </View>
@@ -1038,8 +1068,9 @@ function InsightCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
           styles.insightCta,
           { backgroundColor: P.sunken, borderColor: P.cardEdge },
         ]}
+        onPress={() => router.replace('/(tabs)/insights/weekly')}
       >
-        <Text style={[styles.insightCtaText, { color: P.text }]}>
+        <Text style={[styles.insightCtaText, { color: P.text }]} >
           See weekly report
         </Text>
         <Ionicons name="arrow-forward" size={14} color={P.text} />
@@ -1153,6 +1184,9 @@ export default function HomeScreen() {
     }
   };
 
+  const burnedToday = healthToday?.active_calories ?? 0;
+  const adjustedRemaining = remaining + burnedToday;
+
   const isFemale = profile?.sex === 'female';
   const waterGoal = 8; // will wire to summary context later
 
@@ -1218,9 +1252,9 @@ export default function HomeScreen() {
             delay={120}
             eaten={totalCalories}
             goal={mealGoal}
-            burned={healthToday?.active_calories ?? 0}
+            burned={burnedToday}
             stepsToday={healthToday?.steps}
-            remaining={remaining}
+            remaining={adjustedRemaining}
             coach={{
               ...coachData,
               isLive: true,
@@ -1229,7 +1263,7 @@ export default function HomeScreen() {
           />
           <InsightCard P={P} delay={280} />
           <MacrosCard P={P} delay={360} macros={macros} />
-          {Platform.OS === 'ios' && healthToday && (
+          {Platform.OS === 'ios' && (
             <ActivityCard P={P} delay={430} data={healthToday} />
           )}
           <MealsCard
@@ -1389,58 +1423,98 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  ledgerNumberRow: {
-    flexDirection: 'row',
-    alignItems:    'baseline',
-    gap:           8,
+  calRingWrap: {
+    alignItems:    'center',
+    marginBottom:  20,
   },
-  ledgerNumber: {
+  calRingNumber: {
     fontFamily:    'BarlowCondensed_800ExtraBold',
-    fontSize:      88,
-    lineHeight:    84,
-    letterSpacing: -2,
-    flexShrink:    1,
+    fontSize:      52,
+    lineHeight:    52,
+    letterSpacing: -1.5,
+    textAlign:     'center',
   },
-  ledgerNumberUnit: {
+  calRingUnit: {
     fontFamily:    'BarlowCondensed_700Bold',
-    fontSize:      22,
-    letterSpacing: 0.5,
+    fontSize:      13,
+    letterSpacing: 1,
+    textAlign:     'center',
+    marginTop:     3,
   },
-  ledgerSubhead: {
-    marginTop:  6,
-    fontSize:   13,
-    fontWeight: '500',
-  },
-
-  barTrack: {
-    height:         10,
-    borderRadius:   6,
-    overflow:       'hidden',
-    marginTop:      20,
-    position:       'relative',
-  },
-  barFill: {
-    height:         '100%',
-    borderRadius:   6,
-    shadowOpacity:  0.5,
-    shadowRadius:   8,
-    shadowOffset:   { width: 0, height: 0 },
-  },
-  barPctBadge: {
-    position:       'absolute',
-    right:          0,
-    top:            -22,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius:   8,
-  },
-  barPctText: {
+  calRingLabel: {
     fontSize:      11,
-    fontWeight:    '800',
-    letterSpacing: 0.2,
+    fontWeight:    '500',
+    textAlign:     'center',
+    marginTop:     4,
+  },
+  calRingGoalPill: {
+    marginTop:         8,
+    paddingHorizontal: 10,
+    paddingVertical:   4,
+    borderRadius:      999,
+  },
+  calRingGoalText: {
+    fontSize:      10,
+    fontWeight:    '700',
+    letterSpacing: 0.3,
+    textAlign:     'center',
   },
 
   // Activity card
+  activityHead: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    marginBottom:  18,
+  },
+  stepsPctPill: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               4,
+    paddingHorizontal: 8,
+    paddingVertical:   3,
+    borderRadius:      999,
+  },
+  stepsPctText: {
+    fontSize:   10,
+    fontWeight: '800',
+  },
+  stepsBarWrap: {
+    marginBottom: 20,
+  },
+  stepsBarTop: {
+    flexDirection:  'row',
+    alignItems:     'baseline',
+    justifyContent: 'space-between',
+    marginBottom:   8,
+  },
+  stepsBarLeft: {
+    flexDirection: 'row',
+    alignItems:    'baseline',
+    gap:           5,
+  },
+  stepsBarVal: {
+    fontSize:      20,
+    fontWeight:    '800',
+    letterSpacing: -0.5,
+    fontVariant:   ['tabular-nums'],
+  },
+  stepsBarGoal: {
+    fontSize:   12,
+    fontWeight: '600',
+  },
+  stepsBarRemain: {
+    fontSize:   11,
+    fontWeight: '600',
+  },
+  stepsTrack: {
+    height:       6,
+    borderRadius: 3,
+    overflow:     'hidden',
+  },
+  stepsFill: {
+    height:       '100%',
+    borderRadius: 3,
+  },
   activityRow: {
     flexDirection: 'row',
     alignItems:    'flex-start',
@@ -1468,22 +1542,6 @@ const styles = StyleSheet.create({
     fontSize:      10,
     fontWeight:    '600',
     letterSpacing: 0.3,
-  },
-  activityTrack: {
-    width:        '80%',
-    height:       3,
-    borderRadius: 2,
-    overflow:     'hidden',
-    marginTop:    4,
-  },
-  activityFill: {
-    height:       '100%',
-    borderRadius: 2,
-  },
-  activitySub: {
-    fontSize:  9,
-    fontWeight: '600',
-    letterSpacing: 0.2,
   },
   activityDivider: {
     width:          StyleSheet.hairlineWidth,

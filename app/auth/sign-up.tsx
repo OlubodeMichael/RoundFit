@@ -45,10 +45,10 @@ export default function SignUpScreen() {
   const emailUnderline    = useRef(new Animated.Value(0)).current;
   const passwordUnderline = useRef(new Animated.Value(0)).current;
 
-  const bg  = isDark ? '#0A0A0A' : '#FAFAF8';
-  const hi  = isDark ? '#F5F5F5' : '#111111';
-  const mid = isDark ? '#777'    : '#888';
-  const lo  = isDark ? '#2A2A2A' : '#E8E3DC';
+  const bg  = isDark ? '#0A0B0F' : '#FAFAF8';
+  const hi  = isDark ? '#F4F4F5' : '#111111';
+  const mid = isDark ? '#909096' : '#888';
+  const lo  = isDark ? '#2A2A32' : '#E8E3DC';
 
   const fade   = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;

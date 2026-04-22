@@ -105,10 +105,10 @@ export function AppModal({
   ).current;
 
   // ── Theme ──────────────────────────────────────────────────────────────
-  const bg   = isDark ? '#111111' : '#FAFAF8';
-  const hi   = isDark ? '#F5F5F5' : '#111111';
-  const lo   = isDark ? '#222222' : '#EBEBEB';
-  const mid  = isDark ? '#555555' : '#BBBBBB';
+  const bg   = isDark ? '#1C1D23' : '#FAFAF8';
+  const hi   = isDark ? '#F4F4F5' : '#111111';
+  const lo   = isDark ? '#2A2A32' : '#EBEBEB';
+  const mid  = isDark ? '#707078' : '#BBBBBB';
 
   return (
     <Modal

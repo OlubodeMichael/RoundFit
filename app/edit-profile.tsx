@@ -93,10 +93,10 @@ function MeasureCard({
   lo:          string;
   isDark:      boolean;
 }) {
-  const btnBg = isDark ? '#1E1E1E' : '#F0EFEc';
+  const btnBg = isDark ? '#252530' : '#F0EFEc';
   return (
     <View style={[mc.card, { backgroundColor: surface, borderColor: lo }]}>
-      <Text style={[mc.label, { color: isDark ? '#555' : '#BBBAB6' }]}>{label}</Text>
+      <Text style={[mc.label, { color: isDark ? '#909096' : '#BBBAB6' }]}>{label}</Text>
       <View style={mc.row}>
         <TouchableOpacity
           style={[mc.btn, { backgroundColor: btnBg, borderColor: lo }]}
@@ -168,11 +168,11 @@ export default function EditProfileScreen() {
     normaliseGoal(profile?.goal ?? 'maintain'),
   );
 
-  const bg      = isDark ? '#0A0A0A' : '#F7F7F5';
-  const surface = isDark ? '#141414' : '#FFFFFF';
-  const hi      = isDark ? '#F0F0F0' : '#111111';
-  const mid     = isDark ? '#666'    : '#999';
-  const lo      = isDark ? '#232323' : '#EBEBEB';
+  const bg      = isDark ? '#0A0B0F' : '#F7F7F5';
+  const surface = isDark ? '#1C1D23' : '#FFFFFF';
+  const hi      = isDark ? '#F4F4F5' : '#111111';
+  const mid     = isDark ? '#909096' : '#999';
+  const lo      = isDark ? '#2A2A32' : '#EBEBEB';
 
   /**
    * True when at least one visible form value differs from what the server has.
@@ -323,7 +323,7 @@ export default function EditProfileScreen() {
           <SectionLabel label="Body" color={mid} />
 
           {/* Units segmented control */}
-          <View style={[s.unitsSeg, { backgroundColor: isDark ? '#1A1A1A' : '#ECEAE6' }]}>
+          <View style={[s.unitsSeg, { backgroundColor: isDark ? '#141519' : '#ECEAE6' }]}>
             {([
               { label: 'Metric',   sub: 'kg · cm',       value: 'metric'   },
               { label: 'Imperial', sub: 'lbs · ft · in',  value: 'imperial' },

@@ -136,7 +136,7 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
 
   const bg  = isDark ? '#0C0C0C' : '#0C0C0C'; // always dark for drama
   const hi  = '#FFFFFF';
-  const mid = 'rgba(255,255,255,0.55)';
+  const mid = 'rgba(255,255,255,0.70)';
 
   return (
     <Modal
@@ -366,7 +366,7 @@ const s = StyleSheet.create({
   orbLabel: { color: '#FFF', fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
 
   analyzeTitle:   { color: '#FFFFFF', fontSize: 18, fontWeight: '700', textAlign: 'center' },
-  analyzeCaption: { color: 'rgba(255,255,255,0.45)', fontSize: 13, fontWeight: '500', textAlign: 'center' },
+  analyzeCaption: { color: 'rgba(255,255,255,0.70)', fontSize: 13, fontWeight: '500', textAlign: 'center' },
 
   // ── Result ──
   resultContent: {

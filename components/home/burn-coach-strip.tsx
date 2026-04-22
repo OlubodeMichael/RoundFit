@@ -82,8 +82,12 @@ export function BurnCoachStrip({
 
   const pct = Math.round(target * 100);
 
-  const panelBg   = P.isDark ? '#1A1A1F' : '#1C1C1E';
-  const panelHair = 'rgba(255,255,255,0.08)';
+  // In dark mode use a surface that sits clearly above the page bg (#0A0B0F).
+  // '#222328' is ~2 stops lighter than the card (#1C1D23) so the strip reads
+  // as a recessed module inside the hero card without blending into either.
+  const panelBg   = P.isDark ? '#222328' : '#1C1C1E';
+  // Lifted from 0.08 → 0.12 so dividers and the chevron border are visible.
+  const panelHair = P.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.08)';
 
   return (
     <Pressable
@@ -111,11 +115,11 @@ export function BurnCoachStrip({
             <Text style={[styles.liveText, { color: P.protein }]}>LIVE</Text>
           </View>
         )}
-        <Text style={[styles.eyebrow, { color: 'rgba(255,255,255,0.45)' }]}>BURN COACH</Text>
+        <Text style={[styles.eyebrow, { color: 'rgba(255,255,255,0.80)' }]}>BURN COACH</Text>
         <View style={{ flex: 1 }} />
         {onPress && (
           <View style={[styles.chevCircle, { borderColor: panelHair }]}>
-            <Ionicons name="chevron-forward" size={13} color="rgba(255,255,255,0.5)" />
+            <Ionicons name="chevron-forward" size={13} color="rgba(255,255,255,0.80)" />
           </View>
         )}
       </View>
@@ -134,7 +138,7 @@ export function BurnCoachStrip({
           <Text style={styles.calNum} numberOfLines={1}>
             {Math.round(caloriesToBurn).toLocaleString()}
           </Text>
-          <Text style={[styles.calSub, { color: 'rgba(255,255,255,0.5)' }]}>cal to burn</Text>
+          <Text style={[styles.calSub, { color: 'rgba(255,255,255,0.70)' }]}>cal to burn</Text>
         </View>
 
         {/* Divider */}
@@ -142,7 +146,7 @@ export function BurnCoachStrip({
 
         {/* Activity label */}
         <View style={styles.moveBlock}>
-          <Text style={[styles.moveEyebrow, { color: 'rgba(255,255,255,0.4)' }]}>YOUR MOVE</Text>
+          <Text style={[styles.moveEyebrow, { color: 'rgba(255,255,255,0.80)' }]}>YOUR MOVE</Text>
           <Text style={styles.moveLabel} numberOfLines={2}>
             {activity.label}
           </Text>
@@ -150,7 +154,7 @@ export function BurnCoachStrip({
       </View>
 
       {/* ── Progress bar ─────────────────────────────────────── */}
-      <View style={[styles.track, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
+      <View style={[styles.track, { backgroundColor: 'rgba(255,255,255,0.22)' }]}>
         <Animated.View
           style={[styles.fill, { backgroundColor: P.calories, width: fillPct }]}
         />
@@ -179,7 +183,7 @@ const styles = StyleSheet.create({
     flexDirection:     'row',
     alignItems:        'center',
     gap:               5,
-    backgroundColor:   'rgba(52,211,153,0.15)',
+    backgroundColor:   'rgba(52,211,153,0.22)',
     paddingHorizontal: 8,
     paddingVertical:   4,
     borderRadius:      999,

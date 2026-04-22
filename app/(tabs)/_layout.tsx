@@ -37,10 +37,10 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const tabBg = isDark ? "#111111" : "#FFFFFF";
-  const borderClr = isDark ? "#262626" : "#EDE9E3";
+  const tabBg = isDark ? "#1C1D23" : "#FFFFFF";
+  const borderClr = isDark ? "#333340" : "#EDE9E3";
   const active = "#F97316";
-  const inactive = isDark ? "#444444" : "#BBBBBB";
+  const inactive = isDark ? "#707078" : "#BBBBBB";
 
   const tabBarH = TAB_H + insets.bottom;
   const leftW = (SW - NOTCH_W) / 2;

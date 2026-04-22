@@ -114,11 +114,11 @@ export function ManualMealInputModal({
     }
   }, [visible, presetLabel, initialValues]);
 
-  const bg = isDark ? "#121212" : "#FFFFFF";
-  const hi = isDark ? "#FFFFFF" : "#111111";
-  const mid = isDark ? "#A3A3A3" : "#666666";
-  const line = isDark ? "#2A2A2A" : "#EAEAEA";
-  const inputBg = isDark ? "#181818" : "#FAFAFA";
+  const bg = isDark ? "#1C1D23" : "#FFFFFF";
+  const hi = isDark ? "#F4F4F5" : "#111111";
+  const mid = isDark ? "#C4C4C8" : "#666666";
+  const line = isDark ? "#333340" : "#EAEAEA";
+  const inputBg = isDark ? "#141519" : "#FAFAFA";
 
   const submit = () => {
     const cleanName = name.trim();
@@ -182,7 +182,7 @@ export function ManualMealInputModal({
             <View
               style={[
                 s.presetChip,
-                { borderColor: "#F97316", backgroundColor: "rgba(249,115,22,0.14)" },
+                { borderColor: "#F97316", backgroundColor: "rgba(249,115,22,0.22)" },
               ]}
             >
               <Text style={[s.presetChipText, { color: "#F97316" }]}>
@@ -205,7 +205,7 @@ export function ManualMealInputModal({
                       {
                         borderColor: active ? "#F97316" : line,
                         backgroundColor: active
-                          ? "rgba(249,115,22,0.14)"
+                          ? "rgba(249,115,22,0.22)"
                           : "transparent",
                       },
                     ]}

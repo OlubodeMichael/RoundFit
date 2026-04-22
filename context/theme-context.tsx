@@ -1,8 +1,11 @@
-import React, { createContext, useCallback, useContext,  useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useColorScheme } from 'react-native';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
+
+const STORAGE_KEY = '@roundfit/theme';
 
 interface ThemeContextValue {
   /** What the user explicitly chose: light, dark, or follow-system */
@@ -23,18 +26,27 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme() ?? 'light';
   const [preference, setPreference] = useState<ThemePreference>('system');
 
+  // Load persisted preference on mount
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEY).then((stored) => {
+      if (stored === 'light' || stored === 'dark' || stored === 'system') {
+        setPreference(stored);
+      }
+    });
+  }, []);
+
   const scheme: ResolvedTheme = preference === 'system' ? systemScheme : preference;
   const isDark = scheme === 'dark';
 
   const setTheme = useCallback((pref: ThemePreference) => {
     setPreference(pref);
-    // TODO: persist with AsyncStorage or MMKV:
-    // await AsyncStorage.setItem('@theme', pref);
+    AsyncStorage.setItem(STORAGE_KEY, pref);
   }, []);
 
   const cycleTheme = useCallback(() => {
     setPreference((prev) => {
       const next = CYCLE_ORDER[(CYCLE_ORDER.indexOf(prev) + 1) % CYCLE_ORDER.length];
+      AsyncStorage.setItem(STORAGE_KEY, next);
       return next;
     });
   }, []);

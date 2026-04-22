@@ -18,9 +18,9 @@ export default function CycleTrackingScreen() {
     }
   }, [profile, router]);
 
-  const bg  = isDark ? '#0C0C0C' : '#F7F7F5';
-  const hi  = isDark ? '#FFFFFF' : '#0C0C0C';
-  const mid = isDark ? '#888'    : '#888';
+  const bg  = isDark ? '#0A0B0F' : '#F7F7F5';
+  const hi  = isDark ? '#F4F4F5' : '#0C0C0C';
+  const mid = isDark ? '#909096' : '#888';
 
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top + 8 }]}>

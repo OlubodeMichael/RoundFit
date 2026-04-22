@@ -114,7 +114,7 @@ export default function DailyLogScreen() {
             <View style={styles.glanceGrid}>
               {stats.map((s) => (
                 <View key={s.key} style={styles.glanceCell}>
-                  <View style={[styles.glanceIcon, { backgroundColor: s.accent + '22' }]}>
+                  <View style={[styles.glanceIcon, { backgroundColor: s.accent + '38' }]}>
                     <Ionicons name={s.icon} size={14} color={s.accent} />
                   </View>
                   <Text style={[styles.glanceValue, { color: P.text }]} numberOfLines={1}>

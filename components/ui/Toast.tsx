@@ -195,10 +195,10 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => vo
   const tone = TONE[toast.kind];
   const palette = isDark
     ? {
-        bg:      '#1C1C1E',
-        edge:    'rgba(255,255,255,0.08)',
+        bg:      '#1C1D23',
+        edge:    'rgba(255,255,255,0.10)',
         text:    '#F4F4F5',
-        faint:   'rgba(255,255,255,0.60)',
+        faint:   'rgba(255,255,255,0.70)',
         shadow:  '#000',
         iconBg:  tone.darkIconBg,
       }

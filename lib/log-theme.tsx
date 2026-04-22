@@ -28,39 +28,39 @@ export function usePalette() {
   if (isDark) {
     return {
       bg:           '#0A0B0F',
-      card:         '#141519',
-      cardEdge:     'rgba(255,255,255,0.06)',
+      card:         '#1C1D23',           // lifted from #141519 — distinguishable from page bg
+      cardEdge:     'rgba(255,255,255,0.10)', // up from 0.06 — hairline borders perceptible
       sunken:       '#0E0F13',
-      raised:       '#1B1C21',
+      raised:       '#1C1D23',           // matched to new card value
       text:         '#F4F4F5',
-      textDim:      '#A1A1AA',
-      textFaint:    '#71717A',
-      hair:         'rgba(255,255,255,0.08)',
+      textDim:      '#C4C4C8',           // up from #A1A1AA — secondary labels pass WCAG AA
+      textFaint:    '#909096',           // up from #71717A — tertiary text is now readable
+      hair:         'rgba(255,255,255,0.10)',
 
       calories:     '#FF7849',
-      caloriesSoft: 'rgba(255,120,73,0.14)',
-      caloriesTrack:'rgba(255,120,73,0.12)',
+      caloriesSoft: 'rgba(255,120,73,0.22)',   // up from 0.14 — icon pill bgs clearly tinted
+      caloriesTrack:'rgba(255,120,73,0.22)',   // up from 0.12
 
       protein:      '#34D399',
-      proteinSoft:  'rgba(52,211,153,0.14)',
+      proteinSoft:  'rgba(52,211,153,0.22)',   // up from 0.14
       carbs:        '#FBBF24',
-      carbsSoft:    'rgba(251,191,36,0.14)',
+      carbsSoft:    'rgba(251,191,36,0.22)',   // up from 0.14
       fat:          '#A78BFA',
-      fatSoft:      'rgba(167,139,250,0.14)',
+      fatSoft:      'rgba(167,139,250,0.22)',  // up from 0.14
 
       water:        '#38BDF8',
-      waterSoft:    'rgba(56,189,248,0.14)',
+      waterSoft:    'rgba(56,189,248,0.22)',   // up from 0.14
       sleep:        '#818CF8',
-      sleepSoft:    'rgba(129,140,248,0.14)',
+      sleepSoft:    'rgba(129,140,248,0.22)',  // up from 0.14
       weight:       '#F472B6',
-      weightSoft:   'rgba(244,114,182,0.14)',
+      weightSoft:   'rgba(244,114,182,0.22)',  // up from 0.14
       workout:      '#22D3EE',
-      workoutSoft:  'rgba(34,211,238,0.14)',
+      workoutSoft:  'rgba(34,211,238,0.22)',   // up from 0.14
       body:         '#FB7185',
-      bodySoft:     'rgba(251,113,133,0.14)',
+      bodySoft:     'rgba(251,113,133,0.22)',  // up from 0.14
 
       danger:       '#F97066',
-      dangerSoft:   'rgba(249,112,102,0.14)',
+      dangerSoft:   'rgba(249,112,102,0.22)',  // up from 0.14
       sage:         '#34D399',
 
       isDark:       true,

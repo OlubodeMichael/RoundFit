@@ -1,61 +1,74 @@
-import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
-import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
-import 'react-native-reanimated';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useFonts, Syne_700Bold, Syne_800ExtraBold } from '@expo-google-fonts/syne';
 import {
-  BarlowCondensed_600SemiBold,
-  BarlowCondensed_700Bold,
-  BarlowCondensed_800ExtraBold,
-} from '@expo-google-fonts/barlow-condensed';
+    BarlowCondensed_600SemiBold,
+    BarlowCondensed_700Bold,
+    BarlowCondensed_800ExtraBold,
+} from "@expo-google-fonts/barlow-condensed";
+import {
+    Syne_700Bold,
+    Syne_800ExtraBold,
+    useFonts,
+} from "@expo-google-fonts/syne";
+import {
+    DarkTheme,
+    DefaultTheme,
+    ThemeProvider as NavThemeProvider,
+} from "@react-navigation/native";
+import {
+    Stack,
+    useRootNavigationState,
+    useRouter,
+    useSegments,
+} from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
+import { StyleSheet, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import "react-native-reanimated";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { ThemeProvider } from '@/context/theme-context';
-import { AuthProvider } from '@/context/auth-context';
-import { ProfileProvider } from '@/context/profile-context';
-import { FoodProvider } from '@/context/food-context';
-import { WorkoutProvider } from '@/context/workout-context';
-import { CycleProvider } from '@/context/cycle-context';
-import { WeightProvider } from '@/context/weight-context';
-import { HealthProvider } from '@/context/health-context';
-import { RecoveryProvider } from '@/context/recovery-context';
-import { CheckinProvider } from '@/context/checkin-context';
-import { SummaryProvider } from '@/context/summary-context';
-import { EngineProvider } from '@/context/engine-context';
-import { InsightsProvider } from '@/context/insights-context';
-import { ToastProvider } from '@/components/ui/Toast';
-import { useTheme } from '@/hooks/use-theme';
-import { useAuth } from '@/hooks/use-auth';
+import { ToastProvider } from "@/components/ui/Toast";
+import { AuthProvider } from "@/context/auth-context";
+import { CheckinProvider } from "@/context/checkin-context";
+import { CycleProvider } from "@/context/cycle-context";
+import { EngineProvider } from "@/context/engine-context";
+import { FoodProvider } from "@/context/food-context";
+import { HealthProvider } from "@/context/health-context";
+import { InsightsProvider } from "@/context/insights-context";
+import { ProfileProvider } from "@/context/profile-context";
+import { RecoveryProvider } from "@/context/recovery-context";
+import { SummaryProvider } from "@/context/summary-context";
+import { ThemeProvider } from "@/context/theme-context";
+import { WeightProvider } from "@/context/weight-context";
+import { WorkoutProvider } from "@/context/workout-context";
+import { useAuth } from "@/hooks/use-auth";
+import { useTheme } from "@/hooks/use-theme";
 
 export const unstable_settings = {
-  initialRouteName: 'auth',
+  initialRouteName: "auth",
 };
 
 function AppNavigator() {
-  const { isDark }    = useTheme();
-  const { status }    = useAuth();
-  const router        = useRouter();
-  const segments      = useSegments();
-  const navState      = useRootNavigationState();
+  const { isDark } = useTheme();
+  const { status } = useAuth();
+  const router = useRouter();
+  const segments = useSegments();
+  const navState = useRootNavigationState();
   const navigatorReady = Boolean(navState?.key);
 
   useEffect(() => {
-    if (!navigatorReady)     return;
-    if (status === 'loading') return;
+    if (!navigatorReady) return;
+    if (status === "loading") return;
 
     const top = segments[0];
-    const inPublicOnboarding = top === 'auth' || top === 'onboarding';
+    const inPublicOnboarding = top === "auth" || top === "onboarding";
 
-    if (status === 'authenticated' && top === 'auth') {
-      router.replace('/(tabs)');
+    if (status === "authenticated" && top === "auth") {
+      router.replace("/(tabs)");
       return;
     }
 
-    if (status === 'unauthenticated' && !inPublicOnboarding) {
-      router.replace('/auth');
+    if (status === "unauthenticated" && !inPublicOnboarding) {
+      router.replace("/auth");
     }
   }, [navigatorReady, status, segments]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -63,27 +76,32 @@ function AppNavigator() {
   // Hide auth UI until session is known, and while an authenticated user is still on `auth`
   // (replace to tabs runs in the same layout pass — avoids a flash of the auth landing screen).
   const showAuthSplash =
-    status === 'loading'
-    || (status === 'authenticated' && top === 'auth');
+    status === "loading" || (status === "authenticated" && top === "auth");
 
   return (
     <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <View style={styles.navRoot}>
-        <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
+        <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
           <Stack.Screen name="auth" />
           <Stack.Screen name="onboarding" />
           <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="modal"        options={{ presentation: 'modal' }} />
-          <Stack.Screen name="edit-profile" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="modal" options={{ presentation: "modal" }} />
+          <Stack.Screen
+            name="edit-profile"
+            options={{ presentation: "modal" }}
+          />
         </Stack>
         {showAuthSplash && (
           <View
-            style={[styles.authSplash, { backgroundColor: isDark ? '#0A0A0A' : '#FAFAF8' }]}
+            style={[
+              styles.authSplash,
+              { backgroundColor: isDark ? "#0A0B0F" : "#FAFAF8" },
+            ]}
             pointerEvents="auto"
           />
         )}
       </View>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <StatusBar style={isDark ? "light" : "dark"} />
     </NavThemeProvider>
   );
 }

@@ -36,11 +36,11 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const bg      = isDark ? '#0C0C0C' : '#F7F7F5';
-  const surface = isDark ? '#161616' : '#FFFFFF';
-  const hi      = isDark ? '#FFFFFF' : '#0C0C0C';
-  const mid     = isDark ? '#888'    : '#888';
-  const lo      = isDark ? '#2A2A2A' : '#F0EDE8';
+  const bg      = isDark ? '#0A0B0F' : '#F7F7F5';
+  const surface = isDark ? '#1C1D23' : '#FFFFFF';
+  const hi      = isDark ? '#F4F4F5' : '#0C0C0C';
+  const mid     = isDark ? '#909096' : '#888';
+  const lo      = isDark ? '#2A2A32' : '#F0EDE8';
 
   const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
   const [healthConnected, setHealthConnected] = useState(false);
