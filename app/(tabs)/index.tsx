@@ -1,9 +1,12 @@
 import { useFood } from "@/context/food-context";
+import { CheckinModal } from "@/components/checkin/CheckinModal";
 import { useProfile } from "@/hooks/use-profile";
 import { useHealth } from "@/hooks/use-health";
+import { useCheckin } from "@/hooks/use-checkin";
 import { calculateNutritionPlan } from "@/utils/nutrition";
-import { router, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useTheme } from "@/hooks/use-theme";
+import { AppModal } from "@/components/ui/AppModal";
 import { useToast } from "@/components/ui/Toast";
 import { BurnCoachStrip } from "@/components/home/burn-coach-strip";
 import {
@@ -136,7 +139,6 @@ const MEAL_ICONS: Record<string, IoniconsName> = {
 // donut ring with something that reads more as an instrument than a gauge.
 // ───────────────────────────────────────────────────────────────────────────────
 const TICK_COUNT = 36;
-const TICK_ANGLE_STEP = 360 / TICK_COUNT;
 const TICK_WIDTH = 2;
 const TICK_HEIGHT = 7;
 const TICK_FILLED_WIDTH = 4;
@@ -1041,7 +1043,17 @@ function MealsCard({
 // ───────────────────────────────────────────────────────────────────────────────
 // Daily Insight — distinctive gradient-accent card with sparkle icon
 // ───────────────────────────────────────────────────────────────────────────────
-function InsightCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
+function InsightCard({
+  P,
+  delay = 0,
+  onPress,
+  isCheckingStatus = false,
+}: {
+  P: Palette;
+  delay?: number;
+  onPress: () => void;
+  isCheckingStatus?: boolean;
+}) {
   return (
     <Card delay={delay} style={{ overflow: "hidden" }}>
       <View
@@ -1081,16 +1093,18 @@ function InsightCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
           styles.insightCta,
           { backgroundColor: P.sunken, borderColor: P.cardEdge },
         ]}
-        onPress={() => router.replace('/(tabs)/insights/weekly')}
+        onPress={onPress}
       >
         <Text style={[styles.insightCtaText, { color: P.text }]} >
-          See weekly report
+          {isCheckingStatus ? "Checking status..." : "See weekly report"}
         </Text>
-        <Ionicons name="arrow-forward" size={14} color={P.text} />
+        {!isCheckingStatus && <Ionicons name="arrow-forward" size={14} color={P.text} />}
       </TouchableOpacity>
     </Card>
   );
 }
+
+type InsightStatusModalKind = "checkin" | "workout" | "ready";
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Shared section heading
@@ -1135,16 +1149,22 @@ export default function HomeScreen() {
   const P      = usePalette();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { appStatus, refreshStatus } = useCheckin();
   const { profile, avatarUrl, avatarLetter, firstName, refreshProfile } = useProfile();
   const {
     meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
     remaining, refreshLogs,
   } = useFood();
-  const { today: healthToday, isConnected: healthConnected, refresh: refreshHealth } = useHealth();
+  const { today: healthToday, refresh: refreshHealth } = useHealth();
   const toast = useToast();
 
   const [date, setDate]         = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
+  const [isCheckingInsightStatus, setIsCheckingInsightStatus] = useState(false);
+  const [isStatusModalVisible, setIsStatusModalVisible] = useState(false);
+  const [isCheckinModalVisible, setIsCheckinModalVisible] = useState(false);
+  const [statusModalKind, setStatusModalKind] = useState<InsightStatusModalKind>("ready");
+  const appStatusRef = useRef(appStatus);
 
   // Macro targets from the same nutrition plan used on the reveal screen
   const nutritionPlan = useMemo(() => {
@@ -1196,6 +1216,33 @@ export default function HomeScreen() {
       setRefreshing(false);
     }
   };
+
+  const handleInsightPress = async () => {
+    setIsCheckingInsightStatus(true);
+    try {
+      await refreshStatus();
+      await new Promise((resolve) => setTimeout(resolve, 120));
+
+      const latestStatus = appStatusRef.current;
+      if (latestStatus?.should_show_checkin) {
+        setIsCheckinModalVisible(true);
+      } else if (latestStatus?.should_show_workout_prompt) {
+        setStatusModalKind("workout");
+        setIsStatusModalVisible(true);
+      } else {
+        setStatusModalKind("ready");
+        setIsStatusModalVisible(true);
+      }
+    } catch {
+      toast.error("Could not check status", "Please try again.");
+    } finally {
+      setIsCheckingInsightStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    appStatusRef.current = appStatus;
+  }, [appStatus]);
 
   const burnedToday = healthToday?.active_calories ?? 0;
   const adjustedRemaining = remaining + burnedToday;
@@ -1274,7 +1321,12 @@ export default function HomeScreen() {
               onPress: () => setPickerOpen(true),
             }}
           />
-          <InsightCard P={P} delay={280} />
+          <InsightCard
+            P={P}
+            delay={280}
+            isCheckingStatus={isCheckingInsightStatus}
+            onPress={handleInsightPress}
+          />
           <MacrosCard P={P} delay={360} macros={macros} />
           {Platform.OS === 'ios' && (
             <ActivityCard P={P} delay={430} data={healthToday} />
@@ -1300,6 +1352,48 @@ export default function HomeScreen() {
           setCoachActivity(activity);
         }}
       />
+
+      <AppModal
+        visible={isStatusModalVisible}
+        onClose={() => setIsStatusModalVisible(false)}
+        title={statusModalKind === "workout" ? "Workout Prompt" : "Insight Ready"}
+        sheetHeight={0.4}
+      >
+        <View style={styles.statusModalBody}>
+          <Text style={[styles.statusModalText, { color: P.text }]}>
+            {statusModalKind === "workout"
+              ? "Your check-in is complete. Log a workout to unlock the next insight."
+              : "Everything is up to date. You can now view your weekly insight report."}
+          </Text>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={[styles.statusModalPrimaryBtn, { backgroundColor: P.calories }]}
+            onPress={() => {
+              setIsStatusModalVisible(false);
+              if (statusModalKind === "workout") {
+                router.replace("/(tabs)/log/workout");
+              } else {
+                router.replace("/(tabs)/insights/weekly");
+              }
+            }}
+          >
+            <Text style={styles.statusModalPrimaryText}>
+              {statusModalKind === "workout" ? "Log workout" : "Open report"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.7}
+            style={styles.statusModalSecondaryBtn}
+            onPress={() => setIsStatusModalVisible(false)}
+          >
+            <Text style={[styles.statusModalSecondaryText, { color: P.textFaint }]}>Maybe later</Text>
+          </TouchableOpacity>
+        </View>
+      </AppModal>
+
+      <CheckinModal visible={isCheckinModalVisible} onClose={() => setIsCheckinModalVisible(false)} />
     </View>
   );
 }
@@ -1887,5 +1981,37 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "500",
     marginTop: 2,
+  },
+
+  statusModalBody: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    gap: 14,
+  },
+  statusModalText: {
+    fontSize: 14,
+    fontWeight: "500",
+    lineHeight: 21,
+  },
+  statusModalPrimaryBtn: {
+    marginTop: 6,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusModalPrimaryText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  statusModalSecondaryBtn: {
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  statusModalSecondaryText: {
+    fontSize: 13,
+    fontWeight: "600",
   },
 });
