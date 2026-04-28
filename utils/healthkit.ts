@@ -126,10 +126,39 @@ function queryOptionsForInterval(
 }
 
 /**
+ * Queries a cumulative metric via queryStatisticsForQuantity (cumulativeSum).
+ * This is what the Health app uses — it deduplicates overlapping samples from
+ * multiple sources (iPhone, Watch, third-party apps). Returns 0 on failure
+ * rather than falling back to a raw sample sum that could double-count.
+ */
+async function queryCumulativeStat(
+  hk:        HealthKitModule,
+  id:        string,
+  startDate: Date,
+  endDate:   Date,
+): Promise<number> {
+  const statsOpts = { filter: { date: { startDate, endDate } } };
+  try {
+    const result = await hk.queryStatisticsForQuantity(id, ['cumulativeSum'], statsOpts);
+    if (result && typeof result === 'object') {
+      const raw = result as Record<string, unknown>;
+      const val = raw.cumulativeSum ?? raw.sumQuantity ?? raw.value ?? raw.sum;
+      if (typeof val === 'number' && val > 0) {
+        console.log(`[HealthKit] stat ${id}:`, val);
+        return Math.round(val);
+      }
+    }
+  } catch (e) {
+    console.log(`[HealthKit] stat ${id} failed:`, e);
+  }
+  return 0;
+}
+
+/**
  * Reads every HealthKit metric we use for the given local-time window (`from` → `to`)
  * and returns a flat summary (intended for “today so far”: midnight → now).
- * Any individual query failure is isolated — a missing metric becomes null
- * or zero rather than blowing up the whole sync.
+ * Cumulative metrics use queryStatisticsForQuantity (no raw-sample summing).
+ * Point-in-time metrics (HR, HRV, VO2, weight) use the most recent sample.
  */
 export async function readDailyHealthKit(
   hk:   HealthKitModule,
@@ -139,53 +168,46 @@ export async function readDailyHealthKit(
   const opts = queryOptionsForInterval(from, to);
   const q = (id: string) => hk.queryQuantitySamples(id, opts).catch(() => []);
   const c = (id: string) => hk.queryCategorySamples(id, opts).catch(() => []);
+  const stat = (id: string) => queryCumulativeStat(hk, id, from, to);
 
-  console.log('[HealthKit] readDailyHealthKit window (filter.date):', {
+  console.log('[HealthKit] readDailyHealthKit window:', {
     startDate: from.toISOString(),
     endDate:   to.toISOString(),
-    opts,
   });
 
   const [
-    steps, active, basal, distance,
-    restingHR, hrv, vo2Max, exerciseTime, bodyMass,
+    stepsCount, activeCount, basalCount, distanceCount, exerciseCount,
+    restingHR, hrv, vo2Max, bodyMass,
     sleep, mindful,
   ] = await Promise.all([
-    q('HKQuantityTypeIdentifierStepCount'),
-    q('HKQuantityTypeIdentifierActiveEnergyBurned'),
-    q('HKQuantityTypeIdentifierBasalEnergyBurned'),
-    q('HKQuantityTypeIdentifierDistanceWalkingRunning'),
+    stat('HKQuantityTypeIdentifierStepCount'),
+    stat('HKQuantityTypeIdentifierActiveEnergyBurned'),
+    stat('HKQuantityTypeIdentifierBasalEnergyBurned'),
+    stat('HKQuantityTypeIdentifierDistanceWalkingRunning'),
+    stat('HKQuantityTypeIdentifierAppleExerciseTime'),
     q('HKQuantityTypeIdentifierRestingHeartRate'),
     q('HKQuantityTypeIdentifierHeartRateVariabilitySDNN'),
     q('HKQuantityTypeIdentifierVO2Max'),
-    q('HKQuantityTypeIdentifierAppleExerciseTime'),
     q('HKQuantityTypeIdentifierBodyMass'),
     c('HKCategoryTypeIdentifierSleepAnalysis'),
     c('HKCategoryTypeIdentifierMindfulSession'),
   ]);
 
-  logHealthKitRawSamples('StepCount', steps);
-  logHealthKitRawSamples('ActiveEnergyBurned', active);
-  logHealthKitRawSamples('BasalEnergyBurned', basal);
-  logHealthKitRawSamples('DistanceWalkingRunning', distance);
   logHealthKitRawSamples('RestingHeartRate', restingHR);
   logHealthKitRawSamples('HeartRateVariabilitySDNN', hrv);
   logHealthKitRawSamples('VO2Max', vo2Max);
-  logHealthKitRawSamples('AppleExerciseTime', exerciseTime);
   logHealthKitRawSamples('BodyMass', bodyMass);
   logHealthKitRawSamples('SleepAnalysis', sleep);
   logHealthKitRawSamples('MindfulSession', mindful);
 
-  const activeCalories  = round(sumQuantity(active));
-  const restingCalories = round(sumQuantity(basal));
-  const sleepSummary    = summariseSleep(sleep);
+  const sleepSummary = summariseSleep(sleep);
 
   const summary: HealthKitSummary = {
-    steps:                 round(sumQuantity(steps)),
-    active_calories:       activeCalories,
-    resting_calories:      restingCalories,
-    total_calories_burned: activeCalories + restingCalories,
-    distance_km:           round((sumQuantity(distance) / 1000) * 100) / 100,
+    steps:                 stepsCount,
+    active_calories:       activeCount,
+    resting_calories:      basalCount,
+    total_calories_burned: activeCount + basalCount,
+    distance_km:           Math.round((distanceCount / 1000) * 100) / 100,
     resting_heart_rate:    roundOrNull(latest(restingHR)),
     hrv:                   tenthsOrNull(latest(hrv)),
     sleep_hours:           sleepSummary.sleep_hours,
@@ -193,7 +215,7 @@ export async function readDailyHealthKit(
     rem_sleep_hours:       sleepSummary.rem_sleep_hours,
     sleep_efficiency:      sleepSummary.sleep_efficiency,
     time_in_bed_hours:     sleepSummary.time_in_bed_hours,
-    active_minutes:        round(sumQuantity(exerciseTime)),
+    active_minutes:        exerciseCount,
     vo2_max:               tenthsOrNull(latest(vo2Max)),
     mindfulness_minutes:   round(sumCategoryDurationHours(mindful) * 60),
     weight_kg:             tenthsOrNull(latest(bodyMass)),
@@ -205,10 +227,6 @@ export async function readDailyHealthKit(
 }
 
 // ── Internal: sample helpers ───────────────────────────────────────────────
-
-function sumQuantity(samples: readonly QuantitySampleLike[]): number {
-  return samples.reduce((acc, s) => acc + (s.quantity ?? 0), 0);
-}
 
 function latest(samples: readonly QuantitySampleLike[]): number | null {
   return samples.length > 0 ? samples[samples.length - 1].quantity : null;

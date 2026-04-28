@@ -6,11 +6,14 @@ import React, {
     useRef,
     useState,
 } from "react";
+import * as SecureStore from "expo-secure-store";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000/api";
 const TIMEOUT_MS = 10_000;
+const TOKEN_KEY = "access_token";
+const REFRESH_KEY = "refresh_token";
 /** How long sign-in / sign-up error banners stay visible before auto-clearing. */
 const AUTH_ERROR_DISPLAY_MS = 4_000;
 
@@ -236,44 +239,62 @@ function parseApiError(
 
 /**
  * Thin fetch wrapper.
- * - Sends cookies automatically via `credentials: 'include'`
+ * - Attaches stored Bearer token via Authorization header
  * - Enforces a 10 s timeout
- * - Transparently retries once on 401 via POST /auth/refresh (cookie-based)
+ * - On 401: posts the stored refresh_token to /auth/refresh, stores the new
+ *   pair, then retries the original request once. If refresh fails, clears
+ *   stored tokens so the next mount sets status to unauthenticated.
  */
 async function apiFetch(
   path: string,
   options: RequestInit = {},
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
+  const storedToken = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    ...(storedToken ? { Authorization: `Bearer ${storedToken}` } : {}),
     ...(options.headers as Record<string, string>),
   };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-  const run = (signal: AbortSignal) =>
+  const run = (overrideHeaders?: Record<string, string>) =>
     fetch(`${API_BASE}${path}`, {
       ...options,
-      headers,
+      headers: overrideHeaders ?? headers,
       credentials: "include",
-      signal,
+      signal: controller.signal,
     });
 
   try {
-    const res = await run(controller.signal);
+    const res = await run();
 
-    // Cookie-based refresh: if 401, ask the server to rotate the cookie then retry
     if (res.status === 401) {
-      const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
-        method: "POST",
-        credentials: "include",
-        signal: controller.signal,
-      });
-      if (refreshRes.ok) {
-        const retryRes = await run(controller.signal);
-        const retryBody = await retryRes.json().catch(() => ({}));
-        return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
+      const storedRefresh = await SecureStore.getItemAsync(REFRESH_KEY).catch(() => null);
+      if (storedRefresh) {
+        const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: storedRefresh }),
+          signal: controller.signal,
+        });
+
+        if (refreshRes.ok) {
+          const { access_token, refresh_token } = await refreshRes.json();
+          await SecureStore.setItemAsync(TOKEN_KEY, access_token);
+          await SecureStore.setItemAsync(REFRESH_KEY, refresh_token);
+
+          const retryHeaders = { ...headers, Authorization: `Bearer ${access_token}` };
+          const retryRes = await run(retryHeaders);
+          const retryBody = await retryRes.json().catch(() => ({}));
+          return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
+        }
+
+        // Refresh failed — clear tokens so session restore treats this as signed out
+        await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
+        await SecureStore.deleteItemAsync(REFRESH_KEY).catch(() => {});
       }
     }
 
@@ -381,11 +402,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Server sets the session cookie — fetch profile to populate state
+        if (typeof body.access_token === "string")
+          await SecureStore.setItemAsync(TOKEN_KEY, body.access_token);
+        if (typeof body.refresh_token === "string")
+          await SecureStore.setItemAsync(REFRESH_KEY, body.refresh_token);
+
         try {
           setUser(await fetchMe(email));
         } catch {
-          // Cookie is set; profile fetch failed — session restore on next mount retries
+          // Token stored; profile fetch failed — session restore on next mount retries
         }
 
         setStatus("authenticated");
@@ -418,11 +443,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Server sets the session cookie — fetch profile to populate state
+      if (typeof body.access_token === "string")
+        await SecureStore.setItemAsync(TOKEN_KEY, body.access_token);
+      if (typeof body.refresh_token === "string")
+        await SecureStore.setItemAsync(REFRESH_KEY, body.refresh_token);
+
       try {
         setUser(await fetchMe(email));
       } catch {
-        // Cookie is set; profile fetch failed — session restore on next mount retries
+        // Token stored; profile fetch failed — session restore on next mount retries
       }
 
       setStatus("authenticated");
@@ -435,8 +464,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ── Sign out ─────────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
-    // Fire-and-forget — server clears the cookie; don't block the UI
     apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
+    await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
+    await SecureStore.deleteItemAsync(REFRESH_KEY).catch(() => {});
     setUser(null);
     setStatus("unauthenticated");
   }, []);

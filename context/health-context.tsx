@@ -245,50 +245,15 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const appStateRef = useRef(AppState.currentState);
 
   // ── Fetch today ──────────────────────────────────────────────────────────
-  const fetchToday = useCallback(async () => {
+  const fetchToday = useCallback(async (): Promise<boolean> => {
     const { ok, status, body } = await healthFetch('/health/today');
     console.log('[HealthKit] GET /health/today →', status, JSON.stringify(body));
 
     if (ok && body.health_data) {
       setToday(fromApiData(body.health_data as Record<string, unknown>));
+      return true;
     }
-  }, []);
-
-  useEffect(() => {
-    if (status === 'loading') return;
-
-    if (status === 'unauthenticated') {
-      setToday(null);
-      setIsLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setIsLoading(true);
-    setToday(null);
-
-    (async () => {
-      try {
-        await fetchToday();
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [status, user?.id, fetchToday]);
-
-  // ── Check HealthKit connection status ────────────────────────────────────
-  useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    (async () => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        const val = await AsyncStorage.getItem('@roundfit/health_connected');
-        setIsConnected(val === 'true');
-      } catch { /* storage unavailable */ }
-    })();
+    return false;
   }, []);
 
   // ── Sync health ──────────────────────────────────────────────────────────
@@ -304,7 +269,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── Read from HealthKit and push to backend ───────────────────────────────
-  const syncFromDevice = useCallback(async () => {
+  const syncFromDevice = useCallback(async (force = false) => {
     const hk = getHealthKitModule();
     if (!hk) return;
 
@@ -314,7 +279,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       const lastSync     = await AsyncStorage.getItem('@roundfit/last_health_sync');
       const now          = Date.now();
 
-      if (lastSync) {
+      if (!force && lastSync) {
         const minutesSince = (now - parseInt(lastSync)) / 60000;
         if (minutesSince < 30) {
           console.log('[HealthKit] skipping sync — last sync was', Math.round(minutesSince), 'mins ago');
@@ -346,12 +311,48 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [syncHealth]);
 
-  // ── Auto-sync on mount and on foreground ─────────────────────────────────
+  // ── Mount: fetch then sync (sequentially so force flag is correct) ────────
   useEffect(() => {
-    if (status !== 'authenticated') return;
-    void syncFromDevice();
-  }, [status, syncFromDevice]);
+    if (status === 'loading') return;
 
+    if (status === 'unauthenticated') {
+      setToday(null);
+      setIsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoading(true);
+    setToday(null);
+
+    (async () => {
+      try {
+        const hasData = await fetchToday();
+        // If no data exists for today (e.g. first launch or DB record deleted),
+        // force a sync regardless of the 30-minute throttle.
+        if (!cancelled) await syncFromDevice(!hasData);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [status, user?.id, fetchToday, syncFromDevice]);
+
+  // ── Check HealthKit connection status ────────────────────────────────────
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    (async () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        const val = await AsyncStorage.getItem('@roundfit/health_connected');
+        setIsConnected(val === 'true');
+      } catch { /* storage unavailable */ }
+    })();
+  }, []);
+
+  // ── Re-sync when app returns to foreground ───────────────────────────────
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       const prev = appStateRef.current;
@@ -365,7 +366,8 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
-    await Promise.all([fetchToday(), syncFromDevice()]);
+    const hasData = await fetchToday();
+    await syncFromDevice(!hasData);
   }, [fetchToday, syncFromDevice]);
 
   return (
