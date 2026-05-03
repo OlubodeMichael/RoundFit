@@ -11,6 +11,7 @@ import { useCheckin } from '@/hooks/use-checkin';
 import type { EnergyLevel, CheckinInsight } from '@/hooks/use-checkin';
 import { useProfile } from '@/hooks/use-profile';
 import { useTheme } from '@/hooks/use-theme';
+import { getLocalDateString } from '@/utils/date';
 
 // ── Palette ────────────────────────────────────────────────────────────────
 
@@ -95,7 +96,7 @@ function InsightReveal({
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [anim]);
 
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] });
 
@@ -107,7 +108,7 @@ function InsightReveal({
       </View>
 
       <Text style={[s.successTitle, { color: P.text }]}>Check-in complete</Text>
-      <Text style={[s.successSub, { color: P.textFaint }]}>Here's your daily insight</Text>
+      <Text style={[s.successSub, { color: P.textFaint }]}>Here&apos;s your daily insight</Text>
 
       {/* Insight card */}
       <View style={[s.insightBox, { backgroundColor: P.accentSoft, borderColor: P.hair }]}>
@@ -122,7 +123,7 @@ function InsightReveal({
         activeOpacity={0.85}
         style={[s.submitBtn, { backgroundColor: P.accent, marginTop: 8 }]}
       >
-        <Text style={s.submitText}>Let's go</Text>
+        <Text style={s.submitText}>Let&apos;s go</Text>
         <Ionicons name="arrow-forward" size={16} color="#fff" />
       </TouchableOpacity>
     </Animated.View>
@@ -148,7 +149,7 @@ export function CheckinModal({ visible, onClose }: Props) {
   const [insight,          setInsight]          = useState<CheckinInsight | null>(null);
   const [done,             setDone]             = useState(false);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalDateString();
   const canSubmit = sleepQuality !== null && energyLevel !== null && !isSaving;
 
   // Reset state each time the modal opens
@@ -215,7 +216,7 @@ export function CheckinModal({ visible, onClose }: Props) {
               activeOpacity={0.85}
               style={[s.submitBtn, { backgroundColor: P.accent, marginTop: 20 }]}
             >
-              <Text style={s.submitText}>Let's go</Text>
+              <Text style={s.submitText}>Let&apos;s go</Text>
             </TouchableOpacity>
           </View>
         ) : (

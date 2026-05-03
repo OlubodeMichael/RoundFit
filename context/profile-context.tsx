@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo } from 'react';
-import { normaliseGoal, normaliseProfileUnit, useAuth } from '@/context/auth-context';
+import { useAuth } from '@/context/auth-context';
 import type { UserProfile } from '@/context/auth-context';
 import { formatHeightForStats, formatWeightForStats, LB_PER_KG } from '@/utils/body-units';
 
@@ -70,7 +70,12 @@ const ProfileContext = createContext<ProfileContextValue | null>(null);
 // ── Provider ───────────────────────────────────────────────────────────────
 
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
-  const { user, status, updateProfile: authUpdateProfile } = useAuth();
+  const {
+    user,
+    status,
+    updateProfile: authUpdateProfile,
+    refreshUser: authRefreshUser,
+  } = useAuth();
 
   const isLoading = status === 'loading';
 
@@ -94,51 +99,10 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     [authUpdateProfile],
   );
 
-  /**
-   * Forces a re-fetch of the profile from the server by calling GET /auth/me
-   * through the auth layer's session-restore logic.
-   * Implemented by triggering a lightweight re-mount of the auth effect via
-   * a forced page reload isn't ideal in RN — instead we expose a direct fetch.
-   */
+  /** GET /auth/me with Bearer token — includes `avatar_url` from `users`. */
   const refreshProfile = useCallback(async () => {
-    // Delegate to updateProfile with an empty patch — the auth context
-    // reconciles the server response and updates the user state.
-    // For a true refresh we fetch /auth/me directly and merge.
-    try {
-      const res  = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api'}/auth/me`,
-        { credentials: 'include' },
-      );
-      if (!res.ok) return;
-
-      const body       = await res.json();
-      const profileRow = (body.profile ?? body) as Record<string, unknown>;
-      const authUser   = body.user   as Record<string, unknown> | undefined;
-
-      // Merge via a no-op patch that carries the fresh server data.
-      // We build only the fields updateProfile accepts.
-      const fresh: Partial<Omit<UserProfile, 'id' | 'email' | 'createdAt'>> = {
-        name:          (authUser?.name          ?? profileRow.name)          as string  | undefined,
-        age:           (profileRow.age)                                      as number  | undefined,
-        sex:           (profileRow.sex)                                      as UserProfile['sex'] | undefined,
-        heightCm:      (profileRow.height_cm)                                as number  | undefined,
-        weightKg:      (profileRow.weight_kg)                                as number  | undefined,
-        activityLevel: (profileRow.activity_level)                           as UserProfile['activityLevel'] | undefined,
-        goal:          typeof profileRow.goal === 'string'
-          ? normaliseGoal(profileRow.goal)
-          : undefined,
-        unit:          normaliseProfileUnit(
-          String(profileRow.unit ?? profileRow.distance_unit ?? ''),
-        ),
-        tdee:          typeof profileRow.tdee           === 'number' ? profileRow.tdee           : undefined,
-        calorieBudget: typeof profileRow.calorie_budget === 'number' ? profileRow.calorie_budget : undefined,
-      };
-
-      await authUpdateProfile(fresh);
-    } catch {
-      // Silently ignore — stale data is better than a crash
-    }
-  }, [authUpdateProfile]);
+    await authRefreshUser();
+  }, [authRefreshUser]);
 
   return (
     <ProfileContext.Provider value={{

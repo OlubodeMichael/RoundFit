@@ -1,20 +1,21 @@
 import React, {
   createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
-import { AppState, type AppStateStatus, Platform } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 import { useAuth } from '@/context/auth-context';
+import { apiFetch } from '@/utils/api';
 import {
   ensureHealthKitAuthorized,
   getHealthKitModule,
+  readHealthKitForDate,
   readDailyHealthKit,
   type HealthKitSummary,
 } from '@/utils/healthkit';
+import { getLocalDateString } from '@/utils/date';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
+const HEALTH_BACKFILL_CURSOR_KEY = '@roundfit/health_backfill_cursor';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -43,10 +44,12 @@ export interface HealthData {
   weight_kg:             number | null;
   source:                HealthSource;
   recorded_at:           string;
+  date?:                 string;
 }
 
 export interface SyncHealthInput {
   source:                 HealthSource;
+  date?:                  string;
   distance_unit?:         string;
   active_calories?:       number;
   resting_calories?:      number;
@@ -90,62 +93,19 @@ export interface HealthContextValue {
 
 // ── API helper ─────────────────────────────────────────────────────────────
 
-async function healthFetch(
+const API_KEY = process.env.EXPO_PUBLIC_API_SECRET_KEY;
+
+function healthFetch(
   path: string,
   options: RequestInit = {},
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const token  = await SecureStore.getItemAsync('access_token');
-  const apiKey = process.env.EXPO_PUBLIC_API_SECRET_KEY;
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(token  ? { Authorization: `Bearer ${token}` } : {}),
-    ...(apiKey ? { 'x-api-key': apiKey }              : {}),
-    ...(options.headers as Record<string, string>),
-  };
-
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  const run = (signal: AbortSignal, overrideHeaders?: Record<string, string>) =>
-    fetch(`${API_BASE}${path}`, { ...options, headers: overrideHeaders ?? headers, signal });
-
-  try {
-    const res = await run(controller.signal);
-
-    if (res.status === 401) {
-      const refreshToken = await SecureStore.getItemAsync('refresh_token');
-      if (refreshToken) {
-        const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ refresh_token: refreshToken }),
-          signal:  controller.signal,
-        });
-        if (refreshRes.ok) {
-          const { access_token, refresh_token } = await refreshRes.json();
-          await SecureStore.setItemAsync('access_token', access_token);
-          await SecureStore.setItemAsync('refresh_token', refresh_token);
-
-          const retryHeaders = { ...headers, Authorization: `Bearer ${access_token}` };
-          const retryRes     = await run(controller.signal, retryHeaders);
-          const retryBody    = await retryRes.json().catch(() => ({}));
-          return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
-        }
-      }
-    }
-
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } catch (error: unknown) {
-    const isAbort = error instanceof Error && error.name === 'AbortError';
-    if (isAbort) {
-      return { ok: false, status: 408, body: { error: 'Request timed out' } };
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
+  return apiFetch(path, {
+    ...options,
+    headers: {
+      ...(API_KEY ? { 'x-api-key': API_KEY } : {}),
+      ...(options.headers as Record<string, string>),
+    },
+  });
 }
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
@@ -159,7 +119,7 @@ function isEmptySummary(s: HealthKitSummary): boolean {
   return s.steps === 0
       && s.active_calories === 0
       && s.resting_calories === 0
-      && s.distance_km === 0
+      && s.distance === 0
       && s.resting_heart_rate === null
       && s.hrv === null
       && s.vo2_max === null
@@ -173,12 +133,13 @@ function isEmptySummary(s: HealthKitSummary): boolean {
 function toSyncInput(s: HealthKitSummary): SyncHealthInput {
   const input: SyncHealthInput = {
     source:                'healthkit',
-    distance_unit:         'km',
+    date:                  getLocalDateString(),
+    distance_unit:         s.distance_unit,
     steps:                 s.steps,
     active_calories:       s.active_calories,
     resting_calories:      s.resting_calories,
     total_calories_burned: s.total_calories_burned,
-    distance:              s.distance_km,
+    distance:              s.distance,
     active_minutes:        s.active_minutes,
     mindfulness_minutes:   s.mindfulness_minutes,
     sleep_hours:           s.sleep_hours,
@@ -227,7 +188,31 @@ function fromApiData(row: Record<string, unknown>): HealthData {
     weight_kg:             num(row.weight_kg),
     source:                (row.source as HealthSource) ?? 'healthkit',
     recorded_at:           typeof row.recorded_at === 'string' ? row.recorded_at : new Date().toISOString(),
+    date:                  typeof row.date === 'string' ? row.date : undefined,
   };
+}
+
+function isHealthDataForDate(data: HealthData, targetDate: string): boolean {
+  if (data.date) return data.date === targetDate;
+  const recordedDate = new Date(data.recorded_at);
+  if (Number.isNaN(recordedDate.getTime())) return false;
+  return getLocalDateString(recordedDate) === targetDate;
+}
+
+function formatDate(date: Date): string {
+  return getLocalDateString(date);
+}
+
+function startOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
 }
 
 // ── Context ────────────────────────────────────────────────────────────────
@@ -242,31 +227,45 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const [today,       setToday]       = useState<HealthData | null>(null);
   const [isLoading,   setIsLoading]   = useState(true);
   const [isConnected, setIsConnected] = useState(false);
-  const appStateRef = useRef(AppState.currentState);
+  const hasFetchedRef    = useRef(false);
 
   // ── Fetch today ──────────────────────────────────────────────────────────
-  const fetchToday = useCallback(async (): Promise<boolean> => {
-    const { ok, status, body } = await healthFetch('/health/today');
-    console.log('[HealthKit] GET /health/today →', status, JSON.stringify(body));
-
+  const fetchByDate = useCallback(async (targetDate: string): Promise<HealthData | null> => {
+    const { ok, body } = await healthFetch(`/health/today?date=${targetDate}`);
     if (ok && body.health_data) {
-      setToday(fromApiData(body.health_data as Record<string, unknown>));
-      return true;
+      const parsed = fromApiData(body.health_data as Record<string, unknown>);
+      if (isHealthDataForDate(parsed, targetDate)) {
+        return parsed;
+      }
+      return null;
     }
-    return false;
+    return null;
   }, []);
 
+  const fetchToday = useCallback(async (): Promise<boolean> => {
+    const parsed = await fetchByDate(getLocalDateString());
+    setToday(parsed);
+    return parsed !== null;
+  }, [fetchByDate]);
+
   // ── Sync health ──────────────────────────────────────────────────────────
-  const syncHealth = useCallback(async (input: SyncHealthInput): Promise<HealthData> => {
+  const saveHealthSnapshot = useCallback(async (
+    input: SyncHealthInput,
+    applyTodayState: boolean,
+  ): Promise<HealthData> => {
     const { ok, body } = await healthFetch('/health/sync', {
       method: 'POST',
       body:   JSON.stringify(input),
     });
     if (!ok || !body.health_data) throw new Error('Failed to sync health data');
     const saved = fromApiData(body.health_data as Record<string, unknown>);
-    setToday(saved);
+    if (applyTodayState) setToday(saved);
     return saved;
   }, []);
+
+  const syncHealth = useCallback(async (input: SyncHealthInput): Promise<HealthData> => {
+    return saveHealthSnapshot(input, true);
+  }, [saveHealthSnapshot]);
 
   // ── Read from HealthKit and push to backend ───────────────────────────────
   const syncFromDevice = useCallback(async (force = false) => {
@@ -290,9 +289,37 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       const authorized = await ensureHealthKitAuthorized(hk);
       if (!authorized) return;
 
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      const summary = await readDailyHealthKit(hk, startOfDay, new Date());
+      const todayDate = getLocalDateString();
+      const createdAtDate = user?.createdAt ? new Date(user.createdAt) : null;
+      const hasValidCreatedAt = createdAtDate !== null && !Number.isNaN(createdAtDate.getTime());
+      const accountStartDate = hasValidCreatedAt
+        ? formatDate(startOfDay(createdAtDate))
+        : formatDate(addDays(startOfDay(new Date()), -1));
+      const cursorRaw = await AsyncStorage.getItem(HEALTH_BACKFILL_CURSOR_KEY);
+      const cursorDate = cursorRaw && /^\d{4}-\d{2}-\d{2}$/.test(cursorRaw) ? cursorRaw : null;
+      const backfillStartDate = (!force && cursorDate)
+        ? formatDate(addDays(startOfDay(new Date(`${cursorDate}T00:00:00`)), 1))
+        : accountStartDate;
+
+      let backfillCursor = backfillStartDate;
+      while (backfillCursor < todayDate) {
+        const dayData = await fetchByDate(backfillCursor);
+        if (!dayData) {
+          const daySummary = await readHealthKitForDate(hk, backfillCursor);
+          if (!isEmptySummary(daySummary)) {
+            const payload = toSyncInput(daySummary);
+            payload.date = backfillCursor;
+            console.log('[HealthKit] backfill /health/sync payload:', JSON.stringify(payload, null, 2));
+            await saveHealthSnapshot(payload, false);
+          }
+        }
+        await AsyncStorage.setItem(HEALTH_BACKFILL_CURSOR_KEY, backfillCursor);
+        backfillCursor = formatDate(addDays(startOfDay(new Date(`${backfillCursor}T00:00:00`)), 1));
+      }
+
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const summary = await readDailyHealthKit(hk, todayStart, new Date());
 
       if (isEmptySummary(summary)) {
         console.log('[HealthKit] all zeros — skipping sync to preserve backend data', summary);
@@ -302,24 +329,30 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       const payload = toSyncInput(summary);
       console.log('[HealthKit] POST /health/sync payload:', JSON.stringify(payload, null, 2));
 
-      await syncHealth(payload);
+      await saveHealthSnapshot(payload, true);
       await persistConnectedFlag();
       await AsyncStorage.setItem('@roundfit/last_health_sync', now.toString());
+      await AsyncStorage.setItem(HEALTH_BACKFILL_CURSOR_KEY, todayDate);
       setIsConnected(true);
     } catch {
       // HealthKit not available in Expo Go or simulator without data
     }
-  }, [syncHealth]);
+  }, [fetchByDate, saveHealthSnapshot, user?.createdAt]);
 
-  // ── Mount: fetch then sync (sequentially so force flag is correct) ────────
+  // ── Mount: fetch once per authenticated session ───────────────────────────
   useEffect(() => {
     if (status === 'loading') return;
 
     if (status === 'unauthenticated') {
       setToday(null);
       setIsLoading(false);
+      hasFetchedRef.current = false;
       return;
     }
+
+    // Only run once per login session — navigating between screens must not re-trigger.
+    if (hasFetchedRef.current) return;
+    hasFetchedRef.current = true;
 
     let cancelled = false;
     setIsLoading(true);
@@ -328,8 +361,6 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const hasData = await fetchToday();
-        // If no data exists for today (e.g. first launch or DB record deleted),
-        // force a sync regardless of the 30-minute throttle.
         if (!cancelled) await syncFromDevice(!hasData);
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -351,18 +382,6 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       } catch { /* storage unavailable */ }
     })();
   }, []);
-
-  // ── Re-sync when app returns to foreground ───────────────────────────────
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      const prev = appStateRef.current;
-      appStateRef.current = next;
-      if (prev.match(/inactive|background/) && next === 'active' && status === 'authenticated') {
-        void syncFromDevice();
-      }
-    });
-    return () => sub.remove();
-  }, [status, syncFromDevice]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {

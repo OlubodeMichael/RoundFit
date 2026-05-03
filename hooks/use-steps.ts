@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Platform } from 'react-native';
 
+import { isExpoGoEnvironment } from '@/utils/healthkit';
+
 export interface DaySteps {
   /** Short label: "Mon", "Tue", … */
   label: string;
@@ -217,6 +219,7 @@ export function useSteps(): StepsData {
 
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
+    if (isExpoGoEnvironment()) return;
 
     let cancelled = false;
 

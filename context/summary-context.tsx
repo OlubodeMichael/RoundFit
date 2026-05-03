@@ -1,12 +1,10 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useState,
+  createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
-
-// ── Config ─────────────────────────────────────────────────────────────────
-
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
+import { getLocalDateString } from '@/utils/date';
+import { apiFetch } from '@/utils/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -54,33 +52,11 @@ export interface SummaryContextValue {
   refresh: () => Promise<void>;
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function summaryFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
 function todayDateString(): string {
-  return new Date().toISOString().slice(0, 10);
+  return getLocalDateString();
 }
 
 function num(v: unknown, fallback = 0): number {
@@ -130,15 +106,16 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
   const [daily,     setDaily]     = useState<DailySummary | null>(null);
   const [weekly,    setWeekly]    = useState<WeeklySummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const appStateRef = useRef(AppState.currentState);
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
   const fetchTodayDaily = useCallback(async () => {
-    const { ok, body } = await summaryFetch(`/summary/daily/${todayDateString()}`);
+    const { ok, body } = await apiFetch(`/summary/daily/${todayDateString()}`);
     if (ok && body.summary) setDaily(fromApiDaily(body.summary as Record<string, unknown>));
   }, []);
 
   const fetchWeekly = useCallback(async () => {
-    const { ok, body } = await summaryFetch('/summary/weekly');
+    const { ok, body } = await apiFetch('/summary/weekly');
     if (ok) setWeekly(fromApiWeekly(body));
   }, []);
 
@@ -168,9 +145,21 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [status, user?.id, fetchTodayDaily, fetchWeekly]);
 
+  // ── Reset to today's summary when app returns to foreground on a new day ─
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (prev.match(/inactive|background/) && next === 'active') {
+        void Promise.all([fetchTodayDaily(), fetchWeekly()]);
+      }
+    });
+    return () => sub.remove();
+  }, [fetchTodayDaily, fetchWeekly]);
+
   // ── Fetch daily by date ──────────────────────────────────────────────────
   const fetchDaily = useCallback(async (date: string): Promise<DailySummary | null> => {
-    const { ok, body } = await summaryFetch(`/summary/daily/${date}`);
+    const { ok, body } = await apiFetch(`/summary/daily/${date}`);
     if (!ok || !body.summary) return null;
     const result = fromApiDaily(body.summary as Record<string, unknown>);
     if (date === todayDateString()) setDaily(result);
@@ -185,7 +174,7 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
       setDaily((prev) => prev ? { ...prev, water_glasses: glasses } : prev);
     }
 
-    const { ok } = await summaryFetch('/summary/water', {
+    const { ok } = await apiFetch('/summary/water', {
       method: 'PATCH',
       body:   JSON.stringify({ date, glasses }),
     });

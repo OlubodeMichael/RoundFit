@@ -1,12 +1,10 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useState,
+  createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
-
-// ── Config ─────────────────────────────────────────────────────────────────
-
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
+import { getLocalDateString } from '@/utils/date';
+import { apiFetch } from '@/utils/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -66,28 +64,6 @@ export interface RecoveryContextValue {
   refresh: () => Promise<void>;
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function recoveryFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
@@ -137,15 +113,17 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
   const [today,     setToday]     = useState<RecoveryLog | null>(null);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const appStateRef      = useRef(AppState.currentState);
+  const lastFetchDateRef = useRef('');
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
   const fetchToday = useCallback(async () => {
-    const { ok, body } = await recoveryFetch('/recovery/today');
+    const { ok, body } = await apiFetch('/recovery/today');
     if (ok && body.data) setToday(fromApiLog(body.data as Record<string, unknown>));
   }, []);
 
   const fetchReadiness = useCallback(async () => {
-    const { ok, body } = await recoveryFetch('/recovery/readiness');
+    const { ok, body } = await apiFetch('/recovery/readiness');
     if (ok && body.data) setReadiness(fromApiReadiness(body.data as Record<string, unknown>));
   }, []);
 
@@ -166,6 +144,7 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
+        lastFetchDateRef.current = getLocalDateString();
         await Promise.all([fetchToday(), fetchReadiness()]);
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -175,9 +154,27 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [status, user?.id, fetchToday, fetchReadiness]);
 
+  // ── Reset to today when app returns to foreground on a new day ─────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (prev.match(/inactive|background/) && next === 'active') {
+        const today = getLocalDateString();
+        if (lastFetchDateRef.current !== today) {
+          lastFetchDateRef.current = today;
+          setToday(null);
+          setReadiness(null);
+          void Promise.all([fetchToday(), fetchReadiness()]);
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [fetchToday, fetchReadiness]);
+
   // ── Log recovery ─────────────────────────────────────────────────────────
   const logRecovery = useCallback(async (input: LogRecoveryInput): Promise<RecoveryLog> => {
-    const { ok, body } = await recoveryFetch('/recovery/log', {
+    const { ok, body } = await apiFetch('/recovery/log', {
       method: 'POST',
       body:   JSON.stringify(input),
     });

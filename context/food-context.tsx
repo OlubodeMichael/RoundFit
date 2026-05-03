@@ -4,11 +4,8 @@ import React, {
 import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
 import type { ManualMealInput } from '@/components/log/ManualMealInputModal';
-
-// ── Config ─────────────────────────────────────────────────────────────────
-
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
+import { getLocalDateString } from '@/utils/date';
+import { apiFetch } from '@/utils/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -74,47 +71,6 @@ export interface FoodContextValue {
  * Same behaviour as auth `apiFetch`: cookies + timeout, and one retry on 401
  * after POST /auth/refresh so cold-start GETs succeed when the session rotates.
  */
-async function foodFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  const run = (signal: AbortSignal) =>
-    fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers,
-      credentials: 'include',
-      signal,
-    });
-
-  try {
-    const res = await run(controller.signal);
-
-    if (res.status === 401) {
-      const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
-        signal: controller.signal,
-      });
-      if (refreshRes.ok) {
-        const retryRes = await run(controller.signal);
-        const retryBody = await retryRes.json().catch(() => ({}));
-        return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
-      }
-    }
-
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 function foodLogRowsFromResponse(body: Record<string, unknown>): Record<string, unknown>[] {
   const d = body.data;
@@ -195,10 +151,7 @@ function fromApiLog(row: Record<string, unknown>): MealItem {
 }
 
 function todayDateString(): string {
-  const d = new Date();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${mm}-${dd}`;
+  return getLocalDateString();
 }
 
 function titleMealLabel(value: ManualMealInput['label']): string {
@@ -243,7 +196,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
 
   // ── Fetch logs for a given date ─────────────────────────────────────────
   const fetchLogs = useCallback(async (date: string) => {
-    const { ok, body } = await foodFetch(`/food/logs?date=${encodeURIComponent(date)}`);
+    const { ok, body } = await apiFetch(`/food/logs?date=${encodeURIComponent(date)}`);
     if (!ok) return;
     const rows = foodLogRowsFromResponse(body);
     setMeals(rows.map(fromApiLog));
@@ -316,7 +269,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
 
     setMeals((prev) => [...prev, optimistic]);
 
-    const { ok, body } = await foodFetch('/food/log', {
+    const { ok, body } = await apiFetch('/food/log', {
       method: 'POST',
       body:   JSON.stringify({
         meal_name:  entry.name,
@@ -342,7 +295,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
 
   // ── Analyze via photo ────────────────────────────────────────────────────
   const analyzePhoto = useCallback(async (base64Image: string): Promise<MealItem | null> => {
-    const { ok, body } = await foodFetch('/food/photo', {
+    const { ok, body } = await apiFetch('/food/photo', {
       method: 'POST',
       body:   JSON.stringify({ base64Image, log_date: todayDateString() }),
     });
@@ -350,7 +303,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     const item = fromApiLog(body.data as Record<string, unknown>);
     if (item.cals === 0) {
       // Remove the server-saved entry and ask the user to retry
-      await foodFetch(`/food/log/${item.id}`, { method: 'DELETE' });
+      await apiFetch(`/food/log/${item.id}`, { method: 'DELETE' });
       throw new ZeroCaloriesError();
     }
     setMeals((prev) => [...prev, item]);
@@ -359,7 +312,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
 
   // ── Log via barcode ──────────────────────────────────────────────────────
   const logBarcode = useCallback(async (barcode: string) => {
-    const { ok, body } = await foodFetch('/food/barcode', {
+    const { ok, body } = await apiFetch('/food/barcode', {
       method: 'POST',
       body:   JSON.stringify({ barcode, log_date: todayDateString() }),
     });
@@ -374,7 +327,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     const snapshot = meals;
     setMeals((prev) => prev.filter((m) => m.id !== id));
 
-    const { ok } = await foodFetch(`/food/log/${id}`, { method: 'DELETE' });
+    const { ok } = await apiFetch(`/food/log/${id}`, { method: 'DELETE' });
     if (!ok) {
       setMeals(snapshot); // rollback
       throw new Error('Failed to delete meal');
@@ -383,8 +336,9 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refreshLogs = useCallback(async (date?: string) => {
-    const target = date ?? activeDate;
+    const target = date ?? todayDateString();
     if (date && date !== activeDate) setActiveDate(date);
+    if (!date && activeDate !== target) setActiveDate(target);
     await fetchLogs(target);
   }, [activeDate, fetchLogs]);
 

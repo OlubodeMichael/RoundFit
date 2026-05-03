@@ -1,13 +1,17 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { Alert, Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Image, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { UserAvatar } from '@/components/profile/UserAvatar';
+import { AppModal } from '@/components/ui/AppModal';
 import { useAuth } from '@/hooks/use-auth';
 import { useHealth } from '@/hooks/use-health';
 import { useProfile } from '@/hooks/use-profile';
 import { useTheme } from '@/hooks/use-theme';
+import { deleteAvatar, pickAndUploadAvatar } from '@/utils/avatar';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -67,14 +71,17 @@ const HEALTH_TYPES = [
 
 export default function ProfileScreen() {
   const P = usePalette();
-  const { isDark, preference, setTheme } = useTheme();
+  const { preference, setTheme } = useTheme();
   const { signOut } = useAuth();
-  const { profile, avatarUrl, avatarLetter, stats } = useProfile();
+  const { profile, avatarUrl, avatarLetter, stats, updateProfile } = useProfile();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [avatarUploading, setAvatarUploading]   = useState(false);
+  const [avatarSheetOpen, setAvatarSheetOpen]   = useState(false);
+  const [viewingAvatar,   setViewingAvatar]     = useState(false);
 
   const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
-  const { isConnected: healthConnected, syncFromDevice } = useHealth();
+  const { isConnected: healthConnected } = useHealth();
 
   const calorieDisplay  = stats.dailyCalories ? `${stats.dailyCalories.toLocaleString()} kcal` : '—';
   const proteinDisplay  = stats.proteinGrams ? `${stats.proteinGrams}g` : '—';
@@ -94,10 +101,45 @@ export default function ProfileScreen() {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       await AsyncStorage.setItem(HEALTH_KEY, 'true');
-      void syncFromDevice();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       Alert.alert('Could not connect', msg || 'Allow access in Settings → Health → RoundFit.');
+    }
+  }
+
+  function handleAvatarPress() {
+    if (avatarUploading) return;
+    setAvatarSheetOpen(true);
+  }
+
+  async function handleAvatarChange() {
+    setAvatarSheetOpen(false);
+    // Wait for the sheet close animation to finish before opening the native picker
+    await new Promise(r => setTimeout(r, 280));
+    try {
+      setAvatarUploading(true);
+      const uploadedUrl = await pickAndUploadAvatar();
+      if (!uploadedUrl) return;
+      updateProfile({ avatarUrl: uploadedUrl }); // optimistic — updates UI immediately
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      Alert.alert('Could not upload avatar', msg || 'Please try again.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
+  async function handleAvatarRemove() {
+    setAvatarSheetOpen(false);
+    try {
+      setAvatarUploading(true);
+      await deleteAvatar();
+      updateProfile({ avatarUrl: null }); // optimistic — clears UI immediately
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      Alert.alert('Could not remove avatar', msg || 'Please try again.');
+    } finally {
+      setAvatarUploading(false);
     }
   }
 
@@ -110,15 +152,15 @@ export default function ProfileScreen() {
       {/* ── Hero header ─────────────────────────────────────────────── */}
       <View style={{ paddingHorizontal: 20, paddingBottom: 4 }}>
         <View style={[s.heroCard, { backgroundColor: P.card, borderColor: P.edge }]}>
-          {/* Avatar ring */}
-          <View style={s.avatarRing}>
-            <View style={[s.avatar, { backgroundColor: P.sunken }]}>
-              {avatarUrl
-                ? <Image source={{ uri: avatarUrl }} style={s.avatarImg} />
-                : <Text style={[s.avatarLetter, { color: P.accent }]}>{avatarLetter}</Text>
-              }
-            </View>
-          </View>
+          <UserAvatar
+            size="md"
+            avatarUrl={avatarUrl}
+            avatarLetter={avatarLetter}
+            accentColor={P.accent}
+            fillColor={P.sunken}
+            uploading={avatarUploading}
+            onPress={handleAvatarPress}
+          />
 
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={[s.heroName, { color: P.text }]} numberOfLines={1}>
@@ -327,6 +369,72 @@ export default function ProfileScreen() {
       </Section>
 
       <Text style={[s.version, { color: P.faint }]}>RoundFit v1.0.0</Text>
+
+      {/* ── Avatar action sheet ─────────────────────────────────────── */}
+      <AppModal
+        visible={avatarSheetOpen}
+        onClose={() => setAvatarSheetOpen(false)}
+        sheetHeight={avatarUrl ? 0.28 : 0.2}
+      >
+        <View style={{ paddingHorizontal: 16, paddingTop: 4, gap: 8 }}>
+          {avatarUrl && (
+            <TouchableOpacity
+              style={[s.sheetRow, { backgroundColor: P.card, borderColor: P.edge }]}
+              activeOpacity={0.7}
+              onPress={() => { setAvatarSheetOpen(false); setViewingAvatar(true); }}
+            >
+              <View style={[s.sheetIcon, { backgroundColor: 'rgba(99,102,241,0.12)' }]}>
+                <Ionicons name="eye-outline" size={18} color="#6366F1" />
+              </View>
+              <Text style={[s.sheetLabel, { color: P.text }]}>View Photo</Text>
+              <Ionicons name="chevron-forward" size={14} color={P.faint} />
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={[s.sheetRow, { backgroundColor: P.card, borderColor: P.edge }]}
+            activeOpacity={0.7}
+            onPress={handleAvatarChange}
+          >
+            <View style={[s.sheetIcon, { backgroundColor: 'rgba(249,115,22,0.12)' }]}>
+              <Ionicons name="image-outline" size={18} color="#F97316" />
+            </View>
+            <Text style={[s.sheetLabel, { color: P.text }]}>
+              {avatarUrl ? 'Change Photo' : 'Choose Photo'}
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color={P.faint} />
+          </TouchableOpacity>
+
+          {avatarUrl && (
+            <TouchableOpacity
+              style={[s.sheetRow, { backgroundColor: P.card, borderColor: P.edge }]}
+              activeOpacity={0.7}
+              onPress={handleAvatarRemove}
+            >
+              <View style={[s.sheetIcon, { backgroundColor: 'rgba(239,68,68,0.12)' }]}>
+                <Ionicons name="trash-outline" size={18} color="#EF4444" />
+              </View>
+              <Text style={[s.sheetLabel, { color: '#EF4444' }]}>Remove Photo</Text>
+              <Ionicons name="chevron-forward" size={14} color={P.faint} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </AppModal>
+
+      {/* ── Full-screen avatar viewer ───────────────────────────────── */}
+      <Modal visible={viewingAvatar} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setViewingAvatar(false)}>
+        <StatusBar hidden />
+        <View style={s.viewerBg}>
+          <TouchableOpacity style={s.viewerClose} onPress={() => setViewingAvatar(false)} hitSlop={12}>
+            <View style={s.viewerCloseCircle}>
+              <Ionicons name="close" size={20} color="#FFF" />
+            </View>
+          </TouchableOpacity>
+          {avatarUrl && (
+            <Image source={{ uri: avatarUrl }} style={s.viewerImage} resizeMode="contain" />
+          )}
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -416,27 +524,6 @@ const s = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
   },
-  avatarRing: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    padding: 2,
-    backgroundColor: 'transparent',
-    borderWidth: 2,
-    borderColor: '#F97316',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  avatarImg:    { width: 52, height: 52, borderRadius: 26 },
-  avatarLetter: { fontSize: 22, fontWeight: '800' },
   heroName:     { fontSize: 17, fontWeight: '700', letterSpacing: -0.3 },
   heroEmail:    { fontSize: 13 },
 
@@ -532,4 +619,48 @@ const s = StyleSheet.create({
   },
 
   version: { textAlign: 'center', fontSize: 12, paddingTop: 4, paddingBottom: 8 },
+
+  // Avatar action sheet
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  sheetIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
+
+  // Full-screen viewer
+  viewerBg: {
+    flex: 1,
+    backgroundColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerClose: {
+    position: 'absolute',
+    top: 56,
+    right: 20,
+    zIndex: 10,
+  },
+  viewerCloseCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerImage: {
+    width: '100%',
+    height: '80%',
+  },
 });

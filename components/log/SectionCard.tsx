@@ -1,23 +1,27 @@
 import type { ComponentProps } from 'react';
 import { useEffect, useRef } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Animated,
+  Easing,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { usePalette } from '@/lib/log-theme';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
-// ─── SectionCard ────────────────────────────────────────────────────────────
-// Navigation tile used on the Daily Log hub. Presents a section (Food, Sleep,
-// Workout, ...) with its leading value, a caption, and an optional progress
-// bar. Staggers in on mount via the `delay` prop.
 export function SectionCard({
   delay = 0,
   accent,
   accentSoft,
   icon,
   title,
-  eyebrow,
+  eyebrow: _eyebrow,
   valueBig,
   valueSmall,
   caption,
@@ -33,55 +37,75 @@ export function SectionCard({
   valueBig:    string;
   valueSmall:  string;
   caption:     string;
-  /** 0..1. When provided, renders a thin progress bar under the caption. */
   progress?:   number;
   onPress:     () => void;
 }) {
-  const P    = usePalette();
-  const anim = useRef(new Animated.Value(0)).current;
+  const P      = usePalette();
+  const anim   = useRef(new Animated.Value(0)).current;
+  const hasVal = valueBig !== '—';
 
   useEffect(() => {
     Animated.timing(anim, {
       toValue:         1,
-      duration:        560,
+      duration:        500,
       delay,
       easing:          Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
   }, [anim, delay]);
 
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [18, 0] });
-
   return (
-    <Animated.View style={{ opacity: anim, transform: [{ translateY }] }}>
+    <Animated.View
+      style={{
+        opacity:   anim,
+        transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }],
+      }}
+    >
       <Pressable
         onPress={onPress}
         style={({ pressed }) => [
           s.card,
-          { backgroundColor: P.card, borderColor: P.cardEdge },
-          pressed && { opacity: 0.92, transform: [{ scale: 0.995 }] },
+          {
+            backgroundColor: P.card,
+            borderColor:     P.cardEdge,
+            shadowColor:     '#000',
+            shadowOpacity:   P.isDark ? 0.25 : 0.05,
+            shadowRadius:    12,
+            shadowOffset:    { width: 0, height: 3 },
+          },
+          pressed && { opacity: 0.82, transform: [{ scale: 0.988 }] },
+          Platform.OS === 'android' && { elevation: 2 },
         ]}
       >
-        <View style={[s.icon, { backgroundColor: accentSoft }]}>
-          <Ionicons name={icon} size={18} color={accent} />
+        {/* Icon */}
+        <View style={[s.iconWrap, { backgroundColor: accentSoft }]}>
+          <Ionicons name={icon} size={20} color={accent} />
         </View>
 
-        <View style={{ flex: 1, gap: 4 }}>
-          <Text style={[s.eyebrow, { color: P.textFaint }]}>{eyebrow}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-            <Text style={[s.title, { color: P.text }]} numberOfLines={1}>
-              {title}
-            </Text>
-            {valueBig !== '—' && (
-              <Text style={[s.value, { color: accent }]} numberOfLines={1}>
-                · {valueBig}{valueSmall ? ` ${valueSmall}` : ''}
+        {/* Content */}
+        <View style={s.content}>
+          {/* Title row + value */}
+          <View style={s.titleRow}>
+            <Text style={[s.title, { color: P.text }]}>{title}</Text>
+            <View style={s.valueWrap}>
+              <Text
+                style={[s.value, { color: hasVal ? accent : P.textFaint }]}
+                numberOfLines={1}
+              >
+                {valueBig}
               </Text>
-            )}
+              {hasVal && !!valueSmall && (
+                <Text style={[s.unit, { color: P.textFaint }]}> {valueSmall}</Text>
+              )}
+            </View>
           </View>
+
+          {/* Caption */}
           <Text style={[s.caption, { color: P.textFaint }]} numberOfLines={1}>
             {caption}
           </Text>
 
+          {/* Progress bar — food only */}
           {typeof progress === 'number' && (
             <View style={[s.track, { backgroundColor: P.sunken }]}>
               <View
@@ -94,7 +118,8 @@ export function SectionCard({
           )}
         </View>
 
-        <Ionicons name="chevron-forward" size={18} color={P.textFaint} />
+        {/* Chevron */}
+        <Ionicons name="chevron-forward" size={15} color={P.textFaint} />
       </Pressable>
     </Animated.View>
   );
@@ -102,43 +127,62 @@ export function SectionCard({
 
 const s = StyleSheet.create({
   card: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           14,
-    padding:       16,
-    borderRadius:  22,
-    borderWidth:   StyleSheet.hairlineWidth,
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               14,
+    paddingHorizontal: 16,
+    paddingVertical:   16,
+    borderRadius:      18,
+    borderWidth:       StyleSheet.hairlineWidth,
   },
-  icon: {
-    width:          44, height: 44, borderRadius: 14,
+  iconWrap: {
+    width:          46,
+    height:         46,
+    borderRadius:   14,
     alignItems:     'center',
     justifyContent: 'center',
   },
-  eyebrow: {
-    fontSize:      9,
-    fontWeight:    '800',
-    letterSpacing: 1.4,
+  content: {
+    flex: 1,
+    gap:  5,
+  },
+  titleRow: {
+    flexDirection:  'row',
+    alignItems:     'baseline',
+    justifyContent: 'space-between',
+    gap:            8,
   },
   title: {
-    fontSize:      16,
-    fontWeight:    '800',
-    letterSpacing: -0.4,
-  },
-  value: {
-    fontSize:      13,
-    fontWeight:    '800',
+    fontSize:      15,
+    fontWeight:    '600',
     letterSpacing: -0.2,
   },
-  caption: {
-    fontSize:      11,
+  valueWrap: {
+    flexDirection: 'row',
+    alignItems:    'baseline',
+    flexShrink:    0,
+  },
+  value: {
+    fontSize:      15,
+    fontWeight:    '700',
+    letterSpacing: -0.3,
+  },
+  unit: {
+    fontSize:      12,
     fontWeight:    '600',
+    letterSpacing: 0,
+  },
+  caption: {
+    fontSize:      12,
+    fontWeight:    '400',
     letterSpacing: 0.1,
+    lineHeight:    16,
   },
   track: {
-    marginTop:    8,
-    height:       4,
+    height:       3,
     borderRadius: 2,
     overflow:     'hidden',
+    marginTop:    2,
   },
   fill: {
     height: '100%',

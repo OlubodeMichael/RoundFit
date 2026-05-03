@@ -1,12 +1,13 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useMemo, useState,
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
+import { getLocalDateString } from '@/utils/date';
+import { apiFetch } from '@/utils/api';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const API_BASE      = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS    = 10_000;
 const DEFAULT_LIMIT = 30;
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -115,31 +116,11 @@ export interface CheckinContextValue {
 
 // ── API helper ─────────────────────────────────────────────────────────────
 
-async function checkinFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
 function todayDateString(): string {
-  return new Date().toISOString().slice(0, 10);
+  return getLocalDateString();
 }
 
 function fromApiCheckin(row: Record<string, unknown>): CheckIn {
@@ -206,6 +187,8 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
   const [stats,     setStats]     = useState<CheckinStats | null>(null);
   const [appStatus, setAppStatus] = useState<CheckinStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const appStateRef      = useRef(AppState.currentState);
+  const lastFetchDateRef = useRef('');
 
   const hasCheckedInToday     = useMemo(() => today?.completed === true, [today]);
   const shouldShowCheckin     = useMemo(() => appStatus?.should_show_checkin        ?? false, [appStatus]);
@@ -214,24 +197,24 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
   // ── Fetch helpers ────────────────────────────────────────────────────────
 
   const fetchAppStatus = useCallback(async () => {
-    const { ok, body } = await checkinFetch('/checkin/status');
+    const { ok, body } = await apiFetch('/checkin/status');
     if (ok) setAppStatus(fromApiStatus(body));
   }, []);
 
   const fetchToday = useCallback(async () => {
-    const { ok, body } = await checkinFetch('/checkin/today');
+    const { ok, body } = await apiFetch('/checkin/today');
     if (ok && body.checkin) setToday(fromApiCheckin(body.checkin as Record<string, unknown>));
   }, []);
 
   const fetchHistory = useCallback(async () => {
-    const { ok, body } = await checkinFetch(`/checkin/history?limit=${DEFAULT_LIMIT}`);
+    const { ok, body } = await apiFetch(`/checkin/history?limit=${DEFAULT_LIMIT}`);
     if (!ok) return;
     const rows = Array.isArray(body.checkins) ? body.checkins as Record<string, unknown>[] : [];
     setHistory(rows.map(fromApiCheckin));
   }, []);
 
   const fetchStats = useCallback(async () => {
-    const { ok, body } = await checkinFetch('/checkin/stats');
+    const { ok, body } = await apiFetch('/checkin/stats');
     if (ok) setStats(fromApiStats(body));
   }, []);
 
@@ -256,6 +239,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
+        lastFetchDateRef.current = getLocalDateString();
         await Promise.all([
           fetchAppStatus(),
           fetchToday(),
@@ -270,11 +254,29 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [status, user?.id, fetchAppStatus, fetchToday, fetchHistory, fetchStats]);
 
+  // ── Reset to today when app returns to foreground on a new day ─────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (prev.match(/inactive|background/) && next === 'active') {
+        const today = getLocalDateString();
+        if (lastFetchDateRef.current !== today) {
+          lastFetchDateRef.current = today;
+          setToday(null);
+          setAppStatus(null);
+          void Promise.all([fetchAppStatus(), fetchToday(), fetchHistory(), fetchStats()]);
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [fetchAppStatus, fetchToday, fetchHistory, fetchStats]);
+
   // ── Submit morning check-in ──────────────────────────────────────────────
   const submitMorningCheckin = useCallback(async (
     input: MorningCheckinInput,
   ): Promise<{ checkin: CheckIn; insight: CheckinInsight | null }> => {
-    const { ok, body } = await checkinFetch('/checkin/morning', {
+    const { ok, body } = await apiFetch('/checkin/morning', {
       method: 'POST',
       body:   JSON.stringify({
         date:             input.date,
@@ -307,7 +309,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
 
   // ── Skip check-in ────────────────────────────────────────────────────────
   const skipCheckin = useCallback(async (date: string): Promise<CheckIn> => {
-    const { ok, body } = await checkinFetch('/checkin/skip', {
+    const { ok, body } = await apiFetch('/checkin/skip', {
       method: 'POST',
       body:   JSON.stringify({ date }),
     });
@@ -329,7 +331,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
 
   // ── Fetch by date ────────────────────────────────────────────────────────
   const fetchByDate = useCallback(async (date: string): Promise<CheckIn | null> => {
-    const { ok, body } = await checkinFetch(`/checkin/${date}`);
+    const { ok, body } = await apiFetch(`/checkin/${date}`);
     if (!ok || !body.checkin) return null;
     return fromApiCheckin(body.checkin as Record<string, unknown>);
   }, []);

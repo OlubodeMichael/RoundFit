@@ -1,14 +1,21 @@
 import { useFood } from "@/context/food-context";
+import { useCycle } from "@/context/cycle-context";
+import { useWorkouts } from "@/context/workout-context";
+import type { Workout } from "@/context/workout-context";
+import { formatDistance } from "@/utils/units";
 import { CheckinModal } from "@/components/checkin/CheckinModal";
 import { useProfile } from "@/hooks/use-profile";
 import { useHealth } from "@/hooks/use-health";
 import { useCheckin } from "@/hooks/use-checkin";
+import { useUnits } from "@/hooks/use-units";
 import { calculateNutritionPlan } from "@/utils/nutrition";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/hooks/use-theme";
+import { UserAvatar } from "@/components/profile/UserAvatar";
 import { AppModal } from "@/components/ui/AppModal";
 import { useToast } from "@/components/ui/Toast";
 import { BurnCoachStrip } from "@/components/home/burn-coach-strip";
+import { getLocalDateString } from "@/utils/date";
 import {
   BURN_ACTIVITIES,
   BurnActivityPicker,
@@ -19,7 +26,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Animated,
     Easing,
-    Image,
     Platform,
     Pressable,
     RefreshControl,
@@ -484,12 +490,18 @@ const CYCLE_PHASES = [
   { key: 'ovulation',  label: 'Ovulation',  icon: 'sunny'           as const },
   { key: 'luteal',     label: 'Luteal',     icon: 'moon'            as const },
 ];
-const CURRENT_PHASE_INDEX = 1;
-const CYCLE_DAY  = 8;
-const CYCLE_LEN  = 28;
 
 function CyclePhaseCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
-  const phase = CYCLE_PHASES[CURRENT_PHASE_INDEX];
+  const { current, history } = useCycle();
+
+  if (!current?.phase) return null;
+
+  const activeIndex = Math.max(CYCLE_PHASES.findIndex(p => p.key === current.phase), 0);
+  const phase       = CYCLE_PHASES[activeIndex];
+  const cycleLen    = history[0]?.cycle_length ?? 28;
+  const cycleDay    = current.days_remaining != null
+    ? Math.max(cycleLen - current.days_remaining, 1)
+    : null;
 
   return (
     <Card delay={delay} padding={18}>
@@ -502,14 +514,14 @@ function CyclePhaseCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
             {phase.label} <Text style={{ color: P.textFaint, fontWeight: '500' }}>phase</Text>
           </Text>
           <Text style={[styles.cycleSub, { color: P.textFaint }]}>
-            Day {CYCLE_DAY} of {CYCLE_LEN}
+            {cycleDay != null ? `Day ${cycleDay} of ${cycleLen}` : `${cycleLen}-day cycle`}
           </Text>
         </View>
       </View>
 
       <View style={styles.phaseRow}>
         {CYCLE_PHASES.map((p, i) => {
-          const isActive = i === CURRENT_PHASE_INDEX;
+          const isActive = i === activeIndex;
           return (
             <View key={p.key} style={styles.phaseTick}>
               <View
@@ -706,6 +718,7 @@ function HeroBudgetLedger({
 const STEPS_GOAL = 10_000;
 
 function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data: import('@/context/health-context').HealthData | null }) {
+  const { profileUnit } = useUnits();
   const steps      = data?.steps ?? 0;
   const activeCals = data?.active_calories ?? 0;
   const distance   = data?.distance ?? 0;
@@ -737,9 +750,11 @@ function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data
   const fillWidth = stepFill.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
   const pctLabel  = Math.round(stepPct * 100);
 
-  const distLabel = data?.distance_unit === 'km' || data?.distance_unit === 'metric'
-    ? `${distance.toFixed(1)} km`
-    : `${distance.toFixed(1)} mi`;
+  const distLabel = formatDistance(
+    distance,
+    (data?.distance_unit as import('@/utils/units').DistanceUnit) ?? 'km',
+    profileUnit,
+  );
 
   return (
     <Card delay={delay}>
@@ -897,59 +912,6 @@ function MacroCell({
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Hydration — droplet row
-// ───────────────────────────────────────────────────────────────────────────────
-function HydrationCard({
-  P, delay = 0, waterGoal = 8,
-}: { P: Palette; delay?: number; waterGoal?: number }) {
-  const [water, setWater] = useState(0);
-
-  return (
-    <Card delay={delay}>
-      <View style={styles.hydrationHead}>
-        <View style={[styles.iconTile, { backgroundColor: P.waterSoft }]}>
-          <Ionicons name="water" size={16} color={P.water} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.hydrationTitle, { color: P.text }]}>Water</Text>
-        </View>
-        <View style={styles.hydrationNum}>
-          <Text style={[styles.hydrationCount, { color: P.water }]}>{water}</Text>
-          <Text style={[styles.hydrationGoal, { color: P.textFaint }]}>/ {waterGoal}</Text>
-        </View>
-      </View>
-
-      <View style={styles.dropRow}>
-        {Array.from({ length: waterGoal }).map((_, i) => {
-          const filled = i < water;
-          return (
-            <Pressable
-              key={i}
-              onPress={() => setWater((w) => (i < w ? i : i + 1))}
-              style={({ pressed }) => [
-                styles.dropCell,
-                {
-                  backgroundColor: filled ? P.water : P.sunken,
-                  borderColor: filled ? P.water : P.cardEdge,
-                },
-                pressed && { transform: [{ scale: 0.92 }] },
-              ]}
-              hitSlop={4}
-            >
-              <Ionicons
-                name={filled ? "water" : "water-outline"}
-                size={14}
-                color={filled ? "#fff" : P.textFaint}
-              />
-            </Pressable>
-          );
-        })}
-      </View>
-    </Card>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
 // Today's meals — rows in a card
 // ───────────────────────────────────────────────────────────────────────────────
 function MealsCard({
@@ -1039,6 +1001,216 @@ function MealsCard({
     </Card>
   );
 }
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Workout type icon / accent mapping
+// ───────────────────────────────────────────────────────────────────────────────
+const WORKOUT_CONFIG: Record<string, { icon: IoniconsName; label: string }> = {
+  gym:        { icon: 'barbell-outline',   label: 'Strength'  },
+  running:    { icon: 'footsteps-outline', label: 'Run'       },
+  cycling:    { icon: 'bicycle-outline',   label: 'Cycling'   },
+  hiit:       { icon: 'flash-outline',     label: 'HIIT'      },
+  yoga:       { icon: 'leaf-outline',      label: 'Yoga'      },
+  swimming:   { icon: 'water-outline',     label: 'Swimming'  },
+  walking:    { icon: 'footsteps-outline', label: 'Walking'   },
+  rowing:     { icon: 'boat-outline',      label: 'Rowing'    },
+  elliptical: { icon: 'reload-outline',    label: 'Elliptical'},
+  other:      { icon: 'apps-outline',      label: 'Workout'   },
+};
+
+const INTENSITY_DOTS: Record<string, number> = { light: 1, moderate: 2, hard: 3 };
+
+function fmtDuration(mins: number): string {
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// WorkoutCard — today's logged workout sessions
+// ───────────────────────────────────────────────────────────────────────────────
+function WorkoutCard({
+  P, delay = 0, workouts, totalCaloriesBurned, onLogMore,
+}: {
+  P: Palette;
+  delay?: number;
+  workouts: Workout[];
+  totalCaloriesBurned: number;
+  onLogMore: () => void;
+}) {
+  const ACCENT_CYCLE = [
+    { fill: P.protein,  soft: P.proteinSoft  },
+    { fill: P.water,    soft: P.waterSoft    },
+    { fill: P.carbs,    soft: P.carbsSoft    },
+    { fill: P.calories, soft: P.caloriesSoft },
+    { fill: P.fat,      soft: P.fatSoft      },
+  ] as const;
+
+  return (
+    <Card padding={0} delay={delay}>
+      <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 }}>
+        <SectionHead
+          title="Workouts"
+          caption={
+            workouts.length === 0
+              ? 'Nothing logged yet'
+              : `${workouts.length} session${workouts.length !== 1 ? 's' : ''}  ·  ${totalCaloriesBurned.toLocaleString()} kcal burned`
+          }
+          P={P}
+        />
+      </View>
+
+      {workouts.length === 0 ? (
+        <Pressable
+          onPress={onLogMore}
+          style={({ pressed }) => [
+            { paddingHorizontal: 20, paddingBottom: 20, flexDirection: 'row', alignItems: 'center', gap: 10 },
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Ionicons name="add-circle-outline" size={18} color={P.textFaint} />
+          <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '600' }}>Log your first workout</Text>
+        </Pressable>
+      ) : (
+        <View>
+          {workouts.map((w, i) => {
+            const cfg     = WORKOUT_CONFIG[w.type] ?? WORKOUT_CONFIG.other;
+            const accent  = ACCENT_CYCLE[i % ACCENT_CYCLE.length];
+            const dots    = INTENSITY_DOTS[w.intensity ?? 'moderate'] ?? 2;
+            const hasSets = w.sets && w.sets.length > 0;
+
+            return (
+              <View key={w.id}>
+                {i > 0 && <View style={[wkStyles.divider, { backgroundColor: P.hair }]} />}
+                <Pressable
+                  onPress={onLogMore}
+                  style={({ pressed }) => [wkStyles.row, pressed && { backgroundColor: P.sunken }]}
+                >
+                  <View style={[wkStyles.iconBox, { backgroundColor: accent.soft }]}>
+                    <Ionicons name={cfg.icon} size={18} color={accent.fill} />
+                  </View>
+
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Text style={[wkStyles.name, { color: P.text }]}>{cfg.label}</Text>
+                    <View style={wkStyles.meta}>
+                      <Text style={[wkStyles.metaText, { color: P.textFaint }]}>
+                        {fmtDuration(w.duration_mins)}
+                      </Text>
+                      {w.intensity && (
+                        <>
+                          <View style={[wkStyles.metaDot, { backgroundColor: P.textFaint }]} />
+                          <View style={wkStyles.intensityDots}>
+                            {[1, 2, 3].map((d) => (
+                              <View
+                                key={d}
+                                style={[
+                                  wkStyles.dot,
+                                  { backgroundColor: d <= dots ? accent.fill : P.cardEdge },
+                                ]}
+                              />
+                            ))}
+                          </View>
+                        </>
+                      )}
+                      {hasSets && (
+                        <>
+                          <View style={[wkStyles.metaDot, { backgroundColor: P.textFaint }]} />
+                          <Text style={[wkStyles.metaText, { color: P.textFaint }]}>
+                            {w.sets.length} set{w.sets.length !== 1 ? 's' : ''}
+                          </Text>
+                        </>
+                      )}
+                    </View>
+                  </View>
+
+                  <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                    <Text style={[wkStyles.cals, { color: P.text }]}>
+                      {Math.round(w.calories_burned)}
+                    </Text>
+                    <Text style={[wkStyles.calsUnit, { color: P.textFaint }]}>kcal</Text>
+                  </View>
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      <TouchableOpacity
+        onPress={onLogMore}
+        activeOpacity={0.7}
+        style={[styles.addMealBtn, { borderTopColor: P.hair }]}
+      >
+        <View style={[styles.addMealIcon, { backgroundColor: P.proteinSoft }]}>
+          <Ionicons name="add" size={16} color={P.protein} />
+        </View>
+        <Text style={[styles.addMealText, { color: P.text }]}>Log a workout</Text>
+        <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
+      </TouchableOpacity>
+    </Card>
+  );
+}
+
+const wkStyles = StyleSheet.create({
+  row: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    gap:            14,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  divider: {
+    height:           StyleSheet.hairlineWidth,
+    marginHorizontal: 20,
+  },
+  iconBox: {
+    width:          42,
+    height:         42,
+    borderRadius:   14,
+    alignItems:     'center',
+    justifyContent: 'center',
+  },
+  name: {
+    fontSize:      14,
+    fontWeight:    '700',
+    letterSpacing: -0.2,
+  },
+  meta: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           5,
+  },
+  metaText: {
+    fontSize:   11,
+    fontWeight: '500',
+  },
+  metaDot: {
+    width:        2,
+    height:       2,
+    borderRadius: 1,
+    opacity:      0.5,
+  },
+  intensityDots: {
+    flexDirection: 'row',
+    gap:           3,
+  },
+  dot: {
+    width:        5,
+    height:       5,
+    borderRadius: 3,
+  },
+  cals: {
+    fontSize:      16,
+    fontWeight:    '800',
+    letterSpacing: -0.4,
+  },
+  calsUnit: {
+    fontSize:   9,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+});
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Daily Insight — distinctive gradient-accent card with sparkle icon
@@ -1158,6 +1330,8 @@ export default function HomeScreen() {
   const { today: healthToday, refresh: refreshHealth } = useHealth();
   const toast = useToast();
 
+  const { workouts, totalCaloriesBurned: workoutCalsBurned, refreshWorkouts } = useWorkouts();
+
   const [date, setDate]         = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
   const [isCheckingInsightStatus, setIsCheckingInsightStatus] = useState(false);
@@ -1209,13 +1383,24 @@ export default function HomeScreen() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refreshLogs(), refreshProfile(), refreshHealth()]);
+      const today = getLocalDateString();
+      await Promise.all([
+        refreshLogs(today),
+        refreshProfile(),
+        refreshHealth(),
+        refreshWorkouts(today),
+      ]);
     } catch {
       toast.error('Could not refresh', 'Please try again.');
     } finally {
       setRefreshing(false);
     }
   };
+
+  useEffect(() => {
+    const today = getLocalDateString();
+    void Promise.all([refreshLogs(today), refreshWorkouts(today)]);
+  }, [refreshLogs, refreshWorkouts]);
 
   const handleInsightPress = async () => {
     setIsCheckingInsightStatus(true);
@@ -1248,7 +1433,6 @@ export default function HomeScreen() {
   const adjustedRemaining = remaining + burnedToday;
 
   const isFemale = profile?.sex === 'female';
-  const waterGoal = 8; // will wire to summary context later
 
   const longDate = useMemo(
     () => date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
@@ -1289,15 +1473,13 @@ export default function HomeScreen() {
               <View style={[styles.notifDot, { backgroundColor: P.calories, borderColor: P.bg }]} />
             </TouchableOpacity>
 
-            <View style={[styles.avatarRing, { borderColor: P.calories }]}>
-              <View style={[styles.avatar, { backgroundColor: P.sunken }]}>
-                {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
-                ) : (
-                  <Text style={[styles.avatarLetter, { color: P.calories }]}>{avatarLetter}</Text>
-                )}
-              </View>
-            </View>
+            <UserAvatar
+              size="sm"
+              avatarUrl={avatarUrl}
+              avatarLetter={avatarLetter}
+              accentColor={P.calories}
+              fillColor={P.sunken}
+            />
           </View>
         </AnimatedHeader>
 
@@ -1338,7 +1520,13 @@ export default function HomeScreen() {
             totalCalories={totalCalories}
             onLogMore={() => router.replace('/(tabs)/log/food')}
           />
-          <HydrationCard P={P} delay={520} waterGoal={waterGoal} />
+          <WorkoutCard
+            P={P}
+            delay={500}
+            workouts={workouts}
+            totalCaloriesBurned={workoutCalsBurned}
+            onLogMore={() => router.push('/(tabs)/log/workout')}
+          />
         </View>
       </ScrollView>
 
@@ -1439,23 +1627,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     borderWidth: 1.5,
   },
-  avatarRing: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: 1.5,
-    padding: 2,
-  },
-  avatar: {
-    flex: 1,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  avatarImg: { width: "100%", height: "100%" },
-  avatarLetter: { fontSize: 14, fontWeight: "800", letterSpacing: -0.2 },
-
   // Main stack
   stack: {
     paddingHorizontal: 20,

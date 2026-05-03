@@ -52,8 +52,8 @@ export function usePalette() {
       waterSoft:    'rgba(56,189,248,0.22)',   // up from 0.14
       sleep:        '#818CF8',
       sleepSoft:    'rgba(129,140,248,0.22)',  // up from 0.14
-      weight:       '#F472B6',
-      weightSoft:   'rgba(244,114,182,0.22)',  // up from 0.14
+      weight:       '#60A5FA',
+      weightSoft:   'rgba(96,165,250,0.22)',
       workout:      '#22D3EE',
       workoutSoft:  'rgba(34,211,238,0.22)',   // up from 0.14
       body:         '#FB7185',
@@ -92,8 +92,8 @@ export function usePalette() {
     waterSoft:    'rgba(14,165,233,0.10)',
     sleep:        '#4F46E5',
     sleepSoft:    'rgba(79,70,229,0.10)',
-    weight:       '#DB2777',
-    weightSoft:   'rgba(219,39,119,0.10)',
+    weight:       '#2563EB',
+    weightSoft:   'rgba(37,99,235,0.10)',
     workout:      '#0891B2',
     workoutSoft:  'rgba(8,145,178,0.10)',
     body:         '#E11D48',

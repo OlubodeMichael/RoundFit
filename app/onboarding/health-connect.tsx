@@ -3,10 +3,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import Constants from 'expo-constants';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
-import { useHealth } from '@/hooks/use-health';
-import { HEALTHKIT_READ_IDENTIFIERS } from '@/utils/healthkit';
+import { HEALTHKIT_READ_IDENTIFIERS, isExpoGoEnvironment } from '@/utils/healthkit';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -27,7 +25,6 @@ export default function HealthConnectScreen() {
     goal: string; activity: string; unit: string;
   }>();
   const insets = useSafeAreaInsets();
-  const { syncFromDevice } = useHealth();
 
   // ── Entrance animations ───────────────────────────────────────────────────
   const fade       = useRef(new Animated.Value(0)).current;
@@ -74,18 +71,18 @@ export default function HealthConnectScreen() {
 
   if (Platform.OS !== 'ios') return null;
 
+  const expoGo = isExpoGoEnvironment();
+
   const bg   = '#FAFAF8';
   const hi   = '#111111';
   const mid  = '#888';
   const lo   = '#E8E3DC';
   const surf = '#FFFFFF';
-  const isExpoGo = Constants.executionEnvironment === 'storeClient';
-
   const goToReveal = () =>
     router.push({ pathname: '/onboarding/reveal', params });
 
   const handleConnect = async () => {
-    if (isExpoGo) {
+    if (expoGo) {
       goToReveal();
       return;
     }
@@ -98,8 +95,6 @@ export default function HealthConnectScreen() {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
         await AsyncStorage.setItem('@roundfit/health_connected', 'true');
-        // First sync — fires in background, don't block navigation
-        void syncFromDevice();
       } catch {
         // Not available in Expo Go — proceed without HealthKit
       }
@@ -169,7 +164,7 @@ export default function HealthConnectScreen() {
       <Animated.View style={[s.ctaBlock, { opacity: bottomFade }]}>
         <TouchableOpacity style={s.ctaPrimary} activeOpacity={0.85} onPress={handleConnect}>
           <Ionicons name="heart" size={17} color="#FFF" style={{ marginRight: 8 }} />
-          <Text style={s.ctaPrimaryText}>{isExpoGo ? 'Continue' : 'Connect Health'}</Text>
+          <Text style={s.ctaPrimaryText}>{expoGo ? 'Continue' : 'Connect Health'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={s.ctaSkip} activeOpacity={0.6} onPress={handleSkip}>

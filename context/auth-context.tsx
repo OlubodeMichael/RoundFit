@@ -6,14 +6,11 @@ import React, {
     useRef,
     useState,
 } from "react";
-import * as SecureStore from "expo-secure-store";
+import { AppState, type AppStateStatus } from "react-native";
+import { apiFetch, clearTokens, storeTokens, proactiveRefreshIfNeeded } from "@/utils/api";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000/api";
-const TIMEOUT_MS = 10_000;
-const TOKEN_KEY = "access_token";
-const REFRESH_KEY = "refresh_token";
 /** How long sign-in / sign-up error banners stay visible before auto-clearing. */
 const AUTH_ERROR_DISPLAY_MS = 4_000;
 
@@ -98,6 +95,9 @@ interface AuthContextValue {
   updateProfile: (
     patch: Partial<Omit<UserProfile, "id" | "email" | "createdAt">>,
   ) => Promise<void>;
+
+  /** Re-fetches the current user from GET /auth/me and updates local state. */
+  refreshUser: () => Promise<void>;
 
   /** Clears the last error. */
   clearError: () => void;
@@ -238,74 +238,6 @@ function parseApiError(
 }
 
 /**
- * Thin fetch wrapper.
- * - Attaches stored Bearer token via Authorization header
- * - Enforces a 10 s timeout
- * - On 401: posts the stored refresh_token to /auth/refresh, stores the new
- *   pair, then retries the original request once. If refresh fails, clears
- *   stored tokens so the next mount sets status to unauthenticated.
- */
-async function apiFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const storedToken = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(storedToken ? { Authorization: `Bearer ${storedToken}` } : {}),
-    ...(options.headers as Record<string, string>),
-  };
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  const run = (overrideHeaders?: Record<string, string>) =>
-    fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers: overrideHeaders ?? headers,
-      credentials: "include",
-      signal: controller.signal,
-    });
-
-  try {
-    const res = await run();
-
-    if (res.status === 401) {
-      const storedRefresh = await SecureStore.getItemAsync(REFRESH_KEY).catch(() => null);
-      if (storedRefresh) {
-        const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: storedRefresh }),
-          signal: controller.signal,
-        });
-
-        if (refreshRes.ok) {
-          const { access_token, refresh_token } = await refreshRes.json();
-          await SecureStore.setItemAsync(TOKEN_KEY, access_token);
-          await SecureStore.setItemAsync(REFRESH_KEY, refresh_token);
-
-          const retryHeaders = { ...headers, Authorization: `Bearer ${access_token}` };
-          const retryRes = await run(retryHeaders);
-          const retryBody = await retryRes.json().catch(() => ({}));
-          return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
-        }
-
-        // Refresh failed — clear tokens so session restore treats this as signed out
-        await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
-        await SecureStore.deleteItemAsync(REFRESH_KEY).catch(() => {});
-      }
-    }
-
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
  * Fetches and normalises the current user from GET /auth/me.
  * Throws if the request fails — callers handle the error.
  */
@@ -349,14 +281,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<AuthError | null>(null);
 
   // Stable ref so updateProfile's rollback always sees the latest snapshot.
-  const userRef = useRef<UserProfile | null>(null);
-  userRef.current = user;
+  const userRef      = useRef<UserProfile | null>(null);
+  const appStateRef  = useRef<AppStateStatus>(AppState.currentState);
+  userRef.current    = user;
 
   const isAuth = status === "authenticated";
 
   // ── Restore session on mount ─────────────────────────────────────────────
-  // Cookie present and valid → 200 → authenticated
-  // Cookie missing or expired → 401 → unauthenticated
   useEffect(() => {
     (async () => {
       try {
@@ -367,6 +298,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })();
   }, []);
+
+  // ── Proactive token refresh on foreground ─────────────────────────────────
+  // Every time the app comes back to the foreground we check whether the
+  // access token is about to expire (within 5 min) and refresh it before any
+  // API call goes out.  This keeps the Supabase session alive as long as the
+  // user opens the app at least once before the server-side inactivity window.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+
+      if (!prev.match(/inactive|background/) || next !== 'active') return;
+      if (status !== 'authenticated') return;
+
+      const stillValid = await proactiveRefreshIfNeeded();
+      if (!stillValid) {
+        setUser(null);
+        setStatus('unauthenticated');
+        return;
+      }
+
+      // Re-fetch user profile silently so stale data doesn't linger
+      try {
+        setUser(await fetchMe(userRef.current?.email ?? ''));
+      } catch {
+        // network hiccup — keep existing profile data
+      }
+    });
+    return () => sub.remove();
+  }, [status]);
 
   useEffect(() => {
     if (error === null) return;
@@ -402,10 +363,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        if (typeof body.access_token === "string")
-          await SecureStore.setItemAsync(TOKEN_KEY, body.access_token);
-        if (typeof body.refresh_token === "string")
-          await SecureStore.setItemAsync(REFRESH_KEY, body.refresh_token);
+        if (
+          typeof body.access_token === "string" &&
+          typeof body.refresh_token === "string"
+        ) {
+          await storeTokens(body.access_token, body.refresh_token);
+        }
 
         try {
           setUser(await fetchMe(email));
@@ -443,10 +406,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (typeof body.access_token === "string")
-        await SecureStore.setItemAsync(TOKEN_KEY, body.access_token);
-      if (typeof body.refresh_token === "string")
-        await SecureStore.setItemAsync(REFRESH_KEY, body.refresh_token);
+      if (
+        typeof body.access_token === "string" &&
+        typeof body.refresh_token === "string"
+      ) {
+        await storeTokens(body.access_token, body.refresh_token);
+      }
 
       try {
         setUser(await fetchMe(email));
@@ -465,8 +430,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ── Sign out ─────────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
     apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
-    await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
-    await SecureStore.deleteItemAsync(REFRESH_KEY).catch(() => {});
+    await clearTokens();
     setUser(null);
     setStatus("unauthenticated");
   }, []);
@@ -521,6 +485,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // ── Refresh user ─────────────────────────────────────────────────────────
+  const refreshUser = useCallback(async () => {
+    try {
+      const fresh = await fetchMe(userRef.current?.email ?? '');
+      setUser(fresh);
+    } catch {
+      // silently ignore — stale data is better than a crash
+    }
+  }, []);
+
   // ── Clear error ──────────────────────────────────────────────────────────
   const clearError = useCallback(() => setError(null), []);
 
@@ -536,6 +510,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signOut,
         updateProfile,
+        refreshUser,
         clearError,
       }}
     >

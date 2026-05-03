@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,16 +13,16 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ComponentProps } from 'react';
 
 import { AnimatedCard, usePalette } from '@/lib/log-theme';
-import { useProfile } from '@/hooks/use-profile';
+import { useInsights } from '@/context/insights-context';
+import type { Insight as ApiInsight } from '@/context/insights-context';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
-// ─── Dummy data ─────────────────────────────────────────────────────────────
-// Today's AI-powered insight, plus a chronological tail of past insights.
-// Wire to `insights-context` and Claude fallback chain once available.
-type Tint = 'protein' | 'carbs' | 'fat' | 'water' | 'sleep' | 'workout' | 'calories';
+// ─── Display shape ────────────────────────────────────────────────────────────
+// Adapts the API's flat { message } field into what the cards need.
+type Tint = 'protein' | 'fat' | 'calories' | 'water' | 'sleep' | 'workout';
 
-type Insight = {
+interface DisplayInsight {
   id:       string;
   date:     string;
   dateLong: string;
@@ -31,100 +32,75 @@ type Insight = {
   title:    string;
   body:     string;
   source:   'ai' | 'rule';
-};
+}
 
-const TODAY: Insight = {
-  id:       '2026-04-18',
-  date:     'Today',
-  dateLong: 'Saturday, April 18',
-  tag:      'Protein rhythm',
-  tint:     'protein',
-  icon:     'flash',
-  title:    'Afternoon protein dip',
-  body:
-    'Your protein intake drops 34% between 2–5 PM on weekdays. A Greek yogurt or a handful of almonds keeps dinner cravings steadier and helps you land inside your macro window.',
-  source:   'ai',
-};
+// Pull the first sentence (or first 60 chars) as the card title.
+function extractTitle(message: string): string {
+  const dot = message.indexOf('. ');
+  if (dot > 10 && dot < 72) return message.slice(0, dot);
+  return message.length > 62
+    ? message.slice(0, 60).trimEnd() + '…'
+    : message;
+}
 
-const PAST: Insight[] = [
-  {
-    id:       '2026-04-17',
-    date:     'Yesterday',
-    dateLong: 'Friday, April 17',
-    tag:      'Sleep recovery',
-    tint:     'sleep',
-    icon:     'moon',
-    title:    'Short sleep, soft training',
-    body:     'You slept 5h 42m. On nights under 6h your average step count falls 22% — keep tomorrow gentle.',
-    source:   'ai',
-  },
-  {
-    id:       '2026-04-16',
-    date:     'Thu',
-    dateLong: 'Thursday, April 16',
-    tag:      'Hydration',
-    tint:     'water',
-    icon:     'water',
-    title:    'Hydration stayed flat',
-    body:     'Only 4 glasses logged three days running. Setting a lunchtime refill ritual closed this gap for 68% of users.',
-    source:   'rule',
-  },
-  {
-    id:       '2026-04-15',
-    date:     'Wed',
-    dateLong: 'Wednesday, April 15',
-    tag:      'Consistency',
-    tint:     'calories',
-    icon:     'trending-up',
-    title:    '3 days in a row on target',
-    body:     'You stayed inside your calorie band Mon–Wed. That\'s your longest streak in two weeks — great tempo.',
-    source:   'ai',
-  },
-  {
-    id:       '2026-04-14',
-    date:     'Tue',
-    dateLong: 'Tuesday, April 14',
-    tag:      'Cycle phase',
-    tint:     'fat',
-    icon:     'leaf',
-    title:    'Follicular energy window',
-    body:     'You\'re entering your follicular phase. Expect a natural lift — a good moment to push intensity +10%.',
-    source:   'rule',
-  },
-  {
-    id:       '2026-04-13',
-    date:     'Mon',
-    dateLong: 'Monday, April 13',
-    tag:      'Recovery',
-    tint:     'workout',
-    icon:     'fitness',
-    title:    'Recovery beats PR',
-    body:     'After Sunday\'s long run, an active-rest day lifted next-day step count by 14% on average.',
-    source:   'ai',
-  },
-];
+function relativeDay(isoDate: string): string {
+  const d       = new Date(isoDate);
+  const now     = new Date();
+  const diffDay = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
+  if (diffDay === 0) return 'Today';
+  if (diffDay === 1) return 'Yesterday';
+  if (diffDay <= 6)  return d.toLocaleDateString(undefined, { weekday: 'short' });
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
 
-const FEMALE_ONLY_TAGS = ['Cycle phase', 'Menstrual', 'Ovulation', 'Follicular', 'Luteal'];
+function longDay(isoDate: string): string {
+  return new Date(isoDate).toLocaleDateString(undefined, {
+    weekday: 'long', month: 'long', day: 'numeric',
+  });
+}
 
+function toDisplay(insight: ApiInsight, fallbackDate?: string): DisplayInsight {
+  const isAi = insight.type === 'claude';
+  return {
+    id:       insight.id,
+    date:     relativeDay(insight.date || fallbackDate || new Date().toISOString()),
+    dateLong: longDay(insight.date   || fallbackDate || new Date().toISOString()),
+    tag:      isAi ? 'AI insight' : 'Daily insight',
+    tint:     isAi ? 'fat' : 'protein',
+    icon:     isAi ? 'sparkles' : 'bulb-outline',
+    title:    extractTitle(insight.message),
+    body:     insight.message,
+    source:   isAi ? 'ai' : 'rule',
+  };
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 export default function InsightsScreen() {
   const P      = usePalette();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { profile } = useProfile();
 
-  const isFemale = profile?.sex === 'female';
-  const visiblePast = useMemo(
-    () => isFemale ? PAST : PAST.filter(i => !FEMALE_ONLY_TAGS.includes(i.tag)),
-    [isFemale],
+  const { todayInsight, claudeInsight, history, isLoading, dismissInsight } = useInsights();
+
+  // Prefer Claude insight for hero if available, else fall back to today's rule insight.
+  const heroSource  = claudeInsight ?? todayInsight;
+  const heroDisplay = heroSource
+    ? toDisplay(heroSource, new Date().toISOString())
+    : null;
+
+  // Past = history excluding today's hero, excluding dismissed.
+  const todayId = heroSource?.id;
+  const pastDisplay = useMemo(
+    () => history
+      .filter(i => !i.dismissed && i.id !== todayId)
+      .map(i => toDisplay(i)),
+    [history, todayId],
   );
 
   const longDate = useMemo(
-    () =>
-      new Date().toLocaleDateString(undefined, {
-        weekday: 'long',
-        month:   'long',
-        day:     'numeric',
-      }),
+    () => new Date().toLocaleDateString(undefined, {
+      weekday: 'long', month: 'long', day: 'numeric',
+    }),
     [],
   );
 
@@ -147,63 +123,76 @@ export default function InsightsScreen() {
               Insights<Text style={{ color: P.fat }}>.</Text>
             </Text>
           </View>
-          <Pressable
-            hitSlop={10}
-            style={[styles.iconBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
-          >
-            <Ionicons name="sparkles" size={16} color={P.fat} />
-          </Pressable>
         </View>
 
         <View style={styles.stack}>
-          {/* ── Hero AI insight ───────────────────────────────── */}
-          <HeroInsightCard insight={TODAY} delay={60} />
+          {/* ── Today's insight ───────────────────────────────── */}
+          {isLoading ? (
+            <AnimatedCard delay={60}>
+              <View style={styles.loadingRow}>
+                <ActivityIndicator size="small" color={P.fat} />
+                <Text style={[styles.loadingText, { color: P.textFaint }]}>
+                  Loading your daily insight…
+                </Text>
+              </View>
+            </AnimatedCard>
+          ) : heroDisplay ? (
+            <HeroInsightCard
+              insight={heroDisplay}
+              delay={60}
+              onDismiss={() => dismissInsight(heroSource!.id)}
+            />
+          ) : (
+            <EmptyInsightCard delay={60} />
+          )}
 
-          {/* ── Weekly report CTA ─────────────────────────────── */}
+          {/* ── Weekly report ─────────────────────────────────── */}
           <WeeklyReportCard
             onPress={() => router.push('/(tabs)/insights/weekly')}
             delay={140}
           />
 
-          {/* ── Past insights header ──────────────────────────── */}
-          <View style={styles.sectionHead}>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={[styles.sectionTitle, { color: P.text }]}>Past insights</Text>
-              <Text style={[styles.sectionCaption, { color: P.textFaint }]}>
-                {visiblePast.length} earlier reflections
-              </Text>
-            </View>
-          </View>
+          {/* ── Past insights ─────────────────────────────────── */}
+          {pastDisplay.length > 0 && (
+            <>
+              <View style={styles.sectionHead}>
+                <Text style={[styles.sectionTitle, { color: P.text }]}>Past insights</Text>
+                <Text style={[styles.sectionCaption, { color: P.textFaint }]}>
+                  {pastDisplay.length} earlier {pastDisplay.length === 1 ? 'insight' : 'insights'}
+                </Text>
+              </View>
 
-          {/* ── Past insights list ────────────────────────────── */}
-          {visiblePast.map((i, idx) => (
-            <PastInsightCard key={i.id} insight={i} delay={220 + idx * 50} />
-          ))}
+              {pastDisplay.map((item, idx) => (
+                <PastInsightCard key={item.id} insight={item} delay={220 + idx * 50} />
+              ))}
+            </>
+          )}
         </View>
       </ScrollView>
     </View>
   );
 }
 
-// ─── Hero AI insight card ──────────────────────────────────────────────────
-function HeroInsightCard({ insight, delay }: { insight: Insight; delay: number }) {
-  const P     = usePalette();
-  const tint  = P[insight.tint];
-  const soft  = P[`${insight.tint}Soft` as keyof ReturnType<typeof usePalette>] as string;
+// ─── Hero insight card ────────────────────────────────────────────────────────
+function HeroInsightCard({
+  insight,
+  delay,
+  onDismiss,
+}: {
+  insight:   DisplayInsight;
+  delay:     number;
+  onDismiss: () => void;
+}) {
+  const P    = usePalette();
+  const tint = P[insight.tint] as string;
+  const soft = P[`${insight.tint}Soft` as keyof ReturnType<typeof usePalette>] as string;
 
   return (
     <AnimatedCard delay={delay} style={{ overflow: 'hidden' }}>
-      {/* ambient glow */}
+      {/* Ambient glow */}
       <View
         pointerEvents="none"
-        style={[
-          styles.glow,
-          {
-            backgroundColor: soft,
-            width: 260, height: 260, borderRadius: 130,
-            top: -80, right: -80,
-          },
-        ]}
+        style={[styles.glow, { backgroundColor: soft, top: -80, right: -80 }]}
       />
 
       <View style={styles.heroHead}>
@@ -211,10 +200,8 @@ function HeroInsightCard({ insight, delay }: { insight: Insight; delay: number }
           <Ionicons name="sparkles" size={16} color={P.fat} />
         </View>
         <View style={{ flex: 1, gap: 2 }}>
-          <Text style={[styles.heroEyebrow, { color: P.fat }]}>TODAY'S INSIGHT</Text>
-          <Text style={[styles.heroMeta, { color: P.textFaint }]}>
-            {insight.dateLong}
-          </Text>
+          <Text style={[styles.heroEyebrow, { color: P.fat }]}>{"TODAY'S INSIGHT"}</Text>
+          <Text style={[styles.heroMeta, { color: P.textFaint }]}>{insight.dateLong}</Text>
         </View>
         {insight.source === 'ai' && (
           <View style={[styles.aiBadge, { backgroundColor: P.fatSoft }]}>
@@ -233,17 +220,27 @@ function HeroInsightCard({ insight, delay }: { insight: Insight; delay: number }
       <Text style={[styles.heroBody, { color: P.textDim }]}>{insight.body}</Text>
 
       <View style={[styles.heroFoot, { borderTopColor: P.hair }]}>
-        <Pressable style={({ pressed }) => [styles.footBtn, pressed && { opacity: 0.6 }]} hitSlop={8}>
+        <Pressable
+          style={({ pressed }) => [styles.footBtn, pressed && { opacity: 0.6 }]}
+          hitSlop={8}
+        >
           <Ionicons name="thumbs-up-outline" size={14} color={P.textDim} />
           <Text style={[styles.footBtnText, { color: P.textDim }]}>Helpful</Text>
         </Pressable>
         <View style={[styles.footDivider, { backgroundColor: P.hair }]} />
-        <Pressable style={({ pressed }) => [styles.footBtn, pressed && { opacity: 0.6 }]} hitSlop={8}>
+        <Pressable
+          onPress={onDismiss}
+          style={({ pressed }) => [styles.footBtn, pressed && { opacity: 0.6 }]}
+          hitSlop={8}
+        >
           <Ionicons name="eye-off-outline" size={14} color={P.textDim} />
           <Text style={[styles.footBtnText, { color: P.textDim }]}>Dismiss</Text>
         </Pressable>
         <View style={[styles.footDivider, { backgroundColor: P.hair }]} />
-        <Pressable style={({ pressed }) => [styles.footBtn, pressed && { opacity: 0.6 }]} hitSlop={8}>
+        <Pressable
+          style={({ pressed }) => [styles.footBtn, pressed && { opacity: 0.6 }]}
+          hitSlop={8}
+        >
           <Ionicons name="share-outline" size={14} color={P.textDim} />
           <Text style={[styles.footBtnText, { color: P.textDim }]}>Share</Text>
         </Pressable>
@@ -252,27 +249,46 @@ function HeroInsightCard({ insight, delay }: { insight: Insight; delay: number }
   );
 }
 
-// ─── Weekly report promo card ──────────────────────────────────────────────
+// ─── Empty insight card ───────────────────────────────────────────────────────
+function EmptyInsightCard({ delay }: { delay: number }) {
+  const P = usePalette();
+  return (
+    <AnimatedCard delay={delay} padding={24}>
+      <View style={styles.emptyRow}>
+        <View style={[styles.iconTile, { backgroundColor: P.fatSoft }]}>
+          <Ionicons name="sparkles" size={16} color={P.fat} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.emptyTitle, { color: P.text }]}>
+            No insight yet today
+          </Text>
+          <Text style={[styles.emptyBody, { color: P.textFaint }]}>
+            Keep logging — insights appear once you have data to analyse.
+          </Text>
+        </View>
+      </View>
+    </AnimatedCard>
+  );
+}
+
+// ─── Weekly report card ───────────────────────────────────────────────────────
 function WeeklyReportCard({ onPress, delay }: { onPress: () => void; delay: number }) {
   const P = usePalette();
-
   return (
     <AnimatedCard delay={delay} padding={0} style={{ overflow: 'hidden' }}>
-      <Pressable onPress={onPress} style={({ pressed }) => [
-        styles.weeklyWrap,
-        { backgroundColor: P.calories },
-        pressed && { opacity: 0.92 },
-      ]}>
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.weeklyWrap,
+          { backgroundColor: P.calories },
+          pressed && { opacity: 0.92 },
+        ]}
+      >
         <View pointerEvents="none" style={[styles.weeklyGlow, { backgroundColor: 'rgba(255,255,255,0.12)' }]} />
-
-        <View style={[styles.premiumPill, { backgroundColor: 'rgba(255,255,255,0.16)' }]}>
-          <Ionicons name="diamond" size={10} color="#fff" />
-          <Text style={styles.premiumPillText}>PREMIUM</Text>
-        </View>
 
         <Text style={styles.weeklyTitle}>Weekly report</Text>
         <Text style={styles.weeklySub}>
-          Consistency score, averages, top pattern, and a fresh Claude recommendation — refreshed every Sunday.
+          Consistency score, averages, top pattern, and a fresh recommendation — refreshed every Sunday.
         </Text>
 
         <View style={styles.weeklyFoot}>
@@ -294,10 +310,10 @@ function WeeklyReportCard({ onPress, delay }: { onPress: () => void; delay: numb
   );
 }
 
-// ─── Past insight row card ─────────────────────────────────────────────────
-function PastInsightCard({ insight, delay }: { insight: Insight; delay: number }) {
+// ─── Past insight row card ────────────────────────────────────────────────────
+function PastInsightCard({ insight, delay }: { insight: DisplayInsight; delay: number }) {
   const P    = usePalette();
-  const tint = P[insight.tint];
+  const tint = P[insight.tint] as string;
   const soft = P[`${insight.tint}Soft` as keyof ReturnType<typeof usePalette>] as string;
 
   return (
@@ -335,7 +351,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop:        4,
     paddingBottom:     18,
-    gap:               12,
   },
   eyebrow: {
     fontSize:      10,
@@ -348,23 +363,47 @@ const styles = StyleSheet.create({
     fontWeight:    '800',
     letterSpacing: -0.8,
   },
-  iconBtn: {
-    width: 42, height: 42, borderRadius: 21,
-    alignItems:     'center',
-    justifyContent: 'center',
-    borderWidth:    StyleSheet.hairlineWidth,
-  },
 
   stack: {
     paddingHorizontal: 20,
     gap:               14,
   },
 
-  sectionHead: {
+  // ─── Loading ──
+  loadingRow: {
     flexDirection: 'row',
-    alignItems:    'flex-end',
-    marginTop:     12,
-    marginBottom:  -2,
+    alignItems:    'center',
+    gap:           12,
+    paddingVertical: 4,
+  },
+  loadingText: {
+    fontSize:   13,
+    fontWeight: '500',
+  },
+
+  // ─── Empty ──
+  emptyRow: {
+    flexDirection: 'row',
+    alignItems:    'flex-start',
+    gap:           14,
+  },
+  emptyTitle: {
+    fontSize:      15,
+    fontWeight:    '700',
+    letterSpacing: -0.3,
+    marginBottom:  4,
+  },
+  emptyBody: {
+    fontSize:   13,
+    fontWeight: '400',
+    lineHeight: 19,
+  },
+
+  // ─── Section header ──
+  sectionHead: {
+    marginTop:    12,
+    marginBottom: -2,
+    gap:          2,
   },
   sectionTitle: {
     fontSize:      16,
@@ -377,7 +416,12 @@ const styles = StyleSheet.create({
   },
 
   // ─── Hero ──
-  glow: { position: 'absolute' },
+  glow: {
+    position:     'absolute',
+    width:        260,
+    height:       260,
+    borderRadius: 130,
+  },
   heroHead: {
     flexDirection: 'row',
     alignItems:    'center',
@@ -385,7 +429,7 @@ const styles = StyleSheet.create({
     marginBottom:  14,
   },
   iconTile: {
-    width: 36, height: 36, borderRadius: 12,
+    width:          36, height: 36, borderRadius: 12,
     alignItems:     'center',
     justifyContent: 'center',
   },
@@ -461,9 +505,8 @@ const styles = StyleSheet.create({
 
   // ─── Weekly report ──
   weeklyWrap: {
-    padding:   22,
-    overflow:  'hidden',
-    position:  'relative',
+    padding:  22,
+    overflow: 'hidden',
   },
   weeklyGlow: {
     position:     'absolute',
@@ -472,22 +515,6 @@ const styles = StyleSheet.create({
     width:        220,
     height:       220,
     borderRadius: 110,
-  },
-  premiumPill: {
-    alignSelf:         'flex-start',
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               5,
-    paddingHorizontal: 8,
-    paddingVertical:   4,
-    borderRadius:      8,
-    marginBottom:      12,
-  },
-  premiumPillText: {
-    color:         '#fff',
-    fontSize:      9,
-    fontWeight:    '800',
-    letterSpacing: 1.2,
   },
   weeklyTitle: {
     fontSize:      22,
@@ -540,7 +567,7 @@ const styles = StyleSheet.create({
     marginBottom:  10,
   },
   pastIcon: {
-    width: 36, height: 36, borderRadius: 12,
+    width:          36, height: 36, borderRadius: 12,
     alignItems:     'center',
     justifyContent: 'center',
   },
