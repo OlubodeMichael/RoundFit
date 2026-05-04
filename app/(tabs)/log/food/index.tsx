@@ -502,6 +502,18 @@ export default function FoodLogScreen() {
             </View>
           )}
 
+          {cameraMode === 'photo' && (
+            <View style={photoGuide.wrap} pointerEvents="none">
+              <View style={photoGuide.frame}>
+                <View style={[photoGuide.corner, photoGuide.tl]} />
+                <View style={[photoGuide.corner, photoGuide.tr]} />
+                <View style={[photoGuide.corner, photoGuide.bl]} />
+                <View style={[photoGuide.corner, photoGuide.br]} />
+              </View>
+              <Text style={photoGuide.hint}>Center your meal in the frame</Text>
+            </View>
+          )}
+
           <View style={[cameraStyles.topBar, { paddingTop: insets.top + 10 }]}>
             <TouchableOpacity style={cameraStyles.circle} onPress={closeCamera}>
               <Ionicons name="close" size={22} color="#FFF" />
@@ -1226,4 +1238,59 @@ const cameraStyles = StyleSheet.create({
   addBtnText: { color: '#FFF', fontSize: 13, fontWeight: '800' },
   againBtn:   { alignItems: 'center', paddingVertical: 6 },
   againText:  { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600' },
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Photo guide overlay
+// ───────────────────────────────────────────────────────────────────────────────
+const GUIDE  = 300;
+const C_LEN  = 32;
+const C_W    = 3;
+const C_RAD  = 5;
+const C_CLR  = '#FFFFFF';
+
+const photoGuide = StyleSheet.create({
+  wrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems:     'center',
+    justifyContent: 'center',
+    gap:            18,
+  },
+  frame: {
+    width:    GUIDE,
+    height:   GUIDE,
+    position: 'relative',
+  },
+  corner: {
+    position:  'absolute',
+    width:     C_LEN,
+    height:    C_LEN,
+    borderColor: C_CLR,
+  },
+  tl: {
+    top: 0, left: 0,
+    borderTopWidth: C_W, borderLeftWidth: C_W,
+    borderTopLeftRadius: C_RAD,
+  },
+  tr: {
+    top: 0, right: 0,
+    borderTopWidth: C_W, borderRightWidth: C_W,
+    borderTopRightRadius: C_RAD,
+  },
+  bl: {
+    bottom: 0, left: 0,
+    borderBottomWidth: C_W, borderLeftWidth: C_W,
+    borderBottomLeftRadius: C_RAD,
+  },
+  br: {
+    bottom: 0, right: 0,
+    borderBottomWidth: C_W, borderRightWidth: C_W,
+    borderBottomRightRadius: C_RAD,
+  },
+  hint: {
+    color:         'rgba(255,255,255,0.65)',
+    fontSize:      13,
+    fontWeight:    '500',
+    letterSpacing: 0.2,
+  },
 });

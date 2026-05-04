@@ -2,7 +2,7 @@ import { useFood } from "@/context/food-context";
 import { useCycle } from "@/context/cycle-context";
 import { useWorkouts } from "@/context/workout-context";
 import type { Workout } from "@/context/workout-context";
-import { formatDistance } from "@/utils/units";
+import { distanceValue, distanceUnitLabel } from "@/utils/units";
 import { CheckinModal } from "@/components/checkin/CheckinModal";
 import { useProfile } from "@/hooks/use-profile";
 import { useHealth } from "@/hooks/use-health";
@@ -750,11 +750,8 @@ function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data
   const fillWidth = stepFill.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
   const pctLabel  = Math.round(stepPct * 100);
 
-  const distLabel = formatDistance(
-    distance,
-    (data?.distance_unit as import('@/utils/units').DistanceUnit) ?? 'km',
-    profileUnit,
-  );
+  const distNum  = distanceValue(distance, (data?.distance_unit as import('@/utils/units').DistanceUnit) ?? 'km', profileUnit);
+  const distUnit = distanceUnitLabel(profileUnit);
 
   return (
     <Card delay={delay}>
@@ -800,8 +797,8 @@ function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data
           <View style={[styles.activityIconBox, { backgroundColor: P.proteinSoft }]}>
             <Ionicons name="map" size={16} color={P.protein} />
           </View>
-          <Text style={[styles.activityVal, { color: P.text }]}>{distLabel}</Text>
-          <Text style={[styles.activityLbl, { color: P.textFaint }]}>distance</Text>
+          <Text style={[styles.activityVal, { color: P.text }]}>{distNum}</Text>
+          <Text style={[styles.activityLbl, { color: P.textFaint }]}>{distUnit}</Text>
         </View>
 
         <View style={[styles.activityDivider, { backgroundColor: P.hair }]} />
@@ -1370,12 +1367,13 @@ export default function HomeScreen() {
     const base = Math.round(mealGoal * 0.15);
     const over = Math.max(totalCalories - mealGoal, 0);
     const caloriesToBurn = Math.max(base + over, 80);
-    // minutes = cals / (MET × kg / 60)
-    const minutes = Math.round(caloriesToBurn / (coachActivity.met * weightKg / 60) / 5) * 5;
     const activeBurned = healthToday?.active_calories ?? 0;
+    const remaining = Math.max(caloriesToBurn - activeBurned, 0);
+    // minutes based on remaining calories, not total
+    const minutes = Math.max(Math.round(remaining / (coachActivity.met * weightKg / 60) / 5) * 5, 0);
     return {
-      caloriesToBurn: Math.max(caloriesToBurn - activeBurned, 0),
-      activity: { label: `${coachActivity.verb} ${minutes} min`, icon: coachActivity.icon },
+      caloriesToBurn: remaining,
+      activity: { label: minutes > 0 ? `${coachActivity.verb} ${minutes} min` : `Goal reached!`, icon: coachActivity.icon },
       goalProgress: caloriesToBurn > 0 ? Math.min(activeBurned / caloriesToBurn, 1) : 0,
     };
   }, [mealGoal, totalCalories, coachActivity, weightKg, healthToday]);

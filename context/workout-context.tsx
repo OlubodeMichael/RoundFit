@@ -257,10 +257,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refreshWorkouts = useCallback(async (date?: string) => {
     const target = date ?? todayDateString();
-    if (date && date !== activeDate) setActiveDate(date);
-    if (!date && activeDate !== target) setActiveDate(target);
+    setActiveDate(target);
     await fetchWorkouts(target);
-  }, [activeDate, fetchWorkouts]);
+  }, [fetchWorkouts]);
 
   return (
     <WorkoutContext.Provider value={{

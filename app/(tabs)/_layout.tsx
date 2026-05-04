@@ -1,12 +1,11 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import Feather from "@expo/vector-icons/Feather";
 import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import * as Haptics from "expo-haptics";
-import { Tabs } from "expo-router";
+import { Tabs, useSegments } from "expo-router";
 import { useState } from "react";
 import {
     Dimensions,
     StyleSheet,
-    Text,
     TouchableOpacity,
     View,
 } from "react-native";
@@ -16,227 +15,205 @@ import { CheckinModal } from "@/components/checkin/CheckinModal";
 import { useCheckin } from "@/hooks/use-checkin";
 import { useTheme } from "@/hooks/use-theme";
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>["name"];
+type FeatherName = React.ComponentProps<typeof Feather>["name"];
 
-// ── Dimensions ────────────────────────────────────────────────────────────────
 const SW = Dimensions.get("window").width;
-const TAB_H = 60;
-const FAB_D = 58;
-const FAB_R = FAB_D / 2;
-const NOTCH_W = 82; // width of the gap in the border
-const NOTCH_D = 34; // how far the notch dips down
 
-const TABS: { name: string; icon: IoniconsName; label: string; fab?: true }[] =
-  [
-    { name: "index", icon: "home-outline", label: "Home" },
-    { name: "insights", icon: "bulb-outline", label: "Insights" },
-    { name: "log", icon: "add", label: "Log", fab: true },
-    { name: "progress", icon: "trending-up-outline", label: "Progress" },
-    { name: "profile", icon: "person-outline", label: "Profile" },
-  ];
+const PILL_H    = 64;
+const PILL_W    = SW - 48;
+const FAB_D     = 46;
+const FLOAT_BOT = 16;
 
-// ── Custom Tab Bar ────────────────────────────────────────────────────────────
+const TABS: { name: string; icon: FeatherName; fab?: true }[] = [
+    { name: "index",    icon: "home"     },
+    { name: "insights", icon: "zap"      },
+    { name: "log",      icon: "plus", fab: true },
+    { name: "progress", icon: "activity" },
+    { name: "profile",  icon: "user"     },
+];
+
+const PROFILE_SUB_SCREENS = [
+    "cycle", "wearable", "notifications", "subscription", "paywall",
+];
+
+// ── Floating Tab Bar ──────────────────────────────────────────────────────────
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
-  const { isDark } = useTheme();
-  const insets = useSafeAreaInsets();
+    const { isDark } = useTheme();
+    const insets     = useSafeAreaInsets();
+    const segments   = useSegments();
 
-  const tabBg = isDark ? "#1C1D23" : "#FFFFFF";
-  const borderClr = isDark ? "#333340" : "#EDE9E3";
-  const active = "#F97316";
-  const inactive = isDark ? "#707078" : "#BBBBBB";
+    const isProfileSubScreen =
+        segments[1] === "profile" &&
+        PROFILE_SUB_SCREENS.includes(segments[2] as string);
 
-  const tabBarH = TAB_H + insets.bottom;
-  const leftW = (SW - NOTCH_W) / 2;
+    if (isProfileSubScreen) return null;
 
-  const go = (key: string, name: string, focused: boolean) => {
-    const event = navigation.emit({
-      type: "tabPress",
-      target: key,
-      canPreventDefault: true,
-    });
-    if (!focused && !event.defaultPrevented) navigation.navigate(name);
-    if (process.env.EXPO_OS === "ios")
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
+    const ACTIVE   = "#F97316";
+    const INACTIVE = isDark ? "#5A5A66" : "#8A8A96";
+    const PILL_BG  = isDark ? "#18181E" : "#131318";
+    const FAB_BG   = isDark ? "#252530" : "#252530";
 
-  const logRoute = state.routes.find((r) => r.name === "log")!;
-  const logFocused = state.routes[state.index]?.name === "log";
+    // Outer height determines the inset React Navigation adds to screens
+    const outerH = insets.bottom + FLOAT_BOT + PILL_H + 12;
 
-  return (
-    // Outer wrapper — taller than the tab bar so the FAB can poke above
-    <View
-      style={[s.outer, { height: tabBarH + FAB_R + 12 }]}
-      pointerEvents="box-none"
-    >
-      {/* ── TAB BAR SURFACE ───────────────────────────────────────── */}
-      <View style={[s.surface, { height: tabBarH, backgroundColor: tabBg }]}>
-        {/* Left border segment */}
-        <View
-          style={[
-            s.borderLine,
-            { left: 0, width: leftW, backgroundColor: borderClr },
-          ]}
-        />
+    const go = (key: string, name: string, focused: boolean) => {
+        const event = navigation.emit({
+            type: "tabPress",
+            target: key,
+            canPreventDefault: true,
+        });
+        if (!focused && !event.defaultPrevented) navigation.navigate(name);
+        if (process.env.EXPO_OS === "ios")
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    };
 
-        {/* Notch U-shape: no top border, rounded bottom, left + right sides */}
-        <View
-          style={[
-            s.notch,
-            {
-              left: leftW,
-              width: NOTCH_W,
-              height: NOTCH_D,
-              borderColor: borderClr,
-              borderBottomLeftRadius: NOTCH_W / 2,
-              borderBottomRightRadius: NOTCH_W / 2,
-            },
-          ]}
-        />
-
-        {/* Right border segment */}
-        <View
-          style={[
-            s.borderLine,
-            { right: 0, width: leftW, backgroundColor: borderClr },
-          ]}
-        />
-      </View>
-
-      {/* ── TAB ITEMS ─────────────────────────────────────────────── */}
-      <View style={[s.row, { bottom: insets.bottom, height: TAB_H }]}>
-        {state.routes.map((route, i) => {
-          const cfg = TABS.find((t) => t.name === route.name);
-          const focused = state.index === i;
-
-          if (!cfg) return null;
-
-          // Spacer slot for the FAB — actual button rendered separately
-          if (cfg.fab) return <View key={route.key} style={{ flex: 1 }} />;
-
-          const color = focused ? active : inactive;
-          return (
-            <TouchableOpacity
-              key={route.key}
-              style={s.tab}
-              onPress={() => go(route.key, route.name, focused)}
-              activeOpacity={0.7}
+    return (
+        <View style={[s.outer, { height: outerH }]} pointerEvents="box-none">
+            <View
+                style={[
+                    s.pill,
+                    {
+                        bottom:          insets.bottom + FLOAT_BOT,
+                        backgroundColor: PILL_BG,
+                    },
+                ]}
             >
-              <Ionicons name={cfg.icon} size={22} color={color} />
-              <Text style={[s.label, { color }]}>{cfg.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+                {state.routes.map((route, i) => {
+                    const cfg     = TABS.find((t) => t.name === route.name);
+                    const focused = state.index === i;
+                    if (!cfg) return null;
 
-      {/* ── FAB ──────────────────────────────────────────────────── */}
-      <TouchableOpacity
-        style={[
-          s.fab,
-          {
-            left: SW / 2 - FAB_R,
-            bottom: tabBarH - FAB_R + 8, // center sits 8 px above tab bar top
-          },
-        ]}
-        onPress={() => go(logRoute.key, logRoute.name, logFocused)}
-        activeOpacity={0.85}
-      >
-        <Ionicons name="add" size={32} color="#FFF" />
-      </TouchableOpacity>
-    </View>
-  );
+                    if (cfg.fab) {
+                        return (
+                            <TouchableOpacity
+                                key={route.key}
+                                style={s.fabSlot}
+                                onPress={() => go(route.key, route.name, focused)}
+                                activeOpacity={0.8}
+                            >
+                                <View
+                                    style={[
+                                        s.fab,
+                                        {
+                                            backgroundColor: focused ? ACTIVE : FAB_BG,
+                                            shadowColor:     focused ? ACTIVE : "#000",
+                                        },
+                                    ]}
+                                >
+                                    <Feather
+                                        name="plus"
+                                        size={26.5}
+                                        color={focused ? "#fff" : INACTIVE}
+                                    />
+                                </View>
+                            </TouchableOpacity>
+                        );
+                    }
+
+                    const color = focused ? ACTIVE : INACTIVE;
+                    return (
+                        <TouchableOpacity
+                            key={route.key}
+                            style={s.tabBtn}
+                            onPress={() => go(route.key, route.name, focused)}
+                            activeOpacity={0.65}
+                        >
+                            <Feather name={cfg.icon} size={22.5} color={color} />
+                            {focused && (
+                                <View style={[s.activeDot, { backgroundColor: ACTIVE }]} />
+                            )}
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
+        </View>
+    );
 }
 
 // ── Checkin Gate ──────────────────────────────────────────────────────────────
 function CheckinGate() {
-  const { shouldShowCheckin, isLoading } = useCheckin();
-  const [dismissed, setDismissed] = useState(false);
-  const visible = !isLoading && shouldShowCheckin && !dismissed;
-  return <CheckinModal visible={visible} onClose={() => setDismissed(true)} />;
+    const { shouldShowCheckin, isLoading } = useCheckin();
+    const [dismissed, setDismissed]        = useState(false);
+    const visible = !isLoading && shouldShowCheckin && !dismissed;
+    return <CheckinModal visible={visible} onClose={() => setDismissed(true)} />;
 }
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 export default function TabLayout() {
-  return (
-    <>
-      <Tabs
-        tabBar={(props) => <CustomTabBar {...props} />}
-        screenOptions={{ headerShown: false }}
-      >
-        <Tabs.Screen name="index" options={{ title: "Home" }} />
-        <Tabs.Screen name="insights" options={{ title: "Insights" }} />
-        <Tabs.Screen name="log" options={{ title: "Log" }} />
-        <Tabs.Screen name="progress" options={{ title: "Progress" }} />
-        <Tabs.Screen name="profile" options={{ title: "Profile" }} />
-      </Tabs>
-      <CheckinGate />
-    </>
-  );
+    return (
+        <>
+            <Tabs
+                tabBar={(props) => <CustomTabBar {...props} />}
+                screenOptions={{ headerShown: false }}
+            >
+                <Tabs.Screen name="index"    options={{ title: "Home"     }} />
+                <Tabs.Screen name="insights" options={{ title: "Insights" }} />
+                <Tabs.Screen name="log"      options={{ title: "Log"      }} />
+                <Tabs.Screen name="progress" options={{ title: "Progress" }} />
+                <Tabs.Screen name="profile"  options={{ title: "Profile"  }} />
+            </Tabs>
+            <CheckinGate />
+        </>
+    );
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  outer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  surface: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
+    outer: {
+        position: "absolute",
+        left:     0,
+        right:    0,
+        bottom:   0,
+    },
 
-  // Two straight border segments
-  borderLine: {
-    position: "absolute",
-    top: 0,
-    height: 1,
-  },
+    pill: {
+        position:      "absolute",
+        left:          (SW - PILL_W) / 2,
+        width:         PILL_W,
+        height:        PILL_H,
+        borderRadius:  PILL_H / 2,
+        flexDirection: "row",
+        alignItems:    "center",
+        paddingHorizontal: 8,
 
-  // The U-shaped notch — no top border, left/right/bottom borders with big bottom radius
-  notch: {
-    position: "absolute",
-    top: 0,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
-    borderTopWidth: 0,
-  },
+        // Shadow
+        shadowColor:   "#000",
+        shadowOffset:  { width: 0, height: 12 },
+        shadowOpacity: 0.35,
+        shadowRadius:  24,
+        elevation:     24,
+    },
 
-  // Tab items row
-  row: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-  },
-  tab: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-  },
-  label: {
-    fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
+    tabBtn: {
+        flex:            1,
+        alignItems:      "center",
+        justifyContent:  "center",
+        height:          PILL_H,
+        gap:             4,
+    },
 
-  // Floating action button
-  fab: {
-    position: "absolute",
-    width: FAB_D,
-    height: FAB_D,
-    borderRadius: FAB_R,
-    backgroundColor: "#F97316",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#F97316",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 10,
-  },
+    activeDot: {
+        width:        3,
+        height:       3,
+        borderRadius: 2,
+    },
+
+    fabSlot: {
+        flex:           1,
+        alignItems:     "center",
+        justifyContent: "center",
+        height:         PILL_H,
+    },
+
+    fab: {
+        width:          FAB_D,
+        height:         FAB_D,
+        borderRadius:   FAB_D / 2,
+        alignItems:     "center",
+        justifyContent: "center",
+        shadowOffset:   { width: 0, height: 4 },
+        shadowOpacity:  0.4,
+        shadowRadius:   10,
+        elevation:      8,
+    },
 });

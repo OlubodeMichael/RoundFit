@@ -124,7 +124,7 @@ export function BurnCoachStrip({
         )}
       </View>
 
-      {/* ── Main row: icon tile + numbers + activity ─────────── */}
+      {/* ── Main row: icon tile + activity + calories ────────── */}
       <View style={styles.mainRow}>
         {/* Activity icon */}
         <View style={[styles.activityTile, { backgroundColor: P.calories }]}>
@@ -133,23 +133,23 @@ export function BurnCoachStrip({
           )}
         </View>
 
-        {/* Cal to burn */}
-        <View style={styles.calBlock}>
-          <Text style={styles.calNum} numberOfLines={1}>
-            {Math.round(caloriesToBurn).toLocaleString()}
-          </Text>
-          <Text style={[styles.calSub, { color: 'rgba(255,255,255,0.70)' }]}>cal to burn</Text>
-        </View>
-
-        {/* Divider */}
-        <View style={[styles.vDivider, { backgroundColor: panelHair }]} />
-
-        {/* Activity label */}
+        {/* Activity label — immediately right of icon */}
         <View style={styles.moveBlock}>
           <Text style={[styles.moveEyebrow, { color: 'rgba(255,255,255,0.80)' }]}>YOUR MOVE</Text>
           <Text style={styles.moveLabel} numberOfLines={2}>
             {activity.label}
           </Text>
+        </View>
+
+        {/* Divider */}
+        <View style={[styles.vDivider, { backgroundColor: panelHair }]} />
+
+        {/* Cal to burn — far right */}
+        <View style={styles.calBlock}>
+          <Text style={styles.calNum} numberOfLines={1}>
+            {Math.round(caloriesToBurn).toLocaleString()}
+          </Text>
+          <Text style={[styles.calSub, { color: 'rgba(255,255,255,0.70)' }]}>cal to burn</Text>
         </View>
       </View>
 
@@ -239,6 +239,7 @@ const styles = StyleSheet.create({
   },
   calBlock: {
     gap: 2,
+    alignItems: 'flex-end',
   },
   calNum: {
     fontFamily:    'Syne_800ExtraBold',

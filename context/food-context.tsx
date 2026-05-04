@@ -337,10 +337,9 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refreshLogs = useCallback(async (date?: string) => {
     const target = date ?? todayDateString();
-    if (date && date !== activeDate) setActiveDate(date);
-    if (!date && activeDate !== target) setActiveDate(target);
+    setActiveDate(target);
     await fetchLogs(target);
-  }, [activeDate, fetchLogs]);
+  }, [fetchLogs]);
 
   return (
     <FoodContext.Provider value={{
