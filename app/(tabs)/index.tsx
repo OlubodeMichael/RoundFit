@@ -558,19 +558,191 @@ type HeroCoach = {
 };
 
 // ───────────────────────────────────────────────────────────────────────────────
-// HeroBudgetLedger — today's calorie budget, stripped to essentials.
+// EarnedBonusRow — diagonal-split "bonus unlocked" panel.
+// Left: dark panel with flash badge + labels. Right: emerald panel with big number.
+// ───────────────────────────────────────────────────────────────────────────────
+function EarnedBonusRow({ P, earnedFromActivity }: { P: Palette; earnedFromActivity: number }) {
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.6)).current;
+  const glowAnim  = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: 1, duration: 400, easing: Easing.out(Easing.cubic), useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1, friction: 6, tension: 120, useNativeDriver: true,
+      }),
+    ]).start();
+
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, { toValue: 1, duration: 2000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(glowAnim, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const slideY      = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
+  const glowOpacity = glowAnim.interpolate({ inputRange: [0, 1], outputRange: [0.30, 0.65] });
+
+  const rightBg = P.isDark ? 'rgba(52,211,153,0.16)' : 'rgba(16,185,129,0.12)';
+
+  return (
+    <Animated.View
+      style={[
+        earnedS.wrap,
+        { opacity: slideAnim, transform: [{ translateY: slideY }], marginTop: 16 },
+      ]}
+    >
+      {/* ── Left sunken panel ── */}
+      <View style={[earnedS.left, { backgroundColor: P.sunken }]}>
+        <View style={[earnedS.badge, { borderColor: P.protein, backgroundColor: P.proteinSoft }]}>
+          <Ionicons name="flash" size={14} color={P.protein} />
+        </View>
+        <View style={earnedS.leftLabels}>
+          <Text style={[earnedS.eyebrow, { color: P.textFaint }]}>ACTIVITY</Text>
+          <Text style={[earnedS.bonusWord, { color: P.text }]}>BONUS</Text>
+        </View>
+      </View>
+
+      {/* ── Diagonal cut (card-colored rotated strip) ── */}
+      <View pointerEvents="none" style={[earnedS.diagonal, { backgroundColor: P.card }]} />
+
+      {/* ── Right emerald panel ── */}
+      <View style={[earnedS.right, { backgroundColor: rightBg, overflow: 'hidden' }]}>
+        <Animated.View
+          style={[earnedS.glowOrb, { backgroundColor: P.protein, opacity: glowOpacity }]}
+        />
+        <Animated.Text
+          style={[
+            earnedS.bigNum,
+            { color: P.isDark ? '#FFFFFF' : P.protein, transform: [{ scale: scaleAnim }] },
+          ]}
+        >
+          +{earnedFromActivity.toLocaleString()}
+        </Animated.Text>
+        <Text style={[earnedS.calWord, { color: P.isDark ? 'rgba(255,255,255,0.60)' : P.textDim }]}>
+          cal
+        </Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+const earnedS = StyleSheet.create({
+  wrap: {
+    height:        66,
+    borderRadius:  16,
+    overflow:      'hidden',
+    flexDirection: 'row',
+  },
+  left: {
+    flex:          1,
+    flexDirection: 'row',
+    alignItems:    'center',
+    paddingLeft:   16,
+    gap:           10,
+  },
+  badge: {
+    width:          32,
+    height:         32,
+    borderRadius:   16,
+    borderWidth:    1.5,
+    alignItems:     'center',
+    justifyContent: 'center',
+  },
+  leftLabels: {
+    gap: 1,
+  },
+  eyebrow: {
+    fontSize:      9,
+    fontWeight:    '800',
+    letterSpacing: 1.6,
+  },
+  bonusWord: {
+    fontSize:      16,
+    fontWeight:    '800',
+    letterSpacing: 0.5,
+  },
+  diagonal: {
+    position:  'absolute',
+    width:     26,
+    height:    140,
+    top:       -37,
+    right:     118,
+    zIndex:    1,
+    transform: [{ rotate: '7deg' }],
+  },
+  right: {
+    width:          132,
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'center',
+    paddingRight:   16,
+    gap:            4,
+  },
+  glowOrb: {
+    position:     'absolute',
+    width:        90,
+    height:       90,
+    borderRadius: 45,
+    right:        0,
+  },
+  bigNum: {
+    fontFamily:    'BarlowCondensed_800ExtraBold',
+    fontSize:      38,
+    lineHeight:    40,
+    letterSpacing: -1.5,
+  },
+  calWord: {
+    fontSize:      13,
+    fontWeight:    '700',
+    marginTop:     7,
+    letterSpacing: 0.2,
+  },
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// HeroBudgetLedger — semicircular speedometer gauge hero card.
 //
-// Composition (top → bottom):
-//   1. Date stamp
-//   2. Big display number (calories remaining) + quiet subhead
-//   3. One thin progress bar
-//   4. One inline row of numbers: eaten · burned · net
-//   5. Fused BurnCoachStrip when there's still burn to do
-// No status chip, no eyebrows, no legends, no boxed stat trio.
+// Layout (top → bottom):
+//   1. Date row + menu
+//   2. Thick semicircle arc (tick-mark technique, 180° from left → top → right)
+//      Centre: flame icon · count-up number · label
+//   3. Goal pill centred below arc
+//   4. Activity-earned strip (emerald, only when > 0)
+//   5. Three-stat row: eaten · burned · steps or net
+//   6. BurnCoachStrip docked at bottom
 // ───────────────────────────────────────────────────────────────────────────────
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAYS_SHORT   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// ── Semicircle gauge constants ──────────────────────────────────────────────
+const SEMI_N  = 55;   // tick count — dense enough to look solid
+const SEMI_D  = 280;  // full circle diameter (view is clipped to top half)
+const SEMI_R  = 116;  // radius to tick centre
+const SEMI_TW = 7.2;  // tick tangential width (≥ arc-step to close gaps)
+const SEMI_TH = 22;   // tick radial height (= stroke thickness)
+const SEMI_CX = SEMI_D / 2;
+const SEMI_CY = SEMI_D / 2;
+// Visible height = centre + half-stroke + breathing room
+const SEMI_VH = SEMI_CY + SEMI_TH / 2 + 10;
+
+// Pre-compute positions once at module level (no recomputation per render)
+const GAUGE_TICKS = Array.from({ length: SEMI_N }).map((_, i) => {
+  const deg = 180 + i * (180 / (SEMI_N - 1)); // 180° (left) → 360° (right) through 270° (top)
+  const rad = (deg * Math.PI) / 180;
+  return {
+    x:   SEMI_CX + SEMI_R * Math.cos(rad),
+    y:   SEMI_CY + SEMI_R * Math.sin(rad),
+    rot: `${deg + 90}deg`, // tangent = radial angle + 90°
+  };
+});
 
 function HeroBudgetLedger({
   P,
@@ -580,6 +752,7 @@ function HeroBudgetLedger({
   burned,
   stepsToday,
   remaining,
+  earnedFromActivity = 0,
   coach,
 }: {
   P: Palette;
@@ -587,118 +760,196 @@ function HeroBudgetLedger({
   eaten: number;
   goal: number;
   burned: number;
-  /** Apple Health step count for today — shown next to burned when available. */
   stepsToday?: number;
   remaining: number;
+  earnedFromActivity?: number;
   coach?: HeroCoach;
 }) {
+  const isOver   = eaten > goal;
   const eatenPct = Math.min(eaten / Math.max(goal, 1), 1);
 
-  const animated = useRef(new Animated.Value(0)).current;
-  const [progress, setProgress] = useState(0);
-
+  // ── Count-up number animation ───────────────────────────────────────────
+  const countAnim = useRef(new Animated.Value(0)).current;
+  const [displayed, setDisplayed] = useState(0);
   useEffect(() => {
-    const id = animated.addListener(({ value }) => setProgress(value));
-    Animated.timing(animated, {
-      toValue: 1,
-      duration: 1100,
+    const id = countAnim.addListener(({ value }) => setDisplayed(Math.round(value)));
+    Animated.timing(countAnim, {
+      toValue: Math.max(remaining, 0),
+      duration: 1200,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
-    return () => animated.removeListener(id);
-  }, [animated]);
+    return () => countAnim.removeListener(id);
+  }, [remaining]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const displayed = Math.round(progress * Math.max(remaining, 0));
+  // ── Gauge fill animation ────────────────────────────────────────────────
+  const fillAnim = useRef(new Animated.Value(0)).current;
+  const [gaugeProgress, setGaugeProgress] = useState(0);
+  useEffect(() => {
+    const id = fillAnim.addListener(({ value }) => setGaugeProgress(value));
+    Animated.timing(fillAnim, {
+      toValue: eatenPct,
+      duration: 1300,
+      delay: 150,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+    return () => fillAnim.removeListener(id);
+  }, [eatenPct]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Card entrance ───────────────────────────────────────────────────────
+  const entrance = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(entrance, {
+      toValue: 1,
+      duration: 620,
+      delay,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const translateY  = entrance.interpolate({ inputRange: [0, 1], outputRange: [28, 0] });
+  const filledCount = Math.round(gaugeProgress * SEMI_N);
 
   const now       = useMemo(() => new Date(), []);
   const dateStamp = `${DAYS_SHORT[now.getDay()]}, ${MONTHS_SHORT[now.getMonth()]} ${now.getDate()}`;
 
-  const isOver = eaten > goal;
+  const trackColor = P.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)';
+  // Slightly brighter than the track at the right endpoint for "empty" clarity
+  const centerY = SEMI_VH - SEMI_CY; // pixels from bottom to circle centre
 
   return (
-    <Card padding={0} delay={delay} style={{ overflow: 'hidden' }}>
-      {/* ── Ambient halo ───────────────────────────────────────── */}
-      <View pointerEvents="none" style={styles.haloWrap}>
-        <View style={[styles.haloOuter, { backgroundColor: P.caloriesSoft, opacity: P.isDark ? 0.45 : 0.75 }]} />
-        <View style={[styles.haloInner, { backgroundColor: P.caloriesSoft, opacity: P.isDark ? 0.65 : 0.95 }]} />
-      </View>
+    <Animated.View
+      style={[
+        heroStyles.card,
+        {
+          backgroundColor: P.card,
+          borderColor:     P.cardEdge,
+          opacity:         entrance,
+          transform:       [{ translateY }],
+          shadowColor:     '#000',
+          shadowOpacity:   P.isDark ? 0.35 : 0.07,
+          shadowRadius:    P.isDark ? 18 : 14,
+          shadowOffset:    { width: 0, height: 6 },
+        },
+      ]}
+    >
+      <View style={heroStyles.body}>
 
-      <View style={{ padding: 22 }}>
-        {/* ── Date row ─────────────────────────────────────────── */}
-        <View style={styles.ledgerTop}>
-          <Text style={[styles.dateStamp, { color: P.textDim }]}>{dateStamp}</Text>
-          <TouchableOpacity hitSlop={10} style={styles.moreBtnMini}>
+        {/* ── Date + menu ───────────────────────────────────────────────── */}
+        <View style={heroStyles.topRow}>
+          <Text style={[heroStyles.dateLabel, { color: P.textFaint }]}>
+            {dateStamp.toUpperCase()}
+          </Text>
+          <TouchableOpacity hitSlop={10}>
             <Ionicons name="ellipsis-horizontal" size={16} color={P.textFaint} />
           </TouchableOpacity>
         </View>
 
-        {/* ── Calorie ring ─────────────────────────────────────── */}
-        <View style={styles.calRingWrap}>
-          <SegmentedDial
-            size={200}
-            progress={progress * eatenPct}
-            trackColor={P.caloriesTrack}
-            fillColor={P.calories}
-            haloColor={P.caloriesSoft}
-            tickCount={60}
-          >
-            <Text
-              style={[styles.calRingNumber, { color: isOver ? P.calories : P.text }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.5}
-            >
-              {displayed.toLocaleString()}
-            </Text>
-            <Text style={[styles.calRingUnit, { color: P.textFaint }]}>cal</Text>
-            <Text style={[styles.calRingLabel, { color: P.textFaint }]}>
-              {isOver ? 'over budget' : 'remaining'}
-            </Text>
-            <View style={[styles.calRingGoalPill, { backgroundColor: P.hair }]}>
-              <Text style={[styles.calRingGoalText, { color: isOver ? P.calories : P.textDim }]}>
-                {goal.toLocaleString()} daily goal
+        {/* ── Semicircle gauge ──────────────────────────────────────────── */}
+        <View style={{ alignItems: 'center' }}>
+          {/* Clip to visible top-half of the full circle */}
+          <View style={{ width: SEMI_D, height: SEMI_VH, overflow: 'hidden' }}>
+
+            {/* Tick marks — dense enough to read as a solid arc */}
+            {GAUGE_TICKS.map(({ x, y, rot }, i) => (
+              <View
+                key={i}
+                style={{
+                  position:        'absolute',
+                  width:           SEMI_TW,
+                  height:          SEMI_TH,
+                  borderRadius:    SEMI_TH / 2,
+                  backgroundColor: i < filledCount ? P.calories : trackColor,
+                  left:            x - SEMI_TW / 2,
+                  top:             y - SEMI_TH / 2,
+                  transform:       [{ rotate: rot }],
+                }}
+              />
+            ))}
+
+            {/* Centre content — bottom of View anchored at circle centre */}
+            <View style={{ position: 'absolute', bottom: centerY, left: 0, right: 0, alignItems: 'center' }}>
+              <Ionicons name="flame" size={26} color={P.calories} />
+              <Text
+                style={[heroStyles.heroNum, { color: isOver ? P.calories : P.text }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.6}
+              >
+                {displayed.toLocaleString()}
+              </Text>
+              <Text style={[heroStyles.heroSub, { color: P.textFaint }]}>
+                {isOver ? 'over budget' : 'remaining'}
               </Text>
             </View>
-          </SegmentedDial>
+          </View>
+
+          {/* Goal pill sits just below the arc endpoints */}
+          <View style={[heroStyles.goalPill, { backgroundColor: P.caloriesSoft, marginTop: 10 }]}>
+            <Text style={[heroStyles.goalPillText, { color: P.calories }]}>
+              {goal.toLocaleString()} daily goal
+            </Text>
+          </View>
         </View>
 
-        {/* ── Stat chips ───────────────────────────────────────── */}
-        <View style={styles.chipRow}>
-          <View style={[styles.chip, { backgroundColor: P.proteinSoft }]}>
-            <View style={styles.chipTopRow}>
-              <Ionicons name="restaurant" size={11} color={P.protein} />
-              <Text style={[styles.chipVal, { color: P.text }]}>{eaten.toLocaleString()}</Text>
-            </View>
-            <Text style={[styles.chipLbl, { color: P.textFaint }]}>eaten</Text>
-          </View>
-          <View style={[styles.chip, { backgroundColor: P.caloriesSoft }]}>
-            <View style={styles.chipTopRow}>
-              <Ionicons name="flame" size={11} color={P.calories} />
-              <Text style={[styles.chipVal, { color: P.text }]}>{burned.toLocaleString()}</Text>
-            </View>
-            <Text style={[styles.chipLbl, { color: P.textFaint }]}>burned</Text>
-          </View>
-          {stepsToday !== undefined ? (
-            <View style={[styles.chip, { backgroundColor: P.waterSoft }]}>
-              <View style={styles.chipTopRow}>
-                <Ionicons name="footsteps" size={11} color={P.water} />
-                <Text style={[styles.chipVal, { color: P.text }]}>{stepsToday.toLocaleString()}</Text>
+        {/* ── Activity earned ───────────────────────────────────────────── */}
+        {earnedFromActivity > 0 && (
+          <EarnedBonusRow P={P} earnedFromActivity={earnedFromActivity} />
+        )}
+
+        {/* ── Stats row ─────────────────────────────────────────────────── */}
+        <View style={[heroStyles.statsPanel, { backgroundColor: P.sunken, marginTop: 14, marginBottom: 14 }]}>
+          <View style={heroStyles.statsRow}>
+
+            <View style={heroStyles.statCell}>
+              <View style={[heroStyles.statIcon, { backgroundColor: P.proteinSoft }]}>
+                <Ionicons name="restaurant" size={14} color={P.protein} />
               </View>
-              <Text style={[styles.chipLbl, { color: P.textFaint }]}>steps</Text>
-            </View>
-          ) : (
-            <View style={[styles.chip, { backgroundColor: isOver ? P.caloriesSoft : P.waterSoft }]}>
-              <View style={styles.chipTopRow}>
-                <Ionicons name="trending-up" size={11} color={isOver ? P.calories : P.water} />
-                <Text style={[styles.chipVal, { color: P.text }]}>{(eaten - burned).toLocaleString()}</Text>
+              <View>
+                <Text style={[heroStyles.statNum, { color: P.text }]}>{eaten.toLocaleString()}</Text>
+                <Text style={[heroStyles.statLbl, { color: P.textFaint }]}>eaten</Text>
               </View>
-              <Text style={[styles.chipLbl, { color: P.textFaint }]}>net</Text>
             </View>
-          )}
+
+            <View style={heroStyles.statCell}>
+              <View style={[heroStyles.statIcon, { backgroundColor: P.caloriesSoft }]}>
+                <Ionicons name="flame" size={14} color={P.calories} />
+              </View>
+              <View>
+                <Text style={[heroStyles.statNum, { color: P.text }]}>{burned.toLocaleString()}</Text>
+                <Text style={[heroStyles.statLbl, { color: P.textFaint }]}>burned</Text>
+              </View>
+            </View>
+
+            {stepsToday !== undefined ? (
+              <View style={heroStyles.statCell}>
+                <View style={[heroStyles.statIcon, { backgroundColor: P.waterSoft }]}>
+                  <Ionicons name="footsteps" size={14} color={P.water} />
+                </View>
+                <View>
+                  <Text style={[heroStyles.statNum, { color: P.text }]}>{stepsToday.toLocaleString()}</Text>
+                  <Text style={[heroStyles.statLbl, { color: P.textFaint }]}>steps</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={heroStyles.statCell}>
+                <View style={[heroStyles.statIcon, { backgroundColor: isOver ? P.caloriesSoft : P.waterSoft }]}>
+                  <Ionicons name="trending-up" size={14} color={isOver ? P.calories : P.water} />
+                </View>
+                <View>
+                  <Text style={[heroStyles.statNum, { color: P.text }]}>{(eaten - burned).toLocaleString()}</Text>
+                  <Text style={[heroStyles.statLbl, { color: P.textFaint }]}>net</Text>
+                </View>
+              </View>
+            )}
+          </View>
         </View>
+
       </View>
 
-      {/* ── Burn coach ───────────────────────────────────────── */}
+      {/* ── Burn coach ────────────────────────────────────────────────────── */}
       {coach && (
         <BurnCoachStrip
           caloriesToBurn={coach.caloriesToBurn}
@@ -708,9 +959,97 @@ function HeroBudgetLedger({
           onPress={coach.onPress}
         />
       )}
-    </Card>
+    </Animated.View>
   );
 }
+
+const heroStyles = StyleSheet.create({
+  card: {
+    borderRadius: 24,
+    borderWidth:  StyleSheet.hairlineWidth,
+    overflow:     'hidden',
+    ...Platform.select({ android: { elevation: 3 } }),
+  },
+  body: {
+    paddingHorizontal: 22,
+    paddingTop:        18,
+    paddingBottom:     0,
+  },
+  topRow: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+    marginBottom:   6,
+  },
+  dateLabel: {
+    fontSize:      10,
+    fontWeight:    '700',
+    letterSpacing: 1.8,
+  },
+  heroNum: {
+    fontFamily:    'BarlowCondensed_800ExtraBold',
+    fontSize:      62,
+    lineHeight:    62,
+    letterSpacing: -2,
+    textAlign:     'center',
+    marginTop:     2,
+  },
+  heroSub: {
+    fontSize:      12,
+    fontWeight:    '600',
+    letterSpacing: 0.2,
+    textAlign:     'center',
+    marginTop:     3,
+  },
+  goalPill: {
+    paddingHorizontal: 14,
+    paddingVertical:   6,
+    borderRadius:      999,
+  },
+  goalPillText: {
+    fontSize:      11,
+    fontWeight:    '800',
+    letterSpacing: 0.3,
+  },
+  statsPanel: {
+    borderRadius:      14,
+    paddingVertical:   12,
+    paddingHorizontal: 14,
+  },
+  statsRow: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+  },
+  statCell: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           10,
+  },
+  statIcon: {
+    width:          36,
+    height:         36,
+    borderRadius:   12,
+    alignItems:     'center',
+    justifyContent: 'center',
+  },
+  statNum: {
+    fontSize:      16,
+    fontWeight:    '800',
+    letterSpacing: -0.5,
+    lineHeight:    18,
+  },
+  statLbl: {
+    fontSize:      10,
+    fontWeight:    '600',
+    letterSpacing: 0.2,
+  },
+  statDivider: {
+    width:            StyleSheet.hairlineWidth,
+    height:           44,
+    marginHorizontal: 8,
+  },
+});
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Activity card — steps, distance, active calories from HealthKit (iOS only)
@@ -1428,7 +1767,6 @@ export default function HomeScreen() {
   }, [appStatus]);
 
   const burnedToday = healthToday?.active_calories ?? 0;
-  const adjustedRemaining = remaining + burnedToday;
 
   const isFemale = profile?.sex === 'female';
 
@@ -1494,7 +1832,8 @@ export default function HomeScreen() {
             goal={mealGoal}
             burned={burnedToday}
             stepsToday={healthToday?.steps}
-            remaining={adjustedRemaining}
+            remaining={remaining}
+            earnedFromActivity={burnedToday}
             coach={{
               ...coachData,
               isLive: true,
@@ -1739,6 +2078,20 @@ const styles = StyleSheet.create({
     fontWeight:    '700',
     letterSpacing: 0.3,
     textAlign:     'center',
+  },
+  earnedPill: {
+    marginTop:         8,
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               5,
+    paddingHorizontal: 14,
+    paddingVertical:   7,
+    borderRadius:      999,
+  },
+  earnedPillText: {
+    fontSize:      12,
+    fontWeight:    '800',
+    letterSpacing: 0.3,
   },
 
   // Activity card
