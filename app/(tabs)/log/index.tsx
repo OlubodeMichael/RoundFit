@@ -19,6 +19,8 @@ import { useToast } from '@/components/ui/Toast';
 import { useWeight } from '@/hooks/use-weight';
 import { useProfile } from '@/hooks/use-profile';
 import { useUnits } from '@/hooks/use-units';
+import { useHealth } from '@/hooks/use-health';
+import { useRecovery } from '@/hooks/use-recovery';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -27,6 +29,16 @@ function localCalendarToday(): string {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+function formatSleepHours(h: number): string {
+  const hh = Math.floor(h);
+  const mm = Math.round((h % 1) * 60);
+  return mm === 0 ? `${hh}h` : `${hh}h ${String(mm).padStart(2, '0')}m`;
+}
+
+function capital(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 export default function DailyLogScreen() {
@@ -40,8 +52,15 @@ export default function DailyLogScreen() {
   const { latest } = useWeight();
   const { profile } = useProfile();
   const { weightUnit, toDisplayWeight } = useUnits();
+  const health   = useHealth();
+  const recovery = useRecovery();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
+
+  // Sleep — prefer HealthKit (objective), fall back to recovery log
+  const sleepHours   = health.today?.sleep_hours ?? recovery.today?.sleep_hours ?? null;
+  const sleepQuality = recovery.today?.sleep_quality ?? null;
+  const sleepFromHK  = health.today?.sleep_hours != null;
 
   const isFoodDayToday   = activeDate === localCalendarToday();
   const eatenPct         = Math.min(totalCalories / Math.max(mealGoal, 1), 1);
@@ -81,7 +100,7 @@ export default function DailyLogScreen() {
     {
       key:    'sleep',
       icon:   'moon-outline',
-      value:  '—',
+      value:  sleepHours !== null ? sleepHours.toFixed(1) : '—',
       unit:   'hrs',
       accent: P.sleep,
     },
@@ -219,9 +238,20 @@ export default function DailyLogScreen() {
             icon="moon"
             title="Sleep"
             eyebrow="LAST NIGHT"
-            valueBig="—"
+            valueBig={sleepHours !== null ? sleepHours.toFixed(1) : '—'}
             valueSmall="hrs"
-            caption="Not logged · tap to add"
+            caption={
+              sleepHours === null
+                ? 'Not logged · tap to add'
+                : [
+                    formatSleepHours(sleepHours),
+                    sleepQuality
+                      ? capital(sleepQuality) + ' quality'
+                      : sleepFromHK
+                        ? 'from Apple Health'
+                        : null,
+                  ].filter(Boolean).join(' · ')
+            }
             onPress={() => router.push('/(tabs)/log/sleep')}
           />
 

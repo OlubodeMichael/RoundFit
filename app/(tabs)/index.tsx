@@ -1092,71 +1092,214 @@ function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data
   const distNum  = distanceValue(distance, (data?.distance_unit as import('@/utils/units').DistanceUnit) ?? 'km', profileUnit);
   const distUnit = distanceUnitLabel(profileUnit);
 
+  const stepColor  = stepPct >= 1 ? P.protein : P.water;
+  const stepsToGo  = Math.max(STEPS_GOAL - steps, 0);
+
   return (
     <Card delay={delay}>
-      <View style={styles.activityHead}>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={[styles.sectionTitle, { color: P.text }]}>Activity</Text>
-          <Text style={[styles.sectionCaption, { color: P.textFaint }]}>from Apple Health</Text>
+      {/* ── Header ───────────────────────────────────────────────────────── */}
+      <View style={actS.header}>
+        <View>
+          <Text style={[actS.eyebrow, { color: P.textFaint }]}>DAILY MOVEMENT</Text>
+          <Text style={[actS.heading, { color: P.text }]}>Activity</Text>
         </View>
-        <View style={[styles.stepsPctPill, { backgroundColor: stepPct >= 1 ? P.proteinSoft : P.waterSoft }]}>
-          {stepPct >= 1 && <Ionicons name="checkmark" size={10} color={P.protein} />}
-          <Text style={[styles.stepsPctText, { color: stepPct >= 1 ? P.protein : P.water }]}>
-            {stepPct >= 1 ? 'Goal!' : `${pctLabel}%`}
-          </Text>
-        </View>
-      </View>
-
-      {/* Steps progress bar */}
-      <View style={styles.stepsBarWrap}>
-        <View style={styles.stepsBarTop}>
-          <View style={styles.stepsBarLeft}>
-            <Ionicons name="footsteps" size={13} color={P.water} />
-            <Text style={[styles.stepsBarVal, { color: P.text }]}>{displayedSteps.toLocaleString()}</Text>
-            <Text style={[styles.stepsBarGoal, { color: P.textFaint }]}>/ {STEPS_GOAL.toLocaleString()}</Text>
-          </View>
-          <Text style={[styles.stepsBarRemain, { color: P.textFaint }]}>
-            {steps >= STEPS_GOAL ? 'Complete' : `${Math.max(STEPS_GOAL - steps, 0).toLocaleString()} to go`}
-          </Text>
-        </View>
-        <View style={[styles.stepsTrack, { backgroundColor: P.hair }]}>
-          <Animated.View
-            style={[
-              styles.stepsFill,
-              { width: fillWidth, backgroundColor: stepPct >= 1 ? P.protein : P.water },
-            ]}
-          />
+        <View style={[actS.sourcePill, { backgroundColor: P.waterSoft }]}>
+          <Ionicons name="logo-apple" size={11} color={P.water} />
+          <Text style={[actS.sourceLabel, { color: P.water }]}>Health</Text>
         </View>
       </View>
 
-      <View style={styles.activityRow}>
-
-        {/* Distance */}
-        <View style={styles.activityStat}>
-          <View style={[styles.activityIconBox, { backgroundColor: P.proteinSoft }]}>
-            <Ionicons name="map" size={16} color={P.protein} />
-          </View>
-          <Text style={[styles.activityVal, { color: P.text }]}>{distNum}</Text>
-          <Text style={[styles.activityLbl, { color: P.textFaint }]}>{distUnit}</Text>
-        </View>
-
-        <View style={[styles.activityDivider, { backgroundColor: P.hair }]} />
-
-        {/* Active calories */}
-        <View style={styles.activityStat}>
-          <View style={[styles.activityIconBox, { backgroundColor: P.caloriesSoft }]}>
-            <Ionicons name="flame" size={16} color={P.calories} />
-          </View>
-          <Text style={[styles.activityVal, { color: P.text }]}>
-            {activeCals.toLocaleString()}
+      {/* ── Steps hero ───────────────────────────────────────────────────── */}
+      <View style={actS.stepsSection}>
+        <View style={actS.stepsCountRow}>
+          <Text style={[actS.stepsNum, { color: P.text }]}>
+            {displayedSteps.toLocaleString()}
           </Text>
-          <Text style={[styles.activityLbl, { color: P.textFaint }]}>active cal</Text>
+          <Text style={[actS.stepsOf, { color: P.textFaint }]}>
+            {' '}/ {STEPS_GOAL.toLocaleString()}
+          </Text>
         </View>
 
+        <View style={actS.barRow}>
+          <View style={[actS.track, { backgroundColor: P.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+            <Animated.View style={[actS.fill, { width: fillWidth, backgroundColor: stepColor }]} />
+          </View>
+          <View style={[actS.pctChip, { backgroundColor: stepPct >= 1 ? P.proteinSoft : P.waterSoft }]}>
+            {stepPct >= 1
+              ? <Ionicons name="checkmark" size={11} color={P.protein} />
+              : <Text style={[actS.pctText, { color: stepColor }]}>{pctLabel}%</Text>
+            }
+          </View>
+        </View>
+
+        <Text style={[actS.stepsCaption, { color: P.textFaint }]}>
+          {steps >= STEPS_GOAL
+            ? 'Daily step goal complete'
+            : `${stepsToGo.toLocaleString()} steps to go`
+          }
+        </Text>
+      </View>
+
+      {/* ── Distance + Active cal tiles ──────────────────────────────────── */}
+      <View style={[actS.tilesRow, { backgroundColor: P.sunken }]}>
+        <View style={actS.tile}>
+          <View style={[actS.tileIcon, { backgroundColor: P.proteinSoft }]}>
+            <Ionicons name="navigate-outline" size={14} color={P.protein} />
+          </View>
+          <View style={actS.tileFigure}>
+            <Text style={[actS.tileNum, { color: P.text }]}>{distNum}</Text>
+            <Text style={[actS.tileUnit, { color: P.textFaint }]}>{distUnit}</Text>
+          </View>
+          <Text style={[actS.tileLbl, { color: P.textFaint }]}>distance</Text>
+        </View>
+
+        <View style={[actS.vDivider, { backgroundColor: P.hair }]} />
+
+        <View style={actS.tile}>
+          <View style={[actS.tileIcon, { backgroundColor: P.caloriesSoft }]}>
+            <Ionicons name="flame-outline" size={14} color={P.calories} />
+          </View>
+          <View style={actS.tileFigure}>
+            <Text style={[actS.tileNum, { color: P.text }]}>{activeCals.toLocaleString()}</Text>
+            <Text style={[actS.tileUnit, { color: P.textFaint }]}>kcal</Text>
+          </View>
+          <Text style={[actS.tileLbl, { color: P.textFaint }]}>active burn</Text>
+        </View>
       </View>
     </Card>
   );
 }
+
+const actS = StyleSheet.create({
+  header: {
+    flexDirection:  'row',
+    alignItems:     'flex-start',
+    justifyContent: 'space-between',
+    marginBottom:   20,
+  },
+  eyebrow: {
+    fontSize:      9,
+    fontWeight:    '700',
+    letterSpacing: 1.8,
+    marginBottom:  3,
+  },
+  heading: {
+    fontSize:      20,
+    fontWeight:    '800',
+    letterSpacing: -0.3,
+  },
+  sourcePill: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               5,
+    paddingHorizontal: 10,
+    paddingVertical:   5,
+    borderRadius:      999,
+  },
+  sourceLabel: {
+    fontSize:   11,
+    fontWeight: '700',
+  },
+
+  stepsSection: {
+    marginBottom: 14,
+  },
+  stepsCountRow: {
+    flexDirection: 'row',
+    alignItems:    'baseline',
+    marginBottom:  12,
+  },
+  stepsNum: {
+    fontFamily:    'BarlowCondensed_800ExtraBold',
+    fontSize:      56,
+    lineHeight:    56,
+    letterSpacing: -2,
+  },
+  stepsOf: {
+    fontSize:      14,
+    fontWeight:    '600',
+    letterSpacing: -0.2,
+    marginBottom:  5,
+  },
+  barRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           10,
+    marginBottom:  8,
+  },
+  track: {
+    flex:         1,
+    height:       10,
+    borderRadius: 5,
+    overflow:     'hidden',
+  },
+  fill: {
+    height:       '100%',
+    borderRadius: 5,
+  },
+  pctChip: {
+    minWidth:          34,
+    height:            22,
+    borderRadius:      11,
+    alignItems:        'center',
+    justifyContent:    'center',
+    paddingHorizontal: 6,
+  },
+  pctText: {
+    fontSize:   10,
+    fontWeight: '800',
+  },
+  stepsCaption: {
+    fontSize:      11,
+    fontWeight:    '600',
+    letterSpacing: 0.1,
+  },
+
+  tilesRow: {
+    flexDirection: 'row',
+    borderRadius:  16,
+    overflow:      'hidden',
+  },
+  tile: {
+    flex:    1,
+    padding: 14,
+    gap:     3,
+  },
+  tileIcon: {
+    width:          30,
+    height:         30,
+    borderRadius:   9,
+    alignItems:     'center',
+    justifyContent: 'center',
+    marginBottom:   6,
+  },
+  tileFigure: {
+    flexDirection: 'row',
+    alignItems:    'baseline',
+    gap:           4,
+  },
+  tileNum: {
+    fontFamily:    'BarlowCondensed_800ExtraBold',
+    fontSize:      30,
+    lineHeight:    30,
+    letterSpacing: -1,
+  },
+  tileUnit: {
+    fontSize:      12,
+    fontWeight:    '600',
+    letterSpacing: 0.1,
+    marginBottom:  1,
+  },
+  tileLbl: {
+    fontSize:      10,
+    fontWeight:    '600',
+    letterSpacing: 0.3,
+  },
+  vDivider: {
+    width:          StyleSheet.hairlineWidth,
+    marginVertical: 14,
+  },
+});
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Macros — three mini rings inside a single card
@@ -2092,96 +2235,6 @@ const styles = StyleSheet.create({
     fontSize:      12,
     fontWeight:    '800',
     letterSpacing: 0.3,
-  },
-
-  // Activity card
-  activityHead: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    marginBottom:  18,
-  },
-  stepsPctPill: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               4,
-    paddingHorizontal: 8,
-    paddingVertical:   3,
-    borderRadius:      999,
-  },
-  stepsPctText: {
-    fontSize:   10,
-    fontWeight: '800',
-  },
-  stepsBarWrap: {
-    marginBottom: 20,
-  },
-  stepsBarTop: {
-    flexDirection:  'row',
-    alignItems:     'baseline',
-    justifyContent: 'space-between',
-    marginBottom:   8,
-  },
-  stepsBarLeft: {
-    flexDirection: 'row',
-    alignItems:    'baseline',
-    gap:           5,
-  },
-  stepsBarVal: {
-    fontSize:      20,
-    fontWeight:    '800',
-    letterSpacing: -0.5,
-    fontVariant:   ['tabular-nums'],
-  },
-  stepsBarGoal: {
-    fontSize:   12,
-    fontWeight: '600',
-  },
-  stepsBarRemain: {
-    fontSize:   11,
-    fontWeight: '600',
-  },
-  stepsTrack: {
-    height:       6,
-    borderRadius: 3,
-    overflow:     'hidden',
-  },
-  stepsFill: {
-    height:       '100%',
-    borderRadius: 3,
-  },
-  activityRow: {
-    flexDirection: 'row',
-    alignItems:    'flex-start',
-  },
-  activityStat: {
-    flex:      1,
-    alignItems: 'center',
-    gap:        4,
-  },
-  activityIconBox: {
-    width:          36,
-    height:         36,
-    borderRadius:   12,
-    alignItems:     'center',
-    justifyContent: 'center',
-    marginBottom:   4,
-  },
-  activityVal: {
-    fontSize:      16,
-    fontWeight:    '800',
-    letterSpacing: -0.4,
-    fontVariant:   ['tabular-nums'],
-  },
-  activityLbl: {
-    fontSize:      10,
-    fontWeight:    '600',
-    letterSpacing: 0.3,
-  },
-  activityDivider: {
-    width:          StyleSheet.hairlineWidth,
-    alignSelf:      'stretch',
-    marginTop:      8,
-    marginBottom:   8,
   },
 
   statLine: {

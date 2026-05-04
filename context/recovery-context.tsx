@@ -45,6 +45,7 @@ export interface LogRecoveryInput {
   soreness_level?:     number;
   notes?:              string;
   source?:             RecoverySource;
+  date?:               string;
 }
 
 export interface RecoveryContextValue {
