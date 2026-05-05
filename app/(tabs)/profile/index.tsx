@@ -1,19 +1,48 @@
-import { ScrollView, View, Text, StyleSheet, TouchableOpacity, Switch, Image, Platform, Alert } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useRouter } from 'expo-router';
-import { useState, useEffect } from 'react';
 import Constants from 'expo-constants';
-import { useTheme } from '@/hooks/use-theme';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Alert, Image, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { UserAvatar } from '@/components/profile/UserAvatar';
+import { AppModal } from '@/components/ui/AppModal';
 import { useAuth } from '@/hooks/use-auth';
+import { useHealth } from '@/hooks/use-health';
 import { useProfile } from '@/hooks/use-profile';
+import { useTheme } from '@/hooks/use-theme';
+import { deleteAvatar, pickAndUploadAvatar } from '@/utils/avatar';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
-const O   = '#F97316';
-const O10 = 'rgba(249,115,22,0.10)';
-const O20 = 'rgba(249,115,22,0.20)';
-const O35 = 'rgba(249,115,22,0.35)';
+// ── Palette ────────────────────────────────────────────────────────────────
+
+function usePalette() {
+  const { isDark } = useTheme();
+  return isDark ? {
+    bg:       '#0A0B0F',
+    card:     '#1C1D23',
+    sunken:   '#0E0F13',
+    edge:     'rgba(255,255,255,0.08)',
+    hair:     'rgba(255,255,255,0.06)',
+    text:     '#F4F4F5',
+    dim:      '#909096',
+    faint:    '#505058',
+    accent:   '#F97316',
+    isDark:   true,
+  } : {
+    bg:       '#F2F2F6',
+    card:     '#FFFFFF',
+    sunken:   '#F7F7F9',
+    edge:     'rgba(0,0,0,0.06)',
+    hair:     'rgba(0,0,0,0.05)',
+    text:     '#09090B',
+    dim:      '#6B7280',
+    faint:    '#C0C0C8',
+    accent:   '#F97316',
+    isDark:   false,
+  };
+}
 
 const GOAL_LABELS: Record<string, string> = {
   lose_weight:  'Lose weight',
@@ -29,323 +58,609 @@ const ACTIVITY_LABELS: Record<string, string> = {
   very_active:        'Very active',
 };
 
+const HEALTH_KEY = '@roundfit/health_connected';
+const HEALTH_TYPES = [
+  'HKQuantityTypeIdentifierStepCount',
+  'HKQuantityTypeIdentifierActiveEnergyBurned',
+  'HKQuantityTypeIdentifierBodyMass',
+  'HKQuantityTypeIdentifierHeight',
+  'HKWorkoutTypeIdentifier',
+] as const; // used inside handleHealthConnect
+
+// ── Screen ─────────────────────────────────────────────────────────────────
+
 export default function ProfileScreen() {
-  const { isDark, preference, setTheme } = useTheme();
+  const P = usePalette();
+  const { preference, setTheme } = useTheme();
   const { signOut } = useAuth();
-  const { profile, avatarUrl, avatarLetter, stats } = useProfile();
+  const { profile, avatarUrl, avatarLetter, stats, updateProfile } = useProfile();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-
-  const bg      = isDark ? '#0A0B0F' : '#F7F7F5';
-  const surface = isDark ? '#1C1D23' : '#FFFFFF';
-  const hi      = isDark ? '#F4F4F5' : '#0C0C0C';
-  const mid     = isDark ? '#909096' : '#888';
-  const lo      = isDark ? '#2A2A32' : '#F0EDE8';
+  const [avatarUploading, setAvatarUploading]   = useState(false);
+  const [avatarSheetOpen, setAvatarSheetOpen]   = useState(false);
+  const [viewingAvatar,   setViewingAvatar]     = useState(false);
 
   const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
-  const [healthConnected, setHealthConnected] = useState(false);
-  const [healthLoading,   setHealthLoading]   = useState(false);
+  const { isConnected: healthConnected } = useHealth();
 
-  const HEALTH_KEY = '@roundfit/health_connected';
-  const HEALTH_TYPES = [
-    'HKQuantityTypeIdentifierStepCount',
-    'HKQuantityTypeIdentifierActiveEnergyBurned',
-    'HKQuantityTypeIdentifierBodyMass',
-    'HKQuantityTypeIdentifierHeight',
-    'HKWorkoutTypeIdentifier',
-  ] as const;
-
-  useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    (async () => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        const val = await AsyncStorage.getItem(HEALTH_KEY);
-        if (val === 'true') setHealthConnected(true);
-      } catch {
-        // AsyncStorage unavailable; leave as disconnected
-      }
-    })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const calorieDisplay  = stats.dailyCalories ? `${stats.dailyCalories.toLocaleString()} kcal` : '—';
+  const proteinDisplay  = stats.proteinGrams ? `${stats.proteinGrams}g` : '—';
+  const weightDisplay   = stats.weightDisplay ?? '—';
+  const goalDisplay     = profile ? (GOAL_LABELS[profile.goal] ?? '—') : '—';
+  const activityDisplay = profile ? (ACTIVITY_LABELS[profile.activityLevel] ?? '—') : '—';
 
   async function handleHealthConnect() {
-    if (isExpoGo) {
-      Alert.alert('Not available in Expo Go', 'Build the app to connect Apple Health.');
-      return;
-    }
+    if (isExpoGo) { Alert.alert('Not available in Expo Go', 'Build the app to connect Apple Health.'); return; }
     if (Platform.OS !== 'ios') return;
-    setHealthLoading(true);
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const Healthkit = require('@kingstinct/react-native-healthkit');
       const isAvailable = await Healthkit.isHealthDataAvailable();
-      if (!isAvailable) {
-        Alert.alert('Not Available', 'Apple Health is not available on this device.');
-        return;
-      }
+      if (!isAvailable) { Alert.alert('Not Available', 'Apple Health is not available on this device.'); return; }
       await Healthkit.requestAuthorization({ toRead: HEALTH_TYPES });
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       await AsyncStorage.setItem(HEALTH_KEY, 'true');
-      setHealthConnected(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      Alert.alert('Could not connect', msg || 'Please allow access in Settings → Health → RoundFit.');
-    } finally {
-      setHealthLoading(false);
+      Alert.alert('Could not connect', msg || 'Allow access in Settings → Health → RoundFit.');
     }
   }
 
-  const calorieDisplay = stats.dailyCalories
-    ? `${stats.dailyCalories.toLocaleString()} kcal`
-    : '—';
+  function handleAvatarPress() {
+    if (avatarUploading) return;
+    setAvatarSheetOpen(true);
+  }
 
-  const proteinDisplay = stats.proteinGrams ? `${stats.proteinGrams}g` : '—';
-  const weightDisplay  = stats.weightDisplay ?? '—';
+  async function handleAvatarChange() {
+    setAvatarSheetOpen(false);
+    // Wait for the sheet close animation to finish before opening the native picker
+    await new Promise(r => setTimeout(r, 280));
+    try {
+      setAvatarUploading(true);
+      const uploadedUrl = await pickAndUploadAvatar();
+      if (!uploadedUrl) return;
+      updateProfile({ avatarUrl: uploadedUrl }); // optimistic — updates UI immediately
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      Alert.alert('Could not upload avatar', msg || 'Please try again.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
 
-  const goalDisplay    = profile ? GOAL_LABELS[profile.goal]          : '—';
-  const activityDisplay = profile ? ACTIVITY_LABELS[profile.activityLevel] : '—';
+  async function handleAvatarRemove() {
+    setAvatarSheetOpen(false);
+    try {
+      setAvatarUploading(true);
+      await deleteAvatar();
+      updateProfile({ avatarUrl: null }); // optimistic — clears UI immediately
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      Alert.alert('Could not remove avatar', msg || 'Please try again.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: bg }}
-      contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 48, paddingHorizontal: 20, gap: 20 }}
+      style={{ flex: 1, backgroundColor: P.bg }}
+      contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 64, gap: 8 }}
       showsVerticalScrollIndicator={false}
     >
-      <View style={[s.profileCard, { backgroundColor: surface, borderColor: lo }]}>
-        <View style={[s.avatar, { backgroundColor: O20, borderColor: O35 }]}>
-          {avatarUrl
-            ? <Image source={{ uri: avatarUrl }} style={s.avatarImg} />
-            : <Text style={[s.avatarLetter, { color: O }]}>{avatarLetter}</Text>
-          }
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[s.profileName, { color: hi }]}>{profile?.name || '—'}</Text>
-          <Text style={[s.profileEmail, { color: mid }]}>{profile?.email || '—'}</Text>
-        </View>
-        <TouchableOpacity
-          style={[s.editBtn, { backgroundColor: O10, borderColor: O35 }]}
-          onPress={() => router.push('/edit-profile')}
-          activeOpacity={0.75}
-        >
-          <Ionicons name="pencil-outline" size={15} color={O} />
-        </TouchableOpacity>
-      </View>
+      {/* ── Hero header ─────────────────────────────────────────────── */}
+      <View style={{ paddingHorizontal: 20, paddingBottom: 4 }}>
+        <View style={[s.heroCard, { backgroundColor: P.card, borderColor: P.edge }]}>
+          <UserAvatar
+            size="md"
+            avatarUrl={avatarUrl}
+            avatarLetter={avatarLetter}
+            accentColor={P.accent}
+            fillColor={P.sunken}
+            uploading={avatarUploading}
+            onPress={handleAvatarPress}
+          />
 
-      <View style={[s.statsRow, { backgroundColor: surface, borderColor: lo }]}>
-        <StatCell label="Goal"     value={goalDisplay}     hi={hi} mid={mid} />
-        <View style={[s.statDivider, { backgroundColor: lo }]} />
-        <StatCell label="Activity" value={activityDisplay} hi={hi} mid={mid} />
-        <View style={[s.statDivider, { backgroundColor: lo }]} />
-        <StatCell label="Weight"   value={weightDisplay}   hi={hi} mid={mid} />
-      </View>
-
-      <SectionHeader title="Goals" hi={hi} />
-      <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
-        <GoalRow icon="flame-outline"   label="Daily Calories"  value={calorieDisplay} hi={hi} mid={mid} lo={lo} />
-        <GoalRow icon="barbell-outline" label="Protein Target"  value={proteinDisplay} hi={hi} mid={mid} lo={lo} />
-        <GoalRow icon="scale-outline"   label="Current Weight"  value={weightDisplay}  hi={hi} mid={mid} lo={lo} />
-        <GoalRow icon="walk-outline"    label="Daily Steps"     value="10,000"         hi={hi} mid={mid} lo={lo} last />
-      </View>
-
-      <SectionHeader title="Tracking" hi={hi} />
-      <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
-        {profile?.sex === 'female' && (
-          <NavRow icon="moon-outline" label="Cycle tracking" hi={hi} mid={mid} lo={lo}
-            onPress={() => router.push('/(tabs)/profile/cycle')} />
-        )}
-        <NavRow icon="heart-outline" label="Wearable & Health" hi={hi} mid={mid} lo={lo}
-          onPress={() => router.push('/(tabs)/profile/wearable')} />
-        <NavRow icon="notifications-outline" label="Notifications" hi={hi} mid={mid} lo={lo}
-          onPress={() => router.push('/(tabs)/profile/notifications')} last />
-      </View>
-
-      <SectionHeader title="Subscription" hi={hi} />
-      <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
-        <NavRow icon="sparkles-outline" label="Subscription" hi={hi} mid={mid} lo={lo}
-          onPress={() => router.push('/(tabs)/profile/subscription')} />
-        <NavRow icon="star-outline" label="Upgrade to Premium" hi={hi} mid={mid} lo={lo}
-          onPress={() => router.push('/(tabs)/profile/paywall')} last />
-      </View>
-
-      {Platform.OS === 'ios' && (
-        <>
-          <SectionHeader title="Health" hi={hi} />
-          <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
-            <TouchableOpacity
-              style={s.row}
-              activeOpacity={healthConnected ? 1 : 0.7}
-              onPress={healthConnected ? undefined : handleHealthConnect}
-              disabled={healthLoading}
-            >
-              <View style={[s.rowIcon, { backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.18)' }]}>
-                <Ionicons name="heart" size={16} color="#EF4444" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[s.rowLabel, { color: hi, flex: 0 }]}>Apple Health</Text>
-                <Text style={[{ fontSize: 12, marginTop: 2 }, { color: mid }]}>
-                  {healthConnected ? 'Syncing steps, calories & workouts' : 'Tap to connect your Health data'}
-                </Text>
-              </View>
-              {healthConnected
-                ? <Ionicons name="checkmark-circle" size={20} color="#22C55E" />
-                : <View style={s.connectBadge}>
-                    <Text style={s.connectBadgeText}>{healthLoading ? '…' : 'Connect'}</Text>
-                  </View>
-              }
-            </TouchableOpacity>
-          </View>
-        </>
-      )}
-
-      <SectionHeader title="Notifications" hi={hi} />
-      <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
-        <NotifRow label="Meal reminders"  sub="9:00 AM, 1:00 PM, 7:00 PM" hi={hi} mid={mid} lo={lo} defaultOn />
-        <NotifRow label="Daily summary"   sub="9:00 PM each evening"       hi={hi} mid={mid} lo={lo} defaultOn />
-        <NotifRow label="Streak alerts"   sub="When streak is at risk"     hi={hi} mid={mid} lo={lo} defaultOn={false} last />
-      </View>
-
-      <SectionHeader title="Appearance" hi={hi} />
-      <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
-        {(['light', 'dark', 'system'] as const).map((p, i, arr) => (
-          <TouchableOpacity
-            key={p}
-            onPress={() => setTheme(p)}
-            style={[s.themeRow, i < arr.length - 1 && { borderBottomWidth: 1, borderBottomColor: lo }]}
-          >
-            <Ionicons
-              name={p === 'light' ? 'sunny-outline' : p === 'dark' ? 'moon-outline' : 'settings-outline'}
-              size={18}
-              color={preference === p ? O : mid}
-            />
-            <Text style={[s.themeLabel, { color: preference === p ? O : hi }]}>
-              {p.charAt(0).toUpperCase() + p.slice(1)}
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={[s.heroName, { color: P.text }]} numberOfLines={1}>
+              {profile?.name || '—'}
             </Text>
-            {preference === p && (
-              <Ionicons name="checkmark" size={16} color={O} style={{ marginLeft: 'auto' }} />
+            <Text style={[s.heroEmail, { color: P.dim }]} numberOfLines={1}>
+              {profile?.email || '—'}
+            </Text>
+            {/* Inline chips */}
+            <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+              {goalDisplay !== '—' && (
+                <View style={[s.chip, { backgroundColor: P.sunken, borderColor: P.edge }]}>
+                  <Text style={[s.chipText, { color: P.dim }]}>{goalDisplay}</Text>
+                </View>
+              )}
+              {activityDisplay !== '—' && (
+                <View style={[s.chip, { backgroundColor: P.sunken, borderColor: P.edge }]}>
+                  <Text style={[s.chipText, { color: P.dim }]}>{activityDisplay}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={[s.editBtn, { backgroundColor: 'rgba(249,115,22,0.10)', borderColor: 'rgba(249,115,22,0.25)' }]}
+            onPress={() => router.push('/edit-profile')}
+            activeOpacity={0.75}
+          >
+            <Ionicons name="pencil" size={14} color={P.accent} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* ── Daily targets ───────────────────────────────────────────── */}
+      <Section label="Daily Targets" P={P}>
+        <Row
+          icon="flame" iconBg="#FF7849" iconFg="#FFF"
+          label="Calories" value={calorieDisplay}
+          P={P}
+        />
+        <Divider P={P} />
+        <Row
+          icon="barbell" iconBg="#34D399" iconFg="#FFF"
+          label="Protein" value={proteinDisplay}
+          P={P}
+        />
+        <Divider P={P} />
+        <Row
+          icon="scale" iconBg="#A78BFA" iconFg="#FFF"
+          label="Current Weight" value={weightDisplay}
+          P={P}
+        />
+        <Divider P={P} />
+        <Row
+          icon="footsteps" iconBg="#38BDF8" iconFg="#FFF"
+          label="Daily Steps" value="10,000"
+          P={P}
+          last
+        />
+      </Section>
+
+      {/* ── Tracking ────────────────────────────────────────────────── */}
+      <Section label="Tracking" P={P}>
+        {profile?.sex === 'female' && (
+          <>
+            <NavRow
+              icon="rose" iconBg="#FB7185" iconFg="#FFF"
+              label="Cycle Tracking"
+              P={P}
+              onPress={() => router.push('/(tabs)/profile/cycle')}
+            />
+            <Divider P={P} />
+          </>
+        )}
+        <NavRow
+          icon="heart" iconBg="#EF4444" iconFg="#FFF"
+          label="Wearable & Health"
+          P={P}
+          onPress={() => router.push('/(tabs)/profile/wearable')}
+        />
+        <Divider P={P} />
+        <NavRow
+          icon="notifications" iconBg="#60A5FA" iconFg="#FFF"
+          label="Notifications"
+          P={P}
+          last
+          onPress={() => router.push('/(tabs)/profile/notifications')}
+        />
+      </Section>
+
+      {/* ── Subscription ────────────────────────────────────────────── */}
+      <Section label="Subscription" P={P}>
+        <NavRow
+          icon="receipt" iconBg="#FBBF24" iconFg="#FFF"
+          label="Manage Subscription"
+          P={P}
+          onPress={() => router.push('/(tabs)/profile/subscription')}
+        />
+        <Divider P={P} />
+        <NavRow
+          icon="star" iconBg="#F59E0B" iconFg="#FFF"
+          label="Upgrade to Premium"
+          labelColor="#F59E0B"
+          P={P}
+          last
+          onPress={() => router.push('/(tabs)/profile/paywall')}
+        />
+      </Section>
+
+      {/* ── Apple Health ────────────────────────────────────────────── */}
+      {Platform.OS === 'ios' && (
+        <Section label="Health" P={P}>
+          <TouchableOpacity
+            style={[s.rowBase, { paddingHorizontal: 16, paddingVertical: 14 }]}
+            activeOpacity={healthConnected ? 1 : 0.7}
+            onPress={healthConnected ? undefined : handleHealthConnect}
+          >
+            <IconBox bg="#EF4444" fg="#FFF" icon="heart" />
+            <View style={{ flex: 1 }}>
+              <Text style={[s.rowLabel, { color: P.text }]}>Apple Health</Text>
+              <Text style={[s.rowSub, { color: healthConnected ? '#22C55E' : P.dim }]}>
+                {healthConnected ? 'Connected · syncing steps, calories & workouts' : 'Tap to connect your Health data'}
+              </Text>
+            </View>
+            {healthConnected ? (
+              <View style={s.connectedBadge}>
+                <Ionicons name="checkmark-circle" size={18} color="#22C55E" />
+                <Text style={s.connectedText}>Connected</Text>
+              </View>
+            ) : (
+              <View style={[s.connectPill, { backgroundColor: P.accent }]}>
+                <Text style={s.connectPillText}>Connect</Text>
+              </View>
             )}
           </TouchableOpacity>
-        ))}
-      </View>
+        </Section>
+      )}
 
-      <SectionHeader title="Account" hi={hi} />
-      <View style={[s.card, { backgroundColor: surface, borderColor: lo }]}>
-        <ActionRow icon="lock-closed-outline"  label="Change Password" hi={hi} mid={mid} lo={lo} />
-        <ActionRow icon="cloud-upload-outline" label="Export Data"     hi={hi} mid={mid} lo={lo} />
-        <ActionRow icon="help-circle-outline"  label="Help & Support"  hi={hi} mid={mid} lo={lo} />
-        <ActionRow icon="log-out-outline"      label="Sign Out"        hi={hi} mid={mid} lo={lo} destructive last onPress={signOut} />
-      </View>
+      {/* ── Appearance ──────────────────────────────────────────────── */}
+      <Section label="Appearance" P={P}>
+        <View style={{ flexDirection: 'row', gap: 8, padding: 12 }}>
+          {(['light', 'dark', 'system'] as const).map((p) => {
+            const active = preference === p;
+            const meta = {
+              light:  { icon: 'sunny'    as IoniconsName, label: 'Light',  iconBg: '#FBBF24', iconFg: '#FFF' },
+              dark:   { icon: 'moon'     as IoniconsName, label: 'Dark',   iconBg: '#818CF8', iconFg: '#FFF' },
+              system: { icon: 'phone-portrait' as IoniconsName, label: 'System', iconBg: '#34D399', iconFg: '#FFF' },
+            }[p];
+            return (
+              <TouchableOpacity
+                key={p}
+                onPress={() => setTheme(p)}
+                style={[
+                  s.themeTile,
+                  { borderColor: active ? P.accent : P.edge, backgroundColor: active ? 'rgba(249,115,22,0.08)' : P.sunken },
+                ]}
+                activeOpacity={0.75}
+              >
+                <View style={[s.tileIconBox, { backgroundColor: active ? meta.iconBg : P.card, borderColor: P.edge }]}>
+                  <Ionicons name={meta.icon} size={15} color={active ? meta.iconFg : P.dim} />
+                </View>
+                <Text style={[s.tileLabel, { color: active ? P.accent : P.dim, fontWeight: active ? '700' : '500' }]}>
+                  {meta.label}
+                </Text>
+                {active && (
+                  <View style={[s.tileDot, { backgroundColor: P.accent }]} />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </Section>
 
-      <Text style={[s.version, { color: mid }]}>RoundFit v1.0.0</Text>
+      {/* ── Account ─────────────────────────────────────────────────── */}
+      <Section label="Account" P={P}>
+        <NavRow
+          icon="lock-closed" iconBg="#818CF8" iconFg="#FFF"
+          label="Change Password"
+          P={P}
+          onPress={() => {}}
+        />
+        <Divider P={P} />
+        <NavRow
+          icon="cloud-upload" iconBg="#38BDF8" iconFg="#FFF"
+          label="Export Data"
+          P={P}
+          onPress={() => {}}
+        />
+        <Divider P={P} />
+        <NavRow
+          icon="help-circle" iconBg="#2DD4BF" iconFg="#FFF"
+          label="Help & Support"
+          P={P}
+          onPress={() => {}}
+        />
+        <Divider P={P} />
+        <NavRow
+          icon="log-out" iconBg="rgba(239,68,68,0.15)" iconFg="#EF4444"
+          label="Sign Out"
+          labelColor="#EF4444"
+          P={P}
+          last
+          onPress={signOut}
+          hideChevron
+        />
+      </Section>
+
+      <Text style={[s.version, { color: P.faint }]}>RoundFit v1.0.0</Text>
+
+      {/* ── Avatar action sheet ─────────────────────────────────────── */}
+      <AppModal
+        visible={avatarSheetOpen}
+        onClose={() => setAvatarSheetOpen(false)}
+        sheetHeight={avatarUrl ? 0.28 : 0.2}
+      >
+        <View style={{ paddingHorizontal: 16, paddingTop: 4, gap: 8 }}>
+          {avatarUrl && (
+            <TouchableOpacity
+              style={[s.sheetRow, { backgroundColor: P.card, borderColor: P.edge }]}
+              activeOpacity={0.7}
+              onPress={() => { setAvatarSheetOpen(false); setViewingAvatar(true); }}
+            >
+              <View style={[s.sheetIcon, { backgroundColor: 'rgba(99,102,241,0.12)' }]}>
+                <Ionicons name="eye-outline" size={18} color="#6366F1" />
+              </View>
+              <Text style={[s.sheetLabel, { color: P.text }]}>View Photo</Text>
+              <Ionicons name="chevron-forward" size={14} color={P.faint} />
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={[s.sheetRow, { backgroundColor: P.card, borderColor: P.edge }]}
+            activeOpacity={0.7}
+            onPress={handleAvatarChange}
+          >
+            <View style={[s.sheetIcon, { backgroundColor: 'rgba(249,115,22,0.12)' }]}>
+              <Ionicons name="image-outline" size={18} color="#F97316" />
+            </View>
+            <Text style={[s.sheetLabel, { color: P.text }]}>
+              {avatarUrl ? 'Change Photo' : 'Choose Photo'}
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color={P.faint} />
+          </TouchableOpacity>
+
+          {avatarUrl && (
+            <TouchableOpacity
+              style={[s.sheetRow, { backgroundColor: P.card, borderColor: P.edge }]}
+              activeOpacity={0.7}
+              onPress={handleAvatarRemove}
+            >
+              <View style={[s.sheetIcon, { backgroundColor: 'rgba(239,68,68,0.12)' }]}>
+                <Ionicons name="trash-outline" size={18} color="#EF4444" />
+              </View>
+              <Text style={[s.sheetLabel, { color: '#EF4444' }]}>Remove Photo</Text>
+              <Ionicons name="chevron-forward" size={14} color={P.faint} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </AppModal>
+
+      {/* ── Full-screen avatar viewer ───────────────────────────────── */}
+      <Modal visible={viewingAvatar} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setViewingAvatar(false)}>
+        <StatusBar hidden />
+        <View style={s.viewerBg}>
+          <TouchableOpacity style={s.viewerClose} onPress={() => setViewingAvatar(false)} hitSlop={12}>
+            <View style={s.viewerCloseCircle}>
+              <Ionicons name="close" size={20} color="#FFF" />
+            </View>
+          </TouchableOpacity>
+          {avatarUrl && (
+            <Image source={{ uri: avatarUrl }} style={s.viewerImage} resizeMode="contain" />
+          )}
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────
+// ── Sub-components ──────────────────────────────────────────────────────────
 
-function SectionHeader({ title, hi }: { title: string; hi: string }) {
-  return <Text style={[s.sectionTitle, { color: hi }]}>{title}</Text>;
-}
+type P = ReturnType<typeof usePalette>;
 
-function StatCell({ label, value, hi, mid }: { label: string; value: string; hi: string; mid: string }) {
+function Section({ label, children, P }: { label: string; children: React.ReactNode; P: P }) {
   return (
-    <View style={s.statCell}>
-      <Text style={[s.statValue, { color: hi }]} numberOfLines={1}>{value}</Text>
-      <Text style={[s.statLabel, { color: mid }]}>{label}</Text>
+    <View style={{ paddingHorizontal: 20, gap: 6 }}>
+      <Text style={[s.sectionLabel, { color: P.dim }]}>{label.toUpperCase()}</Text>
+      <View style={[s.card, { backgroundColor: P.card, borderColor: P.edge }]}>
+        {children}
+      </View>
     </View>
   );
 }
 
-function GoalRow({ icon, label, value, hi, mid, lo, last }: { icon: IoniconsName; label: string; value: string; hi: string; mid: string; lo: string; last?: boolean }) {
+function Divider({ P }: { P: P }) {
+  return <View style={[s.divider, { backgroundColor: P.hair, marginLeft: 60 }]} />;
+}
+
+function IconBox({ bg, fg, icon }: { bg: string; fg: string; icon: IoniconsName }) {
   return (
-    <View style={[s.row, !last && { borderBottomWidth: 1, borderBottomColor: lo }]}>
-      <View style={[s.rowIcon, { backgroundColor: O10, borderColor: O20 }]}>
-        <Ionicons name={icon} size={16} color={O} />
-      </View>
-      <Text style={[s.rowLabel, { color: hi }]}>{label}</Text>
-      <Text style={[s.rowValue, { color: mid }]}>{value}</Text>
-      <Ionicons name="chevron-forward" size={14} color={mid} />
+    <View style={[s.iconBox, { backgroundColor: bg }]}>
+      <Ionicons name={icon} size={15} color={fg} />
     </View>
   );
 }
 
-function NavRow({ icon, label, hi, mid, lo, onPress, last }: { icon: IoniconsName; label: string; hi: string; mid: string; lo: string; onPress: () => void; last?: boolean }) {
+interface RowProps {
+  icon: IoniconsName;
+  iconBg: string;
+  iconFg: string;
+  label: string;
+  value: string;
+  P: P;
+  last?: boolean;
+}
+
+function Row({ icon, iconBg, iconFg, label, value, P }: RowProps) {
   return (
-    <TouchableOpacity style={[s.row, !last && { borderBottomWidth: 1, borderBottomColor: lo }]} activeOpacity={0.7} onPress={onPress}>
-      <View style={[s.rowIcon, { backgroundColor: O10, borderColor: O20 }]}>
-        <Ionicons name={icon} size={16} color={O} />
-      </View>
-      <Text style={[s.rowLabel, { color: hi }]}>{label}</Text>
-      <Ionicons name="chevron-forward" size={14} color={mid} />
+    <View style={[s.rowBase, { paddingHorizontal: 16, paddingVertical: 13 }]}>
+      <IconBox bg={iconBg} fg={iconFg} icon={icon} />
+      <Text style={[s.rowLabel, { color: P.text, flex: 1 }]}>{label}</Text>
+      <Text style={[s.rowValue, { color: P.dim }]}>{value}</Text>
+    </View>
+  );
+}
+
+interface NavRowProps {
+  icon: IoniconsName;
+  iconBg: string;
+  iconFg: string;
+  label: string;
+  labelColor?: string;
+  P: P;
+  last?: boolean;
+  hideChevron?: boolean;
+  onPress: () => void;
+}
+
+function NavRow({ icon, iconBg, iconFg, label, labelColor, P, hideChevron, onPress }: NavRowProps) {
+  return (
+    <TouchableOpacity
+      style={[s.rowBase, { paddingHorizontal: 16, paddingVertical: 14 }]}
+      activeOpacity={0.7}
+      onPress={onPress}
+    >
+      <IconBox bg={iconBg} fg={iconFg} icon={icon} />
+      <Text style={[s.rowLabel, { color: labelColor ?? P.text, flex: 1 }]}>{label}</Text>
+      {!hideChevron && <Ionicons name="chevron-forward" size={14} color={P.faint} />}
     </TouchableOpacity>
   );
 }
 
-function NotifRow({ label, sub, hi, mid, lo, defaultOn, last }: { label: string; sub: string; hi: string; mid: string; lo: string; defaultOn: boolean; last?: boolean }) {
-  return (
-    <View style={[s.row, !last && { borderBottomWidth: 1, borderBottomColor: lo }]}>
-      <View style={{ flex: 1 }}>
-        <Text style={[s.rowLabel, { color: hi }]}>{label}</Text>
-        <Text style={[{ fontSize: 11, marginTop: 2 }, { color: mid }]}>{sub}</Text>
-      </View>
-      <Switch
-        value={defaultOn}
-        onValueChange={() => {}}
-        trackColor={{ false: lo, true: O35 }}
-        thumbColor={defaultOn ? O : '#999'}
-        ios_backgroundColor={lo}
-      />
-    </View>
-  );
-}
-
-function ActionRow({ icon, label, hi, mid, lo, destructive, last, onPress }: { icon: IoniconsName; label: string; hi: string; mid: string; lo: string; destructive?: boolean; last?: boolean; onPress?: () => void }) {
-  const color = destructive ? '#EF4444' : hi;
-  return (
-    <TouchableOpacity style={[s.row, !last && { borderBottomWidth: 1, borderBottomColor: lo }]} activeOpacity={0.7} onPress={onPress}>
-      <Ionicons name={icon} size={18} color={destructive ? '#EF4444' : mid} />
-      <Text style={[s.rowLabel, { color, flex: 1 }]}>{label}</Text>
-      {!destructive && <Ionicons name="chevron-forward" size={14} color={mid} />}
-    </TouchableOpacity>
-  );
-}
-
-// ── Styles ─────────────────────────────────────────────────────────────────
+// ── Styles ──────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  profileCard:  { flexDirection: 'row', alignItems: 'center', gap: 14, borderRadius: 18, padding: 16, borderWidth: 1 },
-  avatar:       { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, overflow: 'hidden' },
-  avatarImg:    { width: 52, height: 52, borderRadius: 26 },
-  avatarLetter: { fontSize: 22, fontWeight: '800' },
-  profileName:  { fontSize: 16, fontWeight: '700' },
-  profileEmail: { fontSize: 13, marginTop: 2 },
-  editBtn:      { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  // Hero
+  heroCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+  },
+  heroName:     { fontSize: 17, fontWeight: '700', letterSpacing: -0.3 },
+  heroEmail:    { fontSize: 13 },
 
-  statsRow:    { flexDirection: 'row', borderRadius: 18, borderWidth: 1, overflow: 'hidden' },
-  statCell:    { flex: 1, alignItems: 'center', paddingVertical: 14, gap: 3 },
-  statDivider: { width: 1 },
-  statValue:   { fontSize: 13, fontWeight: '700' },
-  statLabel:   { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 },
+  chip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  chipText: { fontSize: 11, fontWeight: '500' },
 
-  sectionTitle: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: -6 },
+  editBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
 
-  card:     { borderRadius: 18, borderWidth: 1, overflow: 'hidden' },
-  row:      { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
-  rowIcon:  { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
-  rowLabel: { flex: 1, fontSize: 14, fontWeight: '600' },
-  rowValue: { fontSize: 13 },
+  // Section
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.9,
+    marginLeft: 4,
+  },
+  card: {
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
 
-  themeRow:  { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
-  themeLabel: { fontSize: 14, fontWeight: '600' },
+  // Row atoms
+  rowBase: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  iconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+  },
+  rowLabel: { fontSize: 15, fontWeight: '500' },
+  rowSub:   { fontSize: 12, marginTop: 1 },
+  rowValue: { fontSize: 14 },
 
-  connectBadge: {
-    backgroundColor: '#F97316',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+  // Appearance tiles
+  themeTile: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    gap: 7,
+  },
+  tileIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  tileLabel: { fontSize: 12, letterSpacing: 0.1 },
+  tileDot:   { width: 5, height: 5, borderRadius: 3 },
+
+  connectedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  connectedText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#22C55E',
+  },
+  connectPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
     borderRadius: 20,
   },
-  connectBadgeText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
+  connectPillText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
 
-  version: { textAlign: 'center', fontSize: 12, marginTop: 4 },
+  version: { textAlign: 'center', fontSize: 12, paddingTop: 4, paddingBottom: 8 },
+
+  // Avatar action sheet
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  sheetIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
+
+  // Full-screen viewer
+  viewerBg: {
+    flex: 1,
+    backgroundColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerClose: {
+    position: 'absolute',
+    top: 56,
+    right: 20,
+    zIndex: 10,
+  },
+  viewerCloseCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerImage: {
+    width: '100%',
+    height: '80%',
+  },
 });

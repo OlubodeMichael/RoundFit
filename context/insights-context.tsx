@@ -2,11 +2,10 @@ import React, {
   createContext, useCallback, useContext, useEffect, useState,
 } from 'react';
 import { useAuth } from '@/context/auth-context';
+import { apiFetch } from '@/utils/api';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const API_BASE      = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS    = 10_000;
 const DEFAULT_LIMIT = 30;
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -50,28 +49,6 @@ export interface InsightsContextValue {
   refresh: () => Promise<void>;
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function insightsFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
@@ -102,12 +79,12 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
   const fetchToday = useCallback(async () => {
-    const { ok, body } = await insightsFetch('/insights/today');
+    const { ok, body } = await apiFetch('/insights/today');
     if (ok && body.insight) setTodayInsight(fromApiInsight(body.insight as Record<string, unknown>));
   }, []);
 
   const fetchHistory = useCallback(async () => {
-    const { ok, body } = await insightsFetch(`/insights/history?limit=${DEFAULT_LIMIT}`);
+    const { ok, body } = await apiFetch(`/insights/history?limit=${DEFAULT_LIMIT}`);
     if (!ok) return;
     const rows = Array.isArray(body.insights) ? body.insights as Record<string, unknown>[] : [];
     setHistory(rows.map(fromApiInsight));
@@ -145,7 +122,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
 
   // ── Fetch Claude insight ─────────────────────────────────────────────────
   const fetchClaudeInsight = useCallback(async (): Promise<Insight | null> => {
-    const { ok, status: httpStatus, body } = await insightsFetch('/insights/claude');
+    const { ok, status: httpStatus, body } = await apiFetch('/insights/claude');
 
     if (httpStatus === 429) {
       setClaudeLimitReached(true);
@@ -175,7 +152,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
     if (claudeInsight?.id === id) setClaudeInsight((prev) => prev  ? markDismissed(prev)  : prev);
     setHistory((prev) => prev.map(markDismissed));
 
-    const { ok } = await insightsFetch(`/insights/${id}`, { method: 'DELETE' });
+    const { ok } = await apiFetch(`/insights/${id}`, { method: 'DELETE' });
     if (!ok) {
       setTodayInsight(snapshotToday);
       setClaudeInsight(snapshotClaude);

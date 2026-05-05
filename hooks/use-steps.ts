@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Platform } from 'react-native';
 
+import { isExpoGoEnvironment } from '@/utils/healthkit';
+
 export interface DaySteps {
   /** Short label: "Mon", "Tue", … */
   label: string;
@@ -148,39 +150,8 @@ async function queryStepsWithFallback(HK: Dict, day: Date): Promise<number> {
   const from = startOf(day);
   const to = endOf(day);
 
-  const queryQuantitySamples = getAsyncFn(HK, 'queryQuantitySamples');
-  if (queryQuantitySamples) {
-    const optionVariants: Dict[] = [
-      {
-        unit: 'count',
-        ascending: true,
-        limit: 0,
-        filter: { date: { startDate: from, endDate: to } },
-      },
-      {
-        unit: 'count()',
-        ascending: true,
-        limit: 0,
-        filter: { date: { startDate: from, endDate: to } },
-      },
-      { from, to, unit: 'count', ascending: true },
-      { startDate: from, endDate: to, unit: 'count', ascending: true },
-      { from, to, unit: 'count()' },
-      { startDate: from, endDate: to, unit: 'count()' },
-    ];
-
-    for (const options of optionVariants) {
-      try {
-        const res = await queryQuantitySamples(STEP_ID, options);
-        logHealthKitRaw('queryQuantitySamples', day, { options }, res);
-        const steps = extractStepValue(res);
-        if (steps > 0) return steps;
-      } catch (e) {
-        logHealthKitRaw('queryQuantitySamples', day, { options }, undefined, e);
-      }
-    }
-  }
-
+  // queryStatisticsForQuantity deduplicates overlapping sources (iPhone + Watch + apps)
+  // and matches what the Health app displays. Try this first.
   const queryStatisticsForQuantity = getAsyncFn(HK, 'queryStatisticsForQuantity');
   if (queryStatisticsForQuantity) {
     const statistics = ['cumulativeSum'] as const;
@@ -203,6 +174,38 @@ async function queryStepsWithFallback(HK: Dict, day: Date): Promise<number> {
     }
   }
 
+  // Fallback: sum raw samples. May over-count if multiple sources recorded the same steps.
+  const queryQuantitySamples = getAsyncFn(HK, 'queryQuantitySamples');
+  if (queryQuantitySamples) {
+    const optionVariants: Dict[] = [
+      {
+        unit: 'count',
+        ascending: true,
+        limit: 0,
+        filter: { date: { startDate: from, endDate: to } },
+      },
+      {
+        unit: 'count()',
+        ascending: true,
+        limit: 0,
+        filter: { date: { startDate: from, endDate: to } },
+      },
+      { from, to, unit: 'count', ascending: true },
+      { startDate: from, endDate: to, unit: 'count', ascending: true },
+    ];
+
+    for (const options of optionVariants) {
+      try {
+        const res = await queryQuantitySamples(STEP_ID, options);
+        logHealthKitRaw('queryQuantitySamples', day, { options }, res);
+        const steps = extractStepValue(res);
+        if (steps > 0) return steps;
+      } catch (e) {
+        logHealthKitRaw('queryQuantitySamples', day, { options }, undefined, e);
+      }
+    }
+  }
+
   return 0;
 }
 
@@ -216,6 +219,7 @@ export function useSteps(): StepsData {
 
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
+    if (isExpoGoEnvironment()) return;
 
     let cancelled = false;
 

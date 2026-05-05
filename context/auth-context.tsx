@@ -6,11 +6,11 @@ import React, {
     useRef,
     useState,
 } from "react";
+import { AppState, type AppStateStatus } from "react-native";
+import { apiFetch, clearTokens, storeTokens, proactiveRefreshIfNeeded } from "@/utils/api";
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000/api";
-const TIMEOUT_MS = 10_000;
 /** How long sign-in / sign-up error banners stay visible before auto-clearing. */
 const AUTH_ERROR_DISPLAY_MS = 4_000;
 
@@ -95,6 +95,9 @@ interface AuthContextValue {
   updateProfile: (
     patch: Partial<Omit<UserProfile, "id" | "email" | "createdAt">>,
   ) => Promise<void>;
+
+  /** Re-fetches the current user from GET /auth/me and updates local state. */
+  refreshUser: () => Promise<void>;
 
   /** Clears the last error. */
   clearError: () => void;
@@ -235,56 +238,6 @@ function parseApiError(
 }
 
 /**
- * Thin fetch wrapper.
- * - Sends cookies automatically via `credentials: 'include'`
- * - Enforces a 10 s timeout
- * - Transparently retries once on 401 via POST /auth/refresh (cookie-based)
- */
-async function apiFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
-  };
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  const run = (signal: AbortSignal) =>
-    fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers,
-      credentials: "include",
-      signal,
-    });
-
-  try {
-    const res = await run(controller.signal);
-
-    // Cookie-based refresh: if 401, ask the server to rotate the cookie then retry
-    if (res.status === 401) {
-      const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
-        method: "POST",
-        credentials: "include",
-        signal: controller.signal,
-      });
-      if (refreshRes.ok) {
-        const retryRes = await run(controller.signal);
-        const retryBody = await retryRes.json().catch(() => ({}));
-        return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
-      }
-    }
-
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
  * Fetches and normalises the current user from GET /auth/me.
  * Throws if the request fails — callers handle the error.
  */
@@ -328,14 +281,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<AuthError | null>(null);
 
   // Stable ref so updateProfile's rollback always sees the latest snapshot.
-  const userRef = useRef<UserProfile | null>(null);
-  userRef.current = user;
+  const userRef      = useRef<UserProfile | null>(null);
+  const appStateRef  = useRef<AppStateStatus>(AppState.currentState);
+  userRef.current    = user;
 
   const isAuth = status === "authenticated";
 
   // ── Restore session on mount ─────────────────────────────────────────────
-  // Cookie present and valid → 200 → authenticated
-  // Cookie missing or expired → 401 → unauthenticated
   useEffect(() => {
     (async () => {
       try {
@@ -346,6 +298,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })();
   }, []);
+
+  // ── Proactive token refresh on foreground ─────────────────────────────────
+  // Every time the app comes back to the foreground we check whether the
+  // access token is about to expire (within 5 min) and refresh it before any
+  // API call goes out.  This keeps the Supabase session alive as long as the
+  // user opens the app at least once before the server-side inactivity window.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+
+      if (!prev.match(/inactive|background/) || next !== 'active') return;
+      if (status !== 'authenticated') return;
+
+      const stillValid = await proactiveRefreshIfNeeded();
+      if (!stillValid) {
+        setUser(null);
+        setStatus('unauthenticated');
+        return;
+      }
+
+      // Re-fetch user profile silently so stale data doesn't linger
+      try {
+        setUser(await fetchMe(userRef.current?.email ?? ''));
+      } catch {
+        // network hiccup — keep existing profile data
+      }
+    });
+    return () => sub.remove();
+  }, [status]);
 
   useEffect(() => {
     if (error === null) return;
@@ -381,11 +363,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Server sets the session cookie — fetch profile to populate state
+        if (
+          typeof body.access_token === "string" &&
+          typeof body.refresh_token === "string"
+        ) {
+          await storeTokens(body.access_token, body.refresh_token);
+        }
+
         try {
           setUser(await fetchMe(email));
         } catch {
-          // Cookie is set; profile fetch failed — session restore on next mount retries
+          // Token stored; profile fetch failed — session restore on next mount retries
         }
 
         setStatus("authenticated");
@@ -418,11 +406,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Server sets the session cookie — fetch profile to populate state
+      if (
+        typeof body.access_token === "string" &&
+        typeof body.refresh_token === "string"
+      ) {
+        await storeTokens(body.access_token, body.refresh_token);
+      }
+
       try {
         setUser(await fetchMe(email));
       } catch {
-        // Cookie is set; profile fetch failed — session restore on next mount retries
+        // Token stored; profile fetch failed — session restore on next mount retries
       }
 
       setStatus("authenticated");
@@ -435,8 +429,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ── Sign out ─────────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
-    // Fire-and-forget — server clears the cookie; don't block the UI
     apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
+    await clearTokens();
     setUser(null);
     setStatus("unauthenticated");
   }, []);
@@ -491,6 +485,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // ── Refresh user ─────────────────────────────────────────────────────────
+  const refreshUser = useCallback(async () => {
+    try {
+      const fresh = await fetchMe(userRef.current?.email ?? '');
+      setUser(fresh);
+    } catch {
+      // silently ignore — stale data is better than a crash
+    }
+  }, []);
+
   // ── Clear error ──────────────────────────────────────────────────────────
   const clearError = useCallback(() => setError(null), []);
 
@@ -506,6 +510,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signOut,
         updateProfile,
+        refreshUser,
         clearError,
       }}
     >

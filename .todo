@@ -1,0 +1,11 @@
+{
+  "tasks": [
+    {
+      "id": "17773930515213td9lp",
+      "title": "Review blocked/reverted work in app/(tabs)/log/workout.tsx",
+      "category": "Blocked",
+      "dueDate": null,
+      "completed": false
+    }
+  ]
+}

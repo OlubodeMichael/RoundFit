@@ -1,12 +1,10 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useState,
+  createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
-
-// ── Config ─────────────────────────────────────────────────────────────────
-
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
+import { getLocalDateString } from '@/utils/date';
+import { apiFetch } from '@/utils/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -53,28 +51,6 @@ export interface EngineContextValue {
   refresh: () => Promise<void>;
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function engineFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
@@ -129,15 +105,17 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
   const [daily,     setDaily]     = useState<DailyEngine | null>(null);
   const [patterns,  setPatterns]  = useState<DetectedPattern[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const appStateRef      = useRef(AppState.currentState);
+  const lastFetchDateRef = useRef('');
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
   const fetchDaily = useCallback(async () => {
-    const { ok, body } = await engineFetch('/engine/daily');
+    const { ok, body } = await apiFetch('/engine/daily');
     if (ok && body.data) setDaily(fromApiDaily(body.data as Record<string, unknown>));
   }, []);
 
   const fetchPatterns = useCallback(async () => {
-    const { ok, body } = await engineFetch('/engine/patterns');
+    const { ok, body } = await apiFetch('/engine/patterns');
     if (!ok) return;
     const rows = Array.isArray(body.data) ? body.data as Record<string, unknown>[] : [];
     setPatterns(rows.map(fromApiPattern));
@@ -160,6 +138,7 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
+        lastFetchDateRef.current = getLocalDateString();
         await Promise.all([fetchDaily(), fetchPatterns()]);
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -168,6 +147,23 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
 
     return () => { cancelled = true; };
   }, [status, user?.id, fetchDaily, fetchPatterns]);
+
+  // ── Reset to today when app returns to foreground on a new day ─────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (prev.match(/inactive|background/) && next === 'active') {
+        const today = getLocalDateString();
+        if (lastFetchDateRef.current !== today) {
+          lastFetchDateRef.current = today;
+          setDaily(null);
+          void Promise.all([fetchDaily(), fetchPatterns()]);
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [fetchDaily, fetchPatterns]);
 
   // ── Public refresh handles ───────────────────────────────────────────────
   const refreshDaily    = useCallback(() => fetchDaily(),    [fetchDaily]);

@@ -1,8 +1,10 @@
 export { useCheckin } from '@/context/checkin-context';
 export type {
   EnergyLevel,
-  WorkoutIntensity,
   CheckIn,
-  LogCheckinInput,
+  MorningCheckinInput,
+  CheckinInsight,
+  CheckinStatus,
+  CheckinStats,
   CheckinContextValue,
 } from '@/context/checkin-context';

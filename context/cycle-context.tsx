@@ -2,11 +2,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useState,
 } from 'react';
 import { useAuth } from '@/context/auth-context';
-
-// ── Config ─────────────────────────────────────────────────────────────────
-
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
+import { apiFetch } from '@/utils/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -56,28 +52,6 @@ export interface CycleContextValue {
   refresh: () => Promise<void>;
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function cycleFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
@@ -127,12 +101,12 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
   const fetchCurrent = useCallback(async () => {
-    const { ok, body } = await cycleFetch('/cycle/current');
+    const { ok, body } = await apiFetch('/cycle/current');
     if (ok) setCurrent(fromApiCurrent(body));
   }, []);
 
   const fetchHistory = useCallback(async () => {
-    const { ok, body } = await cycleFetch('/cycle/history');
+    const { ok, body } = await apiFetch('/cycle/history');
     if (!ok) return;
     const rows = Array.isArray(body.cycles) ? body.cycles as Record<string, unknown>[] : [];
     setHistory(rows.map(fromApiLog));
@@ -167,7 +141,7 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
     periodStartDate: string,
     cycleLength = 28,
   ): Promise<CycleLog> => {
-    const { ok, body } = await cycleFetch('/cycle/log', {
+    const { ok, body } = await apiFetch('/cycle/log', {
       method: 'POST',
       body:   JSON.stringify({ period_start_date: periodStartDate, cycle_length: cycleLength }),
     });
@@ -184,7 +158,7 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
 
   // ── Update cycle length ──────────────────────────────────────────────────
   const updateCycleLength = useCallback(async (cycleLength: number) => {
-    const { ok } = await cycleFetch('/cycle/length', {
+    const { ok } = await apiFetch('/cycle/length', {
       method: 'PATCH',
       body:   JSON.stringify({ cycle_length: cycleLength }),
     });

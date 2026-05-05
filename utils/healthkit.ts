@@ -1,4 +1,10 @@
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+
+/** True in the Expo Go client — Nitro/native HealthKit cannot load there. */
+export function isExpoGoEnvironment(): boolean {
+  return Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
+}
 
 // ── Identifiers we request + read ──────────────────────────────────────────
 
@@ -36,7 +42,8 @@ export interface HealthKitSummary {
   active_calories:       number;
   resting_calories:      number;
   total_calories_burned: number;
-  distance_km:           number;
+  distance:              number;
+  distance_unit:         string;
   resting_heart_rate:    number | null;
   hrv:                   number | null;
   sleep_hours:           number;
@@ -44,29 +51,59 @@ export interface HealthKitSummary {
   rem_sleep_hours:       number;
   sleep_efficiency:      number | null;
   time_in_bed_hours:     number;
+  bedtime_iso:           string | null;
+  wakeup_iso:            string | null;
   active_minutes:        number;
   vo2_max:               number | null;
   mindfulness_minutes:   number;
   weight_kg:             number | null;
 }
 
-interface QuantitySampleLike { quantity: number }
+interface DeviceLike {
+  name?:             string;
+  manufacturer?:     string;
+  model?:            string;
+}
+
+interface SourceLike {
+  name?:             string;
+  bundleIdentifier?: string;
+}
+
+interface QuantitySampleLike {
+  quantity:        number;
+  startDate?:      Date | string;
+  endDate?:        Date | string;
+  device?:         DeviceLike | null;
+  sourceRevision?: { source?: SourceLike } | null;
+}
+
 interface CategorySampleLike  {
-  value:     number | string | null | undefined;
-  startDate: Date | string;
-  endDate:   Date | string;
+  value:           number | string | null | undefined;
+  startDate:       Date | string;
+  endDate:         Date | string;
+  device?:         DeviceLike | null;
+  sourceRevision?: { source?: SourceLike } | null;
 }
 type HealthKitModule = any;
+
+export type SleepStage = 'awake' | 'rem' | 'core' | 'deep' | 'unspecified' | 'inBed';
+
+export interface SleepSegment {
+  start: Date;
+  end:   Date;
+  stage: SleepStage;
+}
 
 // ── Module loader ──────────────────────────────────────────────────────────
 
 /**
- * Lazily require the native HealthKit module. NitroModules crashes Expo Go
- * at import time, so we only load it on demand and swallow the error if the
- * module is unavailable.
+ * Lazily require the native HealthKit module. NitroModules throws if this runs
+ * inside Expo Go, so we must never call `require` there — try/catch still logs.
  */
 export function getHealthKitModule(): HealthKitModule | null {
   if (Platform.OS !== 'ios') return null;
+  if (isExpoGoEnvironment()) return null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require('@kingstinct/react-native-healthkit');
@@ -126,10 +163,118 @@ function queryOptionsForInterval(
 }
 
 /**
+ * Queries a cumulative metric via queryStatisticsForQuantity (cumulativeSum).
+ * This is what the Health app uses — it deduplicates overlapping samples from
+ * multiple sources (iPhone, Watch, third-party apps).
+ *
+ * Signature: queryStatisticsForQuantity(identifier, options[], filterObj?)
+ * The result key for the cumulativeSum option is `sumQuantity` (not `cumulativeSum`),
+ * and its value is a HKQuantity object { quantity: N, unit: '...' }.
+ */
+async function queryCumulativeStat(
+  hk:        HealthKitModule,
+  id:        string,
+  startDate: Date,
+  endDate:   Date,
+): Promise<number> {
+  const statsOpts = { filter: { date: { startDate, endDate } } };
+  try {
+    const result = await hk.queryStatisticsForQuantity(id, ['cumulativeSum'], statsOpts);
+    console.log(`[HealthKit] stat raw ${id}:`, JSON.stringify(result));
+
+    if (result && typeof result === 'object') {
+      const raw = result as Record<string, unknown>;
+
+      // Try all known result keys — the library has used different names across versions.
+      // Each value may be a flat number or a HKQuantity { quantity: N, unit: '...' }.
+      for (const key of ['sumQuantity', 'cumulativeSum', 'value', 'sum']) {
+        const entry = raw[key];
+        if (entry === null || entry === undefined) continue;
+
+        if (typeof entry === 'number' && entry > 0) {
+          console.log(`[HealthKit] stat ${id} [${key}]:`, entry);
+          return Math.round(entry);
+        }
+
+        if (typeof entry === 'object') {
+          const nested = entry as Record<string, unknown>;
+          const qty = nested.quantity ?? nested.value;
+          if (typeof qty === 'number' && qty > 0) {
+            console.log(`[HealthKit] stat ${id} [${key}.quantity]:`, qty);
+            return Math.round(qty);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.log(`[HealthKit] queryStatisticsForQuantity ${id} failed:`, e);
+  }
+
+  return 0;
+}
+
+/**
+ * Queries distance walking/running and returns the raw value + unit exactly as
+ * HealthKit provides them. No unit conversion — the app's profile unit
+ * preference controls display. Meters (HealthKit SI default) are normalised to
+ * km since that is not a user-facing preference, but mi stays as mi.
+ */
+async function queryDistanceStat(
+  hk:        HealthKitModule,
+  startDate: Date,
+  endDate:   Date,
+): Promise<{ value: number; unit: string }> {
+  const id        = 'HKQuantityTypeIdentifierDistanceWalkingRunning';
+  const statsOpts = { filter: { date: { startDate, endDate } } };
+  try {
+    const result = await hk.queryStatisticsForQuantity(id, ['cumulativeSum'], statsOpts);
+    console.log(`[HealthKit] stat raw ${id}:`, JSON.stringify(result));
+
+    if (result && typeof result === 'object') {
+      const raw = result as Record<string, unknown>;
+
+      for (const key of ['sumQuantity', 'cumulativeSum', 'value', 'sum']) {
+        const entry = raw[key];
+        if (entry === null || entry === undefined) continue;
+
+        let qty: number | null = null;
+        let unit = '';
+
+        if (typeof entry === 'number' && entry > 0) {
+          qty = entry;
+        } else if (typeof entry === 'object') {
+          const nested = entry as Record<string, unknown>;
+          const q = nested.quantity ?? nested.value;
+          if (typeof q === 'number') qty = q;
+          if (typeof nested.unit === 'string') unit = nested.unit.toLowerCase();
+        }
+
+        if (qty === null || qty <= 0) continue;
+
+        // Normalise meters → km (not a user preference, just a scale issue)
+        if (unit === 'm' || unit === 'meter' || unit === 'meters') {
+          const km = Math.round((qty / 1000) * 100) / 100;
+          console.log(`[HealthKit] distance ${qty} m → ${km} km`);
+          return { value: km, unit: 'km' };
+        }
+
+        const normUnit = (unit === 'mi' || unit === 'mile' || unit === 'miles') ? 'mi' : 'km';
+        const normVal  = Math.round(qty * 100) / 100;
+        console.log(`[HealthKit] distance ${normVal} ${normUnit}`);
+        return { value: normVal, unit: normUnit };
+      }
+    }
+  } catch (e) {
+    console.log(`[HealthKit] queryStatisticsForQuantity ${id} failed:`, e);
+  }
+  return { value: 0, unit: 'km' };
+}
+
+/**
  * Reads every HealthKit metric we use for the given local-time window (`from` → `to`)
  * and returns a flat summary (intended for “today so far”: midnight → now).
- * Any individual query failure is isolated — a missing metric becomes null
- * or zero rather than blowing up the whole sync.
+ * Cumulative metrics use queryStatisticsForQuantity (no raw-sample summing).
+ * Point-in-time metrics (HR, HRV, VO2, weight) use the most recent sample.
  */
 export async function readDailyHealthKit(
   hk:   HealthKitModule,
@@ -139,53 +284,47 @@ export async function readDailyHealthKit(
   const opts = queryOptionsForInterval(from, to);
   const q = (id: string) => hk.queryQuantitySamples(id, opts).catch(() => []);
   const c = (id: string) => hk.queryCategorySamples(id, opts).catch(() => []);
+  const stat = (id: string) => queryCumulativeStat(hk, id, from, to);
 
-  console.log('[HealthKit] readDailyHealthKit window (filter.date):', {
+  console.log('[HealthKit] readDailyHealthKit window:', {
     startDate: from.toISOString(),
     endDate:   to.toISOString(),
-    opts,
   });
 
   const [
-    steps, active, basal, distance,
-    restingHR, hrv, vo2Max, exerciseTime, bodyMass,
+    stepsCount, activeCount, basalCount, distanceStat, exerciseCount,
+    restingHR, hrv, vo2Max, bodyMass,
     sleep, mindful,
   ] = await Promise.all([
-    q('HKQuantityTypeIdentifierStepCount'),
-    q('HKQuantityTypeIdentifierActiveEnergyBurned'),
-    q('HKQuantityTypeIdentifierBasalEnergyBurned'),
-    q('HKQuantityTypeIdentifierDistanceWalkingRunning'),
+    stat('HKQuantityTypeIdentifierStepCount'),
+    stat('HKQuantityTypeIdentifierActiveEnergyBurned'),
+    stat('HKQuantityTypeIdentifierBasalEnergyBurned'),
+    queryDistanceStat(hk, from, to),
+    stat('HKQuantityTypeIdentifierAppleExerciseTime'),
     q('HKQuantityTypeIdentifierRestingHeartRate'),
     q('HKQuantityTypeIdentifierHeartRateVariabilitySDNN'),
     q('HKQuantityTypeIdentifierVO2Max'),
-    q('HKQuantityTypeIdentifierAppleExerciseTime'),
     q('HKQuantityTypeIdentifierBodyMass'),
     c('HKCategoryTypeIdentifierSleepAnalysis'),
     c('HKCategoryTypeIdentifierMindfulSession'),
   ]);
 
-  logHealthKitRawSamples('StepCount', steps);
-  logHealthKitRawSamples('ActiveEnergyBurned', active);
-  logHealthKitRawSamples('BasalEnergyBurned', basal);
-  logHealthKitRawSamples('DistanceWalkingRunning', distance);
   logHealthKitRawSamples('RestingHeartRate', restingHR);
   logHealthKitRawSamples('HeartRateVariabilitySDNN', hrv);
   logHealthKitRawSamples('VO2Max', vo2Max);
-  logHealthKitRawSamples('AppleExerciseTime', exerciseTime);
   logHealthKitRawSamples('BodyMass', bodyMass);
   logHealthKitRawSamples('SleepAnalysis', sleep);
   logHealthKitRawSamples('MindfulSession', mindful);
 
-  const activeCalories  = round(sumQuantity(active));
-  const restingCalories = round(sumQuantity(basal));
-  const sleepSummary    = summariseSleep(sleep);
+  const sleepSummary = summariseSleep(sleep, from, to);
 
   const summary: HealthKitSummary = {
-    steps:                 round(sumQuantity(steps)),
-    active_calories:       activeCalories,
-    resting_calories:      restingCalories,
-    total_calories_burned: activeCalories + restingCalories,
-    distance_km:           round((sumQuantity(distance) / 1000) * 100) / 100,
+    steps:                 stepsCount,
+    active_calories:       activeCount,
+    resting_calories:      basalCount,
+    total_calories_burned: activeCount + basalCount,
+    distance:              distanceStat.value,
+    distance_unit:         distanceStat.unit,
     resting_heart_rate:    roundOrNull(latest(restingHR)),
     hrv:                   tenthsOrNull(latest(hrv)),
     sleep_hours:           sleepSummary.sleep_hours,
@@ -193,9 +332,11 @@ export async function readDailyHealthKit(
     rem_sleep_hours:       sleepSummary.rem_sleep_hours,
     sleep_efficiency:      sleepSummary.sleep_efficiency,
     time_in_bed_hours:     sleepSummary.time_in_bed_hours,
-    active_minutes:        round(sumQuantity(exerciseTime)),
+    bedtime_iso:           sleepSummary.bedtime_iso,
+    wakeup_iso:            sleepSummary.wakeup_iso,
+    active_minutes:        exerciseCount,
     vo2_max:               tenthsOrNull(latest(vo2Max)),
-    mindfulness_minutes:   round(sumCategoryDurationHours(mindful) * 60),
+    mindfulness_minutes:   round(sumCategoryDurationHoursWithinWindow(mindful, from, to) * 60),
     weight_kg:             tenthsOrNull(latest(bodyMass)),
   };
 
@@ -204,14 +345,68 @@ export async function readDailyHealthKit(
   return summary;
 }
 
-// ── Internal: sample helpers ───────────────────────────────────────────────
-
-function sumQuantity(samples: readonly QuantitySampleLike[]): number {
-  return samples.reduce((acc, s) => acc + (s.quantity ?? 0), 0);
+function parseDateOnly(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
 }
 
+export function dayWindowForDate(dateStr: string): { from: Date; to: Date } {
+  const from = parseDateOnly(dateStr);
+  const to = new Date(from);
+  to.setHours(23, 59, 59, 999);
+  return { from, to };
+}
+
+export async function readHealthKitForDate(
+  hk: HealthKitModule,
+  dateStr: string,
+): Promise<HealthKitSummary> {
+  const { from, to } = dayWindowForDate(dateStr);
+  return readDailyHealthKit(hk, from, to);
+}
+
+/**
+ * Reads raw sleep-stage segments from HealthKit for the night anchored to
+ * `dateStr` (treated as the wake-up date). Window: previous day 5 PM → noon.
+ * Returns segments with stage classified; `inBed` segments are included so
+ * callers can decide whether to display them.
+ */
+export async function readSleepSegmentsForNight(
+  hk:      HealthKitModule,
+  dateStr: string,
+): Promise<SleepSegment[]> {
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const nightStart = new Date(y, (mo ?? 1) - 1, (d ?? 1) - 1, 17, 0, 0, 0);
+  const nightEnd   = new Date(y, (mo ?? 1) - 1,  d ?? 1,       12, 0, 0, 0);
+
+  const opts = {
+    limit:     2000,
+    ascending: true,
+    filter:    { date: { startDate: nightStart, endDate: nightEnd } },
+  };
+
+  try {
+    const raw: CategorySampleLike[] = await hk
+      .queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', opts)
+      .catch(() => []);
+
+    return raw
+      .map((s) => ({
+        start: s.startDate instanceof Date ? s.startDate : new Date(s.startDate as string),
+        end:   s.endDate   instanceof Date ? s.endDate   : new Date(s.endDate   as string),
+        stage: classifySleepStage(s.value),
+      }))
+      .filter((seg) => seg.end.getTime() > seg.start.getTime());
+  } catch {
+    return [];
+  }
+}
+
+// ── Internal: sample helpers ───────────────────────────────────────────────
+
+// Samples are queried with ascending:false so index 0 is the most recent.
 function latest(samples: readonly QuantitySampleLike[]): number | null {
-  return samples.length > 0 ? samples[samples.length - 1].quantity : null;
+  return samples.length > 0 ? samples[0].quantity : null;
 }
 
 function round(n: number): number {
@@ -228,6 +423,31 @@ function tenthsOrNull(n: number | null): number | null {
 
 // ── Internal: sleep classification ─────────────────────────────────────────
 
+function classifySleepStage(value: number | string | null | undefined): SleepStage {
+  if (typeof value === 'number') {
+    switch (value) {
+      case 0: return 'inBed';
+      case 2: return 'awake';
+      case 3: return 'core';
+      case 4: return 'deep';
+      case 5: return 'rem';
+      default: return 'unspecified';
+    }
+  }
+  if (typeof value === 'string') {
+    switch (value) {
+      case 'inBed':             return 'inBed';
+      case 'awake':             return 'awake';
+      case 'asleepCore':        return 'core';
+      case 'asleepDeep':        return 'deep';
+      case 'asleepREM':         return 'rem';
+      case 'asleepUnspecified': return 'unspecified';
+      case 'asleep':            return 'unspecified';
+    }
+  }
+  return 'inBed';
+}
+
 // Apple HKCategoryValueSleepAnalysis numeric values.
 // Depending on HealthKit version the lib may return numbers or strings —
 // we normalise by checking against both forms.
@@ -242,20 +462,37 @@ interface SleepSummary {
   rem_sleep_hours:   number;
   time_in_bed_hours: number;
   sleep_efficiency:  number | null;
+  bedtime_iso:       string | null;
+  wakeup_iso:        string | null;
 }
 
-function summariseSleep(samples: readonly CategorySampleLike[]): SleepSummary {
+function summariseSleep(
+  samples: readonly CategorySampleLike[],
+  windowStart: Date,
+  windowEnd: Date,
+): SleepSummary {
   let deep = 0;
   let rem = 0;
   let asleep = 0;
   let inBed = 0;
 
+  // Track the earliest inBed start and latest inBed end for real bedtime/wakeup
+  let inBedStart: Date | null = null;
+  let inBedEnd:   Date | null = null;
+
   for (const s of samples) {
-    const hours = durationHours(s);
+    const hours = durationHoursWithinWindow(s, windowStart, windowEnd);
+    if (hours <= 0) continue;
     if (isSleepValue(s.value, SLEEP_VALUE_DEEP, 'asleepDeep')) deep   += hours;
     if (isSleepValue(s.value, SLEEP_VALUE_REM,  'asleepREM'))  rem    += hours;
     if (isAsleepValue(s.value))                                asleep += hours;
-    if (isSleepValue(s.value, SLEEP_VALUE_IN_BED, 'inBed'))    inBed  += hours;
+    if (isSleepValue(s.value, SLEEP_VALUE_IN_BED, 'inBed')) {
+      inBed += hours;
+      const start = s.startDate instanceof Date ? s.startDate : new Date(s.startDate);
+      const end   = s.endDate   instanceof Date ? s.endDate   : new Date(s.endDate);
+      if (!inBedStart || start < inBedStart) inBedStart = start;
+      if (!inBedEnd   || end   > inBedEnd)   inBedEnd   = end;
+    }
   }
 
   return {
@@ -264,13 +501,22 @@ function summariseSleep(samples: readonly CategorySampleLike[]): SleepSummary {
     rem_sleep_hours:   tenths(rem),
     time_in_bed_hours: tenths(inBed),
     sleep_efficiency:  inBed > 0 ? Math.round((asleep / inBed) * 100) : null,
+    bedtime_iso:       inBedStart ? inBedStart.toISOString() : null,
+    wakeup_iso:        inBedEnd   ? inBedEnd.toISOString()   : null,
   };
 }
 
-function durationHours(s: CategorySampleLike): number {
+function durationHoursWithinWindow(
+  s: CategorySampleLike,
+  windowStart: Date,
+  windowEnd: Date,
+): number {
   const start = s.startDate instanceof Date ? s.startDate : new Date(s.startDate);
   const end   = s.endDate   instanceof Date ? s.endDate   : new Date(s.endDate);
-  return (end.getTime() - start.getTime()) / 3_600_000;
+  const boundedStart = Math.max(start.getTime(), windowStart.getTime());
+  const boundedEnd   = Math.min(end.getTime(), windowEnd.getTime());
+  if (boundedEnd <= boundedStart) return 0;
+  return (boundedEnd - boundedStart) / 3_600_000;
 }
 
 function isSleepValue(
@@ -289,8 +535,12 @@ function isAsleepValue(value: number | string | null | undefined): boolean {
   return false;
 }
 
-function sumCategoryDurationHours(samples: readonly CategorySampleLike[]): number {
-  return samples.reduce((acc, s) => acc + durationHours(s), 0);
+function sumCategoryDurationHoursWithinWindow(
+  samples: readonly CategorySampleLike[],
+  windowStart: Date,
+  windowEnd: Date,
+): number {
+  return samples.reduce((acc, s) => acc + durationHoursWithinWindow(s, windowStart, windowEnd), 0);
 }
 
 function tenths(n: number): number {
@@ -315,6 +565,12 @@ function jsonSafe(value: unknown): string {
 
 function logHealthKitRawSamples(label: string, samples: readonly unknown[]): void {
   const n = samples.length;
-  const preview = samples.slice(0, HK_LOG_PREVIEW);
+  const preview = (samples as QuantitySampleLike[]).slice(0, HK_LOG_PREVIEW).map(s => ({
+    quantity:  s.quantity,
+    startDate: s.startDate,
+    endDate:   s.endDate,
+    device:    s.device?.name ?? s.device?.model ?? 'unknown device',
+    source:    s.sourceRevision?.source?.name ?? s.sourceRevision?.source?.bundleIdentifier ?? 'unknown source',
+  }));
   console.log(`[HealthKit] ${label}: ${n} sample(s), preview (up to ${HK_LOG_PREVIEW}):`, jsonSafe(preview));
 }

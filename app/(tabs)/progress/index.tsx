@@ -15,51 +15,21 @@ import type { ComponentProps } from 'react';
 
 import { AnimatedCard, usePalette } from '@/lib/log-theme';
 import { useHealth } from '@/hooks/use-health';
+import { useUnits } from '@/hooks/use-units';
+import { useSummary } from '@/hooks/use-summary';
+import { useWeight } from '@/hooks/use-weight';
+import { getLocalDateString } from '@/utils/date';
+import { formatDistance } from '@/utils/units';
+import type { DistanceUnit } from '@/utils/units';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
-
-// ─── Dummy data ─────────────────────────────────────────────────────────────
-const STREAK        = 12;
-const CONSISTENCY   = 84;
-const GOALS_HIT     = 5;
-const GOALS_TOTAL   = 7;
-
-const CONSISTENCY_DAYS: { label: string; on: boolean; today?: boolean }[] = [
-  { label: 'M', on: true  },
-  { label: 'T', on: true  },
-  { label: 'W', on: true  },
-  { label: 'T', on: false },
-  { label: 'F', on: true  },
-  { label: 'S', on: true  },
-  { label: 'S', on: true, today: true },
-];
-
-const CALS_GOAL = 2100;
-const CALS_WEEK = [
-  { day: 'M', cals: 1980 },
-  { day: 'T', cals: 2200 },
-  { day: 'W', cals: 1750 },
-  { day: 'T', cals: 2050 },
-  { day: 'F', cals: 1900 },
-  { day: 'S', cals: 2310 },
-  { day: 'S', cals: 1840 },
-];
-
-const WEIGHT_LOG = [
-  { date: 'Apr 6',  kg: 82.4 },
-  { date: 'Apr 7',  kg: 82.1 },
-  { date: 'Apr 8',  kg: 81.9 },
-  { date: 'Apr 9',  kg: 82.0 },
-  { date: 'Apr 10', kg: 81.7 },
-  { date: 'Apr 11', kg: 81.5 },
-  { date: 'Apr 12', kg: 81.3 },
-];
 
 const STEPS_GOAL = 10_000;
 
 function StepsCard({ delay = 0 }: { delay?: number }) {
   const P = usePalette();
   const { today, isConnected } = useHealth();
+  const { profileUnit } = useUnits();
 
   const steps       = today?.steps ?? 0;
   const activeCals  = today?.active_calories ?? 0;
@@ -99,7 +69,7 @@ function StepsCard({ delay = 0 }: { delay?: number }) {
           <Ionicons name="footsteps" size={16} color={P.water} />
         </View>
         <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={[stepsStyles.eyebrow, { color: P.textFaint }]}>TODAY'S STEPS</Text>
+          <Text style={[stepsStyles.eyebrow, { color: P.textFaint }]}>TODAY&apos;S STEPS</Text>
           <Text style={[stepsStyles.title, { color: P.text }]}>
             {displayedSteps.toLocaleString()}
             <Text style={[stepsStyles.goal, { color: P.textFaint }]}> / {STEPS_GOAL.toLocaleString()}</Text>
@@ -144,7 +114,9 @@ function StepsCard({ delay = 0 }: { delay?: number }) {
         <View style={[stepsStyles.footDivider, { backgroundColor: P.hair }]} />
         <View style={stepsStyles.footCell}>
           <Text style={[stepsStyles.footVal, { color: P.text }]}>
-            {today?.distance != null ? `${today.distance.toFixed(1)} ${today.distance_unit === 'km' ? 'km' : 'mi'}` : '—'}
+            {today?.distance != null
+              ? formatDistance(today.distance, (today.distance_unit as DistanceUnit) ?? 'km', profileUnit)
+              : '—'}
           </Text>
           <Text style={[stepsStyles.footLbl, { color: P.textFaint }]}>distance</Text>
         </View>
@@ -182,18 +154,74 @@ export default function ProgressScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const maxCals = useMemo(() => Math.max(...CALS_WEEK.map(d => d.cals), CALS_GOAL), []);
-  const avgCals = useMemo(
-    () => Math.round(CALS_WEEK.reduce((a, d) => a + d.cals, 0) / CALS_WEEK.length),
-    [],
+  const { weekly }                       = useSummary();
+  const { entries }                      = useWeight();
+  const { weightUnit, toDisplayWeight }  = useUnits();
+  const todayStr                         = getLocalDateString();
+
+  // ── Streak: consecutive trailing logged days ──────────────────────────────
+  const streak = useMemo(() => {
+    if (!weekly?.days?.length) return 0;
+    const sorted = [...weekly.days].sort((a, b) => b.date.localeCompare(a.date));
+    let count = 0;
+    for (const d of sorted) {
+      if (d.calories_consumed > 0) count++;
+      else break;
+    }
+    return count;
+  }, [weekly]);
+
+  // ── Consistency ───────────────────────────────────────────────────────────
+  const consistency = Math.round(weekly?.consistency_score ?? 0);
+
+  // ── Goals (days under calorie budget out of 7) ───────────────────────────
+  const goalsHit = useMemo(() => {
+    if (!weekly?.days?.length) return 0;
+    return weekly.days.filter(d => d.calories_consumed > 0 && d.calories_consumed <= d.calorie_budget).length;
+  }, [weekly]);
+
+  // ── Consistency day strip ─────────────────────────────────────────────────
+  const consistencyDays = useMemo(() => {
+    if (!weekly?.days?.length) return [];
+    return [...weekly.days]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(d => ({
+        label: new Date(d.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })[0],
+        on:    d.calories_consumed > 0,
+        today: d.date === todayStr,
+      }));
+  }, [weekly, todayStr]);
+
+  // ── Calories chart ────────────────────────────────────────────────────────
+  const calsGoal = weekly?.days.find(d => d.calorie_budget > 0)?.calorie_budget ?? 2000;
+  const calsWeek = useMemo(() => {
+    if (!weekly?.days?.length) return [];
+    return [...weekly.days]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(d => ({
+        day:  new Date(d.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })[0],
+        cals: d.calories_consumed,
+      }));
+  }, [weekly]);
+
+  const avgCals  = Math.round(weekly?.avg_calories ?? 0);
+  const maxCals  = useMemo(
+    () => Math.max(...calsWeek.map(d => d.cals), calsGoal, 1),
+    [calsWeek, calsGoal],
   );
 
-  const weightMin    = useMemo(() => Math.min(...WEIGHT_LOG.map(d => d.kg)), []);
-  const weightMax    = useMemo(() => Math.max(...WEIGHT_LOG.map(d => d.kg)), []);
-  const weightRange  = weightMax - weightMin || 1;
-  const weightDelta  = WEIGHT_LOG[WEIGHT_LOG.length - 1].kg - WEIGHT_LOG[0].kg;
-  const currentKg    = WEIGHT_LOG[WEIGHT_LOG.length - 1].kg;
-  const goalKg       = 78.0;
+  // ── Weight chart (up to 7 most recent entries, oldest→newest) ────────────
+  const weightEntries = useMemo(() => entries.slice(0, 7).reverse(), [entries]);
+
+  const weightMin   = useMemo(() => weightEntries.length ? Math.min(...weightEntries.map(e => e.weight_kg)) : 0, [weightEntries]);
+  const weightMax   = useMemo(() => weightEntries.length ? Math.max(...weightEntries.map(e => e.weight_kg)) : 0, [weightEntries]);
+  const weightRange = weightMax - weightMin || 1;
+
+  const weightDeltaKg = weightEntries.length >= 2
+    ? weightEntries[weightEntries.length - 1].weight_kg - weightEntries[0].weight_kg
+    : 0;
+  const currentKg  = weightEntries.length ? weightEntries[weightEntries.length - 1].weight_kg : null;
+  const weightTrend = weightDeltaKg < -0.1 ? 'Trending down' : weightDeltaKg > 0.1 ? 'Trending up' : 'Stable';
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
@@ -228,13 +256,13 @@ export default function ProgressScreen() {
               tone="accent"
               icon="flame"
               label="Day streak"
-              value={`${STREAK}`}
+              value={`${streak}`}
             />
             <StatTile
               delay={110}
               icon="compass"
               label="Consistency"
-              value={`${CONSISTENCY}`}
+              value={`${consistency}`}
               valueSuffix="/100"
               accentColor={P.protein}
             />
@@ -242,8 +270,8 @@ export default function ProgressScreen() {
               delay={160}
               icon="trophy"
               label="Goals met"
-              value={`${GOALS_HIT}`}
-              valueSuffix={`/${GOALS_TOTAL}`}
+              value={`${goalsHit}`}
+              valueSuffix="/7"
               accentColor={P.carbs}
             />
           </View>
@@ -254,17 +282,17 @@ export default function ProgressScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>CONSISTENCY INDEX</Text>
                 <Text style={[styles.cardTitle, { color: P.text }]}>
-                  {CONSISTENCY_DAYS.filter(d => d.on).length} of 7 days on target
+                  {consistencyDays.filter(d => d.on).length} of {consistencyDays.length || 7} days on target
                 </Text>
               </View>
               <View style={[styles.trendPill, { backgroundColor: P.proteinSoft }]}>
-                <Ionicons name="trending-up" size={11} color={P.protein} />
-                <Text style={[styles.trendText, { color: P.protein }]}>+6</Text>
+                <Ionicons name="checkmark-circle" size={11} color={P.protein} />
+                <Text style={[styles.trendText, { color: P.protein }]}>{consistency}/100</Text>
               </View>
             </View>
 
             <View style={styles.consistencyRow}>
-              {CONSISTENCY_DAYS.map((d, i) => {
+              {consistencyDays.map((d, i) => {
                 const bg = d.on ? P.protein : P.sunken;
                 const border = d.on ? P.protein : P.cardEdge;
                 const isToday = d.today;
@@ -307,23 +335,23 @@ export default function ProgressScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>CALORIES</Text>
                 <Text style={[styles.cardTitle, { color: P.text }]}>
-                  Avg {avgCals.toLocaleString()}
+                  {avgCals > 0 ? `Avg ${avgCals.toLocaleString()}` : 'No data yet'}
                 </Text>
               </View>
               <View style={styles.goalLegend}>
                 <View style={[styles.dashLine, { borderColor: P.calories }]} />
                 <Text style={[styles.goalLegendText, { color: P.textFaint }]}>
-                  Goal {CALS_GOAL.toLocaleString()}
+                  Goal {calsGoal.toLocaleString()}
                 </Text>
               </View>
             </View>
 
             <View style={styles.barChart}>
-              {CALS_WEEK.map((d, i) => {
+              {calsWeek.map((d, i) => {
                 const pct      = d.cals / maxCals;
-                const goalPct  = CALS_GOAL / maxCals;
-                const isToday  = i === CALS_WEEK.length - 1;
-                const over     = d.cals > CALS_GOAL;
+                const goalPct  = calsGoal / maxCals;
+                const isToday  = i === calsWeek.length - 1;
+                const over     = d.cals > calsGoal;
                 const color    = isToday ? P.calories : over ? P.danger : P.protein;
                 return (
                   <View key={i} style={styles.barCol}>
@@ -371,73 +399,95 @@ export default function ProgressScreen() {
                   <Ionicons name="scale" size={16} color={P.weight} />
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>WEIGHT</Text>
-                  <Text style={[styles.cardTitle, { color: P.text }]}>Trending down</Text>
+                  <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>WEIGHT OVER TIME</Text>
+                  <Text style={[styles.cardTitle, { color: P.text }]}>{weightTrend}</Text>
                 </View>
-                <View style={[styles.trendPill, { backgroundColor: P.proteinSoft }]}>
-                  <Ionicons name="trending-down" size={11} color={P.protein} />
-                  <Text style={[styles.trendText, { color: P.protein }]}>
-                    {weightDelta.toFixed(1)} kg
-                  </Text>
-                </View>
+                {weightEntries.length >= 2 && (
+                  <View style={[
+                    styles.trendPill,
+                    { backgroundColor: weightDeltaKg <= -0.1 ? P.proteinSoft : weightDeltaKg >= 0.1 ? P.caloriesSoft : P.sunken },
+                  ]}>
+                    <Ionicons
+                      name={weightDeltaKg <= -0.1 ? 'trending-down' : weightDeltaKg >= 0.1 ? 'trending-up' : 'remove'}
+                      size={11}
+                      color={weightDeltaKg <= -0.1 ? P.protein : weightDeltaKg >= 0.1 ? P.calories : P.textFaint}
+                    />
+                    <Text style={[
+                      styles.trendText,
+                      { color: weightDeltaKg <= -0.1 ? P.protein : weightDeltaKg >= 0.1 ? P.calories : P.textFaint },
+                    ]}>
+                      {weightDeltaKg > 0 ? '+' : ''}{toDisplayWeight(Math.abs(weightDeltaKg)).toFixed(1)} {weightUnit}
+                    </Text>
+                  </View>
+                )}
               </View>
 
-              {/* Mini polyline chart using stacked dots + connecting lines (Views) */}
-              <View style={styles.weightChart}>
-                {WEIGHT_LOG.map((w, i) => {
-                  const normalized = (w.kg - weightMin) / weightRange;
-                  const bottom     = 6 + normalized * 48;
-                  const isLatest   = i === WEIGHT_LOG.length - 1;
-                  return (
-                    <View key={i} style={styles.weightCol}>
-                      <View style={styles.weightColInner}>
-                        <View
-                          style={[
-                            styles.weightDot,
-                            {
-                              bottom,
-                              backgroundColor: isLatest ? P.weight : P.textFaint,
-                              width:           isLatest ? 10 : 6,
-                              height:          isLatest ? 10 : 6,
-                              borderRadius:    isLatest ? 5 : 3,
-                              shadowColor:     isLatest ? P.weight : 'transparent',
-                              shadowOpacity:   isLatest ? 0.5 : 0,
-                              shadowRadius:    isLatest ? 8 : 0,
-                            },
-                          ]}
-                        />
-                      </View>
-                      <Text style={[styles.weightDate, { color: P.textFaint }]}>
-                        {w.date.split(' ')[1]}
+              {weightEntries.length === 0 ? (
+                <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                  <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '500' }}>
+                    No weight entries yet — log your weight to see trends
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  {/* Dot chart — oldest → newest */}
+                  <View style={styles.weightChart}>
+                    {weightEntries.map((w, i) => {
+                      const normalized = (w.weight_kg - weightMin) / weightRange;
+                      const bottom     = 6 + normalized * 48;
+                      const isLatest   = i === weightEntries.length - 1;
+                      const dateLabel  = new Date(w.logged_at).getDate().toString();
+                      return (
+                        <View key={i} style={styles.weightCol}>
+                          <View style={styles.weightColInner}>
+                            <View
+                              style={[
+                                styles.weightDot,
+                                {
+                                  bottom,
+                                  backgroundColor: isLatest ? P.weight : P.textFaint,
+                                  width:           isLatest ? 10 : 6,
+                                  height:          isLatest ? 10 : 6,
+                                  borderRadius:    isLatest ? 5 : 3,
+                                  shadowColor:     isLatest ? P.weight : 'transparent',
+                                  shadowOpacity:   isLatest ? 0.5 : 0,
+                                  shadowRadius:    isLatest ? 8 : 0,
+                                },
+                              ]}
+                            />
+                          </View>
+                          <Text style={[styles.weightDate, { color: P.textFaint }]}>
+                            {dateLabel}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+
+                  <View style={styles.weightFoot}>
+                    <View>
+                      <Text style={[styles.weightNum, { color: P.text }]}>
+                        {currentKg !== null ? toDisplayWeight(currentKg).toFixed(1) : '—'}
+                        <Text style={[styles.weightUnit, { color: P.textFaint }]}> {weightUnit}</Text>
                       </Text>
+                      <Text style={[styles.weightNote, { color: P.textFaint }]}>Current</Text>
                     </View>
-                  );
-                })}
-              </View>
-
-              <View style={styles.weightFoot}>
-                <View>
-                  <Text style={[styles.weightNum, { color: P.text }]}>
-                    {currentKg.toFixed(1)}
-                    <Text style={[styles.weightUnit, { color: P.textFaint }]}> kg</Text>
-                  </Text>
-                  <Text style={[styles.weightNote, { color: P.textFaint }]}>Current</Text>
-                </View>
-                <View style={{ alignItems: 'center' }}>
-                  <Text style={[styles.weightNum, { color: P.text }]}>
-                    −{Math.abs(weightDelta).toFixed(1)}
-                    <Text style={[styles.weightUnit, { color: P.textFaint }]}> kg</Text>
-                  </Text>
-                  <Text style={[styles.weightNote, { color: P.textFaint }]}>7-day</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.weightNum, { color: P.text }]}>
-                    {goalKg.toFixed(1)}
-                    <Text style={[styles.weightUnit, { color: P.textFaint }]}> kg</Text>
-                  </Text>
-                  <Text style={[styles.weightNote, { color: P.textFaint }]}>Goal</Text>
-                </View>
-              </View>
+                    {weightEntries.length >= 2 && (
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={[styles.weightNum, {
+                          color: weightDeltaKg <= -0.1 ? P.protein : weightDeltaKg >= 0.1 ? P.calories : P.textFaint,
+                        }]}>
+                          {weightDeltaKg > 0 ? '+' : weightDeltaKg < 0 ? '−' : ''}{toDisplayWeight(Math.abs(weightDeltaKg)).toFixed(1)}
+                          <Text style={[styles.weightUnit, { color: P.textFaint }]}> {weightUnit}</Text>
+                        </Text>
+                        <Text style={[styles.weightNote, { color: P.textFaint }]}>
+                          {weightEntries.length}-entry change
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </>
+              )}
             </Pressable>
           </AnimatedCard>
 
@@ -452,11 +502,6 @@ export default function ProgressScreen() {
               ]}
             >
               <View pointerEvents="none" style={[styles.mirrorGlow, { backgroundColor: 'rgba(255,255,255,0.14)' }]} />
-
-              <View style={[styles.premiumPill, { backgroundColor: 'rgba(255,255,255,0.18)' }]}>
-                <Ionicons name="diamond" size={10} color="#fff" />
-                <Text style={styles.premiumPillText}>PREMIUM</Text>
-              </View>
 
               <Text style={styles.mirrorTitle}>30-day mirror</Text>
               <Text style={styles.mirrorSub}>

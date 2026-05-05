@@ -1,11 +1,21 @@
 import { useFood } from "@/context/food-context";
+import { useCycle } from "@/context/cycle-context";
+import { useWorkouts } from "@/context/workout-context";
+import type { Workout } from "@/context/workout-context";
+import { distanceValue, distanceUnitLabel } from "@/utils/units";
+import { CheckinModal } from "@/components/checkin/CheckinModal";
 import { useProfile } from "@/hooks/use-profile";
 import { useHealth } from "@/hooks/use-health";
+import { useCheckin } from "@/hooks/use-checkin";
+import { useUnits } from "@/hooks/use-units";
 import { calculateNutritionPlan } from "@/utils/nutrition";
-import { router, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useTheme } from "@/hooks/use-theme";
+import { UserAvatar } from "@/components/profile/UserAvatar";
+import { AppModal } from "@/components/ui/AppModal";
 import { useToast } from "@/components/ui/Toast";
 import { BurnCoachStrip } from "@/components/home/burn-coach-strip";
+import { getLocalDateString } from "@/utils/date";
 import {
   BURN_ACTIVITIES,
   BurnActivityPicker,
@@ -16,7 +26,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Animated,
     Easing,
-    Image,
     Platform,
     Pressable,
     RefreshControl,
@@ -136,7 +145,6 @@ const MEAL_ICONS: Record<string, IoniconsName> = {
 // donut ring with something that reads more as an instrument than a gauge.
 // ───────────────────────────────────────────────────────────────────────────────
 const TICK_COUNT = 36;
-const TICK_ANGLE_STEP = 360 / TICK_COUNT;
 const TICK_WIDTH = 2;
 const TICK_HEIGHT = 7;
 const TICK_FILLED_WIDTH = 4;
@@ -482,12 +490,18 @@ const CYCLE_PHASES = [
   { key: 'ovulation',  label: 'Ovulation',  icon: 'sunny'           as const },
   { key: 'luteal',     label: 'Luteal',     icon: 'moon'            as const },
 ];
-const CURRENT_PHASE_INDEX = 1;
-const CYCLE_DAY  = 8;
-const CYCLE_LEN  = 28;
 
 function CyclePhaseCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
-  const phase = CYCLE_PHASES[CURRENT_PHASE_INDEX];
+  const { current, history } = useCycle();
+
+  if (!current?.phase) return null;
+
+  const activeIndex = Math.max(CYCLE_PHASES.findIndex(p => p.key === current.phase), 0);
+  const phase       = CYCLE_PHASES[activeIndex];
+  const cycleLen    = history[0]?.cycle_length ?? 28;
+  const cycleDay    = current.days_remaining != null
+    ? Math.max(cycleLen - current.days_remaining, 1)
+    : null;
 
   return (
     <Card delay={delay} padding={18}>
@@ -500,14 +514,14 @@ function CyclePhaseCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
             {phase.label} <Text style={{ color: P.textFaint, fontWeight: '500' }}>phase</Text>
           </Text>
           <Text style={[styles.cycleSub, { color: P.textFaint }]}>
-            Day {CYCLE_DAY} of {CYCLE_LEN}
+            {cycleDay != null ? `Day ${cycleDay} of ${cycleLen}` : `${cycleLen}-day cycle`}
           </Text>
         </View>
       </View>
 
       <View style={styles.phaseRow}>
         {CYCLE_PHASES.map((p, i) => {
-          const isActive = i === CURRENT_PHASE_INDEX;
+          const isActive = i === activeIndex;
           return (
             <View key={p.key} style={styles.phaseTick}>
               <View
@@ -544,19 +558,191 @@ type HeroCoach = {
 };
 
 // ───────────────────────────────────────────────────────────────────────────────
-// HeroBudgetLedger — today's calorie budget, stripped to essentials.
+// EarnedBonusRow — diagonal-split "bonus unlocked" panel.
+// Left: dark panel with flash badge + labels. Right: emerald panel with big number.
+// ───────────────────────────────────────────────────────────────────────────────
+function EarnedBonusRow({ P, earnedFromActivity }: { P: Palette; earnedFromActivity: number }) {
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.6)).current;
+  const glowAnim  = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: 1, duration: 400, easing: Easing.out(Easing.cubic), useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1, friction: 6, tension: 120, useNativeDriver: true,
+      }),
+    ]).start();
+
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, { toValue: 1, duration: 2000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(glowAnim, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const slideY      = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
+  const glowOpacity = glowAnim.interpolate({ inputRange: [0, 1], outputRange: [0.30, 0.65] });
+
+  const rightBg = P.isDark ? 'rgba(52,211,153,0.16)' : 'rgba(16,185,129,0.12)';
+
+  return (
+    <Animated.View
+      style={[
+        earnedS.wrap,
+        { opacity: slideAnim, transform: [{ translateY: slideY }], marginTop: 16 },
+      ]}
+    >
+      {/* ── Left sunken panel ── */}
+      <View style={[earnedS.left, { backgroundColor: P.sunken }]}>
+        <View style={[earnedS.badge, { borderColor: P.protein, backgroundColor: P.proteinSoft }]}>
+          <Ionicons name="flash" size={14} color={P.protein} />
+        </View>
+        <View style={earnedS.leftLabels}>
+          <Text style={[earnedS.eyebrow, { color: P.textFaint }]}>ACTIVITY</Text>
+          <Text style={[earnedS.bonusWord, { color: P.text }]}>BONUS</Text>
+        </View>
+      </View>
+
+      {/* ── Diagonal cut (card-colored rotated strip) ── */}
+      <View pointerEvents="none" style={[earnedS.diagonal, { backgroundColor: P.card }]} />
+
+      {/* ── Right emerald panel ── */}
+      <View style={[earnedS.right, { backgroundColor: rightBg, overflow: 'hidden' }]}>
+        <Animated.View
+          style={[earnedS.glowOrb, { backgroundColor: P.protein, opacity: glowOpacity }]}
+        />
+        <Animated.Text
+          style={[
+            earnedS.bigNum,
+            { color: P.isDark ? '#FFFFFF' : P.protein, transform: [{ scale: scaleAnim }] },
+          ]}
+        >
+          +{earnedFromActivity.toLocaleString()}
+        </Animated.Text>
+        <Text style={[earnedS.calWord, { color: P.isDark ? 'rgba(255,255,255,0.60)' : P.textDim }]}>
+          cal
+        </Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+const earnedS = StyleSheet.create({
+  wrap: {
+    height:        66,
+    borderRadius:  16,
+    overflow:      'hidden',
+    flexDirection: 'row',
+  },
+  left: {
+    flex:          1,
+    flexDirection: 'row',
+    alignItems:    'center',
+    paddingLeft:   16,
+    gap:           10,
+  },
+  badge: {
+    width:          32,
+    height:         32,
+    borderRadius:   16,
+    borderWidth:    1.5,
+    alignItems:     'center',
+    justifyContent: 'center',
+  },
+  leftLabels: {
+    gap: 1,
+  },
+  eyebrow: {
+    fontSize:      9,
+    fontWeight:    '800',
+    letterSpacing: 1.6,
+  },
+  bonusWord: {
+    fontSize:      16,
+    fontWeight:    '800',
+    letterSpacing: 0.5,
+  },
+  diagonal: {
+    position:  'absolute',
+    width:     26,
+    height:    140,
+    top:       -37,
+    right:     118,
+    zIndex:    1,
+    transform: [{ rotate: '7deg' }],
+  },
+  right: {
+    width:          132,
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'center',
+    paddingRight:   16,
+    gap:            4,
+  },
+  glowOrb: {
+    position:     'absolute',
+    width:        90,
+    height:       90,
+    borderRadius: 45,
+    right:        0,
+  },
+  bigNum: {
+    fontFamily:    'BarlowCondensed_800ExtraBold',
+    fontSize:      38,
+    lineHeight:    40,
+    letterSpacing: -1.5,
+  },
+  calWord: {
+    fontSize:      13,
+    fontWeight:    '700',
+    marginTop:     7,
+    letterSpacing: 0.2,
+  },
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// HeroBudgetLedger — semicircular speedometer gauge hero card.
 //
-// Composition (top → bottom):
-//   1. Date stamp
-//   2. Big display number (calories remaining) + quiet subhead
-//   3. One thin progress bar
-//   4. One inline row of numbers: eaten · burned · net
-//   5. Fused BurnCoachStrip when there's still burn to do
-// No status chip, no eyebrows, no legends, no boxed stat trio.
+// Layout (top → bottom):
+//   1. Date row + menu
+//   2. Thick semicircle arc (tick-mark technique, 180° from left → top → right)
+//      Centre: flame icon · count-up number · label
+//   3. Goal pill centred below arc
+//   4. Activity-earned strip (emerald, only when > 0)
+//   5. Three-stat row: eaten · burned · steps or net
+//   6. BurnCoachStrip docked at bottom
 // ───────────────────────────────────────────────────────────────────────────────
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAYS_SHORT   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// ── Semicircle gauge constants ──────────────────────────────────────────────
+const SEMI_N  = 55;   // tick count — dense enough to look solid
+const SEMI_D  = 280;  // full circle diameter (view is clipped to top half)
+const SEMI_R  = 116;  // radius to tick centre
+const SEMI_TW = 7.2;  // tick tangential width (≥ arc-step to close gaps)
+const SEMI_TH = 22;   // tick radial height (= stroke thickness)
+const SEMI_CX = SEMI_D / 2;
+const SEMI_CY = SEMI_D / 2;
+// Visible height = centre + half-stroke + breathing room
+const SEMI_VH = SEMI_CY + SEMI_TH / 2 + 10;
+
+// Pre-compute positions once at module level (no recomputation per render)
+const GAUGE_TICKS = Array.from({ length: SEMI_N }).map((_, i) => {
+  const deg = 180 + i * (180 / (SEMI_N - 1)); // 180° (left) → 360° (right) through 270° (top)
+  const rad = (deg * Math.PI) / 180;
+  return {
+    x:   SEMI_CX + SEMI_R * Math.cos(rad),
+    y:   SEMI_CY + SEMI_R * Math.sin(rad),
+    rot: `${deg + 90}deg`, // tangent = radial angle + 90°
+  };
+});
 
 function HeroBudgetLedger({
   P,
@@ -566,6 +752,7 @@ function HeroBudgetLedger({
   burned,
   stepsToday,
   remaining,
+  earnedFromActivity = 0,
   coach,
 }: {
   P: Palette;
@@ -573,105 +760,196 @@ function HeroBudgetLedger({
   eaten: number;
   goal: number;
   burned: number;
-  /** Apple Health step count for today — shown next to burned when available. */
   stepsToday?: number;
   remaining: number;
+  earnedFromActivity?: number;
   coach?: HeroCoach;
 }) {
+  const isOver   = eaten > goal;
   const eatenPct = Math.min(eaten / Math.max(goal, 1), 1);
 
-  const animated = useRef(new Animated.Value(0)).current;
-  const [progress, setProgress] = useState(0);
-
+  // ── Count-up number animation ───────────────────────────────────────────
+  const countAnim = useRef(new Animated.Value(0)).current;
+  const [displayed, setDisplayed] = useState(0);
   useEffect(() => {
-    const id = animated.addListener(({ value }) => setProgress(value));
-    Animated.timing(animated, {
-      toValue: 1,
-      duration: 1100,
+    const id = countAnim.addListener(({ value }) => setDisplayed(Math.round(value)));
+    Animated.timing(countAnim, {
+      toValue: Math.max(remaining, 0),
+      duration: 1200,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
-    return () => animated.removeListener(id);
-  }, [animated]);
+    return () => countAnim.removeListener(id);
+  }, [remaining]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const displayed = Math.round(progress * Math.max(remaining, 0));
+  // ── Gauge fill animation ────────────────────────────────────────────────
+  const fillAnim = useRef(new Animated.Value(0)).current;
+  const [gaugeProgress, setGaugeProgress] = useState(0);
+  useEffect(() => {
+    const id = fillAnim.addListener(({ value }) => setGaugeProgress(value));
+    Animated.timing(fillAnim, {
+      toValue: eatenPct,
+      duration: 1300,
+      delay: 150,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+    return () => fillAnim.removeListener(id);
+  }, [eatenPct]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Card entrance ───────────────────────────────────────────────────────
+  const entrance = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(entrance, {
+      toValue: 1,
+      duration: 620,
+      delay,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const translateY  = entrance.interpolate({ inputRange: [0, 1], outputRange: [28, 0] });
+  const filledCount = Math.round(gaugeProgress * SEMI_N);
 
   const now       = useMemo(() => new Date(), []);
   const dateStamp = `${DAYS_SHORT[now.getDay()]}, ${MONTHS_SHORT[now.getMonth()]} ${now.getDate()}`;
 
-  const isOver = eaten > goal;
+  const trackColor = P.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)';
+  // Slightly brighter than the track at the right endpoint for "empty" clarity
+  const centerY = SEMI_VH - SEMI_CY; // pixels from bottom to circle centre
 
   return (
-    <Card padding={0} delay={delay} style={{ overflow: 'hidden' }}>
-      {/* ── Ambient halo ───────────────────────────────────────── */}
-      <View pointerEvents="none" style={styles.haloWrap}>
-        <View style={[styles.haloOuter, { backgroundColor: P.caloriesSoft, opacity: P.isDark ? 0.45 : 0.75 }]} />
-        <View style={[styles.haloInner, { backgroundColor: P.caloriesSoft, opacity: P.isDark ? 0.65 : 0.95 }]} />
-      </View>
+    <Animated.View
+      style={[
+        heroStyles.card,
+        {
+          backgroundColor: P.card,
+          borderColor:     P.cardEdge,
+          opacity:         entrance,
+          transform:       [{ translateY }],
+          shadowColor:     '#000',
+          shadowOpacity:   P.isDark ? 0.35 : 0.07,
+          shadowRadius:    P.isDark ? 18 : 14,
+          shadowOffset:    { width: 0, height: 6 },
+        },
+      ]}
+    >
+      <View style={heroStyles.body}>
 
-      <View style={{ padding: 22 }}>
-        {/* ── Date row ─────────────────────────────────────────── */}
-        <View style={styles.ledgerTop}>
-          <Text style={[styles.dateStamp, { color: P.textDim }]}>{dateStamp}</Text>
-          <TouchableOpacity hitSlop={10} style={styles.moreBtnMini}>
+        {/* ── Date + menu ───────────────────────────────────────────────── */}
+        <View style={heroStyles.topRow}>
+          <Text style={[heroStyles.dateLabel, { color: P.textFaint }]}>
+            {dateStamp.toUpperCase()}
+          </Text>
+          <TouchableOpacity hitSlop={10}>
             <Ionicons name="ellipsis-horizontal" size={16} color={P.textFaint} />
           </TouchableOpacity>
         </View>
 
-        {/* ── Calorie ring ─────────────────────────────────────── */}
-        <View style={styles.calRingWrap}>
-          <SegmentedDial
-            size={200}
-            progress={progress * eatenPct}
-            trackColor={P.caloriesTrack}
-            fillColor={P.calories}
-            haloColor={P.caloriesSoft}
-            tickCount={60}
-          >
-            <Text
-              style={[styles.calRingNumber, { color: isOver ? P.calories : P.text }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.5}
-            >
-              {displayed.toLocaleString()}
-            </Text>
-            <Text style={[styles.calRingUnit, { color: P.textFaint }]}>cal</Text>
-            <Text style={[styles.calRingLabel, { color: P.textFaint }]}>
-              {isOver ? 'over budget' : 'remaining'}
-            </Text>
-            <View style={[styles.calRingGoalPill, { backgroundColor: P.hair }]}>
-              <Text style={[styles.calRingGoalText, { color: isOver ? P.calories : P.textDim }]}>
-                {goal.toLocaleString()} daily goal
+        {/* ── Semicircle gauge ──────────────────────────────────────────── */}
+        <View style={{ alignItems: 'center' }}>
+          {/* Clip to visible top-half of the full circle */}
+          <View style={{ width: SEMI_D, height: SEMI_VH, overflow: 'hidden' }}>
+
+            {/* Tick marks — dense enough to read as a solid arc */}
+            {GAUGE_TICKS.map(({ x, y, rot }, i) => (
+              <View
+                key={i}
+                style={{
+                  position:        'absolute',
+                  width:           SEMI_TW,
+                  height:          SEMI_TH,
+                  borderRadius:    SEMI_TH / 2,
+                  backgroundColor: i < filledCount ? P.calories : trackColor,
+                  left:            x - SEMI_TW / 2,
+                  top:             y - SEMI_TH / 2,
+                  transform:       [{ rotate: rot }],
+                }}
+              />
+            ))}
+
+            {/* Centre content — bottom of View anchored at circle centre */}
+            <View style={{ position: 'absolute', bottom: centerY, left: 0, right: 0, alignItems: 'center' }}>
+              <Ionicons name="flame" size={26} color={P.calories} />
+              <Text
+                style={[heroStyles.heroNum, { color: isOver ? P.calories : P.text }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.6}
+              >
+                {displayed.toLocaleString()}
+              </Text>
+              <Text style={[heroStyles.heroSub, { color: P.textFaint }]}>
+                {isOver ? 'over budget' : 'remaining'}
               </Text>
             </View>
-          </SegmentedDial>
-        </View>
-
-        {/* ── Stat chips ───────────────────────────────────────── */}
-        <View style={styles.chipRow}>
-          <View style={[styles.chip, { backgroundColor: P.proteinSoft }]}>
-            <Ionicons name="restaurant" size={12} color={P.protein} />
-            <Text style={[styles.chipVal, { color: P.text }]}>{eaten.toLocaleString()}</Text>
-            <Text style={[styles.chipLbl, { color: P.textFaint }]}>eaten</Text>
           </View>
-          <View style={[styles.chip, { backgroundColor: P.caloriesSoft }]}>
-            <Ionicons name="flame" size={12} color={P.calories} />
-            <Text style={[styles.chipVal, { color: P.text }]}>{burned.toLocaleString()}</Text>
-            <Text style={[styles.chipLbl, { color: P.textFaint }]}>
-              burned
-              {stepsToday !== undefined ? ` · ${stepsToday.toLocaleString()} steps` : ''}
+
+          {/* Goal pill sits just below the arc endpoints */}
+          <View style={[heroStyles.goalPill, { backgroundColor: P.caloriesSoft, marginTop: 10 }]}>
+            <Text style={[heroStyles.goalPillText, { color: P.calories }]}>
+              {goal.toLocaleString()} daily goal
             </Text>
           </View>
-          <View style={[styles.chip, { backgroundColor: isOver ? P.caloriesSoft : P.waterSoft }]}>
-            <Ionicons name="trending-up" size={12} color={isOver ? P.calories : P.water} />
-            <Text style={[styles.chipVal, { color: P.text }]}>{(eaten - burned).toLocaleString()}</Text>
-            <Text style={[styles.chipLbl, { color: P.textFaint }]}>net</Text>
+        </View>
+
+        {/* ── Activity earned ───────────────────────────────────────────── */}
+        {earnedFromActivity > 0 && (
+          <EarnedBonusRow P={P} earnedFromActivity={earnedFromActivity} />
+        )}
+
+        {/* ── Stats row ─────────────────────────────────────────────────── */}
+        <View style={[heroStyles.statsPanel, { backgroundColor: P.sunken, marginTop: 14, marginBottom: 14 }]}>
+          <View style={heroStyles.statsRow}>
+
+            <View style={heroStyles.statCell}>
+              <View style={[heroStyles.statIcon, { backgroundColor: P.proteinSoft }]}>
+                <Ionicons name="restaurant" size={14} color={P.protein} />
+              </View>
+              <View>
+                <Text style={[heroStyles.statNum, { color: P.text }]}>{eaten.toLocaleString()}</Text>
+                <Text style={[heroStyles.statLbl, { color: P.textFaint }]}>eaten</Text>
+              </View>
+            </View>
+
+            <View style={heroStyles.statCell}>
+              <View style={[heroStyles.statIcon, { backgroundColor: P.caloriesSoft }]}>
+                <Ionicons name="flame" size={14} color={P.calories} />
+              </View>
+              <View>
+                <Text style={[heroStyles.statNum, { color: P.text }]}>{burned.toLocaleString()}</Text>
+                <Text style={[heroStyles.statLbl, { color: P.textFaint }]}>burned</Text>
+              </View>
+            </View>
+
+            {stepsToday !== undefined ? (
+              <View style={heroStyles.statCell}>
+                <View style={[heroStyles.statIcon, { backgroundColor: P.waterSoft }]}>
+                  <Ionicons name="footsteps" size={14} color={P.water} />
+                </View>
+                <View>
+                  <Text style={[heroStyles.statNum, { color: P.text }]}>{stepsToday.toLocaleString()}</Text>
+                  <Text style={[heroStyles.statLbl, { color: P.textFaint }]}>steps</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={heroStyles.statCell}>
+                <View style={[heroStyles.statIcon, { backgroundColor: isOver ? P.caloriesSoft : P.waterSoft }]}>
+                  <Ionicons name="trending-up" size={14} color={isOver ? P.calories : P.water} />
+                </View>
+                <View>
+                  <Text style={[heroStyles.statNum, { color: P.text }]}>{(eaten - burned).toLocaleString()}</Text>
+                  <Text style={[heroStyles.statLbl, { color: P.textFaint }]}>net</Text>
+                </View>
+              </View>
+            )}
           </View>
         </View>
+
       </View>
 
-      {/* ── Burn coach ───────────────────────────────────────── */}
+      {/* ── Burn coach ────────────────────────────────────────────────────── */}
       {coach && (
         <BurnCoachStrip
           caloriesToBurn={coach.caloriesToBurn}
@@ -681,9 +959,97 @@ function HeroBudgetLedger({
           onPress={coach.onPress}
         />
       )}
-    </Card>
+    </Animated.View>
   );
 }
+
+const heroStyles = StyleSheet.create({
+  card: {
+    borderRadius: 24,
+    borderWidth:  StyleSheet.hairlineWidth,
+    overflow:     'hidden',
+    ...Platform.select({ android: { elevation: 3 } }),
+  },
+  body: {
+    paddingHorizontal: 22,
+    paddingTop:        18,
+    paddingBottom:     0,
+  },
+  topRow: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+    marginBottom:   6,
+  },
+  dateLabel: {
+    fontSize:      10,
+    fontWeight:    '700',
+    letterSpacing: 1.8,
+  },
+  heroNum: {
+    fontFamily:    'BarlowCondensed_800ExtraBold',
+    fontSize:      62,
+    lineHeight:    62,
+    letterSpacing: -2,
+    textAlign:     'center',
+    marginTop:     2,
+  },
+  heroSub: {
+    fontSize:      12,
+    fontWeight:    '600',
+    letterSpacing: 0.2,
+    textAlign:     'center',
+    marginTop:     3,
+  },
+  goalPill: {
+    paddingHorizontal: 14,
+    paddingVertical:   6,
+    borderRadius:      999,
+  },
+  goalPillText: {
+    fontSize:      11,
+    fontWeight:    '800',
+    letterSpacing: 0.3,
+  },
+  statsPanel: {
+    borderRadius:      14,
+    paddingVertical:   12,
+    paddingHorizontal: 14,
+  },
+  statsRow: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+  },
+  statCell: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           10,
+  },
+  statIcon: {
+    width:          36,
+    height:         36,
+    borderRadius:   12,
+    alignItems:     'center',
+    justifyContent: 'center',
+  },
+  statNum: {
+    fontSize:      16,
+    fontWeight:    '800',
+    letterSpacing: -0.5,
+    lineHeight:    18,
+  },
+  statLbl: {
+    fontSize:      10,
+    fontWeight:    '600',
+    letterSpacing: 0.2,
+  },
+  statDivider: {
+    width:            StyleSheet.hairlineWidth,
+    height:           44,
+    marginHorizontal: 8,
+  },
+});
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Activity card — steps, distance, active calories from HealthKit (iOS only)
@@ -691,6 +1057,7 @@ function HeroBudgetLedger({
 const STEPS_GOAL = 10_000;
 
 function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data: import('@/context/health-context').HealthData | null }) {
+  const { profileUnit } = useUnits();
   const steps      = data?.steps ?? 0;
   const activeCals = data?.active_calories ?? 0;
   const distance   = data?.distance ?? 0;
@@ -722,75 +1089,217 @@ function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data
   const fillWidth = stepFill.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
   const pctLabel  = Math.round(stepPct * 100);
 
-  const distLabel = data?.distance_unit === 'km' || data?.distance_unit === 'metric'
-    ? `${distance.toFixed(1)} km`
-    : `${distance.toFixed(1)} mi`;
+  const distNum  = distanceValue(distance, (data?.distance_unit as import('@/utils/units').DistanceUnit) ?? 'km', profileUnit);
+  const distUnit = distanceUnitLabel(profileUnit);
+
+  const stepColor  = stepPct >= 1 ? P.protein : P.water;
+  const stepsToGo  = Math.max(STEPS_GOAL - steps, 0);
 
   return (
     <Card delay={delay}>
-      <View style={styles.activityHead}>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={[styles.sectionTitle, { color: P.text }]}>Activity</Text>
-          <Text style={[styles.sectionCaption, { color: P.textFaint }]}>from Apple Health</Text>
+      {/* ── Header ───────────────────────────────────────────────────────── */}
+      <View style={actS.header}>
+        <View>
+          <Text style={[actS.eyebrow, { color: P.textFaint }]}>DAILY MOVEMENT</Text>
+          <Text style={[actS.heading, { color: P.text }]}>Activity</Text>
         </View>
-        <View style={[styles.stepsPctPill, { backgroundColor: stepPct >= 1 ? P.proteinSoft : P.waterSoft }]}>
-          {stepPct >= 1 && <Ionicons name="checkmark" size={10} color={P.protein} />}
-          <Text style={[styles.stepsPctText, { color: stepPct >= 1 ? P.protein : P.water }]}>
-            {stepPct >= 1 ? 'Goal!' : `${pctLabel}%`}
-          </Text>
-        </View>
-      </View>
-
-      {/* Steps progress bar */}
-      <View style={styles.stepsBarWrap}>
-        <View style={styles.stepsBarTop}>
-          <View style={styles.stepsBarLeft}>
-            <Ionicons name="footsteps" size={13} color={P.water} />
-            <Text style={[styles.stepsBarVal, { color: P.text }]}>{displayedSteps.toLocaleString()}</Text>
-            <Text style={[styles.stepsBarGoal, { color: P.textFaint }]}>/ {STEPS_GOAL.toLocaleString()}</Text>
-          </View>
-          <Text style={[styles.stepsBarRemain, { color: P.textFaint }]}>
-            {steps >= STEPS_GOAL ? 'Complete' : `${Math.max(STEPS_GOAL - steps, 0).toLocaleString()} to go`}
-          </Text>
-        </View>
-        <View style={[styles.stepsTrack, { backgroundColor: P.hair }]}>
-          <Animated.View
-            style={[
-              styles.stepsFill,
-              { width: fillWidth, backgroundColor: stepPct >= 1 ? P.protein : P.water },
-            ]}
-          />
+        <View style={[actS.sourcePill, { backgroundColor: P.waterSoft }]}>
+          <Ionicons name="logo-apple" size={11} color={P.water} />
+          <Text style={[actS.sourceLabel, { color: P.water }]}>Health</Text>
         </View>
       </View>
 
-      <View style={styles.activityRow}>
-
-        {/* Distance */}
-        <View style={styles.activityStat}>
-          <View style={[styles.activityIconBox, { backgroundColor: P.proteinSoft }]}>
-            <Ionicons name="map" size={16} color={P.protein} />
-          </View>
-          <Text style={[styles.activityVal, { color: P.text }]}>{distLabel}</Text>
-          <Text style={[styles.activityLbl, { color: P.textFaint }]}>distance</Text>
-        </View>
-
-        <View style={[styles.activityDivider, { backgroundColor: P.hair }]} />
-
-        {/* Active calories */}
-        <View style={styles.activityStat}>
-          <View style={[styles.activityIconBox, { backgroundColor: P.caloriesSoft }]}>
-            <Ionicons name="flame" size={16} color={P.calories} />
-          </View>
-          <Text style={[styles.activityVal, { color: P.text }]}>
-            {activeCals.toLocaleString()}
+      {/* ── Steps hero ───────────────────────────────────────────────────── */}
+      <View style={actS.stepsSection}>
+        <View style={actS.stepsCountRow}>
+          <Text style={[actS.stepsNum, { color: P.text }]}>
+            {displayedSteps.toLocaleString()}
           </Text>
-          <Text style={[styles.activityLbl, { color: P.textFaint }]}>active cal</Text>
+          <Text style={[actS.stepsOf, { color: P.textFaint }]}>
+            {' '}/ {STEPS_GOAL.toLocaleString()}
+          </Text>
         </View>
 
+        <View style={actS.barRow}>
+          <View style={[actS.track, { backgroundColor: P.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+            <Animated.View style={[actS.fill, { width: fillWidth, backgroundColor: stepColor }]} />
+          </View>
+          <View style={[actS.pctChip, { backgroundColor: stepPct >= 1 ? P.proteinSoft : P.waterSoft }]}>
+            {stepPct >= 1
+              ? <Ionicons name="checkmark" size={11} color={P.protein} />
+              : <Text style={[actS.pctText, { color: stepColor }]}>{pctLabel}%</Text>
+            }
+          </View>
+        </View>
+
+        <Text style={[actS.stepsCaption, { color: P.textFaint }]}>
+          {steps >= STEPS_GOAL
+            ? 'Daily step goal complete'
+            : `${stepsToGo.toLocaleString()} steps to go`
+          }
+        </Text>
+      </View>
+
+      {/* ── Distance + Active cal tiles ──────────────────────────────────── */}
+      <View style={[actS.tilesRow, { backgroundColor: P.sunken }]}>
+        <View style={actS.tile}>
+          <View style={[actS.tileIcon, { backgroundColor: P.proteinSoft }]}>
+            <Ionicons name="navigate-outline" size={14} color={P.protein} />
+          </View>
+          <View style={actS.tileFigure}>
+            <Text style={[actS.tileNum, { color: P.text }]}>{distNum}</Text>
+            <Text style={[actS.tileUnit, { color: P.textFaint }]}>{distUnit}</Text>
+          </View>
+          <Text style={[actS.tileLbl, { color: P.textFaint }]}>distance</Text>
+        </View>
+
+        <View style={[actS.vDivider, { backgroundColor: P.hair }]} />
+
+        <View style={actS.tile}>
+          <View style={[actS.tileIcon, { backgroundColor: P.caloriesSoft }]}>
+            <Ionicons name="flame-outline" size={14} color={P.calories} />
+          </View>
+          <View style={actS.tileFigure}>
+            <Text style={[actS.tileNum, { color: P.text }]}>{activeCals.toLocaleString()}</Text>
+            <Text style={[actS.tileUnit, { color: P.textFaint }]}>kcal</Text>
+          </View>
+          <Text style={[actS.tileLbl, { color: P.textFaint }]}>active burn</Text>
+        </View>
       </View>
     </Card>
   );
 }
+
+const actS = StyleSheet.create({
+  header: {
+    flexDirection:  'row',
+    alignItems:     'flex-start',
+    justifyContent: 'space-between',
+    marginBottom:   20,
+  },
+  eyebrow: {
+    fontSize:      9,
+    fontWeight:    '700',
+    letterSpacing: 1.8,
+    marginBottom:  3,
+  },
+  heading: {
+    fontSize:      20,
+    fontWeight:    '800',
+    letterSpacing: -0.3,
+  },
+  sourcePill: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               5,
+    paddingHorizontal: 10,
+    paddingVertical:   5,
+    borderRadius:      999,
+  },
+  sourceLabel: {
+    fontSize:   11,
+    fontWeight: '700',
+  },
+
+  stepsSection: {
+    marginBottom: 14,
+  },
+  stepsCountRow: {
+    flexDirection: 'row',
+    alignItems:    'baseline',
+    marginBottom:  12,
+  },
+  stepsNum: {
+    fontFamily:    'BarlowCondensed_800ExtraBold',
+    fontSize:      56,
+    lineHeight:    56,
+    letterSpacing: -2,
+  },
+  stepsOf: {
+    fontSize:      14,
+    fontWeight:    '600',
+    letterSpacing: -0.2,
+    marginBottom:  5,
+  },
+  barRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           10,
+    marginBottom:  8,
+  },
+  track: {
+    flex:         1,
+    height:       10,
+    borderRadius: 5,
+    overflow:     'hidden',
+  },
+  fill: {
+    height:       '100%',
+    borderRadius: 5,
+  },
+  pctChip: {
+    minWidth:          34,
+    height:            22,
+    borderRadius:      11,
+    alignItems:        'center',
+    justifyContent:    'center',
+    paddingHorizontal: 6,
+  },
+  pctText: {
+    fontSize:   10,
+    fontWeight: '800',
+  },
+  stepsCaption: {
+    fontSize:      11,
+    fontWeight:    '600',
+    letterSpacing: 0.1,
+  },
+
+  tilesRow: {
+    flexDirection: 'row',
+    borderRadius:  16,
+    overflow:      'hidden',
+  },
+  tile: {
+    flex:    1,
+    padding: 14,
+    gap:     3,
+  },
+  tileIcon: {
+    width:          30,
+    height:         30,
+    borderRadius:   9,
+    alignItems:     'center',
+    justifyContent: 'center',
+    marginBottom:   6,
+  },
+  tileFigure: {
+    flexDirection: 'row',
+    alignItems:    'baseline',
+    gap:           4,
+  },
+  tileNum: {
+    fontFamily:    'BarlowCondensed_800ExtraBold',
+    fontSize:      30,
+    lineHeight:    30,
+    letterSpacing: -1,
+  },
+  tileUnit: {
+    fontSize:      12,
+    fontWeight:    '600',
+    letterSpacing: 0.1,
+    marginBottom:  1,
+  },
+  tileLbl: {
+    fontSize:      10,
+    fontWeight:    '600',
+    letterSpacing: 0.3,
+  },
+  vDivider: {
+    width:          StyleSheet.hairlineWidth,
+    marginVertical: 14,
+  },
+});
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Macros — three mini rings inside a single card
@@ -878,59 +1387,6 @@ function MacroCell({
         </Text>
       </View>
     </View>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Hydration — droplet row
-// ───────────────────────────────────────────────────────────────────────────────
-function HydrationCard({
-  P, delay = 0, waterGoal = 8,
-}: { P: Palette; delay?: number; waterGoal?: number }) {
-  const [water, setWater] = useState(0);
-
-  return (
-    <Card delay={delay}>
-      <View style={styles.hydrationHead}>
-        <View style={[styles.iconTile, { backgroundColor: P.waterSoft }]}>
-          <Ionicons name="water" size={16} color={P.water} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.hydrationTitle, { color: P.text }]}>Water</Text>
-        </View>
-        <View style={styles.hydrationNum}>
-          <Text style={[styles.hydrationCount, { color: P.water }]}>{water}</Text>
-          <Text style={[styles.hydrationGoal, { color: P.textFaint }]}>/ {waterGoal}</Text>
-        </View>
-      </View>
-
-      <View style={styles.dropRow}>
-        {Array.from({ length: waterGoal }).map((_, i) => {
-          const filled = i < water;
-          return (
-            <Pressable
-              key={i}
-              onPress={() => setWater((w) => (i < w ? i : i + 1))}
-              style={({ pressed }) => [
-                styles.dropCell,
-                {
-                  backgroundColor: filled ? P.water : P.sunken,
-                  borderColor: filled ? P.water : P.cardEdge,
-                },
-                pressed && { transform: [{ scale: 0.92 }] },
-              ]}
-              hitSlop={4}
-            >
-              <Ionicons
-                name={filled ? "water" : "water-outline"}
-                size={14}
-                color={filled ? "#fff" : P.textFaint}
-              />
-            </Pressable>
-          );
-        })}
-      </View>
-    </Card>
   );
 }
 
@@ -1026,9 +1482,229 @@ function MealsCard({
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
+// Workout type icon / accent mapping
+// ───────────────────────────────────────────────────────────────────────────────
+const WORKOUT_CONFIG: Record<string, { icon: IoniconsName; label: string }> = {
+  gym:        { icon: 'barbell-outline',   label: 'Strength'  },
+  running:    { icon: 'footsteps-outline', label: 'Run'       },
+  cycling:    { icon: 'bicycle-outline',   label: 'Cycling'   },
+  hiit:       { icon: 'flash-outline',     label: 'HIIT'      },
+  yoga:       { icon: 'leaf-outline',      label: 'Yoga'      },
+  swimming:   { icon: 'water-outline',     label: 'Swimming'  },
+  walking:    { icon: 'footsteps-outline', label: 'Walking'   },
+  rowing:     { icon: 'boat-outline',      label: 'Rowing'    },
+  elliptical: { icon: 'reload-outline',    label: 'Elliptical'},
+  other:      { icon: 'apps-outline',      label: 'Workout'   },
+};
+
+const INTENSITY_DOTS: Record<string, number> = { light: 1, moderate: 2, hard: 3 };
+
+function fmtDuration(mins: number): string {
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// WorkoutCard — today's logged workout sessions
+// ───────────────────────────────────────────────────────────────────────────────
+function WorkoutCard({
+  P, delay = 0, workouts, totalCaloriesBurned, onLogMore,
+}: {
+  P: Palette;
+  delay?: number;
+  workouts: Workout[];
+  totalCaloriesBurned: number;
+  onLogMore: () => void;
+}) {
+  const ACCENT_CYCLE = [
+    { fill: P.protein,  soft: P.proteinSoft  },
+    { fill: P.water,    soft: P.waterSoft    },
+    { fill: P.carbs,    soft: P.carbsSoft    },
+    { fill: P.calories, soft: P.caloriesSoft },
+    { fill: P.fat,      soft: P.fatSoft      },
+  ] as const;
+
+  return (
+    <Card padding={0} delay={delay}>
+      <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 }}>
+        <SectionHead
+          title="Workouts"
+          caption={
+            workouts.length === 0
+              ? 'Nothing logged yet'
+              : `${workouts.length} session${workouts.length !== 1 ? 's' : ''}  ·  ${totalCaloriesBurned.toLocaleString()} kcal burned`
+          }
+          P={P}
+        />
+      </View>
+
+      {workouts.length === 0 ? (
+        <Pressable
+          onPress={onLogMore}
+          style={({ pressed }) => [
+            { paddingHorizontal: 20, paddingBottom: 20, flexDirection: 'row', alignItems: 'center', gap: 10 },
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Ionicons name="add-circle-outline" size={18} color={P.textFaint} />
+          <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '600' }}>Log your first workout</Text>
+        </Pressable>
+      ) : (
+        <View>
+          {workouts.map((w, i) => {
+            const cfg     = WORKOUT_CONFIG[w.type] ?? WORKOUT_CONFIG.other;
+            const accent  = ACCENT_CYCLE[i % ACCENT_CYCLE.length];
+            const dots    = INTENSITY_DOTS[w.intensity ?? 'moderate'] ?? 2;
+            const hasSets = w.sets && w.sets.length > 0;
+
+            return (
+              <View key={w.id}>
+                {i > 0 && <View style={[wkStyles.divider, { backgroundColor: P.hair }]} />}
+                <Pressable
+                  onPress={onLogMore}
+                  style={({ pressed }) => [wkStyles.row, pressed && { backgroundColor: P.sunken }]}
+                >
+                  <View style={[wkStyles.iconBox, { backgroundColor: accent.soft }]}>
+                    <Ionicons name={cfg.icon} size={18} color={accent.fill} />
+                  </View>
+
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Text style={[wkStyles.name, { color: P.text }]}>{cfg.label}</Text>
+                    <View style={wkStyles.meta}>
+                      <Text style={[wkStyles.metaText, { color: P.textFaint }]}>
+                        {fmtDuration(w.duration_mins)}
+                      </Text>
+                      {w.intensity && (
+                        <>
+                          <View style={[wkStyles.metaDot, { backgroundColor: P.textFaint }]} />
+                          <View style={wkStyles.intensityDots}>
+                            {[1, 2, 3].map((d) => (
+                              <View
+                                key={d}
+                                style={[
+                                  wkStyles.dot,
+                                  { backgroundColor: d <= dots ? accent.fill : P.cardEdge },
+                                ]}
+                              />
+                            ))}
+                          </View>
+                        </>
+                      )}
+                      {hasSets && (
+                        <>
+                          <View style={[wkStyles.metaDot, { backgroundColor: P.textFaint }]} />
+                          <Text style={[wkStyles.metaText, { color: P.textFaint }]}>
+                            {w.sets.length} set{w.sets.length !== 1 ? 's' : ''}
+                          </Text>
+                        </>
+                      )}
+                    </View>
+                  </View>
+
+                  <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                    <Text style={[wkStyles.cals, { color: P.text }]}>
+                      {Math.round(w.calories_burned)}
+                    </Text>
+                    <Text style={[wkStyles.calsUnit, { color: P.textFaint }]}>kcal</Text>
+                  </View>
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      <TouchableOpacity
+        onPress={onLogMore}
+        activeOpacity={0.7}
+        style={[styles.addMealBtn, { borderTopColor: P.hair }]}
+      >
+        <View style={[styles.addMealIcon, { backgroundColor: P.proteinSoft }]}>
+          <Ionicons name="add" size={16} color={P.protein} />
+        </View>
+        <Text style={[styles.addMealText, { color: P.text }]}>Log a workout</Text>
+        <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
+      </TouchableOpacity>
+    </Card>
+  );
+}
+
+const wkStyles = StyleSheet.create({
+  row: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    gap:            14,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  divider: {
+    height:           StyleSheet.hairlineWidth,
+    marginHorizontal: 20,
+  },
+  iconBox: {
+    width:          42,
+    height:         42,
+    borderRadius:   14,
+    alignItems:     'center',
+    justifyContent: 'center',
+  },
+  name: {
+    fontSize:      14,
+    fontWeight:    '700',
+    letterSpacing: -0.2,
+  },
+  meta: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           5,
+  },
+  metaText: {
+    fontSize:   11,
+    fontWeight: '500',
+  },
+  metaDot: {
+    width:        2,
+    height:       2,
+    borderRadius: 1,
+    opacity:      0.5,
+  },
+  intensityDots: {
+    flexDirection: 'row',
+    gap:           3,
+  },
+  dot: {
+    width:        5,
+    height:       5,
+    borderRadius: 3,
+  },
+  cals: {
+    fontSize:      16,
+    fontWeight:    '800',
+    letterSpacing: -0.4,
+  },
+  calsUnit: {
+    fontSize:   9,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
 // Daily Insight — distinctive gradient-accent card with sparkle icon
 // ───────────────────────────────────────────────────────────────────────────────
-function InsightCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
+function InsightCard({
+  P,
+  delay = 0,
+  onPress,
+  isCheckingStatus = false,
+}: {
+  P: Palette;
+  delay?: number;
+  onPress: () => void;
+  isCheckingStatus?: boolean;
+}) {
   return (
     <Card delay={delay} style={{ overflow: "hidden" }}>
       <View
@@ -1068,16 +1744,18 @@ function InsightCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
           styles.insightCta,
           { backgroundColor: P.sunken, borderColor: P.cardEdge },
         ]}
-        onPress={() => router.replace('/(tabs)/insights/weekly')}
+        onPress={onPress}
       >
         <Text style={[styles.insightCtaText, { color: P.text }]} >
-          See weekly report
+          {isCheckingStatus ? "Checking status..." : "See weekly report"}
         </Text>
-        <Ionicons name="arrow-forward" size={14} color={P.text} />
+        {!isCheckingStatus && <Ionicons name="arrow-forward" size={14} color={P.text} />}
       </TouchableOpacity>
     </Card>
   );
 }
+
+type InsightStatusModalKind = "checkin" | "workout" | "ready";
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Shared section heading
@@ -1122,16 +1800,24 @@ export default function HomeScreen() {
   const P      = usePalette();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { appStatus, refreshStatus } = useCheckin();
   const { profile, avatarUrl, avatarLetter, firstName, refreshProfile } = useProfile();
   const {
     meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
     remaining, refreshLogs,
   } = useFood();
-  const { today: healthToday, isConnected: healthConnected, refresh: refreshHealth } = useHealth();
+  const { today: healthToday, refresh: refreshHealth } = useHealth();
   const toast = useToast();
+
+  const { workouts, totalCaloriesBurned: workoutCalsBurned, refreshWorkouts } = useWorkouts();
 
   const [date, setDate]         = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
+  const [isCheckingInsightStatus, setIsCheckingInsightStatus] = useState(false);
+  const [isStatusModalVisible, setIsStatusModalVisible] = useState(false);
+  const [isCheckinModalVisible, setIsCheckinModalVisible] = useState(false);
+  const [statusModalKind, setStatusModalKind] = useState<InsightStatusModalKind>("ready");
+  const appStatusRef = useRef(appStatus);
 
   // Macro targets from the same nutrition plan used on the reveal screen
   const nutritionPlan = useMemo(() => {
@@ -1163,12 +1849,13 @@ export default function HomeScreen() {
     const base = Math.round(mealGoal * 0.15);
     const over = Math.max(totalCalories - mealGoal, 0);
     const caloriesToBurn = Math.max(base + over, 80);
-    // minutes = cals / (MET × kg / 60)
-    const minutes = Math.round(caloriesToBurn / (coachActivity.met * weightKg / 60) / 5) * 5;
     const activeBurned = healthToday?.active_calories ?? 0;
+    const remaining = Math.max(caloriesToBurn - activeBurned, 0);
+    // minutes based on remaining calories, not total
+    const minutes = Math.max(Math.round(remaining / (coachActivity.met * weightKg / 60) / 5) * 5, 0);
     return {
-      caloriesToBurn: Math.max(caloriesToBurn - activeBurned, 0),
-      activity: { label: `${coachActivity.verb} ${minutes} min`, icon: coachActivity.icon },
+      caloriesToBurn: remaining,
+      activity: { label: minutes > 0 ? `${coachActivity.verb} ${minutes} min` : `Goal reached!`, icon: coachActivity.icon },
       goalProgress: caloriesToBurn > 0 ? Math.min(activeBurned / caloriesToBurn, 1) : 0,
     };
   }, [mealGoal, totalCalories, coachActivity, weightKg, healthToday]);
@@ -1176,7 +1863,13 @@ export default function HomeScreen() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refreshLogs(), refreshProfile(), refreshHealth()]);
+      const today = getLocalDateString();
+      await Promise.all([
+        refreshLogs(today),
+        refreshProfile(),
+        refreshHealth(),
+        refreshWorkouts(today),
+      ]);
     } catch {
       toast.error('Could not refresh', 'Please try again.');
     } finally {
@@ -1184,11 +1877,41 @@ export default function HomeScreen() {
     }
   };
 
+  useEffect(() => {
+    const today = getLocalDateString();
+    void Promise.all([refreshLogs(today), refreshWorkouts(today)]);
+  }, [refreshLogs, refreshWorkouts]);
+
+  const handleInsightPress = async () => {
+    setIsCheckingInsightStatus(true);
+    try {
+      await refreshStatus();
+      await new Promise((resolve) => setTimeout(resolve, 120));
+
+      const latestStatus = appStatusRef.current;
+      if (latestStatus?.should_show_checkin) {
+        setIsCheckinModalVisible(true);
+      } else if (latestStatus?.should_show_workout_prompt) {
+        setStatusModalKind("workout");
+        setIsStatusModalVisible(true);
+      } else {
+        setStatusModalKind("ready");
+        setIsStatusModalVisible(true);
+      }
+    } catch {
+      toast.error("Could not check status", "Please try again.");
+    } finally {
+      setIsCheckingInsightStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    appStatusRef.current = appStatus;
+  }, [appStatus]);
+
   const burnedToday = healthToday?.active_calories ?? 0;
-  const adjustedRemaining = remaining + burnedToday;
 
   const isFemale = profile?.sex === 'female';
-  const waterGoal = 8; // will wire to summary context later
 
   const longDate = useMemo(
     () => date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
@@ -1229,15 +1952,13 @@ export default function HomeScreen() {
               <View style={[styles.notifDot, { backgroundColor: P.calories, borderColor: P.bg }]} />
             </TouchableOpacity>
 
-            <View style={[styles.avatarRing, { borderColor: P.calories }]}>
-              <View style={[styles.avatar, { backgroundColor: P.sunken }]}>
-                {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
-                ) : (
-                  <Text style={[styles.avatarLetter, { color: P.calories }]}>{avatarLetter}</Text>
-                )}
-              </View>
-            </View>
+            <UserAvatar
+              size="sm"
+              avatarUrl={avatarUrl}
+              avatarLetter={avatarLetter}
+              accentColor={P.calories}
+              fillColor={P.sunken}
+            />
           </View>
         </AnimatedHeader>
 
@@ -1254,14 +1975,20 @@ export default function HomeScreen() {
             goal={mealGoal}
             burned={burnedToday}
             stepsToday={healthToday?.steps}
-            remaining={adjustedRemaining}
+            remaining={remaining}
+            earnedFromActivity={burnedToday}
             coach={{
               ...coachData,
               isLive: true,
               onPress: () => setPickerOpen(true),
             }}
           />
-          <InsightCard P={P} delay={280} />
+          <InsightCard
+            P={P}
+            delay={280}
+            isCheckingStatus={isCheckingInsightStatus}
+            onPress={handleInsightPress}
+          />
           <MacrosCard P={P} delay={360} macros={macros} />
           {Platform.OS === 'ios' && (
             <ActivityCard P={P} delay={430} data={healthToday} />
@@ -1273,7 +2000,13 @@ export default function HomeScreen() {
             totalCalories={totalCalories}
             onLogMore={() => router.replace('/(tabs)/log/food')}
           />
-          <HydrationCard P={P} delay={520} waterGoal={waterGoal} />
+          <WorkoutCard
+            P={P}
+            delay={500}
+            workouts={workouts}
+            totalCaloriesBurned={workoutCalsBurned}
+            onLogMore={() => router.push('/(tabs)/log/workout')}
+          />
         </View>
       </ScrollView>
 
@@ -1287,6 +2020,48 @@ export default function HomeScreen() {
           setCoachActivity(activity);
         }}
       />
+
+      <AppModal
+        visible={isStatusModalVisible}
+        onClose={() => setIsStatusModalVisible(false)}
+        title={statusModalKind === "workout" ? "Workout Prompt" : "Insight Ready"}
+        sheetHeight={0.4}
+      >
+        <View style={styles.statusModalBody}>
+          <Text style={[styles.statusModalText, { color: P.text }]}>
+            {statusModalKind === "workout"
+              ? "Your check-in is complete. Log a workout to unlock the next insight."
+              : "Everything is up to date. You can now view your weekly insight report."}
+          </Text>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={[styles.statusModalPrimaryBtn, { backgroundColor: P.calories }]}
+            onPress={() => {
+              setIsStatusModalVisible(false);
+              if (statusModalKind === "workout") {
+                router.replace("/(tabs)/log/workout");
+              } else {
+                router.replace("/(tabs)/insights/weekly");
+              }
+            }}
+          >
+            <Text style={styles.statusModalPrimaryText}>
+              {statusModalKind === "workout" ? "Log workout" : "Open report"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.7}
+            style={styles.statusModalSecondaryBtn}
+            onPress={() => setIsStatusModalVisible(false)}
+          >
+            <Text style={[styles.statusModalSecondaryText, { color: P.textFaint }]}>Maybe later</Text>
+          </TouchableOpacity>
+        </View>
+      </AppModal>
+
+      <CheckinModal visible={isCheckinModalVisible} onClose={() => setIsCheckinModalVisible(false)} />
     </View>
   );
 }
@@ -1332,23 +2107,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     borderWidth: 1.5,
   },
-  avatarRing: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: 1.5,
-    padding: 2,
-  },
-  avatar: {
-    flex: 1,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  avatarImg: { width: "100%", height: "100%" },
-  avatarLetter: { fontSize: 14, fontWeight: "800", letterSpacing: -0.2 },
-
   // Main stack
   stack: {
     paddingHorizontal: 20,
@@ -1405,13 +2163,18 @@ const styles = StyleSheet.create({
     marginBottom:  20,
   },
   chip: {
-    flex:           1,
-    flexDirection:  'row',
-    alignItems:     'center',
-    gap:            5,
-    paddingVertical: 8,
+    flex:              1,
+    flexDirection:     'column',
+    alignItems:        'flex-start',
+    gap:               3,
+    paddingVertical:   9,
     paddingHorizontal: 10,
-    borderRadius:   12,
+    borderRadius:      12,
+  },
+  chipTopRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           4,
   },
   chipVal: {
     fontSize:      13,
@@ -1459,95 +2222,19 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     textAlign:     'center',
   },
-
-  // Activity card
-  activityHead: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    marginBottom:  18,
-  },
-  stepsPctPill: {
+  earnedPill: {
+    marginTop:         8,
     flexDirection:     'row',
     alignItems:        'center',
-    gap:               4,
-    paddingHorizontal: 8,
-    paddingVertical:   3,
+    gap:               5,
+    paddingHorizontal: 14,
+    paddingVertical:   7,
     borderRadius:      999,
   },
-  stepsPctText: {
-    fontSize:   10,
-    fontWeight: '800',
-  },
-  stepsBarWrap: {
-    marginBottom: 20,
-  },
-  stepsBarTop: {
-    flexDirection:  'row',
-    alignItems:     'baseline',
-    justifyContent: 'space-between',
-    marginBottom:   8,
-  },
-  stepsBarLeft: {
-    flexDirection: 'row',
-    alignItems:    'baseline',
-    gap:           5,
-  },
-  stepsBarVal: {
-    fontSize:      20,
+  earnedPillText: {
+    fontSize:      12,
     fontWeight:    '800',
-    letterSpacing: -0.5,
-    fontVariant:   ['tabular-nums'],
-  },
-  stepsBarGoal: {
-    fontSize:   12,
-    fontWeight: '600',
-  },
-  stepsBarRemain: {
-    fontSize:   11,
-    fontWeight: '600',
-  },
-  stepsTrack: {
-    height:       6,
-    borderRadius: 3,
-    overflow:     'hidden',
-  },
-  stepsFill: {
-    height:       '100%',
-    borderRadius: 3,
-  },
-  activityRow: {
-    flexDirection: 'row',
-    alignItems:    'flex-start',
-  },
-  activityStat: {
-    flex:      1,
-    alignItems: 'center',
-    gap:        4,
-  },
-  activityIconBox: {
-    width:          36,
-    height:         36,
-    borderRadius:   12,
-    alignItems:     'center',
-    justifyContent: 'center',
-    marginBottom:   4,
-  },
-  activityVal: {
-    fontSize:      16,
-    fontWeight:    '800',
-    letterSpacing: -0.4,
-    fontVariant:   ['tabular-nums'],
-  },
-  activityLbl: {
-    fontSize:      10,
-    fontWeight:    '600',
     letterSpacing: 0.3,
-  },
-  activityDivider: {
-    width:          StyleSheet.hairlineWidth,
-    alignSelf:      'stretch',
-    marginTop:      8,
-    marginBottom:   8,
   },
 
   statLine: {
@@ -1869,5 +2556,37 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "500",
     marginTop: 2,
+  },
+
+  statusModalBody: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    gap: 14,
+  },
+  statusModalText: {
+    fontSize: 14,
+    fontWeight: "500",
+    lineHeight: 21,
+  },
+  statusModalPrimaryBtn: {
+    marginTop: 6,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusModalPrimaryText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  statusModalSecondaryBtn: {
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  statusModalSecondaryText: {
+    fontSize: 13,
+    fontWeight: "600",
   },
 });

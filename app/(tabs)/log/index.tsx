@@ -5,7 +5,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -13,24 +12,35 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useFood } from '@/hooks/use-food';
-import {
-  AnimatedCard,
-  usePalette,
-  useScreenPadding,
-} from '@/lib/log-theme';
+import { useWorkouts } from '@/context/workout-context';
+import { AnimatedCard, usePalette, useScreenPadding } from '@/lib/log-theme';
 import { SectionCard } from '@/components/log/SectionCard';
 import { useToast } from '@/components/ui/Toast';
+import { useWeight } from '@/hooks/use-weight';
+import { useProfile } from '@/hooks/use-profile';
+import { useUnits } from '@/hooks/use-units';
+import { useHealth } from '@/hooks/use-health';
+import { useRecovery } from '@/hooks/use-recovery';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 function localCalendarToday(): string {
-  const d = new Date();
+  const d  = new Date();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-// ── Screen ─────────────────────────────────────────────────────────────────
+function formatSleepHours(h: number): string {
+  const hh = Math.floor(h);
+  const mm = Math.round((h % 1) * 60);
+  return mm === 0 ? `${hh}h` : `${hh}h ${String(mm).padStart(2, '0')}m`;
+}
+
+function capital(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export default function DailyLogScreen() {
   const P      = usePalette();
   const router = useRouter();
@@ -38,20 +48,31 @@ export default function DailyLogScreen() {
   const insets = useSafeAreaInsets();
 
   const { meals, mealGoal, totalCalories, refreshLogs, activeDate } = useFood();
+  const { workouts, totalCaloriesBurned: workoutCalsBurned } = useWorkouts();
+  const { latest } = useWeight();
+  const { profile } = useProfile();
+  const { weightUnit, toDisplayWeight } = useUnits();
+  const health   = useHealth();
+  const recovery = useRecovery();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
 
-  const isFoodDayToday = activeDate === localCalendarToday();
+  // Sleep — prefer HealthKit (objective), fall back to recovery log
+  const sleepHours   = health.today?.sleep_hours ?? recovery.today?.sleep_hours ?? null;
+  const sleepQuality = recovery.today?.sleep_quality ?? null;
+  const sleepFromHK  = health.today?.sleep_hours != null;
+
+  const isFoodDayToday   = activeDate === localCalendarToday();
+  const eatenPct         = Math.min(totalCalories / Math.max(mealGoal, 1), 1);
+  const latestWeightKg   = latest?.weight_kg ?? profile?.weightKg ?? null;
+  const latestWeight     = latestWeightKg === null ? null : toDisplayWeight(latestWeightKg);
+  const totalWorkoutMins = workouts.reduce((s, w) => s + w.duration_mins, 0);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    try {
-      await refreshLogs();
-    } catch {
-      toast.error('Could not refresh', 'Please try again.');
-    } finally {
-      setRefreshing(false);
-    }
+    try { await refreshLogs(); }
+    catch { toast.error('Could not refresh', 'Please try again.'); }
+    finally { setRefreshing(false); }
   };
 
   const today = useMemo(
@@ -61,14 +82,35 @@ export default function DailyLogScreen() {
     [],
   );
 
-  const eatenPct = Math.min(totalCalories / Math.max(mealGoal, 1), 1);
-
-  // Hub summary stats — totals across everything logged today.
-  const stats = [
-    { key: 'food',    icon: 'flame-outline'     as IoniconName, value: totalCalories, unit: 'kcal',   accent: P.calories },
-    { key: 'workout', icon: 'barbell-outline'   as IoniconName, value: 0,              unit: 'min',    accent: P.workout  },
-    { key: 'sleep',   icon: 'moon-outline'      as IoniconName, value: '—',            unit: 'hours',  accent: P.sleep    },
-    { key: 'weight',  icon: 'scale-outline'     as IoniconName, value: '—',            unit: 'lb',     accent: P.weight   },
+  const stats: { key: string; icon: IoniconName; value: string; unit: string; accent: string }[] = [
+    {
+      key:    'food',
+      icon:   'flame-outline',
+      value:  totalCalories > 0 ? totalCalories.toLocaleString() : '—',
+      unit:   'kcal',
+      accent: P.calories,
+    },
+    {
+      key:    'workout',
+      icon:   'barbell-outline',
+      value:  totalWorkoutMins > 0 ? String(totalWorkoutMins) : '—',
+      unit:   'min',
+      accent: P.workout,
+    },
+    {
+      key:    'sleep',
+      icon:   'moon-outline',
+      value:  sleepHours !== null ? sleepHours.toFixed(1) : '—',
+      unit:   'hrs',
+      accent: P.sleep,
+    },
+    {
+      key:    'weight',
+      icon:   'scale-outline',
+      value:  latestWeight === null ? '—' : latestWeight.toFixed(1),
+      unit:   weightUnit,
+      accent: P.weight,
+    },
   ];
 
   return (
@@ -86,42 +128,60 @@ export default function DailyLogScreen() {
           />
         }
       >
-        {/* ── Header ──────────────────────────────────────────────── */}
-        <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.eyebrow, { color: P.textFaint }]}>
-              {today.toUpperCase()}
-            </Text>
-            <Text style={[styles.title, { color: P.text }]}>
-              Daily Log<Text style={{ color: P.calories }}>.</Text>
-            </Text>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.iconBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="calendar-outline" size={18} color={P.text} />
-          </TouchableOpacity>
+        {/* ── Header ─────────────────────────────────────────────── */}
+        <View style={s.header}>
+          <Text style={[s.date, { color: P.textFaint }]}>
+            {today.toUpperCase()}
+          </Text>
+          <Text style={[s.title, { color: P.text }]}>
+            {"Today's Log"}<Text style={{ color: P.calories }}>.</Text>
+          </Text>
         </View>
 
-        {/* ── Hero: at-a-glance chips ─────────────────────────────── */}
-        <View style={{ paddingHorizontal: 20, marginTop: 18 }}>
-          <AnimatedCard delay={60}>
-            <Text style={[styles.glanceEyebrow, { color: P.textFaint }]}>
-              TODAY AT A GLANCE
-            </Text>
-            <View style={styles.glanceGrid}>
-              {stats.map((s) => (
-                <View key={s.key} style={styles.glanceCell}>
-                  <View style={[styles.glanceIcon, { backgroundColor: s.accent + '38' }]}>
-                    <Ionicons name={s.icon} size={14} color={s.accent} />
+        {/* ── At-a-glance ─────────────────────────────────────────── */}
+        <View style={{ paddingHorizontal: 20, marginTop: 20 }}>
+          <AnimatedCard delay={60} padding={0}>
+            {/* Card header */}
+            <View style={[s.glanceHeader, { borderBottomColor: P.hair }]}>
+              <Text style={[s.glanceTitle, { color: P.textFaint }]}>
+                TODAY AT A GLANCE
+              </Text>
+            </View>
+
+            {/* Single row — each column owns its icon + value + unit */}
+            <View style={s.glanceRow}>
+              {stats.map((st, i) => (
+                <View
+                  key={st.key}
+                  style={[
+                    s.glanceCol,
+                    i < stats.length - 1 && {
+                      borderRightWidth: StyleSheet.hairlineWidth,
+                      borderRightColor: P.hair,
+                    },
+                  ]}
+                >
+                  {/* Icon chip */}
+                  <View style={[s.glanceIcon, { backgroundColor: st.accent + '1E' }]}>
+                    <Ionicons name={st.icon} size={14} color={st.accent} />
                   </View>
-                  <Text style={[styles.glanceValue, { color: P.text }]} numberOfLines={1}>
-                    {typeof s.value === 'number' ? s.value.toLocaleString() : s.value}
+
+                  {/* Value */}
+                  <Text
+                    style={[
+                      s.glanceValue,
+                      { color: st.value === '—' ? P.textFaint : P.text },
+                    ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.75}
+                  >
+                    {st.value}
                   </Text>
-                  <Text style={[styles.glanceUnit, { color: P.textFaint }]}>
-                    {s.unit}
+
+                  {/* Unit */}
+                  <Text style={[s.glanceUnit, { color: st.accent }]}>
+                    {st.unit}
                   </Text>
                 </View>
               ))}
@@ -129,8 +189,13 @@ export default function DailyLogScreen() {
           </AnimatedCard>
         </View>
 
-        {/* ── Sections ────────────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 20, gap: 14, marginTop: 18 }}>
+        {/* ── Section label ───────────────────────────────────────── */}
+        <Text style={[s.sectionLabel, { color: P.textFaint }]}>
+          LOG TODAY
+        </Text>
+
+        {/* ── Section cards ───────────────────────────────────────── */}
+        <View style={{ paddingHorizontal: 20, gap: 10 }}>
           <SectionCard
             delay={140}
             accent={P.calories}
@@ -138,165 +203,141 @@ export default function DailyLogScreen() {
             icon="flame"
             title="Food"
             eyebrow={isFoodDayToday ? 'EATEN' : 'ATE'}
-            valueBig={totalCalories.toLocaleString()}
+            valueBig={totalCalories > 0 ? totalCalories.toLocaleString() : '—'}
             valueSmall="kcal"
             caption={
               meals.length === 0
                 ? 'No meals logged yet · tap to add'
                 : `${meals.length} ${meals.length === 1 ? 'meal' : 'meals'} · ${Math.round(eatenPct * 100)}% of goal`
             }
-            progress={eatenPct}
+            progress={totalCalories > 0 ? eatenPct : undefined}
             onPress={() => router.push('/(tabs)/log/food')}
           />
 
           <SectionCard
-            delay={200}
+            delay={190}
             accent={P.workout}
             accentSoft={P.workoutSoft}
             icon="barbell"
             title="Workout"
             eyebrow="TRAINING"
-            valueBig="0"
+            valueBig={totalWorkoutMins > 0 ? String(totalWorkoutMins) : '—'}
             valueSmall="min"
-            caption="No workout logged · tap to add"
+            caption={
+              workouts.length === 0
+                ? 'No workout logged · tap to add'
+                : `${workouts.length} ${workouts.length === 1 ? 'session' : 'sessions'} · ${workoutCalsBurned.toLocaleString()} kcal burned`
+            }
             onPress={() => router.push('/(tabs)/log/workout')}
           />
 
           <SectionCard
-            delay={260}
+            delay={240}
             accent={P.sleep}
             accentSoft={P.sleepSoft}
             icon="moon"
             title="Sleep"
             eyebrow="LAST NIGHT"
-            valueBig="—"
+            valueBig={sleepHours !== null ? sleepHours.toFixed(1) : '—'}
             valueSmall="hrs"
-            caption="Not logged · tap to add"
+            caption={
+              sleepHours === null
+                ? 'Not logged · tap to add'
+                : [
+                    formatSleepHours(sleepHours),
+                    sleepQuality
+                      ? capital(sleepQuality) + ' quality'
+                      : sleepFromHK
+                        ? 'from Apple Health'
+                        : null,
+                  ].filter(Boolean).join(' · ')
+            }
             onPress={() => router.push('/(tabs)/log/sleep')}
           />
 
           <SectionCard
-            delay={320}
+            delay={290}
             accent={P.weight}
             accentSoft={P.weightSoft}
             icon="scale"
             title="Weight"
             eyebrow="TODAY'S READING"
-            valueBig="—"
-            valueSmall="lb"
-            caption="Not logged · tap to add"
+            valueBig={latestWeight === null ? '—' : latestWeight.toFixed(1)}
+            valueSmall={weightUnit}
+            caption={
+              latestWeight === null
+                ? 'Not logged · tap to add'
+                : 'Latest recorded · tap to update'
+            }
             onPress={() => router.push('/(tabs)/log/weight')}
           />
-
-          <SectionCard
-            delay={380}
-            accent={P.body}
-            accentSoft={P.bodySoft}
-            icon="body"
-            title="Body metrics"
-            eyebrow="HOW YOU FEEL"
-            valueBig="—"
-            valueSmall=""
-            caption="No soreness / notes · tap to add"
-            onPress={() => router.push('/(tabs)/log/body')}
-          />
-        </View>
-
-        {/* ── Footer nudge ────────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 20, marginTop: 22 }}>
-          <AnimatedCard delay={440} padding={16}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={[styles.tipIcon, { backgroundColor: P.proteinSoft }]}>
-                <Ionicons name="sparkles" size={14} color={P.protein} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.tipTitle, { color: P.text }]}>
-                  {"Log what you can — we'll do the rest"}
-                </Text>
-                <Text style={[styles.tipBody, { color: P.textFaint }]}>
-                  Only need a few fields filled in. Insights get sharper with every log.
-                </Text>
-              </View>
-            </View>
-          </AnimatedCard>
         </View>
       </ScrollView>
     </View>
   );
 }
 
-// ── Styles ─────────────────────────────────────────────────────────────────
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   header: {
-    flexDirection:     'row',
-    alignItems:        'center',
     paddingHorizontal: 20,
-    gap:               12,
   },
-  eyebrow: {
+  date: {
     fontSize:      10,
-    fontWeight:    '700',
-    letterSpacing: 1.8,
-    marginBottom:  4,
+    fontWeight:    '600',
+    letterSpacing: 1.5,
+    marginBottom:  6,
   },
   title: {
     fontSize:      28,
     fontWeight:    '800',
     letterSpacing: -0.8,
   },
-  iconBtn: {
-    width:           42, height: 42, borderRadius: 21,
-    alignItems:      'center',
-    justifyContent:  'center',
-    borderWidth:     StyleSheet.hairlineWidth,
-  },
 
-  glanceEyebrow: {
+  // ── At-a-glance ────────────────────────────────────────────────
+  glanceHeader: {
+    paddingHorizontal: 18,
+    paddingVertical:   14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  glanceTitle: {
     fontSize:      10,
-    fontWeight:    '800',
-    letterSpacing: 1.5,
-    marginBottom:  14,
+    fontWeight:    '700',
+    letterSpacing: 1.4,
   },
-  glanceGrid: {
+  glanceRow: {
     flexDirection: 'row',
-    gap:           12,
   },
-  glanceCell: {
-    flex:       1,
-    alignItems: 'flex-start',
-    gap:        6,
+  glanceCol: {
+    flex:            1,
+    alignItems:      'center',
+    paddingVertical: 18,
+    gap:             8,
   },
   glanceIcon: {
-    width:          28, height: 28, borderRadius: 9,
+    width:          34,
+    height:         34,
+    borderRadius:   10,
     alignItems:     'center',
     justifyContent: 'center',
-    marginBottom:   2,
   },
   glanceValue: {
-    fontSize:      18,
-    fontWeight:    '800',
+    fontSize:      20,
+    fontWeight:    '700',
     letterSpacing: -0.5,
   },
   glanceUnit: {
-    fontSize:      9,
-    fontWeight:    '800',
-    letterSpacing: 1.2,
+    fontSize:      10,
+    fontWeight:    '600',
+    letterSpacing: 0.5,
   },
 
-  tipIcon: {
-    width:          32, height: 32, borderRadius: 10,
-    alignItems:     'center',
-    justifyContent: 'center',
-  },
-  tipTitle: {
-    fontSize:      13,
-    fontWeight:    '800',
-    letterSpacing: -0.2,
-    marginBottom:  2,
-  },
-  tipBody: {
-    fontSize:      11,
-    fontWeight:    '500',
-    lineHeight:    15,
+  // ── Section list ───────────────────────────────────────────────
+  sectionLabel: {
+    fontSize:          10,
+    fontWeight:        '700',
+    letterSpacing:     1.5,
+    paddingHorizontal: 20,
+    marginTop:         28,
+    marginBottom:      12,
   },
 });
