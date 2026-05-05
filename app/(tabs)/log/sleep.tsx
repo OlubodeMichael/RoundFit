@@ -24,10 +24,16 @@ import {
   TextField,
   usePalette,
 } from '@/lib/log-theme';
+import { SleepHypnogram } from '@/components/log/SleepHypnogram';
 import { useToast } from '@/components/ui/Toast';
 import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
 import { apiFetch } from '@/utils/api';
+import {
+  getHealthKitModule,
+  readSleepSegmentsForNight,
+  type SleepSegment,
+} from '@/utils/healthkit';
 import type { SleepQuality } from '@/context/recovery-context';
 import type { HealthData } from '@/context/health-context';
 
@@ -123,10 +129,28 @@ export default function SleepLogScreen() {
   const [notes,    setNotes]   = useState('');
   const [saving,   setSaving]  = useState(false);
 
+  // ── Sleep stage segments (for hypnogram chart) ─────────────────────────────
+  const [sleepSegments, setSleepSegments] = useState<SleepSegment[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const hk = getHealthKitModule();
+    if (!hk) return;
+    readSleepSegmentsForNight(hk, activeDate).then((segs) => {
+      if (!cancelled) setSleepSegments(segs);
+    });
+    return () => { cancelled = true; };
+  }, [activeDate]);
+
   // Reset + re-populate whenever the active date (or its health data) changes
   const populateFromHealthKit = useCallback((hk: HealthData) => {
     setFromHealthKit(true);
-    setQuality(sleepHoursToQuality(hk.sleep_hours!));
+    setQuality(sleepHoursToQuality({
+      sleep_hours:      hk.sleep_hours!,
+      deep_sleep_hours: hk.deep_sleep_hours,
+      rem_sleep_hours:  hk.rem_sleep_hours,
+      sleep_efficiency: hk.sleep_efficiency,
+    }));
     if (hk.deep_sleep_hours !== null && hk.deep_sleep_hours > 0) {
       const totalMin = Math.round(hk.deep_sleep_hours * 60);
       setDeepH(String(Math.floor(totalMin / 60)));
@@ -135,9 +159,17 @@ export default function SleepLogScreen() {
       setDeepH('');
       setDeepM('');
     }
-    const est = estimateBedtime(hk.sleep_hours!);
-    setBedtime(est.bedtime);
-    setWakeup(est.wakeup);
+    if (hk.bedtime_iso) {
+      setBedtime(isoToClockString(hk.bedtime_iso));
+    } else {
+      const est = estimateBedtime(hk.sleep_hours!);
+      setBedtime(est.bedtime);
+    }
+    if (hk.wakeup_iso) {
+      setWakeup(isoToClockString(hk.wakeup_iso));
+    } else {
+      setWakeup('7:00 AM');
+    }
   }, []);
 
   useEffect(() => {
@@ -319,6 +351,24 @@ export default function SleepLogScreen() {
           </View>
         )}
 
+        {/* ── Hypnogram chart ──────────────────────────────────────────────── */}
+        {fromHealthKit && sleepSegments.some(
+          (s) => s.stage === 'awake' || s.stage === 'rem' || s.stage === 'core' || s.stage === 'deep',
+        ) && (
+          <View style={{ paddingHorizontal: 20, marginTop: 14 }}>
+            <AnimatedCard delay={90} padding={16}>
+              <Text style={[sleepStyles.heroEyebrow, { color: P.textFaint, marginBottom: 12 }]}>
+                SLEEP STAGES
+              </Text>
+              <SleepHypnogram
+                segments={sleepSegments}
+                windowStart={hkSleep?.bedtime_iso ? new Date(hkSleep.bedtime_iso) : undefined}
+                windowEnd={hkSleep?.wakeup_iso   ? new Date(hkSleep.wakeup_iso)   : undefined}
+              />
+            </AnimatedCard>
+          </View>
+        )}
+
         {/* ── Bedtime / Wakeup ─────────────────────────────────────────────── */}
         <View style={{ paddingHorizontal: 20, marginTop: 14 }}>
           <AnimatedCard delay={120}>
@@ -435,6 +485,15 @@ export default function SleepLogScreen() {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+function isoToClockString(iso: string): string {
+  const d = new Date(iso);
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
 function parseClock(value: string): { h: number; m: number } | null {
   const m = value.trim().toUpperCase().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/);
   if (!m) return null;
@@ -477,11 +536,64 @@ function estimateBedtime(sleepHours: number): { bedtime: string; wakeup: string 
   };
 }
 
-function sleepHoursToQuality(h: number): Quality {
-  if (h < 5)   return 'poor';
-  if (h < 6.5) return 'fair';
-  if (h < 7.5) return 'good';
-  return 'great';
+function sleepHoursToQuality(hk: {
+  sleep_hours:      number;
+  deep_sleep_hours?: number | null;
+  rem_sleep_hours?:  number | null;
+  sleep_efficiency?: number | null;
+}): Quality {
+  const h = hk.sleep_hours;
+
+  // ── Duration score (weight 4) ───────────────────────────────────────────
+  // NSF recommendation: 7–9 h for adults
+  let durationScore: number;
+  if (h >= 7 && h <= 9)  durationScore = 1.0;
+  else if (h >= 6.5)     durationScore = 0.75;
+  else if (h >= 6)       durationScore = 0.50;
+  else if (h >= 5)       durationScore = 0.25;
+  else                   durationScore = 0.0;
+
+  let weightedSum = durationScore * 4;
+  let totalWeight = 4;
+
+  // ── Efficiency score (weight 3) ─────────────────────────────────────────
+  // ≥85% is clinically "good"; <75% is poor
+  if (hk.sleep_efficiency != null && hk.sleep_efficiency > 0) {
+    const eff = hk.sleep_efficiency;
+    const effScore = eff >= 90 ? 1.0 : eff >= 85 ? 0.75 : eff >= 75 ? 0.50 : 0.20;
+    weightedSum += effScore * 3;
+    totalWeight += 3;
+  }
+
+  // ── Deep sleep ratio (weight 2) ─────────────────────────────────────────
+  // Healthy range: 13–23% of total sleep
+  if (hk.deep_sleep_hours != null && hk.deep_sleep_hours > 0 && h > 0) {
+    const pct = (hk.deep_sleep_hours / h) * 100;
+    let deepScore: number;
+    if (pct >= 13 && pct <= 23)   deepScore = 1.0;
+    else if (pct >= 10 || pct <= 28) deepScore = 0.65;
+    else                          deepScore = 0.30;
+    weightedSum += deepScore * 2;
+    totalWeight += 2;
+  }
+
+  // ── REM ratio (weight 1) ────────────────────────────────────────────────
+  // Healthy range: 20–25% of total sleep
+  if (hk.rem_sleep_hours != null && hk.rem_sleep_hours > 0 && h > 0) {
+    const pct = (hk.rem_sleep_hours / h) * 100;
+    let remScore: number;
+    if (pct >= 20 && pct <= 25)   remScore = 1.0;
+    else if (pct >= 15 || pct <= 30) remScore = 0.65;
+    else                          remScore = 0.30;
+    weightedSum += remScore * 1;
+    totalWeight += 1;
+  }
+
+  const score = weightedSum / totalWeight;
+  if (score >= 0.80) return 'great';
+  if (score >= 0.60) return 'good';
+  if (score >= 0.35) return 'fair';
+  return 'poor';
 }
 
 function formatHoursShort(h: number): string {

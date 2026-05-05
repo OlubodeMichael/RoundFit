@@ -41,6 +41,8 @@ export interface HealthData {
   rem_sleep_hours:       number | null;
   sleep_efficiency:      number | null;
   time_in_bed_hours:     number | null;
+  bedtime_iso:           string | null;
+  wakeup_iso:            string | null;
   weight_kg:             number | null;
   source:                HealthSource;
   recorded_at:           string;
@@ -68,6 +70,8 @@ export interface SyncHealthInput {
   rem_sleep_hours?:       number;
   sleep_efficiency?:      number;
   time_in_bed_hours?:     number;
+  bedtime_iso?:           string;
+  wakeup_iso?:            string;
   weight_kg?:             number;
 }
 
@@ -152,6 +156,8 @@ function toSyncInput(s: HealthKitSummary): SyncHealthInput {
   if (s.vo2_max            !== null) input.vo2_max            = s.vo2_max;
   if (s.sleep_efficiency   !== null) input.sleep_efficiency   = s.sleep_efficiency;
   if (s.weight_kg          !== null) input.weight_kg          = s.weight_kg;
+  if (s.bedtime_iso        !== null) input.bedtime_iso        = s.bedtime_iso;
+  if (s.wakeup_iso         !== null) input.wakeup_iso         = s.wakeup_iso;
   return input;
 }
 
@@ -185,6 +191,8 @@ function fromApiData(row: Record<string, unknown>): HealthData {
     rem_sleep_hours:       num(row.rem_sleep_hours),
     sleep_efficiency:      num(row.sleep_efficiency),
     time_in_bed_hours:     num(row.time_in_bed_hours),
+    bedtime_iso:           typeof row.bedtime_iso === 'string' ? row.bedtime_iso : null,
+    wakeup_iso:            typeof row.wakeup_iso  === 'string' ? row.wakeup_iso  : null,
     weight_kg:             num(row.weight_kg),
     source:                (row.source as HealthSource) ?? 'healthkit',
     recorded_at:           typeof row.recorded_at === 'string' ? row.recorded_at : new Date().toISOString(),

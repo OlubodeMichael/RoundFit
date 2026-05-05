@@ -51,6 +51,8 @@ export interface HealthKitSummary {
   rem_sleep_hours:       number;
   sleep_efficiency:      number | null;
   time_in_bed_hours:     number;
+  bedtime_iso:           string | null;
+  wakeup_iso:            string | null;
   active_minutes:        number;
   vo2_max:               number | null;
   mindfulness_minutes:   number;
@@ -84,6 +86,14 @@ interface CategorySampleLike  {
   sourceRevision?: { source?: SourceLike } | null;
 }
 type HealthKitModule = any;
+
+export type SleepStage = 'awake' | 'rem' | 'core' | 'deep' | 'unspecified' | 'inBed';
+
+export interface SleepSegment {
+  start: Date;
+  end:   Date;
+  stage: SleepStage;
+}
 
 // ── Module loader ──────────────────────────────────────────────────────────
 
@@ -322,6 +332,8 @@ export async function readDailyHealthKit(
     rem_sleep_hours:       sleepSummary.rem_sleep_hours,
     sleep_efficiency:      sleepSummary.sleep_efficiency,
     time_in_bed_hours:     sleepSummary.time_in_bed_hours,
+    bedtime_iso:           sleepSummary.bedtime_iso,
+    wakeup_iso:            sleepSummary.wakeup_iso,
     active_minutes:        exerciseCount,
     vo2_max:               tenthsOrNull(latest(vo2Max)),
     mindfulness_minutes:   round(sumCategoryDurationHoursWithinWindow(mindful, from, to) * 60),
@@ -353,6 +365,43 @@ export async function readHealthKitForDate(
   return readDailyHealthKit(hk, from, to);
 }
 
+/**
+ * Reads raw sleep-stage segments from HealthKit for the night anchored to
+ * `dateStr` (treated as the wake-up date). Window: previous day 5 PM → noon.
+ * Returns segments with stage classified; `inBed` segments are included so
+ * callers can decide whether to display them.
+ */
+export async function readSleepSegmentsForNight(
+  hk:      HealthKitModule,
+  dateStr: string,
+): Promise<SleepSegment[]> {
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const nightStart = new Date(y, (mo ?? 1) - 1, (d ?? 1) - 1, 17, 0, 0, 0);
+  const nightEnd   = new Date(y, (mo ?? 1) - 1,  d ?? 1,       12, 0, 0, 0);
+
+  const opts = {
+    limit:     2000,
+    ascending: true,
+    filter:    { date: { startDate: nightStart, endDate: nightEnd } },
+  };
+
+  try {
+    const raw: CategorySampleLike[] = await hk
+      .queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', opts)
+      .catch(() => []);
+
+    return raw
+      .map((s) => ({
+        start: s.startDate instanceof Date ? s.startDate : new Date(s.startDate as string),
+        end:   s.endDate   instanceof Date ? s.endDate   : new Date(s.endDate   as string),
+        stage: classifySleepStage(s.value),
+      }))
+      .filter((seg) => seg.end.getTime() > seg.start.getTime());
+  } catch {
+    return [];
+  }
+}
+
 // ── Internal: sample helpers ───────────────────────────────────────────────
 
 // Samples are queried with ascending:false so index 0 is the most recent.
@@ -374,6 +423,31 @@ function tenthsOrNull(n: number | null): number | null {
 
 // ── Internal: sleep classification ─────────────────────────────────────────
 
+function classifySleepStage(value: number | string | null | undefined): SleepStage {
+  if (typeof value === 'number') {
+    switch (value) {
+      case 0: return 'inBed';
+      case 2: return 'awake';
+      case 3: return 'core';
+      case 4: return 'deep';
+      case 5: return 'rem';
+      default: return 'unspecified';
+    }
+  }
+  if (typeof value === 'string') {
+    switch (value) {
+      case 'inBed':             return 'inBed';
+      case 'awake':             return 'awake';
+      case 'asleepCore':        return 'core';
+      case 'asleepDeep':        return 'deep';
+      case 'asleepREM':         return 'rem';
+      case 'asleepUnspecified': return 'unspecified';
+      case 'asleep':            return 'unspecified';
+    }
+  }
+  return 'inBed';
+}
+
 // Apple HKCategoryValueSleepAnalysis numeric values.
 // Depending on HealthKit version the lib may return numbers or strings —
 // we normalise by checking against both forms.
@@ -388,6 +462,8 @@ interface SleepSummary {
   rem_sleep_hours:   number;
   time_in_bed_hours: number;
   sleep_efficiency:  number | null;
+  bedtime_iso:       string | null;
+  wakeup_iso:        string | null;
 }
 
 function summariseSleep(
@@ -400,13 +476,23 @@ function summariseSleep(
   let asleep = 0;
   let inBed = 0;
 
+  // Track the earliest inBed start and latest inBed end for real bedtime/wakeup
+  let inBedStart: Date | null = null;
+  let inBedEnd:   Date | null = null;
+
   for (const s of samples) {
     const hours = durationHoursWithinWindow(s, windowStart, windowEnd);
     if (hours <= 0) continue;
     if (isSleepValue(s.value, SLEEP_VALUE_DEEP, 'asleepDeep')) deep   += hours;
     if (isSleepValue(s.value, SLEEP_VALUE_REM,  'asleepREM'))  rem    += hours;
     if (isAsleepValue(s.value))                                asleep += hours;
-    if (isSleepValue(s.value, SLEEP_VALUE_IN_BED, 'inBed'))    inBed  += hours;
+    if (isSleepValue(s.value, SLEEP_VALUE_IN_BED, 'inBed')) {
+      inBed += hours;
+      const start = s.startDate instanceof Date ? s.startDate : new Date(s.startDate);
+      const end   = s.endDate   instanceof Date ? s.endDate   : new Date(s.endDate);
+      if (!inBedStart || start < inBedStart) inBedStart = start;
+      if (!inBedEnd   || end   > inBedEnd)   inBedEnd   = end;
+    }
   }
 
   return {
@@ -415,6 +501,8 @@ function summariseSleep(
     rem_sleep_hours:   tenths(rem),
     time_in_bed_hours: tenths(inBed),
     sleep_efficiency:  inBed > 0 ? Math.round((asleep / inBed) * 100) : null,
+    bedtime_iso:       inBedStart ? inBedStart.toISOString() : null,
+    wakeup_iso:        inBedEnd   ? inBedEnd.toISOString()   : null,
   };
 }
 
