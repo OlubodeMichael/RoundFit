@@ -63,8 +63,11 @@ function AppNavigator() {
     const inPublicOnboarding = top === "auth" || top === "onboarding";
 
     if (status === "authenticated" && top === "auth") {
-      router.replace("/(tabs)");
-      return;
+      const passwordScreen = segments[1] === "forgot-password" || segments[1] === "reset-password" || segments[1] === "change-password";
+      if (!passwordScreen) {
+        router.replace("/(tabs)");
+        return;
+      }
     }
 
     if (status === "unauthenticated" && !inPublicOnboarding) {
@@ -75,8 +78,9 @@ function AppNavigator() {
   const top = segments[0];
   // Hide auth UI until session is known, and while an authenticated user is still on `auth`
   // (replace to tabs runs in the same layout pass — avoids a flash of the auth landing screen).
+  const passwordScreen = segments[1] === "forgot-password" || segments[1] === "reset-password" || segments[1] === "change-password";
   const showAuthSplash =
-    status === "loading" || (status === "authenticated" && top === "auth");
+    status === "loading" || (status === "authenticated" && top === "auth" && !passwordScreen);
 
   return (
     <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>

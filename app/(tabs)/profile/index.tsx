@@ -340,7 +340,7 @@ export default function ProfileScreen() {
           icon="lock-closed" iconBg="#818CF8" iconFg="#FFF"
           label="Change Password"
           P={P}
-          onPress={() => {}}
+          onPress={() => router.push('/auth/change-password')}
         />
         <Divider P={P} />
         <NavRow
