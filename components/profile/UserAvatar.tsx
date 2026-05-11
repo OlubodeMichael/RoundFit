@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   Image,
   StyleSheet,
@@ -34,13 +35,11 @@ export interface UserAvatarProps {
 }
 
 /**
- * Circular avatar: image when `avatarUrl` is set, otherwise initials using `accentColor`.
+ * Circular avatar: image when `avatarUrl` is set, otherwise gradient initials placeholder.
  */
 export function UserAvatar({
   avatarUrl,
   avatarLetter,
-  accentColor,
-  fillColor,
   size,
   uploading = false,
   onPress,
@@ -49,27 +48,24 @@ export function UserAvatar({
   const d = DIAMETER[size];
   const r = d / 2;
 
-  const circleStyle = [
-    s.circle,
-    {
-      width: d,
-      height: d,
-      borderRadius: r,
-      backgroundColor: fillColor,
-    },
-  ];
-
   const body = (
-    <View style={circleStyle}>
+    <View style={[s.circle, { width: d, height: d, borderRadius: r }]}>
       {avatarUrl ? (
         <Image
           source={{ uri: avatarUrl }}
           style={[s.image, { width: d, height: d, borderRadius: r }]}
         />
       ) : (
-        <Text style={[s.letter, { color: accentColor, fontSize: LETTER_SIZE[size] }]}>
-          {avatarLetter}
-        </Text>
+        <LinearGradient
+          colors={['#FB923C', '#F97316', '#EA580C']}
+          start={{ x: 0.1, y: 0 }}
+          end={{ x: 0.9, y: 1 }}
+          style={[s.gradient, { width: d, height: d, borderRadius: r }]}
+        >
+          <Text style={[s.letter, { fontSize: LETTER_SIZE[size] }]}>
+            {avatarLetter}
+          </Text>
+        </LinearGradient>
       )}
       {uploading && (
         <View style={[s.overlay, { borderRadius: r }]}>
@@ -102,10 +98,15 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  gradient: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   image: {
     resizeMode: 'cover',
   },
   letter: {
+    color: '#FFF',
     fontWeight: '800',
     letterSpacing: -0.2,
   },

@@ -1,7 +1,9 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Alert, Image, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,6 +14,7 @@ import { useHealth } from '@/hooks/use-health';
 import { useProfile } from '@/hooks/use-profile';
 import { useTheme } from '@/hooks/use-theme';
 import { deleteAvatar, pickAndUploadAvatar } from '@/utils/avatar';
+import { usePostHog } from 'posthog-react-native';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -59,6 +62,8 @@ const ACTIVITY_LABELS: Record<string, string> = {
 };
 
 const HEALTH_KEY = '@roundfit/health_connected';
+const SLEEP_KEY  = '@roundfit/sleep_target_hours';
+const STEPS_KEY  = '@roundfit/steps_target';
 const HEALTH_TYPES = [
   'HKQuantityTypeIdentifierStepCount',
   'HKQuantityTypeIdentifierActiveEnergyBurned',
@@ -76,16 +81,29 @@ export default function ProfileScreen() {
   const { profile, avatarUrl, avatarLetter, stats, updateProfile } = useProfile();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const posthog = usePostHog();
   const [avatarUploading, setAvatarUploading]   = useState(false);
   const [avatarSheetOpen, setAvatarSheetOpen]   = useState(false);
   const [viewingAvatar,   setViewingAvatar]     = useState(false);
+  const [sleepTarget,     setSleepTarget]       = useState(8);
+  const [stepsTarget,     setStepsTarget]       = useState(10000);
+
+  useEffect(() => {
+    (async () => {
+      const [sleepRaw, stepsRaw] = await Promise.all([
+        AsyncStorage.getItem(SLEEP_KEY),
+        AsyncStorage.getItem(STEPS_KEY),
+      ]);
+      if (sleepRaw !== null) setSleepTarget(parseFloat(sleepRaw));
+      if (stepsRaw !== null) setStepsTarget(parseInt(stepsRaw, 10));
+    })();
+  }, []);
 
   const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
   const { isConnected: healthConnected } = useHealth();
 
   const calorieDisplay  = stats.dailyCalories ? `${stats.dailyCalories.toLocaleString()} kcal` : '—';
   const proteinDisplay  = stats.proteinGrams ? `${stats.proteinGrams}g` : '—';
-  const weightDisplay   = stats.weightDisplay ?? '—';
   const goalDisplay     = profile ? (GOAL_LABELS[profile.goal] ?? '—') : '—';
   const activityDisplay = profile ? (ACTIVITY_LABELS[profile.activityLevel] ?? '—') : '—';
 
@@ -101,6 +119,7 @@ export default function ProfileScreen() {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       await AsyncStorage.setItem(HEALTH_KEY, 'true');
+      posthog.capture('health_connected', { platform: 'apple_health' });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       Alert.alert('Could not connect', msg || 'Allow access in Settings → Health → RoundFit.');
@@ -114,13 +133,28 @@ export default function ProfileScreen() {
 
   async function handleAvatarChange() {
     setAvatarSheetOpen(false);
-    // Wait for the sheet close animation to finish before opening the native picker
     await new Promise(r => setTimeout(r, 280));
     try {
       setAvatarUploading(true);
       const uploadedUrl = await pickAndUploadAvatar();
       if (!uploadedUrl) return;
-      updateProfile({ avatarUrl: uploadedUrl }); // optimistic — updates UI immediately
+      updateProfile({ avatarUrl: uploadedUrl });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      Alert.alert('Could not upload avatar', msg || 'Please try again.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
+  async function handleAvatarTakePhoto() {
+    setAvatarSheetOpen(false);
+    await new Promise(r => setTimeout(r, 280));
+    try {
+      setAvatarUploading(true);
+      const uploadedUrl = await pickAndUploadAvatar();
+      if (!uploadedUrl) return;
+      updateProfile({ avatarUrl: uploadedUrl });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       Alert.alert('Could not upload avatar', msg || 'Please try again.');
@@ -146,7 +180,7 @@ export default function ProfileScreen() {
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: P.bg }}
-      contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 64, gap: 8 }}
+      contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 96, gap: 8 }}
       showsVerticalScrollIndicator={false}
     >
       {/* ── Hero header ─────────────────────────────────────────────── */}
@@ -185,20 +219,30 @@ export default function ProfileScreen() {
           </View>
 
           <TouchableOpacity
-            style={[s.editBtn, { backgroundColor: 'rgba(249,115,22,0.10)', borderColor: 'rgba(249,115,22,0.25)' }]}
+            style={[s.editBtn, { backgroundColor: P.sunken, borderColor: P.edge }]}
             onPress={() => router.push('/edit-profile')}
-            activeOpacity={0.75}
+            activeOpacity={0.7}
           >
-            <Ionicons name="pencil" size={14} color={P.accent} />
+            <Ionicons name="ellipsis-horizontal" size={16} color={P.dim} />
           </TouchableOpacity>
         </View>
       </View>
 
       {/* ── Daily targets ───────────────────────────────────────────── */}
-      <Section label="Daily Targets" P={P}>
+      <Section
+        label="Daily Targets"
+        P={P}
+        onEdit={() => router.push('/(tabs)/profile/targets')}
+      >
         <Row
           icon="flame" iconBg="#FF7849" iconFg="#FFF"
           label="Calories" value={calorieDisplay}
+          P={P}
+        />
+        <Divider P={P} />
+        <Row
+          icon="moon" iconBg="#818CF8" iconFg="#FFF"
+          label="Sleep" value={`${sleepTarget % 1 === 0 ? sleepTarget.toFixed(0) : sleepTarget.toFixed(1)}h`}
           P={P}
         />
         <Divider P={P} />
@@ -209,14 +253,8 @@ export default function ProfileScreen() {
         />
         <Divider P={P} />
         <Row
-          icon="scale" iconBg="#A78BFA" iconFg="#FFF"
-          label="Current Weight" value={weightDisplay}
-          P={P}
-        />
-        <Divider P={P} />
-        <Row
           icon="footsteps" iconBg="#38BDF8" iconFg="#FFF"
-          label="Daily Steps" value="10,000"
+          label="Daily Steps" value={stepsTarget.toLocaleString()}
           P={P}
           last
         />
@@ -235,13 +273,6 @@ export default function ProfileScreen() {
             <Divider P={P} />
           </>
         )}
-        <NavRow
-          icon="heart" iconBg="#EF4444" iconFg="#FFF"
-          label="Wearable & Health"
-          P={P}
-          onPress={() => router.push('/(tabs)/profile/wearable')}
-        />
-        <Divider P={P} />
         <NavRow
           icon="notifications" iconBg="#60A5FA" iconFg="#FFF"
           label="Notifications"
@@ -296,6 +327,7 @@ export default function ProfileScreen() {
               </View>
             )}
           </TouchableOpacity>
+
         </Section>
       )}
 
@@ -363,7 +395,7 @@ export default function ProfileScreen() {
           labelColor="#EF4444"
           P={P}
           last
-          onPress={signOut}
+          onPress={() => { posthog.capture('user_signed_out'); posthog.reset(); signOut(); }}
           hideChevron
         />
       </Section>
@@ -374,49 +406,82 @@ export default function ProfileScreen() {
       <AppModal
         visible={avatarSheetOpen}
         onClose={() => setAvatarSheetOpen(false)}
-        sheetHeight={avatarUrl ? 0.28 : 0.2}
+        sheetHeight={avatarUrl ? 0.54 : 0.42}
       >
-        <View style={{ paddingHorizontal: 16, paddingTop: 4, gap: 8 }}>
-          {avatarUrl && (
-            <TouchableOpacity
-              style={[s.sheetRow, { backgroundColor: P.card, borderColor: P.edge }]}
-              activeOpacity={0.7}
-              onPress={() => { setAvatarSheetOpen(false); setViewingAvatar(true); }}
-            >
-              <View style={[s.sheetIcon, { backgroundColor: 'rgba(99,102,241,0.12)' }]}>
-                <Ionicons name="eye-outline" size={18} color="#6366F1" />
+        {/* Identity */}
+        <View style={{ alignItems: 'center', paddingTop: 2, paddingBottom: 22 }}>
+          <View style={[s.sheetAvatar, { borderColor: P.hair }]}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={s.sheetAvatarImg} resizeMode="cover" />
+            ) : (
+              <LinearGradient
+                colors={['#FB923C', '#F97316', '#EA580C']}
+                start={{ x: 0.1, y: 0 }}
+                end={{ x: 0.9, y: 1 }}
+                style={s.sheetAvatarGradient}
+              >
+                <Text style={s.sheetAvatarLetter}>{avatarLetter}</Text>
+              </LinearGradient>
+            )}
+            {avatarUploading && (
+              <View style={[StyleSheet.absoluteFill, s.sheetAvatarOverlay]}>
+                <Ionicons name="cloud-upload-outline" size={22} color="#FFF" />
               </View>
-              <Text style={[s.sheetLabel, { color: P.text }]}>View Photo</Text>
+            )}
+          </View>
+          <Text style={[s.sheetName, { color: P.text }]}>{profile?.name || ''}</Text>
+          <Text style={[s.sheetSub, { color: P.dim }]}>Profile photo</Text>
+        </View>
+
+        {/* Primary actions */}
+        <View style={{ paddingHorizontal: 16, gap: 10 }}>
+          <View style={[s.sheetGroup, { backgroundColor: P.card, borderColor: P.edge }]}>
+            <TouchableOpacity style={s.sheetGroupRow} onPress={handleAvatarChange} activeOpacity={0.6}>
+              <View style={[s.sheetGroupIcon, { backgroundColor: P.sunken }]}>
+                <Ionicons name="image-outline" size={18} color={P.accent} />
+              </View>
+              <Text style={[s.sheetGroupLabel, { color: P.text }]}>Choose from Library</Text>
               <Ionicons name="chevron-forward" size={14} color={P.faint} />
             </TouchableOpacity>
-          )}
 
-          <TouchableOpacity
-            style={[s.sheetRow, { backgroundColor: P.card, borderColor: P.edge }]}
-            activeOpacity={0.7}
-            onPress={handleAvatarChange}
-          >
-            <View style={[s.sheetIcon, { backgroundColor: 'rgba(249,115,22,0.12)' }]}>
-              <Ionicons name="image-outline" size={18} color="#F97316" />
+            <View style={[s.sheetGroupDivider, { backgroundColor: P.hair }]} />
+
+            <TouchableOpacity style={s.sheetGroupRow} onPress={handleAvatarTakePhoto} activeOpacity={0.6}>
+              <View style={[s.sheetGroupIcon, { backgroundColor: P.sunken }]}>
+                <Ionicons name="camera-outline" size={18} color={P.accent} />
+              </View>
+              <Text style={[s.sheetGroupLabel, { color: P.text }]}>Take Photo</Text>
+              <Ionicons name="chevron-forward" size={14} color={P.faint} />
+            </TouchableOpacity>
+
+            {avatarUrl && (
+              <>
+                <View style={[s.sheetGroupDivider, { backgroundColor: P.hair }]} />
+                <TouchableOpacity
+                  style={s.sheetGroupRow}
+                  onPress={() => { setAvatarSheetOpen(false); setViewingAvatar(true); }}
+                  activeOpacity={0.6}
+                >
+                  <View style={[s.sheetGroupIcon, { backgroundColor: P.sunken }]}>
+                    <Ionicons name="eye-outline" size={18} color={P.dim} />
+                  </View>
+                  <Text style={[s.sheetGroupLabel, { color: P.text }]}>View Photo</Text>
+                  <Ionicons name="chevron-forward" size={14} color={P.faint} />
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+
+          {/* Destructive */}
+          {avatarUrl && (
+            <View style={[s.sheetGroup, { backgroundColor: P.card, borderColor: P.edge }]}>
+              <TouchableOpacity style={s.sheetGroupRow} onPress={handleAvatarRemove} activeOpacity={0.6}>
+                <View style={[s.sheetGroupIcon, { backgroundColor: 'rgba(239,68,68,0.08)' }]}>
+                  <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                </View>
+                <Text style={[s.sheetGroupLabel, { color: '#EF4444' }]}>Remove Photo</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={[s.sheetLabel, { color: P.text }]}>
-              {avatarUrl ? 'Change Photo' : 'Choose Photo'}
-            </Text>
-            <Ionicons name="chevron-forward" size={14} color={P.faint} />
-          </TouchableOpacity>
-
-          {avatarUrl && (
-            <TouchableOpacity
-              style={[s.sheetRow, { backgroundColor: P.card, borderColor: P.edge }]}
-              activeOpacity={0.7}
-              onPress={handleAvatarRemove}
-            >
-              <View style={[s.sheetIcon, { backgroundColor: 'rgba(239,68,68,0.12)' }]}>
-                <Ionicons name="trash-outline" size={18} color="#EF4444" />
-              </View>
-              <Text style={[s.sheetLabel, { color: '#EF4444' }]}>Remove Photo</Text>
-              <Ionicons name="chevron-forward" size={14} color={P.faint} />
-            </TouchableOpacity>
           )}
         </View>
       </AppModal>
@@ -443,10 +508,22 @@ export default function ProfileScreen() {
 
 type P = ReturnType<typeof usePalette>;
 
-function Section({ label, children, P }: { label: string; children: React.ReactNode; P: P }) {
+function Section({ label, children, P, onEdit }: { label: string; children: React.ReactNode; P: P; onEdit?: () => void }) {
   return (
     <View style={{ paddingHorizontal: 20, gap: 6 }}>
-      <Text style={[s.sectionLabel, { color: P.dim }]}>{label.toUpperCase()}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4 }}>
+        <Text style={[s.sectionLabel, { color: P.dim, flex: 1 }]}>{label.toUpperCase()}</Text>
+        {onEdit && (
+          <TouchableOpacity
+            onPress={onEdit}
+            activeOpacity={0.6}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={[s.sectionEditBtn, { backgroundColor: P.card, borderColor: P.edge }]}
+          >
+            <Ionicons name="options-outline" size={13} color={P.dim} />
+          </TouchableOpacity>
+        )}
+      </View>
       <View style={[s.card, { backgroundColor: P.card, borderColor: P.edge }]}>
         {children}
       </View>
@@ -543,6 +620,14 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
+  sectionEditBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
 
   // Section
   sectionLabel: {
@@ -620,23 +705,50 @@ const s = StyleSheet.create({
 
   version: { textAlign: 'center', fontSize: 12, paddingTop: 4, paddingBottom: 8 },
 
-  // Avatar action sheet
-  sheetRow: {
-    flexDirection: 'row',
+  // Avatar sheet
+  sheetAvatar: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 1.5,
     alignItems: 'center',
-    gap: 12,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginBottom: 12,
   },
-  sheetIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  sheetAvatarImg:      { width: 76, height: 76, borderRadius: 38 },
+  sheetAvatarGradient: { width: 76, height: 76, borderRadius: 38, alignItems: 'center', justifyContent: 'center' },
+  sheetAvatarLetter:   { fontSize: 28, fontWeight: '800', letterSpacing: -0.5, color: '#FFF' },
+  sheetAvatarOverlay: {
+    borderRadius: 38,
+    backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sheetLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
+  sheetName: { fontSize: 17, fontWeight: '700', letterSpacing: -0.3 },
+  sheetSub:  { fontSize: 13, marginTop: 3 },
+
+  sheetGroup: {
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  sheetGroupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  sheetGroupIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetGroupLabel:   { flex: 1, fontSize: 15, fontWeight: '500' },
+  sheetGroupDivider: { height: StyleSheet.hairlineWidth, marginLeft: 60 },
 
   // Full-screen viewer
   viewerBg: {

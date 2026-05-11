@@ -122,7 +122,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
 
   // ── Fetch Claude insight ─────────────────────────────────────────────────
   const fetchClaudeInsight = useCallback(async (): Promise<Insight | null> => {
-    const { ok, status: httpStatus, body } = await apiFetch('/insights/claude');
+    const { ok, status: httpStatus, body } = await apiFetch('/insights/ai');
 
     if (httpStatus === 429) {
       setClaudeLimitReached(true);
@@ -152,7 +152,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
     if (claudeInsight?.id === id) setClaudeInsight((prev) => prev  ? markDismissed(prev)  : prev);
     setHistory((prev) => prev.map(markDismissed));
 
-    const { ok } = await apiFetch(`/insights/${id}`, { method: 'DELETE' });
+    const { ok } = await apiFetch(`/insights/${id}/dismiss`, { method: 'PATCH' });
     if (!ok) {
       setTodayInsight(snapshotToday);
       setClaudeInsight(snapshotClaude);

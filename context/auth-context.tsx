@@ -7,7 +7,12 @@ import React, {
     useState,
 } from "react";
 import { AppState, type AppStateStatus } from "react-native";
+import * as WebBrowser from "expo-web-browser";
+import * as AppleAuthentication from "expo-apple-authentication";
 import { apiFetch, clearTokens, storeTokens, proactiveRefreshIfNeeded } from "@/utils/api";
+import { supabase } from "@/lib/supabase";
+
+WebBrowser.maybeCompleteAuthSession();
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
@@ -58,7 +63,7 @@ export interface UserProfile {
   createdAt: string;
 }
 
-export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
+export type AuthStatus = "loading" | "authenticated" | "unauthenticated" | "needs-profile";
 
 export type AuthError =
   | "EMAIL_IN_USE"
@@ -98,6 +103,24 @@ interface AuthContextValue {
 
   /** Re-fetches the current user from GET /auth/me and updates local state. */
   refreshUser: () => Promise<void>;
+
+  /** Signs in via Google or Apple OAuth (opens a browser session). */
+  signInWithOAuth: (provider: "google" | "apple") => Promise<void>;
+
+  /**
+   * True when an OAuth sign-in succeeded but no RoundFit profile exists yet.
+   * The user is in the `needs-profile` flow (onboarding → sign-up screen).
+   */
+  oauthProfilePending: boolean;
+
+  /**
+   * Creates a RoundFit profile for an OAuth user who just completed onboarding.
+   * Calls POST /auth/oauth-setup with the collected profile data, then fetches
+   * the full profile and transitions to `authenticated`.
+   */
+  setupOAuthProfile: (
+    profile: Omit<UserProfile, "id" | "email" | "createdAt" | "tdee" | "calorieBudget">,
+  ) => Promise<void>;
 
   /** Clears the last error. */
   clearError: () => void;
@@ -279,6 +302,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<AuthError | null>(null);
+  const [oauthProfilePending, setOauthProfilePending] = useState(false);
 
   // Stable ref so updateProfile's rollback always sees the latest snapshot.
   const userRef      = useRef<UserProfile | null>(null);
@@ -427,11 +451,131 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // ── OAuth sign-in ─────────────────────────────────────────────────────────
+  const signInWithOAuth = useCallback(async (provider: "google" | "apple") => {
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      if (provider === "apple") {
+        // ── Native Apple Sign In ──────────────────────────────────────────
+        const credential = await AppleAuthentication.signInAsync({
+          requestedScopes: [
+            AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+            AppleAuthentication.AppleAuthenticationScope.EMAIL,
+          ],
+        });
+
+        const { identityToken } = credential;
+        if (!identityToken) {
+          setError("UNKNOWN");
+          return;
+        }
+
+        const { data, error: idTokenError } = await supabase.auth.signInWithIdToken({
+          provider: "apple",
+          token: identityToken,
+        });
+
+        if (idTokenError || !data.session) {
+          setError("UNKNOWN");
+          return;
+        }
+
+        await storeTokens(data.session.access_token, data.session.refresh_token);
+      } else {
+        // ── Google — browser OAuth flow ───────────────────────────────────
+        const redirectTo = "roundfit://auth/callback";
+
+        const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo, skipBrowserRedirect: true },
+        });
+
+        if (oauthError || !data.url) {
+          setError("UNKNOWN");
+          return;
+        }
+
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
+        if (result.type !== "success") {
+          // User cancelled — not an error
+          return;
+        }
+
+        const fragment = result.url.split("#")[1];
+        const params = fragment ? new URLSearchParams(fragment) : null;
+        const access_token = params?.get("access_token");
+        const refresh_token = params?.get("refresh_token");
+
+        if (!access_token || !refresh_token) {
+          setError("UNKNOWN");
+          return;
+        }
+
+        await storeTokens(access_token, refresh_token);
+      }
+
+      try {
+        setUser(await fetchMe());
+        setStatus("authenticated");
+      } catch {
+        // New OAuth user — Supabase account exists but no RoundFit profile yet
+        setOauthProfilePending(true);
+        setStatus("needs-profile");
+      }
+    } catch (err: unknown) {
+      // ERR_CANCELED is thrown when the user dismisses the Apple sheet
+      if ((err as any)?.code === "ERR_CANCELED") return;
+      setError("UNKNOWN");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // ── OAuth profile setup ───────────────────────────────────────────────────
+  const setupOAuthProfile = useCallback(
+    async (
+      profile: Omit<UserProfile, "id" | "email" | "createdAt" | "tdee" | "calorieBudget">,
+    ) => {
+      setError(null);
+      setIsLoading(true);
+
+      try {
+        const { ok, status: s, body } = await apiFetch("/auth/oauth-setup", {
+          method: "POST",
+          body: JSON.stringify(toApiBody(profile)),
+        });
+
+        if (!ok) {
+          setError(parseApiError(s, body));
+          return;
+        }
+
+        try {
+          setUser(await fetchMe());
+        } catch {
+          // profile created but fetch failed — will retry on next mount
+        }
+
+        setOauthProfilePending(false);
+        setStatus("authenticated");
+      } catch {
+        setError("UNKNOWN");
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [],
+  );
+
   // ── Sign out ─────────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
     apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
     await clearTokens();
     setUser(null);
+    setOauthProfilePending(false);
     setStatus("unauthenticated");
   }, []);
 
@@ -508,6 +652,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         error,
         signUp,
         signIn,
+        signInWithOAuth,
+        oauthProfilePending,
+        setupOAuthProfile,
         signOut,
         updateProfile,
         refreshUser,

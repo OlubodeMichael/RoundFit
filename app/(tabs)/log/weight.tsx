@@ -22,14 +22,16 @@ import { useToast } from '@/components/ui/Toast';
 import { useWeight } from '@/hooks/use-weight';
 import { useProfile } from '@/hooks/use-profile';
 import { useUnits } from '@/hooks/use-units';
+import { usePostHog } from 'posthog-react-native';
 
 type Unit = 'lb' | 'kg';
 
 export default function WeightLogScreen() {
-  const P      = usePalette();
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const toast  = useToast();
+  const P       = usePalette();
+  const router  = useRouter();
+  const insets  = useSafeAreaInsets();
+  const toast   = useToast();
+  const posthog = usePostHog();
   const { latest, logWeight } = useWeight();
   const { profile, updateProfile } = useProfile();
   const { weightUnit, toDisplayWeight, toKg } = useUnits();
@@ -86,10 +88,20 @@ export default function WeightLogScreen() {
     try {
       await logWeight(kg, unit === 'lb' ? 'imperial' : 'metric');
       await updateProfile({ weightKg: kg });
+      posthog.capture('weight_logged', {
+        value_kg: kg,
+        unit,
+        delta_kg: delta !== null ? (unit === 'lb' ? delta / 2.20462 : delta) : null,
+      });
       toast.success('Saved', `${numeric.toFixed(1)} ${unit}`);
       router.back();
-    } catch {
+    } catch (err) {
       toast.error('Could not save', 'Please try again.');
+      const e = err instanceof Error ? err : new Error(String(err));
+      posthog.capture('$exception', {
+        $exception_list: [{ type: e.name, value: e.message, stacktrace: { type: 'raw', frames: e.stack ?? '' } }],
+        $exception_source: 'weight_logged',
+      });
     } finally {
       setSaving(false);
     }

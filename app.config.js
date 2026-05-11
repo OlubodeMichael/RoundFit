@@ -1,0 +1,106 @@
+module.exports = {
+  expo: {
+    name: 'RoundFit',
+    slug: 'roundfit',
+    version: '1.0.0',
+    orientation: 'portrait',
+    scheme: 'roundfit',
+    userInterfaceStyle: 'automatic',
+    newArchEnabled: true,
+    ios: {
+      supportsTablet: true,
+      infoPlist: {
+        NSHealthShareUsageDescription:
+          'RoundFit reads your health data to track steps, workouts, and active calories so you never have to log them manually.',
+        NSHealthUpdateUsageDescription:
+          'RoundFit can write body weight and nutrition entries to Apple Health to keep everything in sync.',
+        NSCameraUsageDescription:
+          'Allow RoundFit to access your camera to take photos of meals and log food.',
+        NSMicrophoneUsageDescription:
+          'Allow RoundFit to access your microphone for video when logging meals.',
+        ITSAppUsesNonExemptEncryption: false,
+      },
+      bundleIdentifier: 'com.michaelolu.roundfit',
+      icon: {
+        light: './assets/icons/ios-light.png',
+        dark: './assets/icons/ios-dark.png',
+        tinted: './assets/icons/ios-tinted.png',
+      },
+    },
+    android: {
+      adaptiveIcon: {
+        backgroundColor: '#E6F4FE',
+        foregroundImage: './assets/images/android-icon-foreground.png',
+        backgroundImage: './assets/images/android-icon-background.png',
+        monochromeImage: './assets/images/android-icon-monochrome.png',
+      },
+      edgeToEdgeEnabled: true,
+      predictiveBackGestureEnabled: false,
+      permissions: [
+        'android.permission.CAMERA',
+        'android.permission.RECORD_AUDIO',
+        'android.permission.CAMERA',
+        'android.permission.RECORD_AUDIO',
+      ],
+      package: 'com.michaelolu.roundfit',
+    },
+    web: {
+      output: 'static',
+      favicon: './assets/images/favicon.png',
+    },
+    plugins: [
+      'expo-router',
+      [
+        '@kingstinct/react-native-healthkit',
+        {
+          NSHealthShareUsageDescription:
+            'RoundFit reads your health data to track steps, workouts, and active calories so you never have to log them manually.',
+          NSHealthUpdateUsageDescription:
+            'RoundFit can write body weight and nutrition entries to Apple Health to keep everything in sync.',
+        },
+      ],
+      [
+        'expo-splash-screen',
+        {
+          image: './assets/icons/splash-icon-dark.png',
+          imageWidth: 200,
+          resizeMode: 'contain',
+          backgroundColor: '#ffffff',
+          dark: {
+            backgroundColor: '#000000',
+            image: './assets/icons/splash-icon-dark.png',
+          },
+        },
+      ],
+      [
+        'expo-camera',
+        {
+          cameraPermission: 'Allow RoundFit to access your camera',
+          microphonePermission: 'Allow RoundFit to access your microphone',
+          recordAudioAndroid: true,
+          barcodeScannerEnabled: true,
+        },
+      ],
+      [
+        'expo-image-picker',
+        {
+          photosPermission: 'Allow RoundFit to choose a profile photo from your library.',
+          cameraPermission: 'Allow RoundFit to take a photo for your profile.',
+        },
+      ],
+      'expo-secure-store',
+    ],
+    experiments: {
+      typedRoutes: true,
+      reactCompiler: true,
+    },
+    extra: {
+      router: {},
+      eas: {
+        projectId: '31d23d7f-e878-4ac9-8733-c3fc77f86fa3',
+      },
+      posthogProjectToken: process.env.POSTHOG_PROJECT_TOKEN,
+      posthogHost: process.env.POSTHOG_HOST,
+    },
+  },
+};

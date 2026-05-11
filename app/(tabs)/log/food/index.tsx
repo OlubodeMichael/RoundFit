@@ -23,8 +23,9 @@ import { useRouter } from 'expo-router';
 import { useFood, type MealItem } from '@/hooks/use-food';
 import { ManualMealInputModal, type MealLabel, type ManualMealInput } from '@/components/log/ManualMealInputModal';
 import { PhotoAnalysisModal } from '@/components/log/PhotoAnalysisModal';
+import { persistCameraPhoto, prunePhotoCache } from '@/utils/photo-cache';
 import { useToast } from '@/components/ui/Toast';
-import { usePalette, type Palette } from '@/lib/log-theme';
+import { DayNavigator, usePalette, type Palette } from '@/lib/log-theme';
 
 type IoniconsName = ComponentProps<typeof Ionicons>['name'];
 type CameraMode = 'photo' | 'scan';
@@ -278,8 +279,11 @@ export default function FoodLogScreen() {
     try {
       const photo = await cameraRef.current?.takePictureAsync({ quality: 0.7, skipProcessing: true, base64: true });
       if (!photo?.uri || !photo?.base64) return;
+      // Persist the temp URI to disk so it stays valid for the full analysis flow
+      const persistedUri = persistCameraPhoto(photo.uri);
+      prunePhotoCache(); // clean up stale cache files in the background
       setCameraMode(null);
-      setPendingPhoto({ uri: photo.uri, base64: photo.base64 });
+      setPendingPhoto({ uri: persistedUri, base64: photo.base64 });
     } catch {
       toast.error('Capture failed', 'Could not take a photo.');
     }
@@ -299,7 +303,7 @@ export default function FoodLogScreen() {
       <ScrollView
         contentContainerStyle={{
           paddingTop:    insets.top + 12,
-          paddingBottom: insets.bottom + 64,
+          paddingBottom: insets.bottom + 24,
         }}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -328,39 +332,13 @@ export default function FoodLogScreen() {
               FOOD LOG
             </Text>
             {/* Date pill navigator */}
-            <View style={[styles.datePill, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
-              <TouchableOpacity
-                onPress={() => navigateDate(-1)}
-                hitSlop={8}
-                activeOpacity={0.6}
-                style={styles.dateArrow}
-              >
-                <Ionicons name="chevron-back" size={16} color={P.textDim} />
-              </TouchableOpacity>
-
-              <View style={styles.dateLabelWrap}>
-                {isToday && (
-                  <View style={[styles.todayDot, { backgroundColor: P.calories }]} />
-                )}
-                <Text style={[styles.dateLabel, { color: P.text }]}>
-                  {formatNavDate(activeDate)}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                onPress={() => navigateDate(1)}
-                hitSlop={8}
-                activeOpacity={isToday ? 1 : 0.6}
-                disabled={isToday}
-                style={styles.dateArrow}
-              >
-                <Ionicons
-                  name="chevron-forward"
-                  size={16}
-                  color={isToday ? P.cardEdge : P.textDim}
-                />
-              </TouchableOpacity>
-            </View>
+            <DayNavigator
+              label={formatNavDate(activeDate)}
+              isToday={isToday}
+              onPrev={() => navigateDate(-1)}
+              onNext={() => navigateDate(1)}
+              accentColor={P.calories}
+            />
           </View>
 
           {/* Spacer to balance the back button */}
@@ -962,45 +940,6 @@ const styles = StyleSheet.create({
     width: 42, height: 42, borderRadius: 21,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
-  },
-  datePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    gap: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    ...Platform.select({ android: { elevation: 1 } }),
-  },
-  dateArrow: {
-    width: 32,
-    height: 32,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dateLabelWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    minWidth: 90,
-    justifyContent: 'center',
-  },
-  todayDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  dateLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: -0.3,
   },
 
   // Summary

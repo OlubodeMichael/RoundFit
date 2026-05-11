@@ -15,13 +15,17 @@ import {
 } from "@react-navigation/native";
 import {
     Stack,
+    useGlobalSearchParams,
+    usePathname,
     useRootNavigationState,
     useRouter,
     useSegments,
 } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { StyleSheet, View } from "react-native";
+import { PostHogProvider } from "posthog-react-native";
+import { posthog } from "@/lib/posthog";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -53,7 +57,17 @@ function AppNavigator() {
   const router = useRouter();
   const segments = useSegments();
   const navState = useRootNavigationState();
+  const pathname = usePathname();
+  const params = useGlobalSearchParams();
+  const previousPathname = useRef<string | undefined>(undefined);
   const navigatorReady = Boolean(navState?.key);
+
+  useEffect(() => {
+    if (previousPathname.current !== pathname) {
+      posthog.screen(pathname, { previous_screen: previousPathname.current ?? null, ...params });
+      previousPathname.current = pathname;
+    }
+  }, [pathname, params]);
 
   useEffect(() => {
     if (!navigatorReady) return;
@@ -61,6 +75,11 @@ function AppNavigator() {
 
     const top = segments[0];
     const inPublicOnboarding = top === "auth" || top === "onboarding";
+
+    if (status === "needs-profile" && !inPublicOnboarding) {
+      router.replace("/onboarding/goal");
+      return;
+    }
 
     if (status === "authenticated" && top === "auth") {
       const passwordScreen = segments[1] === "forgot-password" || segments[1] === "reset-password" || segments[1] === "change-password";
@@ -80,7 +99,9 @@ function AppNavigator() {
   // (replace to tabs runs in the same layout pass — avoids a flash of the auth landing screen).
   const passwordScreen = segments[1] === "forgot-password" || segments[1] === "reset-password" || segments[1] === "change-password";
   const showAuthSplash =
-    status === "loading" || (status === "authenticated" && top === "auth" && !passwordScreen);
+    status === "loading" ||
+    (status === "needs-profile" && top !== "onboarding") ||
+    (status === "authenticated" && top === "auth" && !passwordScreen);
 
   return (
     <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
@@ -124,6 +145,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
+        <PostHogProvider client={posthog} autocapture={{ captureScreens: false, captureTouches: true }}>
         <ThemeProvider>
           <ToastProvider>
             <AuthProvider>
@@ -153,6 +175,7 @@ export default function RootLayout() {
             </AuthProvider>
           </ToastProvider>
         </ThemeProvider>
+        </PostHogProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

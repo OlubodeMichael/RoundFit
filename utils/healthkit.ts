@@ -286,6 +286,16 @@ export async function readDailyHealthKit(
   const c = (id: string) => hk.queryCategorySamples(id, opts).catch(() => []);
   const stat = (id: string) => queryCumulativeStat(hk, id, from, to);
 
+  // Sleep spans midnight — query from 5pm the previous day to noon today so
+  // sessions that start before midnight (e.g. 11pm) are not filtered out.
+  const sleepWindowStart = new Date(from.getFullYear(), from.getMonth(), from.getDate() - 1, 17, 0, 0, 0);
+  const sleepWindowEnd   = new Date(from.getFullYear(), from.getMonth(), from.getDate(),     12, 0, 0, 0);
+  const sleepOpts = {
+    limit:     2000,
+    ascending: true,
+    filter:    { date: { startDate: sleepWindowStart, endDate: sleepWindowEnd } },
+  };
+
   console.log('[HealthKit] readDailyHealthKit window:', {
     startDate: from.toISOString(),
     endDate:   to.toISOString(),
@@ -305,7 +315,7 @@ export async function readDailyHealthKit(
     q('HKQuantityTypeIdentifierHeartRateVariabilitySDNN'),
     q('HKQuantityTypeIdentifierVO2Max'),
     q('HKQuantityTypeIdentifierBodyMass'),
-    c('HKCategoryTypeIdentifierSleepAnalysis'),
+    hk.queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', sleepOpts).catch(() => []),
     c('HKCategoryTypeIdentifierMindfulSession'),
   ]);
 
@@ -316,7 +326,7 @@ export async function readDailyHealthKit(
   logHealthKitRawSamples('SleepAnalysis', sleep);
   logHealthKitRawSamples('MindfulSession', mindful);
 
-  const sleepSummary = summariseSleep(sleep, from, to);
+  const sleepSummary = summariseSleep(sleep, sleepWindowStart, sleepWindowEnd);
 
   const summary: HealthKitSummary = {
     steps:                 stepsCount,

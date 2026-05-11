@@ -86,14 +86,14 @@ export default function DailyLogScreen() {
     {
       key:    'food',
       icon:   'flame-outline',
-      value:  totalCalories > 0 ? totalCalories.toLocaleString() : '—',
+      value:  totalCalories > 0 ? totalCalories.toLocaleString() : '0',
       unit:   'kcal',
       accent: P.calories,
     },
     {
       key:    'workout',
       icon:   'barbell-outline',
-      value:  totalWorkoutMins > 0 ? String(totalWorkoutMins) : '—',
+      value:  totalWorkoutMins > 0 ? String(totalWorkoutMins) : '0',
       unit:   'min',
       accent: P.workout,
     },
@@ -116,7 +116,7 @@ export default function DailyLogScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <ScrollView
-        contentContainerStyle={{ paddingTop: pad.paddingTop, paddingBottom: insets.bottom + 80 }}
+        contentContainerStyle={{ paddingTop: pad.paddingTop, paddingBottom: insets.bottom + 96 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -203,7 +203,7 @@ export default function DailyLogScreen() {
             icon="flame"
             title="Food"
             eyebrow={isFoodDayToday ? 'EATEN' : 'ATE'}
-            valueBig={totalCalories > 0 ? totalCalories.toLocaleString() : '—'}
+            valueBig={totalCalories > 0 ? totalCalories.toLocaleString() : 'Log'}
             valueSmall="kcal"
             caption={
               meals.length === 0
@@ -221,7 +221,7 @@ export default function DailyLogScreen() {
             icon="barbell"
             title="Workout"
             eyebrow="TRAINING"
-            valueBig={totalWorkoutMins > 0 ? String(totalWorkoutMins) : '—'}
+            valueBig={totalWorkoutMins > 0 ? String(totalWorkoutMins) : 'Log'}
             valueSmall="min"
             caption={
               workouts.length === 0
@@ -238,7 +238,7 @@ export default function DailyLogScreen() {
             icon="moon"
             title="Sleep"
             eyebrow="LAST NIGHT"
-            valueBig={sleepHours !== null ? sleepHours.toFixed(1) : '—'}
+            valueBig={sleepHours !== null ? sleepHours.toFixed(1) : 'Log'}
             valueSmall="hrs"
             caption={
               sleepHours === null
@@ -262,7 +262,7 @@ export default function DailyLogScreen() {
             icon="scale"
             title="Weight"
             eyebrow="TODAY'S READING"
-            valueBig={latestWeight === null ? '—' : latestWeight.toFixed(1)}
+            valueBig={latestWeight === null ? 'Log' : latestWeight.toFixed(1)}
             valueSmall={weightUnit}
             caption={
               latestWeight === null

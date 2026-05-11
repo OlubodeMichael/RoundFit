@@ -42,7 +42,7 @@ export function SectionCard({
 }) {
   const P      = usePalette();
   const anim   = useRef(new Animated.Value(0)).current;
-  const hasVal = valueBig !== '—';
+  const hasVal = valueBig !== '—' && valueBig !== 'Log';
 
   useEffect(() => {
     Animated.timing(anim, {

@@ -228,7 +228,7 @@ export default function ProgressScreen() {
       <ScrollView
         contentContainerStyle={{
           paddingTop:    insets.top + 12,
-          paddingBottom: insets.bottom + 48,
+          paddingBottom: insets.bottom + 100,
         }}
         showsVerticalScrollIndicator={false}
       >
@@ -554,7 +554,16 @@ function StatTile({
             <Text style={[styles.statSuffix, { color: 'rgba(255,255,255,0.75)' }]}>{valueSuffix}</Text>
           )}
         </View>
-        <Text style={[styles.statLabel, { color: 'rgba(255,255,255,0.85)' }]}>{label.toUpperCase()}</Text>
+        <View style={styles.statLabelWrap}>
+          <Text
+            style={[styles.statLabel, { color: 'rgba(255,255,255,0.85)' }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.78}
+          >
+            {label.toUpperCase()}
+          </Text>
+        </View>
       </AnimatedCard>
     );
   }
@@ -568,7 +577,16 @@ function StatTile({
           <Text style={[styles.statSuffix, { color: P.textFaint }]}>{valueSuffix}</Text>
         )}
       </View>
-      <Text style={[styles.statLabel, { color: P.textFaint }]}>{label.toUpperCase()}</Text>
+      <View style={styles.statLabelWrap}>
+        <Text
+          style={[styles.statLabel, { color: P.textFaint }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.78}
+        >
+          {label.toUpperCase()}
+        </Text>
+      </View>
     </AnimatedCard>
   );
 }
@@ -615,6 +633,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap:        10,
   },
+  statLabelWrap: {
+    alignSelf: 'stretch',
+    width:     '100%',
+  },
   statValue: {
     fontSize:      24,
     fontWeight:    '800',
@@ -627,7 +649,8 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize:      9,
     fontWeight:    '800',
-    letterSpacing: 1.2,
+    letterSpacing: 0.75,
+    maxWidth:      '100%',
   },
 
   // ─── Card chrome ──

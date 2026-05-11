@@ -549,13 +549,6 @@ function CyclePhaseCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
   );
 }
 
-type HeroCoach = {
-  caloriesToBurn: number;
-  activity:       { label: string; icon?: IoniconsName };
-  goalProgress:   number;
-  isLive?:        boolean;
-  onPress?:       () => void;
-};
 
 // ───────────────────────────────────────────────────────────────────────────────
 // EarnedBonusRow — diagonal-split "bonus unlocked" panel.
@@ -716,18 +709,17 @@ const earnedS = StyleSheet.create({
 //   3. Goal pill centred below arc
 //   4. Activity-earned strip (emerald, only when > 0)
 //   5. Three-stat row: eaten · burned · steps or net
-//   6. BurnCoachStrip docked at bottom
 // ───────────────────────────────────────────────────────────────────────────────
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAYS_SHORT   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // ── Semicircle gauge constants ──────────────────────────────────────────────
-const SEMI_N  = 55;   // tick count — dense enough to look solid
+const SEMI_N  = 65;   // tick count — step≈5.7px, tick≈2.5px → ~3px gap between each
 const SEMI_D  = 280;  // full circle diameter (view is clipped to top half)
 const SEMI_R  = 116;  // radius to tick centre
-const SEMI_TW = 7.2;  // tick tangential width (≥ arc-step to close gaps)
-const SEMI_TH = 22;   // tick radial height (= stroke thickness)
+const SEMI_TW = 2.5;  // tick tangential width (much less than arc-step → clear gaps)
+const SEMI_TH = 14;   // tick radial height (shorter = cleaner speedometer look)
 const SEMI_CX = SEMI_D / 2;
 const SEMI_CY = SEMI_D / 2;
 // Visible height = centre + half-stroke + breathing room
@@ -753,7 +745,6 @@ function HeroBudgetLedger({
   stepsToday,
   remaining,
   earnedFromActivity = 0,
-  coach,
 }: {
   P: Palette;
   delay?: number;
@@ -763,7 +754,6 @@ function HeroBudgetLedger({
   stepsToday?: number;
   remaining: number;
   earnedFromActivity?: number;
-  coach?: HeroCoach;
 }) {
   const isOver   = eaten > goal;
   const eatenPct = Math.min(eaten / Math.max(goal, 1), 1);
@@ -949,16 +939,6 @@ function HeroBudgetLedger({
 
       </View>
 
-      {/* ── Burn coach ────────────────────────────────────────────────────── */}
-      {coach && (
-        <BurnCoachStrip
-          caloriesToBurn={coach.caloriesToBurn}
-          activity={coach.activity}
-          goalProgress={coach.goalProgress}
-          isLive={coach.isLive ?? true}
-          onPress={coach.onPress}
-        />
-      )}
     </Animated.View>
   );
 }
@@ -1104,7 +1084,7 @@ function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data
           <Text style={[actS.heading, { color: P.text }]}>Activity</Text>
         </View>
         <View style={[actS.sourcePill, { backgroundColor: P.waterSoft }]}>
-          <Ionicons name="logo-apple" size={11} color={P.water} />
+          <Ionicons name="logo-apple" size={11} color="#EF4444" />
           <Text style={[actS.sourceLabel, { color: P.water }]}>Health</Text>
         </View>
       </View>
@@ -1698,12 +1678,10 @@ function InsightCard({
   P,
   delay = 0,
   onPress,
-  isCheckingStatus = false,
 }: {
   P: Palette;
   delay?: number;
   onPress: () => void;
-  isCheckingStatus?: boolean;
 }) {
   return (
     <Card delay={delay} style={{ overflow: "hidden" }}>
@@ -1746,10 +1724,10 @@ function InsightCard({
         ]}
         onPress={onPress}
       >
-        <Text style={[styles.insightCtaText, { color: P.text }]} >
-          {isCheckingStatus ? "Checking status..." : "See weekly report"}
+        <Text style={[styles.insightCtaText, { color: P.text }]}>
+          View daily insight
         </Text>
-        {!isCheckingStatus && <Ionicons name="arrow-forward" size={14} color={P.text} />}
+        <Ionicons name="arrow-forward" size={14} color={P.text} />
       </TouchableOpacity>
     </Card>
   );
@@ -1813,7 +1791,6 @@ export default function HomeScreen() {
 
   const [date, setDate]         = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
-  const [isCheckingInsightStatus, setIsCheckingInsightStatus] = useState(false);
   const [isStatusModalVisible, setIsStatusModalVisible] = useState(false);
   const [isCheckinModalVisible, setIsCheckinModalVisible] = useState(false);
   const [statusModalKind, setStatusModalKind] = useState<InsightStatusModalKind>("ready");
@@ -1882,27 +1859,8 @@ export default function HomeScreen() {
     void Promise.all([refreshLogs(today), refreshWorkouts(today)]);
   }, [refreshLogs, refreshWorkouts]);
 
-  const handleInsightPress = async () => {
-    setIsCheckingInsightStatus(true);
-    try {
-      await refreshStatus();
-      await new Promise((resolve) => setTimeout(resolve, 120));
-
-      const latestStatus = appStatusRef.current;
-      if (latestStatus?.should_show_checkin) {
-        setIsCheckinModalVisible(true);
-      } else if (latestStatus?.should_show_workout_prompt) {
-        setStatusModalKind("workout");
-        setIsStatusModalVisible(true);
-      } else {
-        setStatusModalKind("ready");
-        setIsStatusModalVisible(true);
-      }
-    } catch {
-      toast.error("Could not check status", "Please try again.");
-    } finally {
-      setIsCheckingInsightStatus(false);
-    }
+  const handleInsightPress = () => {
+    router.push('/insights/daily');
   };
 
   useEffect(() => {
@@ -1921,7 +1879,7 @@ export default function HomeScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <ScrollView
-        contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 48 }}
+        contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 96 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -1977,16 +1935,17 @@ export default function HomeScreen() {
             stepsToday={healthToday?.steps}
             remaining={remaining}
             earnedFromActivity={burnedToday}
-            coach={{
-              ...coachData,
-              isLive: true,
-              onPress: () => setPickerOpen(true),
-            }}
+          />
+          <BurnCoachStrip
+            caloriesToBurn={coachData.caloriesToBurn}
+            activity={coachData.activity}
+            goalProgress={coachData.goalProgress}
+            isLive={true}
+            onPress={() => setPickerOpen(true)}
           />
           <InsightCard
             P={P}
             delay={280}
-            isCheckingStatus={isCheckingInsightStatus}
             onPress={handleInsightPress}
           />
           <MacrosCard P={P} delay={360} macros={macros} />

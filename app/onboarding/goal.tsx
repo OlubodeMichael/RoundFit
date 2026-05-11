@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { usePostHog } from 'posthog-react-native';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -19,6 +20,7 @@ export default function GoalScreen() {
   const params = useLocalSearchParams<{ name: string; age: string; sex: string; height: string; weight: string }>();
   const insets = useSafeAreaInsets();
   const [selected, setSelected] = useState<string | null>(null);
+  const posthog = usePostHog();
 
   const bg   = '#FAFAF8';
   const hi   = '#111111';
@@ -97,10 +99,10 @@ export default function GoalScreen() {
         style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
         activeOpacity={0.85}
         disabled={!canContinue}
-        onPress={() => router.push({
-          pathname: '/onboarding/activity',
-          params: { ...params, goal: selected! },
-        })}
+        onPress={() => {
+          posthog.capture('onboarding_goal_selected', { goal: selected });
+          router.push({ pathname: '/onboarding/activity', params: { ...params, goal: selected! } });
+        }}
       >
         <Text style={s.ctaText}>Continue</Text>
       </TouchableOpacity>

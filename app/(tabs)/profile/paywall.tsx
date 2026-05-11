@@ -3,11 +3,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
+import { usePostHog } from 'posthog-react-native';
+import { useEffect } from 'react';
 
 export default function PaywallScreen() {
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const posthog = usePostHog();
+
+  useEffect(() => {
+    posthog.capture('paywall_viewed');
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const bg  = isDark ? '#0A0B0F' : '#F7F7F5';
   const hi  = isDark ? '#F4F4F5' : '#0C0C0C';

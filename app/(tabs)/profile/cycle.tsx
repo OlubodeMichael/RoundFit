@@ -55,7 +55,6 @@ function PhaseBar({
   cycleLength: number;
   barWidth: number;
 }) {
-  const P        = usePalette();
   const segments = buildSegments(cycleLength);
   const total    = segments.reduce((s, p) => s + p.days, 0);
   const BAR_H    = 8;
@@ -85,7 +84,6 @@ function PhaseBar({
 
           const isFirst = i === 0;
           const isLast  = i === segments.length - 1;
-          const br      = { borderRadius: 6 };
           const brLeft  = { borderTopLeftRadius: 6, borderBottomLeftRadius: 6 };
           const brRight = { borderTopRightRadius: 6, borderBottomRightRadius: 6 };
 
@@ -285,7 +283,7 @@ export default function CycleTrackingScreen() {
         </TouchableOpacity>
 
         <View style={{ flex: 1 }}>
-          <Text style={[s.eyebrow, { color: P.textFaint }]}>WOMEN'S HEALTH</Text>
+          <Text style={[s.eyebrow, { color: P.textFaint }]}>{'WOMEN\'S HEALTH'}</Text>
           <Text style={[s.headerTitle, { color: P.text }]}>Cycle Tracking</Text>
         </View>
 

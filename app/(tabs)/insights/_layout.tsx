@@ -5,6 +5,7 @@ export default function InsightsLayout() {
     <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="weekly" />
+      <Stack.Screen name="daily" />
     </Stack>
   );
 }

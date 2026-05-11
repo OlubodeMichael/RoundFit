@@ -19,7 +19,7 @@ const HEALTH_BACKFILL_CURSOR_KEY = '@roundfit/health_backfill_cursor';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type HealthSource = 'healthkit' | 'googlefit';
+export type HealthSource = 'healthkit' | 'googlefit' | 'manual';
 
 export interface HealthData {
   id:                    string;
@@ -89,7 +89,7 @@ export interface HealthContextValue {
   syncHealth: (input: SyncHealthInput) => Promise<HealthData>;
 
   /** Reads live data from HealthKit and syncs to the server (iOS only). */
-  syncFromDevice: () => Promise<void>;
+  syncFromDevice: (force?: boolean) => Promise<void>;
 
   /** Re-fetches today's health data from the server. */
   refresh: () => Promise<void>;

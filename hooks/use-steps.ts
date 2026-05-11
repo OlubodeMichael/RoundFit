@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Platform } from 'react-native';
 
 import { isExpoGoEnvironment } from '@/utils/healthkit';
+import { getLocalDateString } from '@/utils/date';
 
 export interface DaySteps {
   /** Short label: "Mon", "Tue", … */
@@ -121,7 +122,7 @@ function logHealthKitRaw(
   err?: unknown,
 ): void {
   if (!__DEV__) return;
-  const dateStr = day.toISOString().split('T')[0];
+  const dateStr = getLocalDateString(day);
   if (err !== undefined) {
     console.log('[RoundFit HealthKit RAW] error', {
       source,
@@ -260,7 +261,7 @@ export function useSteps(): StepsData {
             const steps = isFuture ? 0 : await queryStepsWithFallback(HK, d);
             return {
               label: DAY_LABELS[d.getDay()],
-              date: d.toISOString().split('T')[0],
+              date: getLocalDateString(d),
               steps,
               isToday: startOf(d).getTime() === today,
             };

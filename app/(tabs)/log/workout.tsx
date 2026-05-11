@@ -25,6 +25,7 @@ import {
   useScreenPadding,
 } from '@/lib/log-theme';
 import { AppModal } from '@/components/ui/AppModal';
+import { usePostHog } from 'posthog-react-native';
 import { useToast } from '@/components/ui/Toast';
 import {
   useWorkouts,
@@ -272,7 +273,8 @@ type SheetPage = 'form' | 'exercises';
 function LogWorkoutSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const P      = usePalette();
   const insets = useSafeAreaInsets();
-  const toast  = useToast();
+  const toast   = useToast();
+  const posthog = usePostHog();
   const { logWorkout, logSets } = useWorkouts();
 
   const [page,       setPage]       = useState<SheetPage>('form');
@@ -332,6 +334,7 @@ function LogWorkoutSheet({ visible, onClose }: { visible: boolean; onClose: () =
       if (isStrength && selected.length > 0) {
         await logSets(w.id, selected.flatMap(ex => ex.sets.map(s => ({ exercise: ex.name, sets: 1, reps: parseInt(s.reps) || undefined, weight: parseFloat(s.weight) || undefined, weight_unit: 'kg' as const }))));
       }
+      posthog.capture('workout_logged', { workout_type: type, duration_mins: totalMinutes, intensity, exercises_count: selected.length, estimated_cals: estimatedCals });
       toast.success('Logged!', `${isStrength && selected.length ? `${selected.length} exercise${selected.length !== 1 ? 's' : ''} · ` : ''}${label}`);
       resetForm(); onClose();
     } catch { toast.error('Failed to save', 'Please try again.'); }
@@ -850,8 +853,7 @@ export default function WorkoutLogScreen() {
   const P      = usePalette();
   const pad    = useScreenPadding();
   const insets = useSafeAreaInsets();
-  const toast  = useToast();
-
+  const toast   = useToast();
   const { workouts, totalCaloriesBurned, deleteWorkout } = useWorkouts();
   const [sheetOpen, setSheetOpen] = useState(false);
 

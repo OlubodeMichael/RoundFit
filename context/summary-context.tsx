@@ -190,6 +190,7 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
     await Promise.all([fetchTodayDaily(), fetchWeekly()]);
   }, [fetchTodayDaily, fetchWeekly]);
 
+
   return (
     <SummaryContext.Provider value={{
       daily, weekly, isLoading,
@@ -199,6 +200,8 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
     </SummaryContext.Provider>
   );
 }
+
+
 
 // ── Hook ──────────────────────────────────────────────────────────────────
 

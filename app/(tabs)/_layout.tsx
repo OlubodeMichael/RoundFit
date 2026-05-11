@@ -46,7 +46,16 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
         segments[1] === "profile" &&
         PROFILE_SUB_SCREENS.includes(segments[2] as string);
 
-    if (isProfileSubScreen) return null;
+    const isLogSubScreen =
+        segments[1] === "log" && segments[2] !== undefined;
+
+    const isProgressSubScreen =
+        segments[1] === "progress" && segments[2] !== undefined;
+
+    const isInsightsSubScreen =
+        segments[1] === "insights" && segments[2] !== undefined;
+
+    if (isProfileSubScreen || isLogSubScreen || isProgressSubScreen || isInsightsSubScreen) return null;
 
     const ACTIVE   = "#F97316";
     const INACTIVE = isDark ? "#5A5A66" : "#8A8A96";

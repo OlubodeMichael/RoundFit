@@ -64,7 +64,7 @@ export default function MirrorScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <ScrollView
-        contentContainerStyle={{ paddingTop: pad.paddingTop, paddingBottom: insets.bottom + 120 }}
+        contentContainerStyle={{ paddingTop: pad.paddingTop, paddingBottom: insets.bottom + 24 }}
         showsVerticalScrollIndicator={false}
       >
         <ScreenHeader

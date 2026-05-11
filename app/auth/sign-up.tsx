@@ -6,8 +6,10 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { GoogleLogo } from '@/components/ui/GoogleLogo';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/hooks/use-auth';
+import { usePostHog } from 'posthog-react-native';
 import type { UserProfile, AuthError } from '@/context/auth-context';
 import {
   mapOnboardingActivity,
@@ -35,7 +37,8 @@ export default function SignUpScreen() {
     goal: string; activity: string; unit: string;
   }>();
   const { isDark } = useTheme();
-  const { signUp, isLoading, isAuth, error, clearError } = useAuth();
+  const { signUp, signInWithOAuth, setupOAuthProfile, oauthProfilePending, isLoading, isAuth, error, clearError } = useAuth();
+  const posthog = usePostHog();
 
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
@@ -77,14 +80,13 @@ export default function SignUpScreen() {
     if (isAuth) router.replace('/(tabs)');
   }, [isAuth]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canSubmit = email.trim().length > 4 && password.length >= 6 && !isLoading;
+  const canSubmit = oauthProfilePending
+    ? !isLoading
+    : email.trim().length > 4 && password.length >= 6 && !isLoading;
   const firstName = params.name || 'there';
 
-  async function handleSignUp() {
-    if (!canSubmit) return;
-    clearError();
-
-    const profile: Omit<UserProfile, 'id' | 'email' | 'createdAt' | 'tdee' | 'calorieBudget'> = {
+  function buildProfile(): Omit<UserProfile, 'id' | 'email' | 'createdAt' | 'tdee' | 'calorieBudget'> {
+    return {
       name:          params.name   ?? '',
       age:           params.age    ? Number(params.age)    : 0,
       sex:           mapOnboardingSex(params.sex),
@@ -94,8 +96,52 @@ export default function SignUpScreen() {
       activityLevel: mapOnboardingActivity(params.activity),
       unit:          mapOnboardingUnit(params.unit),
     };
+  }
 
-    await signUp(email.trim(), password, profile);
+  async function handleSignUp() {
+    if (!canSubmit) return;
+    clearError();
+
+    const profile = buildProfile();
+
+    if (oauthProfilePending) {
+      try {
+        await setupOAuthProfile(profile);
+        posthog.capture('user_signed_up', {
+          method: 'oauth',
+          goal: params.goal ?? null,
+          activity: params.activity ?? null,
+          sex: params.sex ?? null,
+        });
+      } catch (err) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        posthog.capture('$exception', {
+          $exception_list: [{ type: e.name, value: e.message, stacktrace: { type: 'raw', frames: e.stack ?? '' } }],
+          $exception_source: 'oauth_setup',
+        });
+      }
+      return;
+    }
+
+    try {
+      await signUp(email.trim(), password, profile);
+      posthog.identify(email.trim(), {
+        $set: { email: email.trim(), name: params.name ?? '', goal: params.goal ?? '' },
+        $set_once: { sign_up_date: new Date().toISOString() },
+      });
+      posthog.capture('user_signed_up', {
+        method: 'email',
+        goal: params.goal ?? null,
+        activity: params.activity ?? null,
+        sex: params.sex ?? null,
+      });
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      posthog.capture('$exception', {
+        $exception_list: [{ type: e.name, value: e.message, stacktrace: { type: 'raw', frames: e.stack ?? '' } }],
+        $exception_source: 'sign_up',
+      });
+    }
   }
 
   return (
@@ -123,74 +169,84 @@ export default function SignUpScreen() {
             </Text>
           </Animated.View>
 
-          {/* Form */}
-          <Animated.View style={[s.form, { opacity: fade }]}>
+          {/* Form — hidden for OAuth users who don't need email/password */}
+          {!oauthProfilePending && (
+            <Animated.View style={[s.form, { opacity: fade }]}>
 
-            {/* Error banner */}
-            {error && (
-              <TouchableOpacity style={s.errorBanner} onPress={clearError} activeOpacity={0.8}>
-                <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
-                <Text style={s.errorText}>{ERROR_LABELS[error]}</Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Email */}
-            <View style={s.fieldWrap}>
-              <Text style={[s.fieldLabel, { color: mid }]}>Email</Text>
-              <View style={s.fieldInner}>
-                <TextInput
-                  style={[s.fieldInput, { color: hi }]}
-                  value={email}
-                  onChangeText={t => { setEmail(t); if (error) clearError(); }}
-                  placeholder="you@example.com"
-                  placeholderTextColor={lo}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  onFocus={() => setFocused('email')}
-                  onBlur={() => setFocused(null)}
-                />
-              </View>
-              <View style={[s.underlineTrack, { backgroundColor: lo }]}>
-                <Animated.View style={[s.underlineFill, {
-                  width: emailUnderline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                }]} />
-              </View>
-            </View>
-
-            {/* Password */}
-            <View style={s.fieldWrap}>
-              <Text style={[s.fieldLabel, { color: mid }]}>Password</Text>
-              <View style={s.fieldInner}>
-                <TextInput
-                  style={[s.fieldInput, { color: hi }]}
-                  value={password}
-                  onChangeText={t => { setPassword(t); if (error) clearError(); }}
-                  placeholder="Min. 6 characters"
-                  placeholderTextColor={lo}
-                  secureTextEntry={!showPass}
-                  autoCapitalize="none"
-                  onFocus={() => setFocused('password')}
-                  onBlur={() => setFocused(null)}
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPass(v => !v)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={mid} />
+              {/* Error banner */}
+              {error && (
+                <TouchableOpacity style={s.errorBanner} onPress={clearError} activeOpacity={0.8}>
+                  <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
+                  <Text style={s.errorText}>{ERROR_LABELS[error]}</Text>
                 </TouchableOpacity>
-              </View>
-              <View style={[s.underlineTrack, { backgroundColor: lo }]}>
-                <Animated.View style={[s.underlineFill, {
-                  width: passwordUnderline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                }]} />
-              </View>
-              {password.length > 0 && password.length < 6 && (
-                <Text style={s.hint}>At least 6 characters required</Text>
               )}
-            </View>
 
-          </Animated.View>
+              {/* Email */}
+              <View style={s.fieldWrap}>
+                <Text style={[s.fieldLabel, { color: mid }]}>Email</Text>
+                <View style={s.fieldInner}>
+                  <TextInput
+                    style={[s.fieldInput, { color: hi }]}
+                    value={email}
+                    onChangeText={t => { setEmail(t); if (error) clearError(); }}
+                    placeholder="you@example.com"
+                    placeholderTextColor={lo}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    onFocus={() => setFocused('email')}
+                    onBlur={() => setFocused(null)}
+                  />
+                </View>
+                <View style={[s.underlineTrack, { backgroundColor: lo }]}>
+                  <Animated.View style={[s.underlineFill, {
+                    width: emailUnderline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                  }]} />
+                </View>
+              </View>
+
+              {/* Password */}
+              <View style={s.fieldWrap}>
+                <Text style={[s.fieldLabel, { color: mid }]}>Password</Text>
+                <View style={s.fieldInner}>
+                  <TextInput
+                    style={[s.fieldInput, { color: hi }]}
+                    value={password}
+                    onChangeText={t => { setPassword(t); if (error) clearError(); }}
+                    placeholder="Min. 6 characters"
+                    placeholderTextColor={lo}
+                    secureTextEntry={!showPass}
+                    autoCapitalize="none"
+                    onFocus={() => setFocused('password')}
+                    onBlur={() => setFocused(null)}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPass(v => !v)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={mid} />
+                  </TouchableOpacity>
+                </View>
+                <View style={[s.underlineTrack, { backgroundColor: lo }]}>
+                  <Animated.View style={[s.underlineFill, {
+                    width: passwordUnderline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                  }]} />
+                </View>
+                {password.length > 0 && password.length < 6 && (
+                  <Text style={s.hint}>At least 6 characters required</Text>
+                )}
+              </View>
+
+            </Animated.View>
+          )}
+
+          {/* OAuth error banner (shown outside the form block) */}
+          {oauthProfilePending && error && (
+            <TouchableOpacity style={s.errorBanner} onPress={clearError} activeOpacity={0.8}>
+              <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
+              <Text style={s.errorText}>{ERROR_LABELS[error]}</Text>
+            </TouchableOpacity>
+          )}
 
           <View style={{ flex: 1 }} />
 
@@ -203,9 +259,45 @@ export default function SignUpScreen() {
               onPress={handleSignUp}
             >
               <Text style={s.ctaText}>
-                {isLoading ? 'Creating account…' : 'Create account  →'}
+                {isLoading
+                  ? (oauthProfilePending ? 'Setting up…' : 'Creating account…')
+                  : (oauthProfilePending ? 'Complete setup  →' : 'Create account  →')}
               </Text>
             </TouchableOpacity>
+
+            {/* OAuth social buttons — hidden when completing an OAuth profile setup */}
+            {!oauthProfilePending && (
+              <>
+                {/* Divider */}
+                <View style={s.dividerRow}>
+                  <View style={[s.dividerLine, { backgroundColor: lo }]} />
+                  <Text style={[s.dividerText, { color: mid }]}>or</Text>
+                  <View style={[s.dividerLine, { backgroundColor: lo }]} />
+                </View>
+
+                {/* Apple */}
+                <TouchableOpacity
+                  style={[s.socialBtn, { backgroundColor: isDark ? '#1C1C1E' : '#000', borderColor: isDark ? '#2A2A32' : '#000', opacity: isLoading ? 0.5 : 1 }]}
+                  activeOpacity={0.8}
+                  disabled={isLoading}
+                  onPress={() => signInWithOAuth('apple')}
+                >
+                  <Ionicons name="logo-apple" size={20} color="#FFF" />
+                  <Text style={[s.socialBtnText, { color: '#FFF' }]}>Continue with Apple</Text>
+                </TouchableOpacity>
+
+                {/* Google */}
+                <TouchableOpacity
+                  style={[s.socialBtn, { backgroundColor: isDark ? '#1C1C1E' : '#FFF', borderColor: isDark ? '#2A2A32' : '#E5E5E5', opacity: isLoading ? 0.5 : 1 }]}
+                  activeOpacity={0.8}
+                  disabled={isLoading}
+                  onPress={() => signInWithOAuth('google')}
+                >
+                  <GoogleLogo size={18} />
+                  <Text style={[s.socialBtnText, { color: hi }]}>Continue with Google</Text>
+                </TouchableOpacity>
+              </>
+            )}
 
             <Text style={[s.legal, { color: mid }]}>
               By continuing you agree to our{' '}
@@ -269,4 +361,14 @@ const s = StyleSheet.create({
   ctaText:    { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
   legal:      { fontSize: 12, textAlign: 'center', lineHeight: 18 },
   switchLink: { fontSize: 13, textAlign: 'center' },
+
+  dividerRow:  { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  dividerLine: { flex: 1, height: 1 },
+  dividerText: { fontSize: 12, fontWeight: '600', letterSpacing: 0.5 },
+
+  socialBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    borderRadius: 14, borderWidth: 1, paddingVertical: 16,
+  },
+  socialBtnText: { fontSize: 15, fontWeight: '700', letterSpacing: -0.1 },
 });

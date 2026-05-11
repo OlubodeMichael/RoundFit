@@ -6,6 +6,7 @@ import { useAuth } from '@/context/auth-context';
 import type { ManualMealInput } from '@/components/log/ManualMealInputModal';
 import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
+import { getCachedAnalysis, cacheAnalysis } from '@/utils/photo-cache';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,14 @@ export interface MealItem {
   fat?:      number;
   time:      string;
   imageUrl?: string;
+}
+
+export interface PhotoPreview {
+  name:    string;
+  cals:    number;
+  protein: number;
+  carbs:   number;
+  fat:     number;
 }
 
 export interface FoodContextValue {
@@ -51,6 +60,9 @@ export interface FoodContextValue {
 
   /** Logs a meal from manual entry — hits POST /food/log. */
   addMeal: (entry: ManualMealInput) => Promise<void>;
+
+  /** Analyzes a base64 photo via AI — returns nutrition preview WITHOUT saving. */
+  previewPhoto: (base64Image: string) => Promise<PhotoPreview | null>;
 
   /** Analyzes a base64 photo via AI, saves the result, and returns the MealItem. */
   analyzePhoto: (base64Image: string) => Promise<MealItem | null>;
@@ -293,11 +305,43 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     throw new Error('Failed to log meal');
   }, []);
 
+  // ── Preview via photo (analyze only, no DB save) ─────────────────────────
+  const previewPhoto = useCallback(async (base64Image: string): Promise<PhotoPreview | null> => {
+    const { ok, body } = await apiFetch('/food/photo/preview', {
+      method: 'POST',
+      body:   JSON.stringify({ base64Image }),
+    });
+    if (!ok) {
+      if (body?.error === 'zero_calories') throw new ZeroCaloriesError();
+      return null;
+    }
+    const d = body.data as Record<string, unknown>;
+    if (!d) return null;
+    return {
+      name:    String(d.meal_name ?? ''),
+      cals:    typeof d.calories === 'number' ? d.calories : 0,
+      protein: typeof d.protein  === 'number' ? d.protein  : 0,
+      carbs:   typeof d.carbs    === 'number' ? d.carbs    : 0,
+      fat:     typeof d.fat      === 'number' ? d.fat      : 0,
+    };
+  }, []);
+
   // ── Analyze via photo ────────────────────────────────────────────────────
   const analyzePhoto = useCallback(async (base64Image: string): Promise<MealItem | null> => {
+    // Return cached result immediately if we've seen this image before
+    const cached = await getCachedAnalysis(base64Image);
+    if (cached) {
+      setMeals((prev) => [...prev, cached]);
+      return cached;
+    }
+
     const { ok, body } = await apiFetch('/food/photo', {
       method: 'POST',
-      body:   JSON.stringify({ base64Image, log_date: todayDateString() }),
+      body:   JSON.stringify({
+        base64Image,
+        log_date:   todayDateString(),
+        meal_label: deriveMealLabel(new Date()).toLowerCase(),
+      }),
     });
     if (!ok || !body.data) return null;
     const item = fromApiLog(body.data as Record<string, unknown>);
@@ -307,6 +351,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       throw new ZeroCaloriesError();
     }
     setMeals((prev) => [...prev, item]);
+    cacheAnalysis(base64Image, item);
     return item;
   }, []);
 
@@ -345,7 +390,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     <FoodContext.Provider value={{
       meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
       remaining, activeDate, isLoading,
-      addMeal, analyzePhoto, logBarcode, deleteMeal, refreshLogs,
+      addMeal, previewPhoto, analyzePhoto, logBarcode, deleteMeal, refreshLogs,
     }}>
       {children}
     </FoodContext.Provider>

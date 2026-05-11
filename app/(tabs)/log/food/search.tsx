@@ -14,6 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { AnimatedCard, usePalette, useScreenPadding } from '@/lib/log-theme';
 import { FoodRow } from '@/components/log/FoodRow';
+import { usePostHog } from 'posthog-react-native';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -45,6 +46,7 @@ export default function FoodSearchScreen() {
   const insets = useSafeAreaInsets();
 
   const [query, setQuery] = useState('');
+  const posthog = usePostHog();
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -72,6 +74,7 @@ export default function FoodSearchScreen() {
             placeholderTextColor={P.textFaint}
             autoFocus
             returnKeyType="search"
+            onSubmitEditing={() => { if (query.trim()) posthog.capture('food_searched', { query: query.trim(), result_count: results.length }); }}
             style={{ flex: 1, color: P.text, fontSize: 15, fontWeight: '600', paddingVertical: 0 }}
           />
           {!!query && (
@@ -83,7 +86,7 @@ export default function FoodSearchScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >

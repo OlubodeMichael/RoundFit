@@ -12,6 +12,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useFood } from '@/hooks/use-food';
 import { useToast } from '@/components/ui/Toast';
+import { usePostHog } from 'posthog-react-native';
 import {
   AnimatedCard,
   FieldLabel,
@@ -45,6 +46,7 @@ export default function ManualFoodScreen() {
   const insets = useSafeAreaInsets();
   const { addMeal } = useFood();
   const toast       = useToast();
+  const posthog     = usePostHog();
 
   const [name,     setName]     = useState('');
   const [meal,     setMeal]     = useState<MealLabel>(guessMealLabel());
@@ -73,10 +75,22 @@ export default function ManualFoodScreen() {
         carbs:    parseOptionalNumber(carbs),
         fat:      parseOptionalNumber(fat),
       });
+      posthog.capture('food_logged_manual', {
+        meal_label: meal,
+        calories: kcal,
+        has_protein: Boolean(parseOptionalNumber(protein)),
+        has_carbs: Boolean(parseOptionalNumber(carbs)),
+        has_fat: Boolean(parseOptionalNumber(fat)),
+      });
       toast.success('Food logged', name.trim());
       router.back();
-    } catch {
+    } catch (err) {
       toast.error('Could not log', 'Please try again.');
+      const e = err instanceof Error ? err : new Error(String(err));
+      posthog.capture('$exception', {
+        $exception_list: [{ type: e.name, value: e.message, stacktrace: { type: 'raw', frames: e.stack ?? '' } }],
+        $exception_source: 'food_logged_manual',
+      });
     } finally {
       setSaving(false);
     }

@@ -6,14 +6,17 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { GoogleLogo } from '@/components/ui/GoogleLogo';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/hooks/use-auth';
+import { usePostHog } from 'posthog-react-native';
 
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
-  const { signIn, isLoading, error, clearError, isAuth } = useAuth();
+  const { signIn, signInWithOAuth, isLoading, error, clearError, isAuth } = useAuth();
+  const posthog = usePostHog();
 
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
@@ -159,9 +162,50 @@ export default function LoginScreen() {
               style={[s.cta, { opacity: canSubmit ? 1 : 0.35 }]}
               activeOpacity={0.85}
               disabled={!canSubmit}
-              onPress={() => signIn(email.trim(), password)}
+              onPress={async () => {
+                try {
+                  await signIn(email.trim(), password);
+                  posthog.identify(email.trim(), { $set: { email: email.trim() } });
+                  posthog.capture('user_signed_in');
+                } catch (err) {
+                  const e = err instanceof Error ? err : new Error(String(err));
+                  posthog.capture('$exception', {
+                    $exception_list: [{ type: e.name, value: e.message, stacktrace: { type: 'raw', frames: e.stack ?? '' } }],
+                    $exception_source: 'sign_in',
+                  });
+                }
+              }}
             >
               <Text style={s.ctaText}>{isLoading ? 'Logging in…' : 'Log in  →'}</Text>
+            </TouchableOpacity>
+
+            {/* Divider */}
+            <View style={s.dividerRow}>
+              <View style={[s.dividerLine, { backgroundColor: lo }]} />
+              <Text style={[s.dividerText, { color: mid }]}>or</Text>
+              <View style={[s.dividerLine, { backgroundColor: lo }]} />
+            </View>
+
+            {/* Apple */}
+            <TouchableOpacity
+              style={[s.socialBtn, { backgroundColor: isDark ? '#1C1C1E' : '#000', borderColor: isDark ? '#2A2A32' : '#000', opacity: isLoading ? 0.5 : 1 }]}
+              activeOpacity={0.8}
+              disabled={isLoading}
+              onPress={() => signInWithOAuth('apple')}
+            >
+              <Ionicons name="logo-apple" size={20} color="#FFF" />
+              <Text style={[s.socialBtnText, { color: '#FFF' }]}>Continue with Apple</Text>
+            </TouchableOpacity>
+
+            {/* Google */}
+            <TouchableOpacity
+              style={[s.socialBtn, { backgroundColor: isDark ? '#1C1C1E' : '#FFF', borderColor: isDark ? '#2A2A32' : '#E5E5E5', opacity: isLoading ? 0.5 : 1 }]}
+              activeOpacity={0.8}
+              disabled={isLoading}
+              onPress={() => signInWithOAuth('google')}
+            >
+              <GoogleLogo size={18} />
+              <Text style={[s.socialBtnText, { color: hi }]}>Continue with Google</Text>
             </TouchableOpacity>
 
             <TouchableOpacity onPress={() => router.push('/onboarding/value-hook')} activeOpacity={0.7}>
@@ -207,4 +251,14 @@ const s = StyleSheet.create({
   },
   ctaText:    { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
   switchLink: { fontSize: 13, textAlign: 'center' },
+
+  dividerRow:  { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  dividerLine: { flex: 1, height: 1 },
+  dividerText: { fontSize: 12, fontWeight: '600', letterSpacing: 0.5 },
+
+  socialBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    borderRadius: 14, borderWidth: 1, paddingVertical: 16,
+  },
+  socialBtnText: { fontSize: 15, fontWeight: '700', letterSpacing: -0.1 },
 });

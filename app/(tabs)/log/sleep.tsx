@@ -25,9 +25,12 @@ import {
   usePalette,
 } from '@/lib/log-theme';
 import { SleepHypnogram } from '@/components/log/SleepHypnogram';
+import { SleepTimePicker } from '@/components/log/SleepTimePicker';
+import { AnnouncementModal } from '@/components/ui/AnnouncementModal';
 import { useToast } from '@/components/ui/Toast';
 import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
+import { usePostHog } from 'posthog-react-native';
 import { apiFetch } from '@/utils/api';
 import {
   getHealthKitModule,
@@ -76,6 +79,7 @@ export default function SleepLogScreen() {
   const toast           = useToast();
   const health          = useHealth();
   const { logRecovery } = useRecovery();
+  const posthog         = usePostHog();
 
   // ── Date navigation ────────────────────────────────────────────────────────
   const today = localDateString();
@@ -127,7 +131,9 @@ export default function SleepLogScreen() {
   const [deepH,    setDeepH]   = useState('');
   const [deepM,    setDeepM]   = useState('');
   const [notes,    setNotes]   = useState('');
-  const [saving,   setSaving]  = useState(false);
+  const [saving,              setSaving]              = useState(false);
+  const [pickerVisible,       setPickerVisible]       = useState(false);
+  const [noSleepModalVisible, setNoSleepModalVisible] = useState(false);
 
   // ── Sleep stage segments (for hypnogram chart) ─────────────────────────────
   const [sleepSegments, setSleepSegments] = useState<SleepSegment[]>([]);
@@ -189,6 +195,16 @@ export default function SleepLogScreen() {
     }
   }, [hkSleep]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Show no-sleep modal only for today — past dates may simply have no data logged.
+  // Showing it on past dates blocks the navigation header (modal backdrop is absoluteFill).
+  useEffect(() => {
+    if (isToday && !loadingDate && health.isConnected && !hkSleep) {
+      setNoSleepModalVisible(true);
+    } else {
+      setNoSleepModalVisible(false);
+    }
+  }, [isToday, loadingDate, hkSleep, health.isConnected]);
+
   // ── Computed hours (always from clock inputs so edits update hero live) ────
   const hours = useMemo(() => computeHours(bedtime, wakeup), [bedtime, wakeup]);
 
@@ -198,22 +214,51 @@ export default function SleepLogScreen() {
     try {
       const apiQuality: SleepQuality = quality === 'great' ? 'good' : quality;
       const sleepH = hours.rawHours > 0 ? hours.rawHours : (hkSleep?.sleep_hours ?? 0);
+      const deepSleepH = (() => {
+        const h = parseInt(deepH) || 0;
+        const m = parseInt(deepM) || 0;
+        return h > 0 || m > 0 ? h + m / 60 : (hkSleep?.deep_sleep_hours ?? undefined);
+      })();
+      const source = fromHealthKit ? 'healthkit' : 'manual';
+
       await logRecovery({
         sleep_hours:      sleepH > 0 ? sleepH : undefined,
         sleep_quality:    apiQuality,
-        deep_sleep_hours: (() => {
-          const h = parseInt(deepH) || 0;
-          const m = parseInt(deepM) || 0;
-          return h > 0 || m > 0 ? h + m / 60 : (hkSleep?.deep_sleep_hours ?? undefined);
-        })(),
+        deep_sleep_hours: deepSleepH,
         rem_sleep_hours:  hkSleep?.rem_sleep_hours ?? undefined,
         notes:            notes.trim() || undefined,
-        source:           fromHealthKit ? 'healthkit' : 'manual',
+        source,
         date:             isToday ? undefined : activeDate,
       });
+
+      // Also write sleep into health_data so the home screen and insights
+      // pick it up — logRecovery only writes to recovery_logs.
+      if (sleepH > 0) {
+        await health.syncHealth({
+          source,
+          date:             isToday ? undefined : activeDate,
+          sleep_hours:      sleepH,
+          deep_sleep_hours: deepSleepH,
+          rem_sleep_hours:  hkSleep?.rem_sleep_hours ?? undefined,
+          bedtime_iso:      hkSleep?.bedtime_iso ?? clockToIso(bedtime, activeDate, 'bedtime') ?? undefined,
+          wakeup_iso:       hkSleep?.wakeup_iso  ?? clockToIso(wakeup,  activeDate, 'wakeup')  ?? undefined,
+        });
+      }
+
+      posthog.capture('sleep_logged', {
+        sleep_hours: sleepH,
+        quality,
+        source,
+        is_today: isToday,
+      });
       toast.success('Sleep logged', `${hours.label} · ${capital(quality)}`);
-    } catch {
+    } catch (err) {
       toast.error('Could not save', 'Please try again');
+      const e = err instanceof Error ? err : new Error(String(err));
+      posthog.capture('$exception', {
+        $exception_list: [{ type: e.name, value: e.message, stacktrace: { type: 'raw', frames: e.stack ?? '' } }],
+        $exception_source: 'sleep_logged',
+      });
     } finally {
       setSaving(false);
     }
@@ -341,7 +386,7 @@ export default function SleepLogScreen() {
         {fromHealthKit && (
           <View style={{ paddingHorizontal: 20, marginTop: 12 }}>
             <View style={[sleepStyles.hkBanner, { backgroundColor: P.waterSoft, borderColor: P.water + '40' }]}>
-              <Ionicons name="logo-apple" size={13} color={P.water} />
+              <Ionicons name="logo-apple" size={13} color="#EF4444" />
               <Text style={[sleepStyles.hkBannerText, { color: P.water }]}>
                 Synced from Apple Health
               </Text>
@@ -350,6 +395,7 @@ export default function SleepLogScreen() {
             </View>
           </View>
         )}
+
 
         {/* ── Hypnogram chart ──────────────────────────────────────────────── */}
         {fromHealthKit && sleepSegments.some(
@@ -371,30 +417,40 @@ export default function SleepLogScreen() {
 
         {/* ── Bedtime / Wakeup ─────────────────────────────────────────────── */}
         <View style={{ paddingHorizontal: 20, marginTop: 14 }}>
-          <AnimatedCard delay={120}>
+          <AnimatedCard delay={120} onPress={() => setPickerVisible(true)}>
             <FieldLabel>Sleep window</FieldLabel>
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}>
               <View style={{ flex: 1 }}>
                 <MiniLabel>Bedtime</MiniLabel>
-                <TextField
-                  value={bedtime}
-                  onChangeText={setBedtime}
-                  placeholder="11:00 PM"
-                  autoCapitalize="characters"
-                />
+                <Text style={{ color: P.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.6, marginTop: 2 }}>
+                  {bedtime}
+                </Text>
               </View>
+              <View style={[{ width: 1, height: 36, backgroundColor: P.cardEdge }]} />
               <View style={{ flex: 1 }}>
                 <MiniLabel>Wake up</MiniLabel>
-                <TextField
-                  value={wakeup}
-                  onChangeText={setWakeup}
-                  placeholder="7:00 AM"
-                  autoCapitalize="characters"
-                />
+                <Text style={{ color: P.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.6, marginTop: 2 }}>
+                  {wakeup}
+                </Text>
+              </View>
+              <View style={[{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: P.sleepSoft }]}>
+                <Ionicons name="time-outline" size={17} color={P.sleep} />
               </View>
             </View>
           </AnimatedCard>
         </View>
+
+        <SleepTimePicker
+          visible={pickerVisible}
+          bedtime={bedtime}
+          wakeup={wakeup}
+          onConfirm={(b, w) => {
+            setBedtime(b);
+            setWakeup(w);
+            setPickerVisible(false);
+          }}
+          onCancel={() => setPickerVisible(false)}
+        />
 
         {/* ── Quality ──────────────────────────────────────────────────────── */}
         <View style={{ paddingHorizontal: 20, marginTop: 14 }}>
@@ -479,11 +535,42 @@ export default function SleepLogScreen() {
           )}
         </View>
       </ScrollView>
+
+      <AnnouncementModal
+        visible={noSleepModalVisible}
+        onClose={() => setNoSleepModalVisible(false)}
+        icon="moon"
+        iconColor={P.sleep}
+        iconBg={P.sleepSoft}
+        title="No Sleep Detected"
+        description={`Apple Health didn't find any sleep data for ${formatNavDate(activeDate).toLowerCase()}. Enter your sleep time below to log it manually.`}
+        primaryLabel="Log Manually"
+        dismissLabel="Maybe Later"
+      />
     </View>
   );
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+function clockToIso(
+  clock: string,
+  wakeDate: string,
+  role: 'bedtime' | 'wakeup',
+): string | null {
+  const parsed = parseClock(clock);
+  if (!parsed) return null;
+  const [y, mo, d] = wakeDate.split('-').map(Number);
+  if (role === 'wakeup') {
+    return new Date(y, (mo ?? 1) - 1, d ?? 1, parsed.h, parsed.m, 0, 0).toISOString();
+  }
+  // Bedtime is the evening before the wake date when hour >= 12 (noon+)
+  const isPM = parsed.h >= 12;
+  const date = isPM
+    ? new Date(y, (mo ?? 1) - 1, (d ?? 1) - 1, parsed.h, parsed.m, 0, 0)
+    : new Date(y, (mo ?? 1) - 1,  d ?? 1,        parsed.h, parsed.m, 0, 0);
+  return date.toISOString();
+}
 
 function isoToClockString(iso: string): string {
   const d = new Date(iso);

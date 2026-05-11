@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Platform, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
@@ -105,7 +105,12 @@ export default function HealthConnectScreen() {
   const handleSkip = () => goToReveal();
 
   return (
-    <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: bg }}
+      contentContainerStyle={{ flexGrow: 1 }}
+      showsVerticalScrollIndicator={false}
+    >
+    <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
         <ProgressBar
           step={params.sex === 'female' ? 12 : 9}
@@ -172,11 +177,12 @@ export default function HealthConnectScreen() {
         </TouchableOpacity>
       </Animated.View>
     </View>
+    </ScrollView>
   );
 }
 
 const s = StyleSheet.create({
-  root:     { flex: 1, paddingHorizontal: 28 },
+  root:     { flex: 1, paddingHorizontal: 28, paddingBottom: 0 },
   progress: { marginBottom: 8 },
 
   headline: { fontSize: 40, fontWeight: '900', letterSpacing: -2, lineHeight: 44, marginBottom: 10 },

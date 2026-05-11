@@ -1,4 +1,12 @@
-import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
+import {
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  Pressable,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ComponentProps } from 'react';
@@ -9,53 +17,150 @@ import {
   usePalette,
   useScreenPadding,
 } from '@/lib/log-theme';
+import { useWeeklyInsights } from '@/hooks/use-weekly-insights';
+import {
+  formatWeekRange,
+  getDayLetter,
+  getDayName,
+  formatSleepHours,
+  formatDelta,
+  getWeekStart,
+} from '@/utils/insights-aggregator';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
-// ─── Dummy data ─────────────────────────────────────────────────────────────
-const WEEK_RANGE     = 'April 12 — April 18';
-const CONSISTENCY    = 78;
-const STREAK         = 12;
-const BEST_DAY       = {
-  label:  'Wednesday',
-  score:  96,
-  reason: 'Protein target hit, 8 glasses of water, lifting + walk',
-};
-const DAYS = [
-  { label: 'M', score: 82, target: true  },
-  { label: 'T', score: 71, target: true  },
-  { label: 'W', score: 96, target: true  },
-  { label: 'T', score: 64, target: false },
-  { label: 'F', score: 88, target: true  },
-  { label: 'S', score: 74, target: true  },
-  { label: 'S', score: 72, target: false },
-];
-const AVERAGES = [
-  { key: 'cals',    label: 'Calories', value: '2,047',   delta: '+140 vs. target', icon: 'flame'            as IoniconName, tint: 'calories' as const },
-  { key: 'protein', label: 'Protein',  value: '118 g',   delta: '−22 g vs. target', icon: 'fitness'         as IoniconName, tint: 'protein'  as const },
-  { key: 'sleep',   label: 'Sleep',    value: '6h 48m',  delta: '−12 m vs. target', icon: 'moon'            as IoniconName, tint: 'sleep'    as const },
-  { key: 'energy',  label: 'Energy',   value: '3.8 / 5', delta: '+0.4 vs. week 14', icon: 'battery-charging' as IoniconName, tint: 'fat'      as const },
-];
-const TOP_PATTERN = {
-  title:      'Low-protein days → lower next-day energy',
-  confidence: 0.82,
-  supports:   4,
-};
-const AI_RECO = 'Front-load protein before noon on training days. Three out of four of your highest-energy mornings came after breakfasts over 32g of protein.';
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function minutesAgo(iso: string): string {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (diff < 1)  return 'just now';
+  if (diff < 60) return `${diff}m ago`;
+  const h = Math.floor(diff / 60);
+  return `${h}h ago`;
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function WeeklyReportScreen() {
   const P      = usePalette();
   const pad    = useScreenPadding();
   const insets = useSafeAreaInsets();
 
+  const { data, isLoading, isRefreshing, isStale, error, refresh } =
+    useWeeklyInsights(getWeekStart());
+
+  // ── Loading (no cached data yet) ────────────────────────────────────────
+  if (isLoading && !data) {
+    return (
+      <View style={{ flex: 1, backgroundColor: P.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={P.calories} />
+      </View>
+    );
+  }
+
+  // ── Error (no data at all) ───────────────────────────────────────────────
+  if (error && !data) {
+    return (
+      <View style={{ flex: 1, backgroundColor: P.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
+        <Ionicons name="cloud-offline-outline" size={36} color={P.textFaint} />
+        <Text style={{ color: P.textDim, fontSize: 14, textAlign: 'center', marginTop: 12, lineHeight: 20 }}>
+          {error}
+        </Text>
+        <Pressable
+          onPress={refresh}
+          style={({ pressed }) => [
+            { marginTop: 20, backgroundColor: P.calories, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
+            pressed && { opacity: 0.8 },
+          ]}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Try again</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  // ── Data ─────────────────────────────────────────────────────────────────
+  const weekRange   = data ? formatWeekRange(data.week_start, data.week_end) : '';
+  const consistency = data?.consistency_score ?? 0;
+  const streak      = data?.streak ?? 0;
+
+  const dayBars = (data?.days ?? []).map(d => ({
+    label:  getDayLetter(d.date),
+    score:  d.score,
+    target: d.met_calories === 'met',
+    empty:  d.is_partial,
+  }));
+
+  const targets = data?.targets_snapshot;
+  const avgCalDelta = targets
+    ? data!.avg_calories - targets.calorie_budget
+    : null;
+  const avgProtDelta = targets
+    ? data!.avg_protein - targets.protein_target
+    : null;
+  const avgSleepDelta =
+    data?.avg_sleep != null && targets?.sleep_target != null
+      ? data.avg_sleep - targets.sleep_target
+      : null;
+
+  const averages = [
+    {
+      key:   'cals',
+      label: 'Calories',
+      value: data ? `${data.avg_calories.toLocaleString()}` : '—',
+      delta: avgCalDelta != null ? `${formatDelta(avgCalDelta)} vs. target` : '—',
+      icon:  'flame' as IoniconName,
+      tint:  'calories' as const,
+    },
+    {
+      key:   'protein',
+      label: 'Protein',
+      value: data ? `${data.avg_protein} g` : '—',
+      delta: avgProtDelta != null ? `${formatDelta(avgProtDelta, 'g')} vs. target` : '—',
+      icon:  'fitness' as IoniconName,
+      tint:  'protein' as const,
+    },
+    {
+      key:   'sleep',
+      label: 'Sleep',
+      value: formatSleepHours(data?.avg_sleep ?? null),
+      delta: avgSleepDelta != null ? `${formatDelta(avgSleepDelta, 'h')} vs. target` : '—',
+      icon:  'moon' as IoniconName,
+      tint:  'sleep' as const,
+    },
+    {
+      key:   'steps',
+      label: 'Steps',
+      value: data?.avg_steps != null ? `${Math.round(data.avg_steps).toLocaleString()}` : '—',
+      delta: data?.avg_steps != null && targets?.steps_target != null
+        ? `${formatDelta(data.avg_steps - targets.steps_target)} vs. target`
+        : data?.avg_steps != null ? 'daily avg' : 'no data',
+      icon:  'walk' as IoniconName,
+      tint:  'fat' as const,
+    },
+  ];
+
+  const bestDay = data?.best_day_date
+    ? data.days.find(d => d.date === data.best_day_date)
+    : null;
+
+  const aiMessage = data?.weekly_insight_message;
+
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <ScrollView
-        contentContainerStyle={{ paddingTop: pad.paddingTop, paddingBottom: insets.bottom + 120 }}
+        contentContainerStyle={{ paddingTop: pad.paddingTop, paddingBottom: insets.bottom + 24 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={refresh}
+            tintColor={P.calories}
+          />
+        }
       >
         <ScreenHeader
-          eyebrow="Premium report"
+          eyebrow="Weekly report"
           title="This week"
           accent={P.calories}
           right={
@@ -65,53 +170,62 @@ export default function WeeklyReportScreen() {
           }
         />
 
+        {/* Stale badge */}
+        {isStale && data && (
+          <View style={[styles.staleBadge, { backgroundColor: P.sunken, marginHorizontal: 20, marginBottom: 8 }]}>
+            <Ionicons name="time-outline" size={12} color={P.textFaint} />
+            <Text style={[styles.staleText, { color: P.textFaint }]}>
+              Updated {minutesAgo(data.last_computed_at)} · Pull to refresh
+            </Text>
+          </View>
+        )}
+
         <View style={styles.stack}>
-          {/* ── Consistency hero ───────────────────────────────── */}
+          {/* ── Consistency hero ────────────────────────────────── */}
           <AnimatedCard delay={60} style={{ overflow: 'hidden' }}>
             <View pointerEvents="none" style={[styles.glow, { backgroundColor: P.caloriesSoft, top: -80, right: -60 }]} />
 
             <View style={styles.rangeRow}>
               <View style={[styles.miniPill, { backgroundColor: P.caloriesSoft }]}>
                 <View style={[styles.dot, { backgroundColor: P.calories }]} />
-                <Text style={[styles.miniPillText, { color: P.calories }]}>{WEEK_RANGE.toUpperCase()}</Text>
+                <Text style={[styles.miniPillText, { color: P.calories }]}>
+                  {weekRange.toUpperCase()}
+                </Text>
               </View>
-              <View style={[styles.streakPill, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
-                <Ionicons name="flame" size={11} color={P.calories} />
-                <Text style={[styles.streakText, { color: P.text }]}>{STREAK}-day streak</Text>
-              </View>
+              {streak > 0 && (
+                <View style={[styles.streakPill, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
+                  <Ionicons name="flame" size={11} color={P.calories} />
+                  <Text style={[styles.streakText, { color: P.text }]}>{streak}-day streak</Text>
+                </View>
+              )}
             </View>
 
             <Text style={[styles.heroLabel, { color: P.textFaint }]}>CONSISTENCY</Text>
             <View style={styles.heroScoreRow}>
-              <Text style={[styles.heroScore, { color: P.text }]}>{CONSISTENCY}</Text>
+              <Text style={[styles.heroScore, { color: P.text }]}>{consistency}</Text>
               <Text style={[styles.heroScoreOf, { color: P.textFaint }]}>/ 100</Text>
-              <View style={[styles.trendPill, { backgroundColor: P.proteinSoft, marginLeft: 'auto' }]}>
-                <Ionicons name="arrow-up" size={10} color={P.protein} />
-                <Text style={[styles.trendText, { color: P.protein }]}>+6 vs. last week</Text>
-              </View>
             </View>
 
             <View style={[styles.progressTrack, { backgroundColor: P.sunken }]}>
-              <View style={[styles.progressFill, { width: `${CONSISTENCY}%`, backgroundColor: P.calories }]} />
+              <View style={[styles.progressFill, { width: `${consistency}%`, backgroundColor: P.calories }]} />
             </View>
 
+            {/* Day bars */}
             <View style={styles.daysRow}>
-              {DAYS.map((d, i) => {
-                const pct = d.score / 100;
-                const color = d.target ? P.protein : P.textFaint;
+              {dayBars.map((d, i) => {
+                const pct   = d.score / 100;
+                const color = d.empty ? P.textFaint : d.target ? P.protein : P.textFaint;
                 return (
                   <View key={i} style={styles.dayCol}>
                     <View style={[styles.dayTrack, { backgroundColor: P.sunken }]}>
-                      <View
-                        style={[
-                          styles.dayFill,
-                          {
-                            height:          `${pct * 100}%`,
-                            backgroundColor: color,
-                            opacity:         d.target ? 1 : 0.5,
-                          },
-                        ]}
-                      />
+                      {!d.empty && (
+                        <View
+                          style={[
+                            styles.dayFill,
+                            { height: `${pct * 100}%`, backgroundColor: color, opacity: d.target ? 1 : 0.5 },
+                          ]}
+                        />
+                      )}
                     </View>
                     <Text style={[styles.dayLabel, { color: P.textFaint }]}>{d.label}</Text>
                   </View>
@@ -120,28 +234,35 @@ export default function WeeklyReportScreen() {
             </View>
           </AnimatedCard>
 
-          {/* ── Best day ───────────────────────────────────────── */}
-          <AnimatedCard delay={140}>
-            <View style={styles.bestRow}>
-              <View style={[styles.trophyTile, { backgroundColor: P.carbsSoft }]}>
-                <Ionicons name="trophy" size={18} color={P.carbs} />
+          {/* ── Best day ────────────────────────────────────────── */}
+          {bestDay && (
+            <AnimatedCard delay={140}>
+              <View style={styles.bestRow}>
+                <View style={[styles.trophyTile, { backgroundColor: P.carbsSoft }]}>
+                  <Ionicons name="trophy" size={18} color={P.carbs} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.smallLabel, { color: P.textFaint }]}>BEST DAY</Text>
+                  <Text style={[styles.bestTitle, { color: P.text }]}>{getDayName(bestDay.date)}</Text>
+                </View>
+                <Text style={[styles.bestScore, { color: P.carbs }]}>{bestDay.score}</Text>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.smallLabel, { color: P.textFaint }]}>BEST DAY</Text>
-                <Text style={[styles.bestTitle, { color: P.text }]}>{BEST_DAY.label}</Text>
-              </View>
-              <Text style={[styles.bestScore, { color: P.carbs }]}>{BEST_DAY.score}</Text>
-            </View>
-            <Text style={[styles.bestReason, { color: P.textDim }]}>
-              {BEST_DAY.reason}
-            </Text>
-          </AnimatedCard>
+              <Text style={[styles.bestReason, { color: P.textDim }]}>
+                {[
+                  bestDay.met_calories === 'met' ? 'Calories on target' : null,
+                  bestDay.met_protein  === 'met' ? 'Protein hit' : null,
+                  bestDay.workout_count > 0 ? `${bestDay.workout_count} workout` : null,
+                  bestDay.sleep_hours != null ? `${formatSleepHours(bestDay.sleep_hours)} sleep` : null,
+                ].filter(Boolean).join(' · ') || 'Your strongest day this week'}
+              </Text>
+            </AnimatedCard>
+          )}
 
-          {/* ── Averages grid ──────────────────────────────────── */}
+          {/* ── Averages grid ────────────────────────────────────── */}
           <AnimatedCard delay={220} padding={18}>
             <Text style={[styles.cardTitle, { color: P.text }]}>Averages</Text>
             <View style={styles.avgGrid}>
-              {AVERAGES.map((a, i) => {
+              {averages.map((a, i) => {
                 const tint = P[a.tint];
                 const soft = P[`${a.tint}Soft` as keyof ReturnType<typeof usePalette>] as string;
                 const isRightCol = i % 2 === 1;
@@ -159,65 +280,78 @@ export default function WeeklyReportScreen() {
             </View>
           </AnimatedCard>
 
-          {/* ── Top pattern ────────────────────────────────────── */}
-          <AnimatedCard delay={300}>
-            <View style={styles.patternHead}>
-              <View style={[styles.iconTile, { backgroundColor: P.sleepSoft }]}>
-                <Ionicons name="git-network" size={16} color={P.sleep} />
+          {/* ── Days on target summary ───────────────────────────── */}
+          {data && (
+            <AnimatedCard delay={300}>
+              <View style={styles.patternHead}>
+                <View style={[styles.iconTile, { backgroundColor: P.proteinSoft }]}>
+                  <Ionicons name="checkmark-circle" size={16} color={P.protein} />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={[styles.smallLabel, { color: P.protein }]}>TARGET SUMMARY</Text>
+                  <Text style={[styles.patternMeta, { color: P.textFaint }]}>
+                    {data.days_met_calories} / {data.days.filter(d => !d.is_partial).length} days hit calorie target
+                  </Text>
+                </View>
               </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={[styles.smallLabel, { color: P.sleep }]}>TOP PATTERN THIS WEEK</Text>
-                <Text style={[styles.patternMeta, { color: P.textFaint }]}>
-                  {TOP_PATTERN.supports} supporting days · {Math.round(TOP_PATTERN.confidence * 100)}% confidence
-                </Text>
+
+              <View style={{ gap: 8 }}>
+                {[
+                  { label: 'Calories',  met: data.days_met_calories, color: P.calories },
+                  { label: 'Protein',   met: data.days_met_protein,  color: P.protein  },
+                  { label: 'Steps',     met: data.days_met_steps,    color: P.fat,     skip: targets?.steps_target == null },
+                  { label: 'Sleep',     met: data.days_met_sleep,    color: P.sleep,   skip: targets?.sleep_target == null && data.avg_sleep == null },
+                ].filter(r => !r.skip).map(row => {
+                  const logged = data.days.filter(d => !d.is_partial).length;
+                  const pct    = logged > 0 ? row.met / logged : 0;
+                  return (
+                    <View key={row.label} style={{ gap: 4 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={[styles.patternMeta, { color: P.textDim }]}>{row.label}</Text>
+                        <Text style={[styles.patternMeta, { color: P.textDim }]}>{row.met}/{logged}</Text>
+                      </View>
+                      <View style={[styles.confidenceTrack, { backgroundColor: P.sunken }]}>
+                        <View style={[styles.confidenceFill, { width: `${pct * 100}%`, backgroundColor: row.color }]} />
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
-            </View>
+            </AnimatedCard>
+          )}
 
-            <Text style={[styles.patternTitle, { color: P.text }]}>
-              {TOP_PATTERN.title}
-            </Text>
+          {/* ── Weekly insight message ──────────────────────────── */}
+          {aiMessage ? (
+            <AnimatedCard delay={380} style={{ overflow: 'hidden' }}>
+              <View pointerEvents="none" style={[styles.glow, { backgroundColor: P.fatSoft, top: -60, right: -80 }]} />
 
-            <View style={[styles.confidenceTrack, { backgroundColor: P.sunken }]}>
-              <View
-                style={[
-                  styles.confidenceFill,
-                  { width: `${TOP_PATTERN.confidence * 100}%`, backgroundColor: P.sleep },
-                ]}
-              />
-            </View>
-          </AnimatedCard>
-
-          {/* ── Claude recommendation ──────────────────────────── */}
-          <AnimatedCard delay={380} style={{ overflow: 'hidden' }}>
-            <View pointerEvents="none" style={[styles.glow, { backgroundColor: P.fatSoft, top: -60, right: -80 }]} />
-
-            <View style={styles.claudeHead}>
-              <View style={[styles.iconTile, { backgroundColor: P.fatSoft }]}>
-                <Ionicons name="sparkles" size={16} color={P.fat} />
+              <View style={styles.claudeHead}>
+                <View style={[styles.iconTile, { backgroundColor: P.fatSoft }]}>
+                  <Ionicons name="sparkles" size={16} color={P.fat} />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={[styles.smallLabel, { color: P.fat }]}>WEEKLY INSIGHT</Text>
+                  <Text style={[styles.claudeMeta, { color: P.textFaint }]}>Based on this week's data</Text>
+                </View>
               </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={[styles.smallLabel, { color: P.fat }]}>AI RECOMMENDATION</Text>
-                <Text style={[styles.claudeMeta, { color: P.textFaint }]}>Fresh from this week's data</Text>
+
+              <Text style={[styles.claudeBody, { color: P.text }]}>{aiMessage}</Text>
+            </AnimatedCard>
+          ) : isLoading ? null : (
+            <AnimatedCard delay={380}>
+              <View style={styles.claudeHead}>
+                <View style={[styles.iconTile, { backgroundColor: P.fatSoft }]}>
+                  <Ionicons name="sparkles-outline" size={16} color={P.textFaint} />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={[styles.smallLabel, { color: P.textFaint }]}>WEEKLY INSIGHT</Text>
+                  <Text style={[styles.claudeMeta, { color: P.textFaint }]}>Log more days for a personalised insight</Text>
+                </View>
               </View>
-              <View style={[styles.aiBadge, { backgroundColor: P.fatSoft }]}>
-                <Ionicons name="flash" size={10} color={P.fat} />
-                <Text style={[styles.aiBadgeText, { color: P.fat }]}>CLAUDE</Text>
-              </View>
-            </View>
+            </AnimatedCard>
+          )}
 
-            <Text style={[styles.claudeBody, { color: P.text }]}>{AI_RECO}</Text>
-
-            <Pressable style={({ pressed }) => [
-              styles.claudeCta,
-              { backgroundColor: P.sunken, borderColor: P.cardEdge },
-              pressed && { opacity: 0.8 },
-            ]}>
-              <Ionicons name="bookmark-outline" size={14} color={P.text} />
-              <Text style={[styles.claudeCtaText, { color: P.text }]}>Save to plan</Text>
-            </Pressable>
-          </AnimatedCard>
-
-          {/* ── Share button ────────────────────────────────────── */}
+          {/* ── Share button ─────────────────────────────────────── */}
           <Pressable style={({ pressed }) => [
             styles.shareCta,
             { backgroundColor: P.calories },
@@ -243,6 +377,19 @@ const styles = StyleSheet.create({
     alignItems:     'center',
     justifyContent: 'center',
     borderWidth:    StyleSheet.hairlineWidth,
+  },
+
+  staleBadge: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               6,
+    paddingHorizontal: 12,
+    paddingVertical:   8,
+    borderRadius:      10,
+  },
+  staleText: {
+    fontSize:   11,
+    fontWeight: '500',
   },
 
   glow: {
@@ -306,22 +453,9 @@ const styles = StyleSheet.create({
     lineHeight:    58,
   },
   heroScoreOf: {
-    fontSize:   13,
-    fontWeight: '700',
+    fontSize:      13,
+    fontWeight:    '700',
     paddingBottom: 10,
-  },
-  trendPill: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               4,
-    paddingHorizontal: 8,
-    paddingVertical:   5,
-    borderRadius:      999,
-    marginBottom:      8,
-  },
-  trendText: {
-    fontSize:   10,
-    fontWeight: '800',
   },
 
   progressTrack: {
@@ -347,15 +481,15 @@ const styles = StyleSheet.create({
     gap:        6,
   },
   dayTrack: {
-    width:        '100%',
-    height:       72,
-    borderRadius: 6,
+    width:          '100%',
+    height:         72,
+    borderRadius:   6,
     justifyContent: 'flex-end',
-    overflow:     'hidden',
+    overflow:       'hidden',
   },
   dayFill: {
-    width:            '100%',
-    borderRadius:     6,
+    width:        '100%',
+    borderRadius: 6,
   },
   dayLabel: {
     fontSize:   10,
@@ -450,13 +584,7 @@ const styles = StyleSheet.create({
     fontSize:   11,
     fontWeight: '500',
   },
-  patternTitle: {
-    fontSize:      16,
-    fontWeight:    '700',
-    letterSpacing: -0.3,
-    marginBottom:  12,
-    lineHeight:    21,
-  },
+
   confidenceTrack: {
     height:       5,
     borderRadius: 3,
@@ -477,39 +605,11 @@ const styles = StyleSheet.create({
     fontSize:   11,
     fontWeight: '500',
   },
-  aiBadge: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               4,
-    paddingHorizontal: 8,
-    paddingVertical:   4,
-    borderRadius:      8,
-  },
-  aiBadgeText: {
-    fontSize:      9,
-    fontWeight:    '800',
-    letterSpacing: 0.6,
-  },
   claudeBody: {
     fontSize:      14,
     fontWeight:    '500',
     lineHeight:    22,
     letterSpacing: -0.1,
-    marginBottom:  16,
-  },
-  claudeCta: {
-    alignSelf:         'flex-start',
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               8,
-    paddingHorizontal: 12,
-    paddingVertical:   9,
-    borderRadius:      10,
-    borderWidth:       StyleSheet.hairlineWidth,
-  },
-  claudeCtaText: {
-    fontSize:   12,
-    fontWeight: '700',
   },
 
   shareCta: {
