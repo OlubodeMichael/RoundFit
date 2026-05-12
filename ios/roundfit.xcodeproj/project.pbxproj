@@ -18,17 +18,17 @@
 
 /* Begin PBXFileReference section */
 		13B07F961A680F5B00A75B9A /* RoundFit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RoundFit.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = RoundFit/Images.xcassets; sourceTree = "<group>"; };
-		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = RoundFit/Info.plist; sourceTree = "<group>"; };
-		4F771DDCFAB8195DC716722C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = RoundFit/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = roundfit/Images.xcassets; sourceTree = "<group>"; };
+		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = roundfit/Info.plist; sourceTree = "<group>"; };
+		4F771DDCFAB8195DC716722C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = roundfit/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		72FA26B400FB8D063412CA11 /* libPods-RoundFit.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-RoundFit.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7637A73324B30E036C1D3C3E /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-RoundFit/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		857AB64D3D98063793FA647B /* Pods-RoundFit.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RoundFit.debug.xcconfig"; path = "Target Support Files/Pods-RoundFit/Pods-RoundFit.debug.xcconfig"; sourceTree = "<group>"; };
-		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = RoundFit/SplashScreen.storyboard; sourceTree = "<group>"; };
+		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = roundfit/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
-		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = RoundFit/AppDelegate.swift; sourceTree = "<group>"; };
-		F11748442D0722820044C1D9 /* RoundFit-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "RoundFit-Bridging-Header.h"; path = "RoundFit/RoundFit-Bridging-Header.h"; sourceTree = "<group>"; };
+		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = roundfit/AppDelegate.swift; sourceTree = "<group>"; };
+		F11748442D0722820044C1D9 /* RoundFit-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "RoundFit-Bridging-Header.h"; path = "roundfit/RoundFit-Bridging-Header.h"; sourceTree = "<group>"; };
 		F36CADED60F1B7E757CD5F3D /* Pods-RoundFit.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RoundFit.release.xcconfig"; path = "Target Support Files/Pods-RoundFit/Pods-RoundFit.release.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -120,7 +120,7 @@
 				BB2F792C24A3F905000567C9 /* Expo.plist */,
 			);
 			name = Supporting;
-			path = RoundFit/Supporting;
+			path = roundfit/Supporting;
 			sourceTree = "<group>";
 		};
 		C82413CC19B70A26BFA546AE /* RoundFit */ = {
@@ -252,7 +252,7 @@
 			inputPaths = (
 				"$(SRCROOT)/.xcode.env",
 				"$(SRCROOT)/.xcode.env.local",
-				"$(SRCROOT)/RoundFit/RoundFit.entitlements",
+				"$(SRCROOT)/roundfit/roundfit.entitlements",
 				"$(SRCROOT)/Pods/Target Support Files/Pods-RoundFit/expo-configure-project.sh",
 			);
 			name = "[Expo] Configure project";
@@ -358,7 +358,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = RoundFit/RoundFit.entitlements;
+				CODE_SIGN_ENTITLEMENTS = roundfit/roundfit.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = J8U3MHK9ML;
 				ENABLE_BITCODE = NO;
@@ -366,7 +366,7 @@
 					"$(inherited)",
 					"FB_SONARKIT_ENABLED=1",
 				);
-				INFOPLIST_FILE = RoundFit/Info.plist;
+				INFOPLIST_FILE = roundfit/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -382,7 +382,7 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = com.michaelolu.roundfit;
 				PRODUCT_NAME = RoundFit;
-				SWIFT_OBJC_BRIDGING_HEADER = "RoundFit/RoundFit-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "roundfit/RoundFit-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -396,10 +396,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = RoundFit/RoundFit.entitlements;
+				CODE_SIGN_ENTITLEMENTS = roundfit/roundfit.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = J8U3MHK9ML;
-				INFOPLIST_FILE = RoundFit/Info.plist;
+				INFOPLIST_FILE = roundfit/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -415,7 +415,7 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.michaelolu.roundfit;
 				PRODUCT_NAME = RoundFit;
-				SWIFT_OBJC_BRIDGING_HEADER = "RoundFit/RoundFit-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "roundfit/RoundFit-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";

@@ -1,5 +1,5 @@
 PODS:
-  - EXApplication (55.0.14):
+  - EXApplication (7.0.8):
     - ExpoModulesCore
   - EXConstants (18.0.13):
     - ExpoModulesCore
@@ -205,15 +205,17 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - ExpoAppleAuthentication (8.0.8):
+    - ExpoModulesCore
   - ExpoAsset (12.0.12):
     - ExpoModulesCore
   - ExpoCamera (17.0.10):
     - ExpoModulesCore
     - ZXingObjC/OneD
     - ZXingObjC/PDF417
-  - ExpoDevice (55.0.16):
+  - ExpoDevice (8.0.10):
     - ExpoModulesCore
-  - ExpoFileSystem (55.0.19):
+  - ExpoFileSystem (19.0.22):
     - ExpoModulesCore
   - ExpoFont (14.0.11):
     - ExpoModulesCore
@@ -237,7 +239,7 @@ PODS:
     - ExpoModulesCore
   - ExpoLinking (8.0.11):
     - ExpoModulesCore
-  - ExpoLocalization (55.0.13):
+  - ExpoLocalization (17.0.8):
     - ExpoModulesCore
   - ExpoModulesCore (3.0.29):
     - hermes-engine
@@ -2364,6 +2366,7 @@ DEPENDENCIES:
   - expo-dev-launcher (from `../node_modules/expo-dev-launcher`)
   - expo-dev-menu (from `../node_modules/expo-dev-menu`)
   - expo-dev-menu-interface (from `../node_modules/expo-dev-menu-interface/ios`)
+  - ExpoAppleAuthentication (from `../node_modules/expo-apple-authentication/ios`)
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
   - ExpoCamera (from `../node_modules/expo-camera/ios`)
   - ExpoDevice (from `../node_modules/expo-device/ios`)
@@ -2500,6 +2503,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-dev-menu"
   expo-dev-menu-interface:
     :path: "../node_modules/expo-dev-menu-interface/ios"
+  ExpoAppleAuthentication:
+    :path: "../node_modules/expo-apple-authentication/ios"
   ExpoAsset:
     :path: "../node_modules/expo-asset/ios"
   ExpoCamera:
@@ -2699,7 +2704,7 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
-  EXApplication: c2dcab659064299662da96cc6032c4334b79777f
+  EXApplication: 13420f8139864183f8a04fd6099077bdf8cfb186
   EXConstants: 3feb66fd1d94202fc1f0946d74e029d8b224b60e
   EXImageLoader: e501c001bc40b8326605e82e6e80363c80fe06b5
   EXJSONUtils: 1d3e4590438c3ee593684186007028a14b3686cd
@@ -2709,10 +2714,11 @@ SPEC CHECKSUMS:
   expo-dev-launcher: a1fa980e36477563afcbc19e759e76f9bf2d20ad
   expo-dev-menu: 34e1cbb3d6e1408904d341f448be69b158425c60
   expo-dev-menu-interface: 600df12ea01efecdd822daaf13cc0ac091775533
+  ExpoAppleAuthentication: 31bb6cdc57d7169e5d994fff7ec4b97c62423534
   ExpoAsset: d999f3bbd998a750f3b74cb913229848901b926b
   ExpoCamera: 44705f35b32741582d00c69187c8ee59669ed46e
-  ExpoDevice: 1068f8c22f784707e3393d57ce11f46d545cb04b
-  ExpoFileSystem: ca98bb8f923e3462ac5786b713b4298ab1b1f559
+  ExpoDevice: 0773c782b055558ca9b40b74aa4a8133a66cd0d2
+  ExpoFileSystem: dc2c00cc568d432efc36ea1d994c25050909d23d
   ExpoFont: c625dbd97ed57e9089b172b2a7bb99003d074664
   ExpoHaptics: 7240781406f4563c3f4eb1e72864302a8c643fd0
   ExpoHead: 3f6ed6cbda48f13bcaddae98f8e5dc525dcfb34f
@@ -2721,7 +2727,7 @@ SPEC CHECKSUMS:
   ExpoKeepAwake: 44bf6715bc1d2ddb17afe19d927cd039cda123f0
   ExpoLinearGradient: 814a21fc4056c3cf606e4f19e31e47074c5b5a86
   ExpoLinking: ebf543fd411d56375cb4eee07f6ab4e31c7ad959
-  ExpoLocalization: e9dbdecfb6a2a36d14c6c628e5c3f9fb9b6f305d
+  ExpoLocalization: 6ac6f326210f0a3141ef6f58ab8f8f4ed003b485
   ExpoModulesCore: 77496909fd3c800f97f7f2007dd26aeac4bb3798
   ExpoSecureStore: decd2943fa19fa6f02c5ef3689f9ba5012ad6a6d
   ExpoSplashScreen: 72fbc6dd9d6404dd9d0725a56c9ac1383bc0b14f
