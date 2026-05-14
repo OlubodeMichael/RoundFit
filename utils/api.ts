@@ -3,7 +3,35 @@ import * as SecureStore from 'expo-secure-store';
 const API_BASE    = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
 const TOKEN_KEY   = 'access_token';
 const REFRESH_KEY = 'refresh_token';
+const SUB_KEY     = 'token_sub';       // plain-string owner of the stored session
 const TIMEOUT_MS  = 10_000;
+
+// ── JWT helpers ────────────────────────────────────────────────────────────
+// Decode a JWT payload without an external library.
+// Handles base64url encoding (uses - and _ instead of + and /) and missing
+// padding — both common failure points in React Native's Hermes runtime.
+function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) return null;
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    // base64url strips padding — add it back so atob doesn't throw
+    while (b64.length % 4 !== 0) b64 += '=';
+    return JSON.parse(atob(b64));
+  } catch {
+    return null;
+  }
+}
+
+function tokenExpiresAt(jwt: string): number | null {
+  const payload = decodeJwtPayload(jwt);
+  return typeof payload?.exp === 'number' ? payload.exp : null;
+}
+
+function tokenSub(jwt: string): string | null {
+  const payload = decodeJwtPayload(jwt);
+  return typeof payload?.sub === 'string' ? payload.sub : null;
+}
 
 // ── Refresh mutex ──────────────────────────────────────────────────────────
 // A single in-flight promise shared across all callers.
@@ -13,34 +41,56 @@ const TIMEOUT_MS  = 10_000;
 let pendingRefresh: Promise<string | null> | null = null;
 
 async function executeRefresh(): Promise<string | null> {
-  const stored = await SecureStore.getItemAsync(REFRESH_KEY).catch(() => null);
-  if (!stored) return null;
+  const [storedRefresh, storedSub] = await Promise.all([
+    SecureStore.getItemAsync(REFRESH_KEY).catch(() => null),
+    SecureStore.getItemAsync(SUB_KEY).catch(() => null),
+  ]);
+  if (!storedRefresh) return null;
 
   let res: Response;
   try {
     res = await fetch(`${API_BASE}/auth/refresh`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ refresh_token: stored }),
+      body:    JSON.stringify({ refresh_token: storedRefresh }),
     });
   } catch {
     return null;
   }
 
   if (!res.ok) {
-    // Refresh token is dead — clear storage so next mount treats as signed out
-    await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
-    await SecureStore.deleteItemAsync(REFRESH_KEY).catch(() => {});
+    await clearTokens();
     return null;
   }
 
-  const { access_token, refresh_token } = await res.json().catch(() => ({} as Record<string, string>));
-  if (!access_token) return null;
-
-  await SecureStore.setItemAsync(TOKEN_KEY, access_token);
-  if (typeof refresh_token === 'string') {
-    await SecureStore.setItemAsync(REFRESH_KEY, refresh_token);
+  const json = await res.json().catch(() => ({} as Record<string, string>));
+  const { access_token, refresh_token } = json;
+  if (!access_token) {
+    console.error('[api] refresh response missing access_token:', Object.keys(json));
+    return null;
   }
+
+  // Guard: compare the refreshed token's owner against the sub we stored at
+  // login time (a plain string — no JWT decoding of the old token needed).
+  // If they differ the stored tokens are from two different accounts; clear
+  // everything and force a fresh sign-in.
+  const newSub = tokenSub(access_token);
+  if (storedSub && newSub && storedSub !== newSub) {
+    console.error(`[api] refresh mismatch: stored sub=${storedSub} refreshed sub=${newSub} — clearing tokens`);
+    await clearTokens();
+    return null;
+  }
+
+  await Promise.all([
+    SecureStore.setItemAsync(TOKEN_KEY, access_token),
+    typeof refresh_token === 'string'
+      ? SecureStore.setItemAsync(REFRESH_KEY, refresh_token)
+      : Promise.resolve(),
+    newSub
+      ? SecureStore.setItemAsync(SUB_KEY, newSub)
+      : Promise.resolve(),
+  ]);
+  console.log('[api] refresh succeeded, new token stored');
   return access_token;
 }
 
@@ -59,10 +109,10 @@ export async function apiFetch(
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
   const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
 
-  const buildHeaders = (overrideToken?: string): Record<string, string> => ({
+  const makeHeaders = (t: string | null): Record<string, string> => ({
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
-    ...((overrideToken ?? token) ? { Authorization: `Bearer ${overrideToken ?? token}` } : {}),
+    ...(t ? { Authorization: `Bearer ${t}` } : {}),
   });
 
   const doFetch = (hdrs: Record<string, string>, signal: AbortSignal) =>
@@ -72,7 +122,7 @@ export async function apiFetch(
   const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const res = await doFetch(buildHeaders(), controller.signal);
+    const res = await doFetch(makeHeaders(token), controller.signal);
 
     if (res.status !== 401) {
       const body = await res.json().catch(() => ({}));
@@ -82,15 +132,15 @@ export async function apiFetch(
     // ── 401: attempt token refresh ─────────────────────────────────────────
     const newToken = await getOrCreateRefresh();
     if (!newToken) {
-      // Refresh failed — surface the 401 so callers can react
+      console.warn('[api] refresh returned null for', path);
       return { ok: false, status: 401, body: {} };
     }
 
-    // Retry original request with fresh token (own timeout budget)
+    // Use the token directly from refresh — don't re-read SecureStore
     const retryController = new AbortController();
     const retryTimer      = setTimeout(() => retryController.abort(), TIMEOUT_MS);
     try {
-      const retryRes  = await doFetch(buildHeaders(newToken), retryController.signal);
+      const retryRes  = await doFetch(makeHeaders(newToken), retryController.signal);
       const retryBody = await retryRes.json().catch(() => ({}));
       return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
     } finally {
@@ -104,9 +154,13 @@ export async function apiFetch(
 // ── Token helpers (used by AuthProvider) ──────────────────────────────────
 
 export async function storeTokens(accessToken: string, refreshToken: string): Promise<void> {
+  const sub = tokenSub(accessToken);
   await Promise.all([
     SecureStore.setItemAsync(TOKEN_KEY, accessToken),
     SecureStore.setItemAsync(REFRESH_KEY, refreshToken),
+    sub
+      ? SecureStore.setItemAsync(SUB_KEY, sub)
+      : SecureStore.deleteItemAsync(SUB_KEY).catch(() => {}),
   ]);
 }
 
@@ -114,25 +168,17 @@ export async function clearTokens(): Promise<void> {
   await Promise.all([
     SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {}),
     SecureStore.deleteItemAsync(REFRESH_KEY).catch(() => {}),
+    SecureStore.deleteItemAsync(SUB_KEY).catch(() => {}),
   ]);
 }
 
 // ── Proactive refresh ──────────────────────────────────────────────────────
-// Decode the JWT payload without a library — just base64 the middle segment.
-function tokenExpiresAt(jwt: string): number | null {
-  try {
-    const payload = JSON.parse(atob(jwt.split('.')[1]));
-    return typeof payload.exp === 'number' ? payload.exp : null;
-  } catch {
-    return null;
-  }
-}
 
 /**
- * Call this when the app comes to the foreground.
- * If the stored access token is missing or expires within `bufferSecs` (default 5 min),
- * it triggers a refresh before any API call goes out.
- * Returns true if the session is still valid after the check, false if it is dead.
+ * Call this when the app comes to the foreground (or on mount).
+ * If the stored access token is missing or expires within `bufferSecs`
+ * (default 5 min), it triggers a refresh before any API call goes out.
+ * Returns true if the session is still valid, false if it is dead.
  */
 export async function proactiveRefreshIfNeeded(bufferSecs = 300): Promise<boolean> {
   const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);

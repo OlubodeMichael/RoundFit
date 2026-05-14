@@ -139,6 +139,9 @@ interface AuthContextValue {
     >,
   ) => Promise<void>;
 
+  /** Permanently deletes the account and all its data. */
+  deleteAccount: () => Promise<void>;
+
   /** Clears the last error. */
   clearError: () => void;
 }
@@ -292,8 +295,13 @@ function parseApiError(
  * Throws if the request fails — callers handle the error.
  */
 async function fetchMe(emailFallback = ""): Promise<UserProfile> {
-  const { ok, body } = await apiFetch("/auth/me");
-  if (!ok) throw new Error("fetch_me_failed");
+  const { ok, status, body } = await apiFetch("/auth/me");
+  if (!ok) {
+    if (status === 404 && (body as Record<string, unknown>).error === 'PROFILE_NOT_FOUND') {
+      throw new Error('no_profile');
+    }
+    throw new Error("fetch_me_failed");
+  }
 
   // Response shape: { data: { user, profile } }
   const data = (body.data ?? body) as Record<string, unknown>;
@@ -342,10 +350,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
+        // Proactively refresh if expired — this also runs the mismatch guard
+        // (different-user tokens) before any data requests fire.
+        const stillValid = await proactiveRefreshIfNeeded(0);
+        if (!stillValid) {
+          setStatus("unauthenticated");
+          return;
+        }
         setUser(await fetchMe());
         setStatus("authenticated");
-      } catch {
-        setStatus("unauthenticated");
+      } catch (err) {
+        if (err instanceof Error && err.message === 'no_profile') {
+          // Valid tokens but no RoundFit profile yet (OAuth user mid-onboarding).
+          // Keep tokens and route to profile setup instead of logging out.
+          setOauthProfilePending(true);
+          setStatus("needs-profile");
+        } else {
+          await clearTokens();
+          setStatus("unauthenticated");
+        }
       }
     })();
   }, []);
@@ -375,8 +398,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Re-fetch user profile silently so stale data doesn't linger
         try {
           setUser(await fetchMe(userRef.current?.email ?? ""));
-        } catch {
-          // network hiccup — keep existing profile data
+        } catch (err) {
+          if (err instanceof Error && err.message === 'no_profile') {
+            setOauthProfilePending(true);
+            setStatus("needs-profile");
+          }
+          // other errors: network hiccup — keep existing profile data
         }
       },
     );
@@ -498,6 +525,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const { identityToken } = credential;
         if (!identityToken) {
+          console.error("[auth] Apple credential missing identityToken");
           setError("UNKNOWN");
           return;
         }
@@ -509,6 +537,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           });
 
         if (idTokenError || !data.session) {
+          console.error("[auth] signInWithIdToken failed:", idTokenError?.message ?? "no session returned");
           setError("UNKNOWN");
           return;
         }
@@ -529,6 +558,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
 
         if (oauthError || !data.url) {
+          console.error("[auth] Google OAuth init failed:", oauthError?.message ?? "no URL");
           setError("UNKNOWN");
           return;
         }
@@ -539,7 +569,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
 
         if (result.type !== "success") {
-          // User cancelled — not an error
           return;
         }
 
@@ -549,6 +578,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const refresh_token = params?.get("refresh_token");
 
         if (!access_token || !refresh_token) {
+          console.error("[auth] Google callback missing tokens, fragment:", fragment?.substring(0, 100));
           setError("UNKNOWN");
           return;
         }
@@ -565,8 +595,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setStatus("needs-profile");
       }
     } catch (err: unknown) {
-      // ERR_CANCELED is thrown when the user dismisses the Apple sheet
-      if ((err as any)?.code === "ERR_CANCELED") return;
+      if ((err as { code?: string })?.code === "ERR_CANCELED") return;
+      console.error("[auth] OAuth error:", err instanceof Error ? err.message : err);
       setError("UNKNOWN");
     } finally {
       setIsLoading(false);
@@ -585,29 +615,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true);
 
       try {
+        const apiBody = toApiBody(profile);
+        console.log("[auth] oauth-setup request body:", JSON.stringify(apiBody));
+
         const {
           ok,
           status: s,
           body,
         } = await apiFetch("/auth/oauth-setup", {
           method: "POST",
-          body: JSON.stringify(toApiBody(profile)),
+          body: JSON.stringify(apiBody),
         });
 
         if (!ok) {
+          console.error("[auth] oauth-setup failed:", s, JSON.stringify(body));
           setError(parseApiError(s, body));
           return;
         }
 
         try {
           setUser(await fetchMe());
-        } catch {
-          // profile created but fetch failed — will retry on next mount
+        } catch (fetchErr) {
+          console.error("[auth] fetchMe after oauth-setup failed:", fetchErr instanceof Error ? fetchErr.message : fetchErr);
         }
 
         setOauthProfilePending(false);
         setStatus("authenticated");
-      } catch {
+      } catch (err) {
+        console.error("[auth] oauth-setup exception:", err instanceof Error ? err.message : err);
         setError("UNKNOWN");
       } finally {
         setIsLoading(false);
@@ -619,6 +654,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ── Sign out ─────────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
     apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
+    await clearTokens();
+    setUser(null);
+    setOauthProfilePending(false);
+    setStatus("unauthenticated");
+  }, []);
+
+  // ── Delete account ───────────────────────────────────────────────────────
+  const deleteAccount = useCallback(async () => {
+    const { ok } = await apiFetch("/auth/account", { method: "DELETE" });
+    if (!ok) throw new Error("delete_account_failed");
     await clearTokens();
     setUser(null);
     setOauthProfilePending(false);
@@ -702,6 +747,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         oauthProfilePending,
         setupOAuthProfile,
         signOut,
+        deleteAccount,
         updateProfile,
         refreshUser,
         clearError,

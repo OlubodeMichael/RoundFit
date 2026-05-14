@@ -122,7 +122,7 @@ function AppNavigator() {
   const passwordScreen = segments[1] === "forgot-password" || segments[1] === "reset-password" || segments[1] === "change-password";
   const showAuthSplash =
     status === "loading" ||
-    (status === "needs-profile" && top !== "onboarding") ||
+    (status === "needs-profile" && top !== "onboarding" && top !== "auth") ||
     (status === "authenticated" && top === "auth" && !passwordScreen);
 
   return (
