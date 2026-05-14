@@ -3,6 +3,7 @@ import React, {
 } from 'react';
 import { useAuth } from '@/context/auth-context';
 import { apiFetch } from '@/utils/api';
+import { getLocalDateString } from '@/utils/date';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
@@ -14,6 +15,7 @@ export type InsightType = 'rules' | 'claude';
 
 export interface Insight {
   id:        string;
+  title:     string;
   message:   string;
   type:      InsightType;
   date:      string;
@@ -36,6 +38,15 @@ export interface InsightsContextValue {
   /** True when the daily Claude insight limit (3) has been reached. */
   claudeLimitReached: boolean;
 
+  /** True when the report is waiting for yesterday's sleep data to sync from HealthKit. */
+  pendingSleepSync: boolean;
+
+  /**
+   * Saves manually entered sleep hours for a given date into health_data,
+   * then refreshes the insight so the report generates immediately.
+   */
+  submitManualSleep: (date: string, sleepHours: number) => Promise<void>;
+
   /**
    * Fetches a new Claude insight — hits GET /insights/claude.
    * Sets claudeLimitReached if the server returns 429.
@@ -55,6 +66,7 @@ export interface InsightsContextValue {
 function fromApiInsight(row: Record<string, unknown>): Insight {
   return {
     id:        String(row.id ?? ''),
+    title:     String(row.title ?? ''),
     message:   String(row.message ?? ''),
     type:      (row.type as InsightType) ?? 'rules',
     date:      String(row.date ?? ''),
@@ -76,18 +88,27 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
   const [history,          setHistory]          = useState<Insight[]>([]);
   const [isLoading,        setIsLoading]        = useState(true);
   const [claudeLimitReached, setClaudeLimitReached] = useState(false);
+  const [pendingSleepSync, setPendingSleepSync] = useState(false);
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
   const fetchToday = useCallback(async () => {
-    const { ok, body } = await apiFetch('/insights/today');
-    if (ok && body.insight) setTodayInsight(fromApiInsight(body.insight as Record<string, unknown>));
+    const { ok, body } = await apiFetch(`/insights/today?date=${getLocalDateString()}`);
+    if (!ok) return;
+    if (body.insight) {
+      setTodayInsight(fromApiInsight(body.insight as Record<string, unknown>));
+      setPendingSleepSync(false);
+    } else if (body.pending) {
+      setPendingSleepSync(true);
+    }
   }, []);
 
   const fetchHistory = useCallback(async () => {
-    const { ok, body } = await apiFetch(`/insights/history?limit=${DEFAULT_LIMIT}`);
+    const today = getLocalDateString();
+    const { ok, body } = await apiFetch(`/insights/history?limit=${DEFAULT_LIMIT}&date=${today}`);
     if (!ok) return;
     const rows = Array.isArray(body.insights) ? body.insights as Record<string, unknown>[] : [];
-    setHistory(rows.map(fromApiInsight));
+    // Client-side guard: never surface future-dated insights regardless of server response
+    setHistory(rows.map(fromApiInsight).filter(i => i.date <= today));
   }, []);
 
   useEffect(() => {
@@ -98,6 +119,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
       setClaudeInsight(null);
       setHistory([]);
       setClaudeLimitReached(false);
+      setPendingSleepSync(false);
       setIsLoading(false);
       return;
     }
@@ -108,6 +130,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
     setClaudeInsight(null);
     setHistory([]);
     setClaudeLimitReached(false);
+    setPendingSleepSync(false);
 
     (async () => {
       try {
@@ -161,6 +184,17 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
     }
   }, [todayInsight, claudeInsight, history]);
 
+  // ── Manual sleep entry ───────────────────────────────────────────────────
+  const submitManualSleep = useCallback(async (date: string, sleepHours: number) => {
+    const { ok } = await apiFetch('/insights/manual-sleep', {
+      method: 'POST',
+      body: JSON.stringify({ date, sleep_hours: sleepHours }),
+    });
+    if (!ok) throw new Error('Failed to save sleep hours');
+    setPendingSleepSync(false);
+    await Promise.all([fetchToday(), fetchHistory()]);
+  }, [fetchToday, fetchHistory]);
+
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
     await Promise.all([fetchToday(), fetchHistory()]);
@@ -169,7 +203,8 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
   return (
     <InsightsContext.Provider value={{
       todayInsight, claudeInsight, history, isLoading, claudeLimitReached,
-      fetchClaudeInsight, dismissInsight, refresh,
+      pendingSleepSync,
+      fetchClaudeInsight, dismissInsight, refresh, submitManualSleep,
     }}>
       {children}
     </InsightsContext.Provider>

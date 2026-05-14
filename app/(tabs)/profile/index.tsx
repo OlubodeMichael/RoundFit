@@ -386,7 +386,7 @@ export default function ProfileScreen() {
           icon="help-circle" iconBg="#2DD4BF" iconFg="#FFF"
           label="Help & Support"
           P={P}
-          onPress={() => {}}
+          onPress={() => router.push('/(tabs)/profile/help')}
         />
         <Divider P={P} />
         <NavRow

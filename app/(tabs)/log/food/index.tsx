@@ -44,12 +44,12 @@ type GroupKey = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
 
 const GROUP_ORDER: GroupKey[] = ['breakfast', 'lunch', 'dinner', 'snack', 'other'];
 
-const GROUP_META: Record<GroupKey, { title: string; icon: IoniconsName; accent: keyof Palette }> = {
-  breakfast: { title: 'Breakfast', icon: 'cafe',        accent: 'carbs'    },
-  lunch:     { title: 'Lunch',     icon: 'restaurant',  accent: 'protein'  },
-  dinner:    { title: 'Dinner',    icon: 'moon',        accent: 'fat'      },
-  snack:     { title: 'Snack',     icon: 'nutrition',   accent: 'water'    },
-  other:     { title: 'Other',     icon: 'fast-food',   accent: 'calories' },
+const GROUP_META: Record<GroupKey, { title: string; emoji: string; accent: keyof Palette }> = {
+  breakfast: { title: 'Breakfast', emoji: '🍳', accent: 'carbs'    },
+  lunch:     { title: 'Lunch',     emoji: '🥗', accent: 'protein'  },
+  dinner:    { title: 'Dinner',    emoji: '🍽️', accent: 'fat'      },
+  snack:     { title: 'Snack',     emoji: '🍎', accent: 'water'    },
+  other:     { title: 'Other',     emoji: '🍴', accent: 'calories' },
 };
 
 function groupFor(label: string): GroupKey {
@@ -277,11 +277,10 @@ export default function FoodLogScreen() {
   };
   const capturePhoto = async () => {
     try {
-      const photo = await cameraRef.current?.takePictureAsync({ quality: 0.7, skipProcessing: true, base64: true });
+      const photo = await cameraRef.current?.takePictureAsync({ quality: 0.8, skipProcessing: true, base64: true });
       if (!photo?.uri || !photo?.base64) return;
-      // Persist the temp URI to disk so it stays valid for the full analysis flow
       const persistedUri = persistCameraPhoto(photo.uri);
-      prunePhotoCache(); // clean up stale cache files in the background
+      prunePhotoCache();
       setCameraMode(null);
       setPendingPhoto({ uri: persistedUri, base64: photo.base64 });
     } catch {
@@ -481,7 +480,7 @@ export default function FoodLogScreen() {
           )}
 
           {cameraMode === 'photo' && (
-            <View style={photoGuide.wrap} pointerEvents="none">
+            <View style={photoGuide.overlay} pointerEvents="none">
               <View style={photoGuide.frame}>
                 <View style={[photoGuide.corner, photoGuide.tl]} />
                 <View style={[photoGuide.corner, photoGuide.tr]} />
@@ -749,51 +748,54 @@ function MealGroup({
 
   return (
     <AnimatedCard delay={delay} padding={0}>
-      {/* Header */}
-      <View style={[styles.groupHead, { borderBottomColor: P.hair }]}>
-        <View style={[styles.groupIcon, { backgroundColor: accentSoft }]}>
-          <Ionicons name={meta.icon} size={16} color={accent} />
-        </View>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={[styles.groupTitle, { color: P.text }]}>{meta.title}</Text>
-          <Text style={[styles.groupSub, { color: P.textFaint }]}>
-            {items.length === 0
-              ? 'Nothing logged yet'
-              : `${items.length} ${items.length === 1 ? 'item' : 'items'} · ${total} kcal`}
-          </Text>
-        </View>
-        <TouchableOpacity
-          onPress={() => onAdd(presetForGroup)}
-          hitSlop={8}
-          style={[styles.groupAdd, { borderColor: P.cardEdge }]}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="add" size={15} color={accent} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Rows */}
-      {items.length === 0 ? (
-        <Pressable onPress={() => onAdd(presetForGroup)} style={({ pressed }) => [styles.emptyRow, pressed && { backgroundColor: P.sunken }]}>
-          <View style={[styles.emptyDot, { backgroundColor: P.hair }]} />
-          <Text style={[styles.emptyText, { color: P.textFaint }]}>Tap to add</Text>
-        </Pressable>
-      ) : (
-        items.map((item, i) => (
-          <View key={item.id}>
-            {i > 0 && <View style={[styles.rowDivider, { backgroundColor: P.hair }]} />}
-            <MealRow
-              item={item}
-              accent={accent}
-              accentSoft={accentSoft}
-              icon={meta.icon}
-              P={P}
-              onDelete={() => onDelete(item.id)}
-              onEdit={() => onEdit(item)}
-            />
+      {/* Clip children to card radius without clipping the outer shadow */}
+      <View style={{ borderRadius: 24, overflow: 'hidden' }}>
+        {/* Header */}
+        <View style={[styles.groupHead, { borderBottomColor: P.hair }]}>
+          <View style={[styles.groupIcon, { backgroundColor: accentSoft }]}>
+            <Text style={{ fontSize: 18 }}>{meta.emoji}</Text>
           </View>
-        ))
-      )}
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={[styles.groupTitle, { color: P.text }]}>{meta.title}</Text>
+            <Text style={[styles.groupSub, { color: P.textFaint }]}>
+              {items.length === 0
+                ? 'Nothing logged yet'
+                : `${items.length} ${items.length === 1 ? 'item' : 'items'} · ${total} kcal`}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => onAdd(presetForGroup)}
+            hitSlop={8}
+            style={[styles.groupAdd, { borderColor: P.cardEdge }]}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add" size={15} color={accent} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Rows */}
+        {items.length === 0 ? (
+          <Pressable onPress={() => onAdd(presetForGroup)} style={({ pressed }) => [styles.emptyRow, pressed && { backgroundColor: P.sunken }]}>
+            <View style={[styles.emptyDot, { backgroundColor: P.hair }]} />
+            <Text style={[styles.emptyText, { color: P.textFaint }]}>Tap to add</Text>
+          </Pressable>
+        ) : (
+          items.map((item, i) => (
+            <View key={item.id}>
+              {i > 0 && <View style={[styles.rowDivider, { backgroundColor: P.hair }]} />}
+              <MealRow
+                item={item}
+                accent={accent}
+                accentSoft={accentSoft}
+                emoji={meta.emoji}
+                P={P}
+                onDelete={() => onDelete(item.id)}
+                onEdit={() => onEdit(item)}
+              />
+            </View>
+          ))
+        )}
+      </View>
     </AnimatedCard>
   );
 }
@@ -802,9 +804,9 @@ function MealGroup({
 // Swipeable row
 // ───────────────────────────────────────────────────────────────────────────────
 function MealRow({
-  item, accent, accentSoft, icon, P, onDelete, onEdit,
+  item, accent, accentSoft, emoji, P, onDelete, onEdit,
 }: {
-  item: MealItem; accent: string; accentSoft: string; icon: IoniconsName;
+  item: MealItem; accent: string; accentSoft: string; emoji: string;
   P: Palette; onDelete: () => void; onEdit: () => void;
 }) {
   const swipeRef = useRef<Swipeable>(null);
@@ -853,7 +855,7 @@ function MealRow({
         style={({ pressed }) => [styles.mealRow, { backgroundColor: P.card }, pressed && { backgroundColor: P.sunken }]}
       >
         <View style={[styles.thumb, { backgroundColor: accentSoft }]}>
-          <Ionicons name={icon} size={16} color={accent} />
+          <Text style={{ fontSize: 18 }}>{emoji}</Text>
         </View>
 
         <View style={{ flex: 1, gap: 3 }}>
@@ -1182,14 +1184,10 @@ const cameraStyles = StyleSheet.create({
 // ───────────────────────────────────────────────────────────────────────────────
 // Photo guide overlay
 // ───────────────────────────────────────────────────────────────────────────────
-const GUIDE  = 300;
-const C_LEN  = 32;
-const C_W    = 3;
-const C_RAD  = 5;
-const C_CLR  = '#FFFFFF';
+const GUIDE = 300;
 
 const photoGuide = StyleSheet.create({
-  wrap: {
+  overlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems:     'center',
     justifyContent: 'center',
@@ -1198,36 +1196,36 @@ const photoGuide = StyleSheet.create({
   frame: {
     width:    GUIDE,
     height:   GUIDE,
-    position: 'relative',
   },
   corner: {
-    position:  'absolute',
-    width:     C_LEN,
-    height:    C_LEN,
-    borderColor: C_CLR,
+    position:    'absolute',
+    width:        40,
+    height:       40,
+    borderColor:  'rgba(255,255,255,0.92)',
+    borderWidth:  0,
   },
   tl: {
     top: 0, left: 0,
-    borderTopWidth: C_W, borderLeftWidth: C_W,
-    borderTopLeftRadius: C_RAD,
+    borderTopWidth: 3, borderLeftWidth: 3,
+    borderTopLeftRadius: 12,
   },
   tr: {
     top: 0, right: 0,
-    borderTopWidth: C_W, borderRightWidth: C_W,
-    borderTopRightRadius: C_RAD,
+    borderTopWidth: 3, borderRightWidth: 3,
+    borderTopRightRadius: 12,
   },
   bl: {
     bottom: 0, left: 0,
-    borderBottomWidth: C_W, borderLeftWidth: C_W,
-    borderBottomLeftRadius: C_RAD,
+    borderBottomWidth: 3, borderLeftWidth: 3,
+    borderBottomLeftRadius: 12,
   },
   br: {
     bottom: 0, right: 0,
-    borderBottomWidth: C_W, borderRightWidth: C_W,
-    borderBottomRightRadius: C_RAD,
+    borderBottomWidth: 3, borderRightWidth: 3,
+    borderBottomRightRadius: 12,
   },
   hint: {
-    color:         'rgba(255,255,255,0.65)',
+    color:         'rgba(255,255,255,0.75)',
     fontSize:      13,
     fontWeight:    '500',
     letterSpacing: 0.2,

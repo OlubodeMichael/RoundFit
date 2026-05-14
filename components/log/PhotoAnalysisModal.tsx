@@ -15,6 +15,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { useToast } from '@/components/ui/Toast';
 
 const { width: SW, height: SH } = Dimensions.get('window');
+const IMAGE_H = Math.round(SH * 0.42);
 
 const O   = '#F97316';
 const O10 = 'rgba(249,115,22,0.10)';
@@ -46,33 +47,48 @@ interface Props {
   onRetry?:    () => void;
 }
 
-// ── Scan overlay (line + corner brackets) ─────────────────────────────────────
+// ── Theme palette ─────────────────────────────────────────────────────────────
 
-const BRACKET_LEN  = 22;
+function usePalette(isDark: boolean) {
+  return {
+    bg:             isDark ? '#111111'                   : '#F5F5F7',
+    card:           isDark ? '#1A1A1A'                   : '#FFFFFF',
+    surface:        isDark ? 'rgba(255,255,255,0.05)'    : 'rgba(0,0,0,0.04)',
+    surfaceBorder:  isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.08)',
+    text:           isDark ? '#FFFFFF'                   : '#111111',
+    textMid:        isDark ? 'rgba(255,255,255,0.50)'    : '#666666',
+    textFaint:      isDark ? 'rgba(255,255,255,0.35)'    : '#999999',
+    divider:        isDark ? 'rgba(255,255,255,0.07)'    : '#EEEEEE',
+    iconBg:         isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.05)',
+    pillBg:         isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.06)',
+    handle:         isDark ? 'rgba(255,255,255,0.18)'    : 'rgba(0,0,0,0.12)',
+    discardBg:      isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.05)',
+    discardBorder:  isDark ? 'rgba(255,255,255,0.10)'    : 'rgba(0,0,0,0.10)',
+    discardText:    isDark ? 'rgba(255,255,255,0.55)'    : '#555555',
+    inputBorder:    isDark ? 'rgba(255,255,255,0.10)'    : '#DDDDDD',
+    badgeBg:        isDark ? 'rgba(255,255,255,0.06)'    : 'rgba(0,0,0,0.05)',
+    badgeText:      isDark ? 'rgba(255,255,255,0.40)'    : '#888888',
+    penBg:          isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.06)',
+    penBorder:      isDark ? 'rgba(255,255,255,0.08)'    : 'rgba(0,0,0,0.09)',
+    penIcon:        isDark ? 'rgba(255,255,255,0.55)'    : '#888888',
+    shadow:         isDark ? '#000000'                   : '#AAAAAA',
+  };
+}
+
+// ── Scan overlay (always dark — over photo) ───────────────────────────────────
+
 const BRACKET_THCK = 2.5;
+const BRACKET_LEN  = 28;
 
-function ScanOverlay({ topInset }: { topInset: number }) {
-  const translateY  = useRef(new Animated.Value(0)).current;
-  const zoneTop     = topInset + 24;
-  const zoneBottom  = SH * 0.30;          // leave room for the card
-  const zoneHeight  = SH - zoneTop - zoneBottom;
-  const LINE_H      = 56;                 // gradient height
+function ScanOverlay() {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const LINE_H = 48;
 
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(translateY, {
-          toValue:  zoneHeight - LINE_H,
-          duration: 2000,
-          easing:   Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue:  0,
-          duration: 2000,
-          easing:   Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
+        Animated.timing(translateY, { toValue: IMAGE_H - LINE_H, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: 0,                duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
       ]),
     );
     loop.start();
@@ -80,45 +96,21 @@ function ScanOverlay({ topInset }: { topInset: number }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <View
-      pointerEvents="none"
-      style={{
-        position: 'absolute',
-        top:    zoneTop,
-        left:   28,
-        right:  28,
-        height: zoneHeight,
-      }}
-    >
-      {/* Corner brackets */}
-      {/* TL */}
+    <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 24, right: 24, bottom: 0 }}>
       <View style={[cb.h, { top: 0,    left: 0  }]} />
       <View style={[cb.v, { top: 0,    left: 0  }]} />
-      {/* TR */}
       <View style={[cb.h, { top: 0,    right: 0 }]} />
       <View style={[cb.v, { top: 0,    right: 0 }]} />
-      {/* BL */}
       <View style={[cb.h, { bottom: 0, left: 0  }]} />
       <View style={[cb.v, { bottom: 0, left: 0  }]} />
-      {/* BR */}
       <View style={[cb.h, { bottom: 0, right: 0 }]} />
       <View style={[cb.v, { bottom: 0, right: 0 }]} />
-
-      {/* Animated scan line */}
-      <Animated.View
-        style={{
-          position: 'absolute',
-          left: 0, right: 0,
-          height: LINE_H,
-          transform: [{ translateY }],
-        }}
-      >
-        {/* Simulated vertical glow using stacked views */}
+      <Animated.View style={{ position: 'absolute', left: 0, right: 0, height: LINE_H, transform: [{ translateY }] }}>
         <View style={{ flex: 1, backgroundColor: 'rgba(249,115,22,0.04)' }} />
         <View style={{ flex: 0.7, backgroundColor: 'rgba(249,115,22,0.12)' }} />
-        <View style={{ flex: 0.4, backgroundColor: 'rgba(249,115,22,0.30)' }} />
+        <View style={{ flex: 0.4, backgroundColor: 'rgba(249,115,22,0.28)' }} />
         <View style={{ height: 2.5, backgroundColor: O, shadowColor: O, shadowOpacity: 0.9, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }} />
-        <View style={{ flex: 0.4, backgroundColor: 'rgba(249,115,22,0.30)' }} />
+        <View style={{ flex: 0.4, backgroundColor: 'rgba(249,115,22,0.28)' }} />
         <View style={{ flex: 0.7, backgroundColor: 'rgba(249,115,22,0.12)' }} />
         <View style={{ flex: 1, backgroundColor: 'rgba(249,115,22,0.04)' }} />
       </Animated.View>
@@ -131,58 +123,119 @@ const cb = StyleSheet.create({
   v: { position: 'absolute', width: BRACKET_THCK,  height: BRACKET_LEN, backgroundColor: O },
 });
 
-// ── Pulsing status dot ─────────────────────────────────────────────────────────
+// ── Pulse dot ─────────────────────────────────────────────────────────────────
 
 function PulseDot() {
   const scale   = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(1)).current;
-
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.parallel([
-          Animated.timing(scale,   { toValue: 1.6, duration: 700, useNativeDriver: true }),
-          Animated.timing(opacity, { toValue: 0,   duration: 700, useNativeDriver: true }),
-        ]),
-        Animated.parallel([
-          Animated.timing(scale,   { toValue: 1,   duration: 0, useNativeDriver: true }),
-          Animated.timing(opacity, { toValue: 1,   duration: 0, useNativeDriver: true }),
-        ]),
-        Animated.delay(300),
+    const loop = Animated.loop(Animated.sequence([
+      Animated.parallel([
+        Animated.timing(scale,   { toValue: 1.6, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0,   duration: 700, useNativeDriver: true }),
       ]),
-    );
+      Animated.parallel([
+        Animated.timing(scale,   { toValue: 1, duration: 0, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 0, useNativeDriver: true }),
+      ]),
+      Animated.delay(300),
+    ]));
     loop.start();
     return () => loop.stop();
   }, []);
-
   return (
     <View style={{ width: 10, height: 10, alignItems: 'center', justifyContent: 'center' }}>
-      <Animated.View
-        style={{
-          position: 'absolute',
-          width: 10, height: 10,
-          borderRadius: 5,
-          backgroundColor: O,
-          transform: [{ scale }],
-          opacity,
-        }}
-      />
+      <Animated.View style={{ position: 'absolute', width: 10, height: 10, borderRadius: 5, backgroundColor: O, transform: [{ scale }], opacity }} />
       <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: O }} />
     </View>
   );
 }
 
+// ── Nutrient row ──────────────────────────────────────────────────────────────
+
+const MACRO_META: Record<string, { emoji: string; kcalPer: number }> = {
+  Protein: { emoji: '🥩', kcalPer: 4 },
+  Carbs:   { emoji: '🌾', kcalPer: 4 },
+  Fat:     { emoji: '🫙', kcalPer: 9 },
+};
+
+function NutrientRow({ name, grams, iconBg, text, textMid, divider }: {
+  name: string; grams: string;
+  iconBg: string; text: string; textMid: string; divider: string;
+}) {
+  const meta = MACRO_META[name];
+  const g    = parseInt(grams, 10) || 0;
+  const kcal = Math.round(g * meta.kcalPer);
+  return (
+    <View style={nr.row}>
+      <View style={[nr.iconWrap, { backgroundColor: iconBg }]}>
+        <Text style={nr.emoji}>{meta.emoji}</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[nr.name, { color: text }]}>{name}</Text>
+        <Text style={[nr.grams, { color: textMid }]}>{g}g</Text>
+      </View>
+      <Text style={[nr.kcal, { color: textMid }]}>{kcal} kcal</Text>
+    </View>
+  );
+}
+
+const nr = StyleSheet.create({
+  row:      { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12 },
+  iconWrap: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  emoji:    { fontSize: 20 },
+  name:     { fontSize: 14, fontWeight: '700', letterSpacing: -0.2 },
+  grams:    { fontSize: 12, fontWeight: '500', marginTop: 1 },
+  kcal:     { fontSize: 13, fontWeight: '600' },
+});
+
+// ── MacroInput (edit mode) ────────────────────────────────────────────────────
+
+function MacroInput({ label, value, color, bg, inputBorder, onChange }: {
+  label: string; value: string; color: string; bg: string; inputBorder: string;
+  onChange: (v: string) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <View style={[mi.card, { backgroundColor: bg, borderTopColor: color, borderColor: focused ? color : inputBorder }]}>
+      <TextInput
+        style={[mi.input, { color }]}
+        value={value}
+        onChangeText={(v) => onChange(v.replace(/[^0-9]/g, ''))}
+        keyboardType="number-pad"
+        selectionColor={color}
+        returnKeyType="done"
+        maxLength={4}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        textAlign="center"
+      />
+      <Text style={[mi.unit, { color }]}>{' '}g</Text>
+      <Text style={mi.label}>{label}</Text>
+    </View>
+  );
+}
+
+const mi = StyleSheet.create({
+  card:  { flex: 1, borderRadius: 14, borderTopWidth: 2, borderWidth: 1, paddingTop: 10, paddingBottom: 8, alignItems: 'center' },
+  input: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5, width: '100%', textAlign: 'center', paddingVertical: 0 },
+  unit:  { fontSize: 11, fontWeight: '600', opacity: 0.5, marginTop: -2 },
+  label: { fontSize: 10, fontWeight: '700', color: '#888', letterSpacing: 0.5, marginTop: 3 },
+});
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, onRetry }: Props) {
-  const insets                    = useSafeAreaInsets();
-  const { isDark }                = useTheme();
+  const insets              = useSafeAreaInsets();
+  const { isDark }          = useTheme();
+  const P                   = usePalette(isDark);
   const { previewPhoto, addMeal } = useFood();
-  const toast                     = useToast();
+  const toast               = useToast();
 
-  const [status,   setStatus]   = useState<Status>('analyzing');
-  const [dots,     setDots]     = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+  const [status,    setStatus]    = useState<Status>('analyzing');
+  const [dots,      setDots]      = useState('');
+  const [isSaving,  setIsSaving]  = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   const [editName,    setEditName]    = useState('');
   const [editMeal,    setEditMeal]    = useState<MealLabel>(deriveMealLabel());
@@ -190,8 +243,6 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
   const [editProtein, setEditProtein] = useState('');
   const [editCarbs,   setEditCarbs]   = useState('');
   const [editFat,     setEditFat]     = useState('');
-
-  const cardY = useRef(new Animated.Value(400)).current;
 
   const populate = (p: PhotoPreview) => {
     setEditName(p.name);
@@ -204,17 +255,12 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
 
   useEffect(() => {
     if (!visible) {
-      cardY.setValue(400);
       setStatus('analyzing');
       setDots('');
       setIsSaving(false);
+      setIsEditing(false);
       return;
     }
-
-    Animated.timing(cardY, {
-      toValue: 0, duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true,
-    }).start();
-
     let cancelled = false;
     (async () => {
       try {
@@ -228,7 +274,6 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
         setStatus(err instanceof ZeroCaloriesError ? 'retry' : 'error');
       }
     })();
-
     return () => { cancelled = true; };
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -257,6 +302,11 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
     }
   };
 
+  const hasProtein = parseInt(editProtein) > 0;
+  const hasFat     = parseInt(editFat)     > 0;
+  const hasCarbs   = parseInt(editCarbs)   > 0;
+  const nutriCount = [hasProtein, hasFat, hasCarbs].filter(Boolean).length;
+
   return (
     <Modal
       visible={visible}
@@ -265,105 +315,167 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
       onRequestClose={status !== 'analyzing' ? onClose : undefined}
     >
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={s.root}>
+        <View style={[s.root, { backgroundColor: P.bg }]}>
 
-          {/* Background image */}
-          <Image source={imageUri} style={s.image} contentFit="cover" cachePolicy="memory-disk" />
-          <View style={s.gradientTop} />
-          <View style={s.gradientBottom} />
+          {/* ── Image box (always dark — it's a photo) ── */}
+          <View style={s.imageBox}>
+            <Image source={imageUri} style={s.image} contentFit="cover" cachePolicy="memory-disk" />
+            <View style={s.imageDim} />
+            {status === 'analyzing' && <ScanOverlay />}
+            {status !== 'analyzing' && (
+              <TouchableOpacity
+                style={[s.closeBtn, { top: insets.top + 12 }]}
+                onPress={onClose}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={20} color="#FFF" />
+              </TouchableOpacity>
+            )}
+            {/* Retake pill — visible once food is identified */}
+            {status === 'review' && (
+              <TouchableOpacity
+                style={s.retakeChip}
+                onPress={() => { onClose(); onRetry?.(); }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="camera-outline" size={13} color="#FFF" />
+                <Text style={s.retakeChipText}>Retake</Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
-          {/* Scan overlay — only during analysis */}
-          {status === 'analyzing' && <ScanOverlay topInset={insets.top} />}
-
-          {/* Close button */}
-          {status !== 'analyzing' && (
-            <TouchableOpacity
-              style={[s.closeBtn, { top: insets.top + 12 }]}
-              onPress={onClose}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons name="close" size={20} color="#FFF" />
-            </TouchableOpacity>
-          )}
-
-          {/* Bottom card */}
-          <Animated.View
-            style={[s.card, { paddingBottom: insets.bottom + 20, transform: [{ translateY: cardY }] }]}
-          >
-            <View style={s.handle} />
+          {/* ── Card ── */}
+          <View style={[s.card, { backgroundColor: P.card, paddingBottom: insets.bottom + 16, shadowColor: P.shadow }]}>
+            <View style={[s.handle, { backgroundColor: P.handle }]} />
 
             {/* ── Analyzing ── */}
             {status === 'analyzing' && (
-              <View style={s.analyzeContent}>
-                <View style={s.analyzeRow}>
+              <View style={s.centerContent}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   <PulseDot />
-                  <Text style={s.analyzeTitle}>Scanning your food{dots}</Text>
+                  <Text style={[s.analyzeTitle, { color: P.text }]}>Scanning your food{dots}</Text>
                 </View>
-                <Text style={s.analyzeCaption}>AI is identifying the meal</Text>
+                <Text style={[s.analyzeCaption, { color: P.textMid }]}>AI is identifying the meal</Text>
               </View>
             )}
 
-            {/* ── Review & edit ── */}
-            {status === 'review' && (
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={s.reviewContent}
-              >
-                <View style={s.reviewHeader}>
-                  <View style={s.successBadge}>
-                    <Ionicons name="checkmark-circle" size={13} color="#22C55E" />
-                    <Text style={s.successText}>AI identified your meal</Text>
+            {/* ── Review (display) ── */}
+            {status === 'review' && !isEditing && (
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={s.reviewContent}>
+
+                {/* Food name + pen */}
+                <View style={s.nameRow}>
+                  <View style={{ flex: 1 }}>
+                    <View style={s.successBadge}>
+                      <Ionicons name="checkmark-circle" size={12} color="#22C55E" />
+                      <Text style={s.successText}>AI identified your meal</Text>
+                    </View>
+                    <Text style={[s.foodName, { color: P.text }]} numberOfLines={2}>{editName || 'Meal'}</Text>
                   </View>
-                  <Text style={s.reviewHint}>Review and edit before logging</Text>
+                  <TouchableOpacity
+                    style={[s.penBtn, { backgroundColor: P.penBg, borderColor: P.penBorder }]}
+                    onPress={() => setIsEditing(true)}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="pencil" size={15} color={P.penIcon} />
+                  </TouchableOpacity>
                 </View>
 
-                {/* Food name */}
+                {/* Meal pills */}
+                <View style={s.mealRow}>
+                  {MEAL_OPTIONS.map((opt) => {
+                    const active = editMeal === opt.id;
+                    return (
+                      <Pressable
+                        key={opt.id}
+                        style={[s.mealPill, { backgroundColor: active ? O20 : P.pillBg }, active && s.mealPillActive]}
+                        onPress={() => setEditMeal(opt.id)}
+                      >
+                        <Text style={[s.mealPillText, { color: active ? O : P.textMid }]}>{opt.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {/* Nutrition card */}
+                <View style={[s.nutriCard, { backgroundColor: P.surface, borderColor: P.surfaceBorder }]}>
+                  <View style={s.nutriHeader}>
+                    <View>
+                      <Text style={[s.nutriTitle, { color: P.text }]}>Total nutrition</Text>
+                      <Text style={[s.nutriCals,  { color: P.textMid }]}>{editCals} kcal</Text>
+                    </View>
+                    {nutriCount > 0 && (
+                      <View style={[s.nutriBadge, { backgroundColor: P.badgeBg }]}>
+                        <Ionicons name="restaurant-outline" size={11} color={P.badgeText} />
+                        <Text style={[s.nutriBadgeText, { color: P.badgeText }]}>{nutriCount} nutrients</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {nutriCount > 0 && <View style={[s.nutriDivider, { backgroundColor: P.divider }]} />}
+
+                  {hasProtein && (
+                    <>
+                      <NutrientRow name="Protein" grams={editProtein} iconBg={P.iconBg} text={P.text} textMid={P.textMid} divider={P.divider} />
+                      {(hasFat || hasCarbs) && <View style={[s.nutriDivider, { backgroundColor: P.divider }]} />}
+                    </>
+                  )}
+                  {hasFat && (
+                    <>
+                      <NutrientRow name="Fat" grams={editFat} iconBg={P.iconBg} text={P.text} textMid={P.textMid} divider={P.divider} />
+                      {hasCarbs && <View style={[s.nutriDivider, { backgroundColor: P.divider }]} />}
+                    </>
+                  )}
+                  {hasCarbs && (
+                    <NutrientRow name="Carbs" grams={editCarbs} iconBg={P.iconBg} text={P.text} textMid={P.textMid} divider={P.divider} />
+                  )}
+                </View>
+
+                {/* Actions */}
+                <View style={s.actionRow}>
+                  <TouchableOpacity style={[s.discardBtn, { backgroundColor: P.discardBg, borderColor: P.discardBorder }]} onPress={onClose} activeOpacity={0.75}>
+                    <Text style={[s.discardBtnText, { color: P.discardText }]}>Discard</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[s.logBtn, isSaving && { opacity: 0.6 }]} onPress={handleAddToLog} activeOpacity={0.85} disabled={isSaving}>
+                    <Text style={s.logBtnText}>{isSaving ? 'Saving…' : 'Add to Log'}</Text>
+                    {!isSaving && <Ionicons name="arrow-forward" size={16} color="#FFF" />}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            )}
+
+            {/* ── Edit mode ── */}
+            {status === 'review' && isEditing && (
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={s.reviewContent}>
+
+                <View style={s.editHeader}>
+                  <Text style={[s.editTitle, { color: P.text }]}>Edit details</Text>
+                  <TouchableOpacity style={s.doneBtn} onPress={() => setIsEditing(false)}>
+                    <Text style={s.doneBtnText}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+
                 <View style={s.fieldBlock}>
-                  <Text style={s.fieldLabel}>FOOD NAME</Text>
+                  <Text style={[s.fieldLabel, { color: P.textFaint }]}>FOOD NAME</Text>
                   <TextInput
-                    style={s.nameInput}
+                    style={[s.nameInput, { color: P.text, borderBottomColor: P.inputBorder }]}
                     value={editName}
                     onChangeText={setEditName}
                     placeholder="Meal name"
-                    placeholderTextColor="rgba(255,255,255,0.25)"
+                    placeholderTextColor={P.textFaint}
                     selectionColor={O}
                     returnKeyType="done"
                     maxLength={80}
                   />
                 </View>
 
-                <View style={s.divider} />
+                <View style={[s.divider, { backgroundColor: P.divider }]} />
 
-                {/* Meal type */}
                 <View style={s.fieldBlock}>
-                  <Text style={s.fieldLabel}>MEAL</Text>
-                  <View style={s.mealRow}>
-                    {MEAL_OPTIONS.map((opt) => {
-                      const active = editMeal === opt.id;
-                      return (
-                        <Pressable
-                          key={opt.id}
-                          style={[s.mealPill, active && s.mealPillActive]}
-                          onPress={() => setEditMeal(opt.id)}
-                        >
-                          <Text style={[s.mealPillText, active && s.mealPillTextActive]}>
-                            {opt.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                <View style={s.divider} />
-
-                {/* Calories */}
-                <View style={s.fieldBlock}>
-                  <Text style={s.fieldLabel}>CALORIES</Text>
-                  <View style={s.calsRow}>
+                  <Text style={[s.fieldLabel, { color: P.textFaint }]}>CALORIES</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
                     <TextInput
-                      style={s.calsInput}
+                      style={[s.calsInput, { color: P.text }]}
                       value={editCals}
                       onChangeText={(v) => setEditCals(v.replace(/[^0-9]/g, ''))}
                       keyboardType="number-pad"
@@ -371,35 +483,28 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
                       returnKeyType="done"
                       maxLength={5}
                     />
-                    <Text style={s.calsUnit}>kcal</Text>
+                    <Text style={[s.calsUnit, { color: P.textFaint }]}>kcal</Text>
                   </View>
                 </View>
 
-                <View style={s.divider} />
+                <View style={[s.divider, { backgroundColor: P.divider }]} />
 
-                {/* Macros */}
                 <View style={s.fieldBlock}>
-                  <Text style={s.fieldLabel}>NUTRITION</Text>
+                  <Text style={[s.fieldLabel, { color: P.textFaint }]}>NUTRITION</Text>
                   <View style={s.macroGrid}>
-                    <MacroInput label="Protein" value={editProtein} color="#F97316" bg={O10}                    onChange={setEditProtein} />
-                    <MacroInput label="Carbs"   value={editCarbs}   color="#FB923C" bg="rgba(251,146,60,0.10)"  onChange={setEditCarbs}   />
-                    <MacroInput label="Fat"     value={editFat}     color="#FDBA74" bg="rgba(253,186,116,0.10)" onChange={setEditFat}     />
+                    <MacroInput label="Protein" value={editProtein} color="#F97316" bg={O10}                    inputBorder={P.inputBorder} onChange={setEditProtein} />
+                    <MacroInput label="Carbs"   value={editCarbs}   color="#FB923C" bg="rgba(251,146,60,0.10)"  inputBorder={P.inputBorder} onChange={setEditCarbs}   />
+                    <MacroInput label="Fat"     value={editFat}     color="#FDBA74" bg="rgba(253,186,116,0.10)" inputBorder={P.inputBorder} onChange={setEditFat}     />
                   </View>
                 </View>
 
-                <View style={s.divider} />
+                <View style={[s.divider, { backgroundColor: P.divider }]} />
 
-                {/* Actions */}
                 <View style={s.actionRow}>
-                  <TouchableOpacity style={s.discardBtn} onPress={onClose} activeOpacity={0.75}>
-                    <Text style={s.discardBtnText}>Discard</Text>
+                  <TouchableOpacity style={[s.discardBtn, { backgroundColor: P.discardBg, borderColor: P.discardBorder }]} onPress={onClose} activeOpacity={0.75}>
+                    <Text style={[s.discardBtnText, { color: P.discardText }]}>Discard</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[s.logBtn, isSaving && { opacity: 0.6 }]}
-                    onPress={handleAddToLog}
-                    activeOpacity={0.85}
-                    disabled={isSaving}
-                  >
+                  <TouchableOpacity style={[s.logBtn, isSaving && { opacity: 0.6 }]} onPress={handleAddToLog} activeOpacity={0.85} disabled={isSaving}>
                     <Text style={s.logBtnText}>{isSaving ? 'Saving…' : 'Add to Log'}</Text>
                     {!isSaving && <Ionicons name="arrow-forward" size={16} color="#FFF" />}
                   </TouchableOpacity>
@@ -409,240 +514,129 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
 
             {/* ── Retry ── */}
             {status === 'retry' && (
-              <View style={s.errorContent}>
-                <View style={[s.errorIcon, { backgroundColor: O10 }]}>
+              <View style={s.centerContent}>
+                <View style={[s.statusIcon, { backgroundColor: O10 }]}>
                   <Ionicons name="camera-outline" size={28} color={O} />
                 </View>
-                <Text style={s.analyzeTitle}>Could not calculate calories</Text>
-                <Text style={[s.analyzeCaption, { marginBottom: 20, paddingHorizontal: 16 }]}>
-                  The photo wasn't clear enough. Try again with better lighting or a closer shot.
+                <Text style={[s.analyzeTitle, { color: P.text }]}>No food detected</Text>
+                <Text style={[s.analyzeCaption, { color: P.textMid }]}>
+                  Make sure food is clearly visible in the frame and try again.
                 </Text>
-                <TouchableOpacity
-                  style={s.logBtn}
-                  onPress={() => { onClose(); onRetry?.(); }}
-                  activeOpacity={0.85}
-                >
-                  <Text style={s.logBtnText}>Try Again</Text>
-                </TouchableOpacity>
+                <View style={[s.actionRow, { alignSelf: 'stretch' }]}>
+                  <TouchableOpacity style={[s.discardBtn, { backgroundColor: P.discardBg, borderColor: P.discardBorder }]} onPress={onClose} activeOpacity={0.75}>
+                    <Text style={[s.discardBtnText, { color: P.discardText }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={s.logBtn} onPress={() => { onClose(); onRetry?.(); }} activeOpacity={0.85}>
+                    <Ionicons name="camera" size={16} color="#FFF" />
+                    <Text style={s.logBtnText}>Retake Photo</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
 
             {/* ── Error ── */}
             {status === 'error' && (
-              <View style={s.errorContent}>
-                <View style={s.errorIcon}>
+              <View style={s.centerContent}>
+                <View style={[s.statusIcon, { backgroundColor: 'rgba(239,68,68,0.12)' }]}>
                   <Ionicons name="alert-circle-outline" size={28} color="#EF4444" />
                 </View>
-                <Text style={s.analyzeTitle}>Could not identify food</Text>
-                <Text style={[s.analyzeCaption, { marginBottom: 20 }]}>
+                <Text style={[s.analyzeTitle, { color: P.text }]}>Could not identify food</Text>
+                <Text style={[s.analyzeCaption, { color: P.textMid }]}>
                   Try a clearer photo or add the meal manually.
                 </Text>
-                <TouchableOpacity
-                  style={[s.logBtn, { backgroundColor: '#374151' }]}
-                  onPress={onClose}
-                  activeOpacity={0.85}
-                >
+                <TouchableOpacity style={[s.logBtn, { backgroundColor: '#374151', alignSelf: 'stretch' }]} onPress={onClose} activeOpacity={0.85}>
                   <Text style={s.logBtnText}>Close</Text>
                 </TouchableOpacity>
               </View>
             )}
-          </Animated.View>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
 
-// ── MacroInput ────────────────────────────────────────────────────────────────
-
-function MacroInput({
-  label, value, color, bg, onChange,
-}: { label: string; value: string; color: string; bg: string; onChange: (v: string) => void }) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <View style={[mi.card, { backgroundColor: bg, borderTopColor: color, borderColor: focused ? color : 'transparent' }]}>
-      <TextInput
-        style={[mi.input, { color }]}
-        value={value}
-        onChangeText={(v) => onChange(v.replace(/[^0-9]/g, ''))}
-        keyboardType="number-pad"
-        selectionColor={color}
-        returnKeyType="done"
-        maxLength={4}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        textAlign="center"
-      />
-      <Text style={mi.unit}>g</Text>
-      <Text style={mi.label}>{label}</Text>
-    </View>
-  );
-}
-
-const mi = StyleSheet.create({
-  card:  { flex: 1, borderRadius: 14, borderTopWidth: 2, borderWidth: 1, paddingTop: 10, paddingBottom: 8, alignItems: 'center' },
-  input: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5, width: '100%', textAlign: 'center', paddingVertical: 0 },
-  unit:  { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.40)', marginTop: -2 },
-  label: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.45)', letterSpacing: 0.5, marginTop: 3 },
-});
-
-// ── Styles ────────────────────────────────────────────────────────────────────
+// ── Static styles (layout only — colours applied inline) ─────────────────────
 
 const s = StyleSheet.create({
-  root:  { flex: 1, backgroundColor: '#000' },
-  image: { ...StyleSheet.absoluteFillObject, width: SW, height: SH },
+  root: { flex: 1 },
 
-  gradientTop: {
-    ...StyleSheet.absoluteFillObject,
-    height: SH * 0.40,
-    top: 0,
-    backgroundColor: 'rgba(0,0,0,0.18)',
-  },
-  gradientBottom: {
-    ...StyleSheet.absoluteFillObject,
-    top: SH * 0.40,
-    backgroundColor: 'rgba(0,0,0,0.60)',
-  },
-
+  imageBox: { height: IMAGE_H, width: SW, overflow: 'hidden', backgroundColor: '#000' },
+  image:    { width: SW, height: IMAGE_H },
+  imageDim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.12)' },
   closeBtn: {
-    position: 'absolute',
-    left: 20,
-    width: 38, height: 38,
-    borderRadius: 19,
+    position: 'absolute', left: 20,
+    width: 38, height: 38, borderRadius: 19,
     backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
+  retakeChip: {
+    position: 'absolute', bottom: 16, right: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 99,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+  },
+  retakeChipText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
 
   card: {
-    position: 'absolute',
-    bottom: 0, left: 0, right: 0,
-    backgroundColor: '#111111',
-    borderTopLeftRadius:  28,
-    borderTopRightRadius: 28,
-    paddingTop: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.55,
-    shadowRadius: 24,
-    elevation: 24,
+    flex: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingTop: 10, marginTop: -20,
+    shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 20,
   },
+  handle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, marginBottom: 4 },
 
-  handle: {
-    alignSelf: 'center',
-    width: 36, height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    marginBottom: 4,
-  },
+  reviewContent: { paddingHorizontal: 20, paddingBottom: 8 },
 
-  // ── Analyzing ──
-  analyzeContent: {
-    alignItems: 'center',
-    paddingHorizontal: 28,
-    paddingTop: 16,
-    paddingBottom: 20,
-    gap: 10,
-  },
-  analyzeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  analyzeTitle:   { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
-  analyzeCaption: { color: 'rgba(255,255,255,0.50)', fontSize: 13, fontWeight: '500', textAlign: 'center' },
-
-  // ── Review ──
-  reviewContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 8,
-  },
-
-  reviewHeader: { paddingVertical: 10, gap: 4 },
+  nameRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingTop: 8, paddingBottom: 14 },
   successBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 5,
-    backgroundColor: 'rgba(34,197,94,0.12)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 99,
+    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
+    gap: 4, backgroundColor: 'rgba(34,197,94,0.12)',
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 99, marginBottom: 6,
   },
-  successText: { color: '#22C55E', fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
-  reviewHint:  { color: 'rgba(255,255,255,0.30)', fontSize: 11, fontWeight: '500' },
+  successText: { color: '#22C55E', fontSize: 10, fontWeight: '700', letterSpacing: 0.3 },
+  foodName:    { fontSize: 22, fontWeight: '800', letterSpacing: -0.5, lineHeight: 28 },
+  penBtn:      { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 24, borderWidth: 1 },
 
-  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.07)', marginVertical: 12 },
+  mealRow:        { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  mealPill:       { flex: 1, paddingVertical: 9, borderRadius: 12, alignItems: 'center' },
+  mealPillActive: { borderWidth: 1, borderColor: O },
+  mealPillText:   { fontSize: 12, fontWeight: '600' },
+
+  nutriCard:      { borderRadius: 20, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 16 },
+  nutriHeader:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  nutriTitle:     { fontSize: 15, fontWeight: '700', letterSpacing: -0.2 },
+  nutriCals:      { fontSize: 12, fontWeight: '500', marginTop: 2 },
+  nutriBadge:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99 },
+  nutriBadgeText: { fontSize: 11, fontWeight: '600' },
+  nutriDivider:   { height: 1, marginVertical: 2 },
+
+  editHeader:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, paddingBottom: 16 },
+  editTitle:   { fontSize: 17, fontWeight: '800' },
+  doneBtn:     { backgroundColor: O20, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10 },
+  doneBtnText: { color: O, fontSize: 13, fontWeight: '700' },
 
   fieldBlock: { gap: 8 },
-  fieldLabel: { color: 'rgba(255,255,255,0.35)', fontSize: 10, fontWeight: '700', letterSpacing: 1 },
+  fieldLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1 },
+  nameInput:  { fontSize: 20, fontWeight: '800', letterSpacing: -0.4, paddingVertical: 4, borderBottomWidth: 1 },
+  calsInput:  { fontSize: 42, fontWeight: '800', letterSpacing: -1.5, paddingVertical: 0, minWidth: 80 },
+  calsUnit:   { fontSize: 16, fontWeight: '600' },
+  macroGrid:  { flexDirection: 'row', gap: 8 },
+  divider:    { height: 1, marginVertical: 12 },
 
-  nameInput: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-    paddingVertical: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.10)',
-  },
+  centerContent: { alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8, gap: 12 },
+  analyzeTitle:  { fontSize: 18, fontWeight: '700' },
+  analyzeCaption: { fontSize: 13, fontWeight: '500', textAlign: 'center' },
+  statusIcon:    { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
 
-  mealRow:            { flexDirection: 'row', gap: 8 },
-  mealPill:           { flex: 1, paddingVertical: 9, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.07)', alignItems: 'center' },
-  mealPillActive:     { backgroundColor: O20, borderWidth: 1, borderColor: O },
-  mealPillText:       { color: 'rgba(255,255,255,0.50)', fontSize: 12, fontWeight: '600' },
-  mealPillTextActive: { color: O },
-
-  calsRow:  { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
-  calsInput: { color: '#FFFFFF', fontSize: 42, fontWeight: '800', letterSpacing: -1.5, paddingVertical: 0, minWidth: 80 },
-  calsUnit:  { color: 'rgba(255,255,255,0.35)', fontSize: 16, fontWeight: '600' },
-
-  macroGrid: { flexDirection: 'row', gap: 8 },
-
-  actionRow: { flexDirection: 'row', gap: 10, paddingTop: 4, paddingBottom: 4 },
-  discardBtn: {
-    flex: 1,
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-  },
-  discardBtnText: { color: 'rgba(255,255,255,0.55)', fontSize: 15, fontWeight: '700' },
-
+  actionRow:      { flexDirection: 'row', gap: 10, paddingTop: 4, paddingBottom: 4 },
+  discardBtn:     { flex: 1, height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  discardBtnText: { fontSize: 15, fontWeight: '700' },
   logBtn: {
-    flex: 2,
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: O,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    shadowColor: O,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 6,
+    flex: 2, height: 52, borderRadius: 14, backgroundColor: O,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    shadowColor: O, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
   },
   logBtnText: { color: '#FFF', fontSize: 15, fontWeight: '800' },
-
-  // ── Error / Retry ──
-  errorContent: {
-    alignItems: 'center',
-    paddingHorizontal: 28,
-    paddingTop: 16,
-    paddingBottom: 8,
-    gap: 10,
-  },
-  errorIcon: {
-    width: 60, height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(239,68,68,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-  },
 });

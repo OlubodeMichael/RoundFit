@@ -16,7 +16,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppModal } from "@/components/ui/AppModal";
+import { useNotifications } from "@/hooks/use-notifications";
 import { useTheme } from "@/hooks/use-theme";
+import { openNotificationSettings } from "@/utils/notifications";
 
 if (
   Platform.OS === "android" &&
@@ -184,9 +186,16 @@ export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const [enabled, setEnabled] = useState<Record<string, boolean>>(
-    Object.fromEntries(REMINDERS.map((r) => [r.id, false])),
-  );
+  const REMINDER_IDS = REMINDERS.map((r) => r.id);
+  const {
+    enabled,
+    permissionStatus,
+    hydrated: enabledHydrated,
+    toggle: hookToggle,
+    syncReminder,
+    syncMealReminders,
+  } = useNotifications(REMINDER_IDS);
+
   const [times, setTimes] = useState<Record<string, TimeVal>>(
     defaultTimesByReminderId(),
   );
@@ -197,9 +206,18 @@ export default function NotificationsScreen() {
   const [pickerTarget, setPickerTarget]           = useState<PickerTarget | null>(null);
   const [draft, setDraft]                         = useState<TimeVal>({ hour: 7, minute: 0, period: "AM" });
 
-  function toggle(id: string) {
+  async function toggle(id: string) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setEnabled((prev) => ({ ...prev, [id]: !prev[id] }));
+    const wasOff = !enabled[id];
+    await hookToggle(id);
+
+    if (wasOff) {
+      if (id === "meal") {
+        await syncMealReminders(mealTimes);
+      } else {
+        await syncReminder(id, times[id]);
+      }
+    }
   }
 
   function openPicker(target: PickerTarget) {
@@ -211,28 +229,33 @@ export default function NotificationsScreen() {
     setPickerTarget(target);
   }
 
-  function confirmTime() {
+  async function confirmTime() {
     if (!pickerTarget) return;
     if (pickerTarget.id === "meal" && pickerTarget.mealIndex !== undefined) {
-      setMealTimes((prev) =>
-        prev.map((t, i) => (i === pickerTarget.mealIndex ? draft : t)),
-      );
+      const updated = mealTimes.map((t, i) => (i === pickerTarget.mealIndex ? draft : t));
+      setMealTimes(updated);
+      await syncMealReminders(updated);
     } else {
       setTimes((prev) => ({ ...prev, [pickerTarget.id]: draft }));
+      await syncReminder(pickerTarget.id, draft);
     }
     setPickerTarget(null);
   }
 
-  function addMeal() {
+  async function addMeal() {
     if (mealTimes.length >= MAX_MEALS) return;
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setMealTimes((prev) => [...prev, { hour: 6, minute: 0, period: "PM" }]);
+    const updated = [...mealTimes, { hour: 6, minute: 0, period: "PM" as const }];
+    setMealTimes(updated);
+    await syncMealReminders(updated);
   }
 
-  function removeMeal(index: number) {
+  async function removeMeal(index: number) {
     if (mealTimes.length <= 1) return;
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setMealTimes((prev) => prev.filter((_, i) => i !== index));
+    const updated = mealTimes.filter((_, i) => i !== index);
+    setMealTimes(updated);
+    await syncMealReminders(updated);
   }
 
   useEffect(() => {
@@ -244,8 +267,8 @@ export default function NotificationsScreen() {
         if (!isNotificationTimeSettings(parsed)) return;
         setTimes(parsed.times);
         setMealTimes(parsed.mealTimes);
-      } catch (e) {
-        console.warn("Failed to load notification times", e);
+      } catch {
+        // corrupt storage — use defaults
       } finally {
         setHasHydratedTimes(true);
       }
@@ -258,8 +281,23 @@ export default function NotificationsScreen() {
     AsyncStorage.setItem(
       NOTIFICATION_TIMES_STORAGE_KEY,
       JSON.stringify({ times, mealTimes }),
-    ).catch((e) => console.warn("Failed to save notification times", e));
+    ).catch(() => {});
   }, [hasHydratedTimes, mealTimes, times]);
+
+  // Re-schedule all active reminders once both enabled state and times are hydrated
+  useEffect(() => {
+    if (!enabledHydrated || !hasHydratedTimes) return;
+    (async () => {
+      for (const id of REMINDER_IDS) {
+        if (!enabled[id]) continue;
+        if (id === "meal") {
+          await syncMealReminders(mealTimes);
+        } else {
+          await syncReminder(id, times[id]);
+        }
+      }
+    })();
+  }, [enabledHydrated, hasHydratedTimes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeReminder = REMINDERS.find((r) => r.id === pickerTarget?.id);
   const pickerTitle =
@@ -294,6 +332,22 @@ export default function NotificationsScreen() {
             Choose your reminders and when to receive them.
           </Text>
         </View>
+
+        {/* ── Permission denied banner ── */}
+        {permissionStatus === "denied" && (
+          <TouchableOpacity
+            style={[s.deniedBanner, { backgroundColor: "rgba(239,68,68,0.08)", borderColor: "rgba(239,68,68,0.20)" }]}
+            onPress={openNotificationSettings}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="alert-circle" size={18} color="#EF4444" />
+            <View style={{ flex: 1 }}>
+              <Text style={[s.deniedText, { color: P.hi }]}>Notifications are disabled</Text>
+              <Text style={[s.deniedSub, { color: P.mid }]}>Tap to open Settings and enable them.</Text>
+            </View>
+            <Ionicons name="open-outline" size={14} color={P.faint} />
+          </TouchableOpacity>
+        )}
 
         {/* ── Reminder cards ── */}
         <View style={{ paddingHorizontal: 20, gap: 10 }}>
@@ -330,7 +384,7 @@ export default function NotificationsScreen() {
             <Ionicons name="information-circle-outline" size={16} color={P.accent} />
           </View>
           <Text style={[s.noteText, { color: P.mid }]}>
-            You'll be prompted for notification permission when you enable your first reminder.
+            You&apos;ll be prompted for notification permission when you enable your first reminder.
           </Text>
         </View>
       </ScrollView>
@@ -594,6 +648,20 @@ const s = StyleSheet.create({
   eyebrow:  { fontSize: 11, fontWeight: "700", letterSpacing: 1.2 },
   title:    { fontFamily: "Syne_700Bold", fontSize: 28, letterSpacing: -0.6, lineHeight: 32, marginTop: 4 },
   titleSub: { fontSize: 13, lineHeight: 19, marginTop: 6 },
+
+  // Permission denied banner
+  deniedBanner: {
+    flexDirection:     "row",
+    alignItems:        "center",
+    gap:               10,
+    marginHorizontal:  20,
+    marginBottom:      10,
+    padding:           14,
+    borderRadius:      14,
+    borderWidth:       1,
+  },
+  deniedText: { fontSize: 14, fontWeight: "600" },
+  deniedSub:  { fontSize: 12, marginTop: 2 },
 
   // Card
   card: {

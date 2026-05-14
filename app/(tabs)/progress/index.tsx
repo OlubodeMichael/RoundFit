@@ -13,18 +13,60 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ComponentProps } from 'react';
 
+import Svg, { Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
+
 import { AnimatedCard, usePalette } from '@/lib/log-theme';
 import { useHealth } from '@/hooks/use-health';
 import { useUnits } from '@/hooks/use-units';
 import { useSummary } from '@/hooks/use-summary';
 import { useWeight } from '@/hooks/use-weight';
+import { useProfile } from '@/hooks/use-profile';
 import { getLocalDateString } from '@/utils/date';
 import { formatDistance } from '@/utils/units';
 import type { DistanceUnit } from '@/utils/units';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
+const W_H    = 100;
+const W_PX   = 10;
+const W_PY   = 10;
+
+function wLine(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return '';
+  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const cpX = ((pts[i - 1].x + pts[i].x) / 2).toFixed(1);
+    d += ` C ${cpX} ${pts[i - 1].y.toFixed(1)},${cpX} ${pts[i].y.toFixed(1)},${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
+  }
+  return d;
+}
+
+function wFill(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return '';
+  let d = `M ${pts[0].x.toFixed(1)} ${W_H} L ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const cpX = ((pts[i - 1].x + pts[i].x) / 2).toFixed(1);
+    d += ` C ${cpX} ${pts[i - 1].y.toFixed(1)},${cpX} ${pts[i].y.toFixed(1)},${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
+  }
+  d += ` L ${pts[pts.length - 1].x.toFixed(1)} ${W_H} Z`;
+  return d;
+}
+
 const STEPS_GOAL = 10_000;
+
+function buildWeekDates(todayStr: string): string[] {
+  const d   = new Date(todayStr + 'T12:00:00');
+  const dow = d.getDay(); // 0=Sun … 6=Sat
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - ((dow + 6) % 7)); // rewind to Monday
+  return Array.from({ length: 7 }, (_, i) => {
+    const day = new Date(monday);
+    day.setDate(monday.getDate() + i);
+    const mm = String(day.getMonth() + 1).padStart(2, '0');
+    const dd = String(day.getDate()).padStart(2, '0');
+    return `${day.getFullYear()}-${mm}-${dd}`;
+  });
+}
 
 function StepsCard({ delay = 0 }: { delay?: number }) {
   const P = usePalette();
@@ -157,10 +199,12 @@ export default function ProgressScreen() {
   const { weekly }                       = useSummary();
   const { entries }                      = useWeight();
   const { weightUnit, toDisplayWeight }  = useUnits();
+  const { profile }                      = useProfile();
   const todayStr                         = getLocalDateString();
 
-  // ── Streak: consecutive trailing logged days ──────────────────────────────
+  // ── Streak: prefer cached value from profile, fall back to computed ───────
   const streak = useMemo(() => {
+    if (typeof profile?.currentStreak === 'number') return profile.currentStreak;
     if (!weekly?.days?.length) return 0;
     const sorted = [...weekly.days].sort((a, b) => b.date.localeCompare(a.date));
     let count = 0;
@@ -169,7 +213,7 @@ export default function ProgressScreen() {
       else break;
     }
     return count;
-  }, [weekly]);
+  }, [profile?.currentStreak, weekly]);
 
   // ── Consistency ───────────────────────────────────────────────────────────
   const consistency = Math.round(weekly?.consistency_score ?? 0);
@@ -180,29 +224,26 @@ export default function ProgressScreen() {
     return weekly.days.filter(d => d.calories_consumed > 0 && d.calories_consumed <= d.calorie_budget).length;
   }, [weekly]);
 
-  // ── Consistency day strip ─────────────────────────────────────────────────
+  // ── Consistency day strip — always 7 days (Mon → Sun) ───────────────────
   const consistencyDays = useMemo(() => {
-    if (!weekly?.days?.length) return [];
-    return [...weekly.days]
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(d => ({
-        label: new Date(d.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })[0],
-        on:    d.calories_consumed > 0,
-        today: d.date === todayStr,
-      }));
+    const dayMap = new Map((weekly?.days ?? []).map(d => [d.date, d]));
+    return buildWeekDates(todayStr).map(date => ({
+      label: new Date(date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })[0],
+      on:    (dayMap.get(date)?.calories_consumed ?? 0) > 0,
+      today: date === todayStr,
+    }));
   }, [weekly, todayStr]);
 
-  // ── Calories chart ────────────────────────────────────────────────────────
+  // ── Calories chart — always 7 days (Mon → Sun) ───────────────────────────
   const calsGoal = weekly?.days.find(d => d.calorie_budget > 0)?.calorie_budget ?? 2000;
   const calsWeek = useMemo(() => {
-    if (!weekly?.days?.length) return [];
-    return [...weekly.days]
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(d => ({
-        day:  new Date(d.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })[0],
-        cals: d.calories_consumed,
-      }));
-  }, [weekly]);
+    const dayMap = new Map((weekly?.days ?? []).map(d => [d.date, d]));
+    return buildWeekDates(todayStr).map(date => ({
+      day:   new Date(date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })[0],
+      cals:  dayMap.get(date)?.calories_consumed ?? 0,
+      today: date === todayStr,
+    }));
+  }, [weekly, todayStr]);
 
   const avgCals  = Math.round(weekly?.avg_calories ?? 0);
   const maxCals  = useMemo(
@@ -217,11 +258,32 @@ export default function ProgressScreen() {
   const weightMax   = useMemo(() => weightEntries.length ? Math.max(...weightEntries.map(e => e.weight_kg)) : 0, [weightEntries]);
   const weightRange = weightMax - weightMin || 1;
 
-  const weightDeltaKg = weightEntries.length >= 2
+  const [wChartW, setWChartW] = useState(0);
+  const weightPoints = useMemo(() => {
+    if (!wChartW || !weightEntries.length) return [];
+    const n  = weightEntries.length;
+    const cW = wChartW - W_PX * 2;
+    const cH = W_H - W_PY * 2;
+    return weightEntries.map((w, i) => ({
+      x: W_PX + (n === 1 ? cW / 2 : (i / (n - 1)) * cW),
+      y: W_PY + (n === 1 ? cH / 2 : (1 - (w.weight_kg - weightMin) / weightRange) * cH),
+      date: w.logged_at,
+      isLatest: i === n - 1,
+    }));
+  }, [wChartW, weightEntries, weightMin, weightRange]);
+
+  const weightDeltaKg   = weightEntries.length >= 2
     ? weightEntries[weightEntries.length - 1].weight_kg - weightEntries[0].weight_kg
     : 0;
-  const currentKg  = weightEntries.length ? weightEntries[weightEntries.length - 1].weight_kg : null;
-  const weightTrend = weightDeltaKg < -0.1 ? 'Trending down' : weightDeltaKg > 0.1 ? 'Trending up' : 'Stable';
+  const profileWeightKg = profile?.weightKg ?? null;
+  const currentKg       = weightEntries.length
+    ? weightEntries[weightEntries.length - 1].weight_kg
+    : profileWeightKg;
+  const weightTrend = weightEntries.length === 0
+    ? 'Your weight'
+    : weightDeltaKg < -0.1 ? 'Trending down'
+    : weightDeltaKg > 0.1  ? 'Trending up'
+    : 'Stable';
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
@@ -240,12 +302,7 @@ export default function ProgressScreen() {
               Progress<Text style={{ color: P.calories }}>.</Text>
             </Text>
           </View>
-          <Pressable
-            hitSlop={10}
-            style={[styles.iconBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
-          >
-            <Ionicons name="calendar-outline" size={16} color={P.text} />
-          </Pressable>
+          
         </View>
 
         <View style={styles.stack}>
@@ -282,7 +339,7 @@ export default function ProgressScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>CONSISTENCY INDEX</Text>
                 <Text style={[styles.cardTitle, { color: P.text }]}>
-                  {consistencyDays.filter(d => d.on).length} of {consistencyDays.length || 7} days on target
+                  {consistencyDays.filter(d => d.on).length} of 7 days on target
                 </Text>
               </View>
               <View style={[styles.trendPill, { backgroundColor: P.proteinSoft }]}>
@@ -348,25 +405,36 @@ export default function ProgressScreen() {
 
             <View style={styles.barChart}>
               {calsWeek.map((d, i) => {
-                const pct      = d.cals / maxCals;
-                const goalPct  = calsGoal / maxCals;
-                const isToday  = i === calsWeek.length - 1;
-                const over     = d.cals > calsGoal;
-                const color    = isToday ? P.calories : over ? P.danger : P.protein;
+                const pct     = d.cals > 0 ? d.cals / maxCals : 0;
+                const goalPct = calsGoal / maxCals;
+                const isToday = d.today;
+                const over    = d.cals > calsGoal;
+                const color   = isToday ? P.calories : over ? P.danger : P.protein;
                 return (
                   <View key={i} style={styles.barCol}>
                     <View style={styles.barWrap}>
-                      <View style={[styles.goalLine, { bottom: `${goalPct * 100}%`, borderColor: P.calories, opacity: 0.4 }]} />
+                      {/* Ghost track — always visible */}
                       <View
                         style={[
+                          StyleSheet.absoluteFillObject,
                           styles.bar,
-                          {
-                            height:          `${pct * 100}%`,
-                            backgroundColor: color,
-                            opacity:         isToday ? 1 : 0.75,
-                          },
+                          { backgroundColor: P.sunken, opacity: 0.7 },
                         ]}
                       />
+                      {/* Goal line */}
+                      <View style={[styles.goalLine, { bottom: `${goalPct * 100}%`, borderColor: P.calories, opacity: 0.4 }]} />
+                      {/* Data fill */}
+                      {d.cals > 0 && (
+                        <View
+                          style={[
+                            styles.bar,
+                            {
+                              height:          `${pct * 100}%`,
+                              backgroundColor: color,
+                            },
+                          ]}
+                        />
+                      )}
                     </View>
                     <Text
                       style={[
@@ -423,45 +491,71 @@ export default function ProgressScreen() {
               </View>
 
               {weightEntries.length === 0 ? (
-                <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-                  <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '500' }}>
-                    No weight entries yet — log your weight to see trends
-                  </Text>
+                <View style={styles.weightFoot}>
+                  <View>
+                    <Text style={[styles.weightNum, { color: currentKg !== null ? P.text : P.textFaint }]}>
+                      {currentKg !== null ? toDisplayWeight(currentKg).toFixed(1) : '—'}
+                      {currentKg !== null && (
+                        <Text style={[styles.weightUnit, { color: P.textFaint }]}> {weightUnit}</Text>
+                      )}
+                    </Text>
+                    <Text style={[styles.weightNote, { color: P.textFaint }]}>
+                      {currentKg !== null ? 'From your profile · log to track changes' : 'No weight data · tap to log'}
+                    </Text>
+                  </View>
                 </View>
               ) : (
                 <>
-                  {/* Dot chart — oldest → newest */}
-                  <View style={styles.weightChart}>
-                    {weightEntries.map((w, i) => {
-                      const normalized = (w.weight_kg - weightMin) / weightRange;
-                      const bottom     = 6 + normalized * 48;
-                      const isLatest   = i === weightEntries.length - 1;
-                      const dateLabel  = new Date(w.logged_at).getDate().toString();
-                      return (
-                        <View key={i} style={styles.weightCol}>
-                          <View style={styles.weightColInner}>
-                            <View
-                              style={[
-                                styles.weightDot,
-                                {
-                                  bottom,
-                                  backgroundColor: isLatest ? P.weight : P.textFaint,
-                                  width:           isLatest ? 10 : 6,
-                                  height:          isLatest ? 10 : 6,
-                                  borderRadius:    isLatest ? 5 : 3,
-                                  shadowColor:     isLatest ? P.weight : 'transparent',
-                                  shadowOpacity:   isLatest ? 0.5 : 0,
-                                  shadowRadius:    isLatest ? 8 : 0,
-                                },
-                              ]}
+                  {/* Line chart — oldest → newest */}
+                  <View
+                    style={{ height: W_H, marginBottom: 6 }}
+                    onLayout={e => setWChartW(e.nativeEvent.layout.width)}
+                  >
+                    {wChartW > 0 && (
+                      <Svg width={wChartW} height={W_H}>
+                        <Defs>
+                          <LinearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+                            <Stop offset="0" stopColor={P.weight} stopOpacity={0.28} />
+                            <Stop offset="1" stopColor={P.weight} stopOpacity={0} />
+                          </LinearGradient>
+                        </Defs>
+                        {weightPoints.length >= 2 && (
+                          <>
+                            <Path d={wFill(weightPoints)} fill="url(#wg)" />
+                            <Path
+                              d={wLine(weightPoints)}
+                              fill="none"
+                              stroke={P.weight}
+                              strokeWidth={2.5}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
                             />
-                          </View>
-                          <Text style={[styles.weightDate, { color: P.textFaint }]}>
-                            {dateLabel}
-                          </Text>
-                        </View>
-                      );
-                    })}
+                          </>
+                        )}
+                        {weightPoints.map((p, i) => (
+                          <Circle
+                            key={i}
+                            cx={p.x}
+                            cy={p.y}
+                            r={p.isLatest ? 5 : 3.5}
+                            fill={p.isLatest ? P.weight : P.card}
+                            stroke={P.weight}
+                            strokeWidth={p.isLatest ? 0 : 2}
+                          />
+                        ))}
+                      </Svg>
+                    )}
+                  </View>
+
+                  {/* Date labels */}
+                  <View style={{ flexDirection: 'row', marginBottom: 14 }}>
+                    {weightEntries.map((w, i) => (
+                      <View key={i} style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={[styles.weightDate, { color: P.textFaint }]}>
+                          {new Date(w.logged_at).getDate().toString()}
+                        </Text>
+                      </View>
+                    ))}
                   </View>
 
                   <View style={styles.weightFoot}>

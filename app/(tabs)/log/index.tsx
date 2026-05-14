@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import type { ComponentProps } from 'react';
 import {
   RefreshControl,
   ScrollView,
@@ -9,7 +8,6 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useFood } from '@/hooks/use-food';
 import { useWorkouts } from '@/context/workout-context';
@@ -21,8 +19,6 @@ import { useProfile } from '@/hooks/use-profile';
 import { useUnits } from '@/hooks/use-units';
 import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
-
-type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 function localCalendarToday(): string {
   const d  = new Date();
@@ -82,31 +78,31 @@ export default function DailyLogScreen() {
     [],
   );
 
-  const stats: { key: string; icon: IoniconName; value: string; unit: string; accent: string }[] = [
+  const stats: { key: string; emoji: string; value: string; unit: string; accent: string }[] = [
     {
       key:    'food',
-      icon:   'flame-outline',
+      emoji:  '🍽️',
       value:  totalCalories > 0 ? totalCalories.toLocaleString() : '0',
       unit:   'kcal',
       accent: P.calories,
     },
     {
       key:    'workout',
-      icon:   'barbell-outline',
+      emoji:  '💪',
       value:  totalWorkoutMins > 0 ? String(totalWorkoutMins) : '0',
       unit:   'min',
       accent: P.workout,
     },
     {
       key:    'sleep',
-      icon:   'moon-outline',
+      emoji:  '🌙',
       value:  sleepHours !== null ? sleepHours.toFixed(1) : '—',
       unit:   'hrs',
       accent: P.sleep,
     },
     {
       key:    'weight',
-      icon:   'scale-outline',
+      emoji:  '⚖️',
       value:  latestWeight === null ? '—' : latestWeight.toFixed(1),
       unit:   weightUnit,
       accent: P.weight,
@@ -161,10 +157,8 @@ export default function DailyLogScreen() {
                     },
                   ]}
                 >
-                  {/* Icon chip */}
-                  <View style={[s.glanceIcon, { backgroundColor: st.accent + '1E' }]}>
-                    <Ionicons name={st.icon} size={14} color={st.accent} />
-                  </View>
+                  {/* Emoji */}
+                  <Text style={{ fontSize: 28 }}>{st.emoji}</Text>
 
                   {/* Value */}
                   <Text
@@ -200,7 +194,7 @@ export default function DailyLogScreen() {
             delay={140}
             accent={P.calories}
             accentSoft={P.caloriesSoft}
-            icon="flame"
+            emoji="🍽️"
             title="Food"
             eyebrow={isFoodDayToday ? 'EATEN' : 'ATE'}
             valueBig={totalCalories > 0 ? totalCalories.toLocaleString() : 'Log'}
@@ -218,7 +212,7 @@ export default function DailyLogScreen() {
             delay={190}
             accent={P.workout}
             accentSoft={P.workoutSoft}
-            icon="barbell"
+            emoji="💪"
             title="Workout"
             eyebrow="TRAINING"
             valueBig={totalWorkoutMins > 0 ? String(totalWorkoutMins) : 'Log'}
@@ -235,7 +229,7 @@ export default function DailyLogScreen() {
             delay={240}
             accent={P.sleep}
             accentSoft={P.sleepSoft}
-            icon="moon"
+            emoji="🌙"
             title="Sleep"
             eyebrow="LAST NIGHT"
             valueBig={sleepHours !== null ? sleepHours.toFixed(1) : 'Log'}
@@ -259,7 +253,7 @@ export default function DailyLogScreen() {
             delay={290}
             accent={P.weight}
             accentSoft={P.weightSoft}
-            icon="scale"
+            emoji="⚖️"
             title="Weight"
             eyebrow="TODAY'S READING"
             valueBig={latestWeight === null ? 'Log' : latestWeight.toFixed(1)}

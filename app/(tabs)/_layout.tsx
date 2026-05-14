@@ -33,7 +33,7 @@ const TABS: { name: string; icon: FeatherName; fab?: true }[] = [
 ];
 
 const PROFILE_SUB_SCREENS = [
-    "cycle", "wearable", "notifications", "subscription", "paywall",
+    "cycle", "wearable", "notifications", "subscription", "paywall", "help",
 ];
 
 // ── Floating Tab Bar ──────────────────────────────────────────────────────────
@@ -57,10 +57,11 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
     if (isProfileSubScreen || isLogSubScreen || isProgressSubScreen || isInsightsSubScreen) return null;
 
-    const ACTIVE   = "#F97316";
-    const INACTIVE = isDark ? "#5A5A66" : "#8A8A96";
-    const PILL_BG  = isDark ? "#18181E" : "#131318";
-    const FAB_BG   = isDark ? "#252530" : "#252530";
+    const ACTIVE    = "#F97316";
+    const INACTIVE  = isDark ? "#5A5A66" : "#8A8A96";
+    const PILL_BG   = isDark ? "#23232C" : "#131318";
+    const PILL_BORDER = isDark ? "rgba(255,255,255,0.10)" : "transparent";
+    const FAB_BG    = isDark ? "#2E2E3A" : "#252530";
 
     // Outer height determines the inset React Navigation adds to screens
     const outerH = insets.bottom + FLOAT_BOT + PILL_H + 12;
@@ -71,7 +72,19 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
             target: key,
             canPreventDefault: true,
         });
-        if (!focused && !event.defaultPrevented) navigation.navigate(name);
+        if (!event.defaultPrevented) {
+            if (!focused) {
+                // Navigate to the tab and reset its nested stack to the index
+                // screen, so cross-tab pushes (e.g. home → progress/recovery)
+                // don't leave a dirty stack when the user taps the tab later.
+                if (name === "index") {
+                    navigation.navigate(name);
+                } else {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (navigation as any).navigate(name, { screen: "index" });
+                }
+            }
+        }
         if (process.env.EXPO_OS === "ios")
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     };
@@ -84,6 +97,8 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                     {
                         bottom:          insets.bottom + FLOAT_BOT,
                         backgroundColor: PILL_BG,
+                        borderWidth:     1,
+                        borderColor:     PILL_BORDER,
                     },
                 ]}
             >

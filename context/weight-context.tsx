@@ -2,11 +2,10 @@ import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useState,
 } from 'react';
 import { useAuth } from '@/context/auth-context';
+import { apiFetch } from '@/utils/api';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
 const DEFAULT_LIMIT = 30;
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -34,35 +33,12 @@ export interface WeightContextValue {
   refresh: (limit?: number) => Promise<void>;
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function weightFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
 function fromApiEntry(row: Record<string, unknown>): WeightEntry {
   return {
     id:        String(row.id ?? ''),
-    weight_kg: typeof row.weight_kg === 'number' ? row.weight_kg : 0,
+    weight_kg: typeof row.weight === 'number' ? row.weight : typeof row.weight_kg === 'number' ? row.weight_kg : 0,
     logged_at: typeof row.logged_at === 'string' ? row.logged_at : new Date().toISOString(),
   };
 }
@@ -83,7 +59,7 @@ export function WeightProvider({ children }: { children: React.ReactNode }) {
 
   // ── Fetch entries ────────────────────────────────────────────────────────
   const fetchEntries = useCallback(async (limit = DEFAULT_LIMIT) => {
-    const { ok, body } = await weightFetch(`/weight?limit=${limit}`);
+    const { ok, body } = await apiFetch(`/weight?limit=${limit}`);
     if (!ok) return;
     const rows = Array.isArray(body.data) ? body.data as Record<string, unknown>[] : [];
     setEntries(rows.map(fromApiEntry));
@@ -118,7 +94,7 @@ export function WeightProvider({ children }: { children: React.ReactNode }) {
     weightKg: number,
     unit: 'metric' | 'imperial' = 'metric',
   ): Promise<WeightEntry> => {
-    const { ok, body } = await weightFetch('/weight', {
+    const { ok, body } = await apiFetch('/weight', {
       method: 'POST',
       body:   JSON.stringify({ weight_kg: weightKg, unit }),
     });

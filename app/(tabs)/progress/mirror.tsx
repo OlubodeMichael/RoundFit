@@ -87,17 +87,17 @@ export default function MirrorScreen() {
             </View>
             <View style={[styles.aiBadge, { backgroundColor: P.fatSoft }]}>
               <Ionicons name="sparkles" size={10} color={P.fat} />
-              <Text style={[styles.aiBadgeText, { color: P.fat }]}>CLAUDE</Text>
+              <Text style={[styles.aiBadgeText, { color: P.fat }]}>RIS</Text>
             </View>
           </View>
 
           {/* ── AI synthesis quote ─────────────────────────────── */}
           <AnimatedCard delay={60} style={{ overflow: 'hidden' }}>
             <View pointerEvents="none" style={[styles.glow, { backgroundColor: P.fatSoft, top: -80, right: -80 }]} />
-            <Text style={[styles.quoteMark, { color: P.fat }]}>"</Text>
+            <Text style={[styles.quoteMark, { color: P.fat }]}>{"\u201C"}</Text>
             <Text style={[styles.quoteBody, { color: P.text }]}>{AI_SYNTHESIS}</Text>
             <Text style={[styles.quoteAttrib, { color: P.textFaint }]}>
-              — Synthesised from 30 days of logs, check-ins, and wearables
+              — RoundFit Intelligence Score · 30 days of logs, check-ins & wearables
             </Text>
           </AnimatedCard>
 
@@ -186,7 +186,7 @@ export default function MirrorScreen() {
             </View>
 
             <Text style={[styles.correlCaption, { color: P.textFaint }]}>
-              Based on 30 days, {CORRELATIONS.length} confirmed correlations
+              Analysed by RIS · {CORRELATIONS.length} confirmed correlations
             </Text>
 
             <View style={{ marginTop: 14, gap: 10 }}>

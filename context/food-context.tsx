@@ -75,6 +75,9 @@ export interface FoodContextValue {
 
   /** Re-fetches logs for the given date (defaults to today). Changes activeDate when a date is passed. */
   refreshLogs: (date?: string) => Promise<void>;
+
+  /** Fetches meals for any date WITHOUT updating context state. Used for the home-screen day cache. */
+  fetchForDate: (date: string) => Promise<MealItem[]>;
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────
@@ -386,11 +389,19 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     await fetchLogs(target);
   }, [fetchLogs]);
 
+  // ── Fetch for any date without touching context state ─────────────────────
+  const fetchForDate = useCallback(async (date: string): Promise<MealItem[]> => {
+    const { ok, body } = await apiFetch(`/food/logs?date=${encodeURIComponent(date)}`);
+    if (!ok) return [];
+    const rows = foodLogRowsFromResponse(body);
+    return rows.map(fromApiLog);
+  }, []);
+
   return (
     <FoodContext.Provider value={{
       meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
       remaining, activeDate, isLoading,
-      addMeal, previewPhoto, analyzePhoto, logBarcode, deleteMeal, refreshLogs,
+      addMeal, previewPhoto, analyzePhoto, logBarcode, deleteMeal, refreshLogs, fetchForDate,
     }}>
       {children}
     </FoodContext.Provider>

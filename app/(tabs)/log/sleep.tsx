@@ -12,6 +12,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Svg, { Circle } from 'react-native-svg';
 
 import {
   AnimatedCard,
@@ -70,6 +71,40 @@ function formatNavDate(iso: string): string {
   if (iso === offsetDate(today, -1)) return 'Yesterday';
   const d = new Date(`${iso}T12:00:00`);
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function QualityRing({ quality, size = 54, strokeWidth = 5 }: { quality: Quality; size?: number; strokeWidth?: number }) {
+  const P      = usePalette();
+  const score  = qualityPct(quality);
+  const color  = qualityRingColor(P, quality);
+  const r      = (size - strokeWidth) / 2;
+  const cx     = size / 2;
+  const cy     = size / 2;
+  const circ   = 2 * Math.PI * r;
+  const filled = (score / 100) * circ;
+
+  return (
+    <View style={{ width: size, height: size }}>
+      <Svg width={size} height={size}>
+        <Circle cx={cx} cy={cy} r={r} fill="none" stroke={P.hair} strokeWidth={strokeWidth} />
+        <Circle
+          cx={cx} cy={cy} r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${filled} ${circ - filled}`}
+          strokeLinecap="round"
+          rotation={-90}
+          origin={`${cx},${cy}`}
+        />
+      </Svg>
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 12, fontWeight: '800', color }}>{score}%</Text>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 export default function SleepLogScreen() {
@@ -134,6 +169,7 @@ export default function SleepLogScreen() {
   const [saving,              setSaving]              = useState(false);
   const [pickerVisible,       setPickerVisible]       = useState(false);
   const [noSleepModalVisible, setNoSleepModalVisible] = useState(false);
+  const [qualityExpanded,     setQualityExpanded]     = useState(false);
 
   // ── Sleep stage segments (for hypnogram chart) ─────────────────────────────
   const [sleepSegments, setSleepSegments] = useState<SleepSegment[]>([]);
@@ -357,11 +393,6 @@ export default function SleepLogScreen() {
                   <Text style={[sleepStyles.heroUnit, { color: P.textDim }]}>m</Text>
                 </View>
               </View>
-              <View style={[sleepStyles.qualityDot, { backgroundColor: qualityColor(P, quality) + '22' }]}>
-                <Text style={[sleepStyles.qualityDotText, { color: qualityColor(P, quality) }]}>
-                  {qualityPct(quality)}%
-                </Text>
-              </View>
             </View>
 
             <View style={[sleepStyles.barTrack, { backgroundColor: P.sunken }]}>
@@ -454,33 +485,49 @@ export default function SleepLogScreen() {
 
         {/* ── Quality ──────────────────────────────────────────────────────── */}
         <View style={{ paddingHorizontal: 20, marginTop: 14 }}>
-          <AnimatedCard delay={180}>
-            <FieldLabel>Quality</FieldLabel>
-            <View style={sleepStyles.qualityRow}>
-              {QUALITY.map((q) => {
-                const active = q.id === quality;
-                const color  = qualityColor(P, q.id);
-                return (
-                  <Pressable
-                    key={q.id}
-                    onPress={() => setQuality(q.id)}
-                    style={({ pressed }) => [
-                      sleepStyles.qualityPill,
-                      {
-                        backgroundColor: active ? color : P.sunken,
-                        borderColor:     active ? color : P.cardEdge,
-                      },
-                      pressed && { opacity: 0.85 },
-                    ]}
-                  >
-                    <Ionicons name={q.icon} size={16} color={active ? '#fff' : color} />
-                    <Text style={[sleepStyles.qualityLabel, { color: active ? '#fff' : P.text }]}>
-                      {q.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+          <AnimatedCard delay={180} onPress={() => setQualityExpanded((v) => !v)}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+              <QualityRing quality={quality} size={80} strokeWidth={7} />
+              <View style={{ flex: 1 }}>
+                <Text style={[sleepStyles.heroEyebrow, { color: P.textFaint }]}>SLEEP QUALITY</Text>
+                <Text style={{ color: P.text, fontSize: 19, fontWeight: '800', marginTop: 3, letterSpacing: -0.4 }}>
+                  {capital(quality)}
+                </Text>
+              </View>
+              <Ionicons
+                name={qualityExpanded ? 'chevron-up' : 'chevron-down'}
+                size={16}
+                color={P.textFaint}
+              />
             </View>
+
+            {qualityExpanded && (
+              <View style={[sleepStyles.qualityRow, { marginTop: 14 }]}>
+                {QUALITY.map((q) => {
+                  const active = q.id === quality;
+                  const color  = qualityColor(P, q.id);
+                  return (
+                    <Pressable
+                      key={q.id}
+                      onPress={() => setQuality(q.id)}
+                      style={({ pressed }) => [
+                        sleepStyles.qualityPill,
+                        {
+                          backgroundColor: active ? color : P.sunken,
+                          borderColor:     active ? color : P.cardEdge,
+                        },
+                        pressed && { opacity: 0.85 },
+                      ]}
+                    >
+                      <Ionicons name={q.icon} size={16} color={active ? '#fff' : color} />
+                      <Text style={[sleepStyles.qualityLabel, { color: active ? '#fff' : P.text }]}>
+                        {q.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
           </AnimatedCard>
         </View>
 
@@ -696,6 +743,12 @@ function qualityColor(P: ReturnType<typeof usePalette>, q: Quality): string {
   if (q === 'great') return P.protein;
   if (q === 'good')  return P.sleep;
   if (q === 'fair')  return P.carbs;
+  return P.danger;
+}
+
+function qualityRingColor(P: ReturnType<typeof usePalette>, q: Quality): string {
+  if (q === 'great' || q === 'good') return P.protein;
+  if (q === 'fair') return P.carbs;
   return P.danger;
 }
 

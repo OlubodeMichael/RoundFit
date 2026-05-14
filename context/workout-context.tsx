@@ -96,6 +96,7 @@ export interface WorkoutContextValue {
   logSets:             (workoutId: string, sets: LogSetInput[]) => Promise<WorkoutSet[]>;
   deleteWorkout:       (id: string) => Promise<void>;
   refreshWorkouts:     (date?: string) => Promise<void>;
+  fetchForDate:        (date: string) => Promise<Workout[]>;
 }
 
 
@@ -261,10 +262,20 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     await fetchWorkouts(target);
   }, [fetchWorkouts]);
 
+  // ── Fetch for any date without touching context state ─────────────────────
+  const fetchForDate = useCallback(async (date: string): Promise<Workout[]> => {
+    const isToday = date === todayDateString();
+    const path = isToday ? '/workouts/today' : `/workouts/${date}`;
+    const { ok, body } = await apiFetch(path);
+    if (!ok) return [];
+    const rows = Array.isArray(body.workouts) ? body.workouts as Record<string, unknown>[] : [];
+    return rows.map(fromApiWorkout);
+  }, []);
+
   return (
     <WorkoutContext.Provider value={{
       workouts, isLoading, totalCaloriesBurned,
-      logWorkout, logSets, deleteWorkout, refreshWorkouts,
+      logWorkout, logSets, deleteWorkout, refreshWorkouts, fetchForDate,
     }}>
       {children}
     </WorkoutContext.Provider>

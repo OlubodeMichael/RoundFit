@@ -13,6 +13,7 @@ import {
     DefaultTheme,
     ThemeProvider as NavThemeProvider,
 } from "@react-navigation/native";
+import * as Notifications from "expo-notifications";
 import {
     Stack,
     useGlobalSearchParams,
@@ -24,6 +25,8 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef } from "react";
 import { StyleSheet, View } from "react-native";
+
+import { configureForegroundBehaviour, setupNotificationChannel } from "@/utils/notifications";
 import { PostHogProvider } from "posthog-react-native";
 import { posthog } from "@/lib/posthog";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -51,6 +54,14 @@ export const unstable_settings = {
   initialRouteName: "auth",
 };
 
+const NOTIFICATION_ROUTES: Record<string, string> = {
+  morning:  "/(tabs)",
+  meal:     "/(tabs)/log/food",
+  workout:  "/(tabs)/log/workout",
+  sleep:    "/(tabs)/log/sleep",
+  summary:  "/(tabs)/insights",
+};
+
 function AppNavigator() {
   const { isDark } = useTheme();
   const { status } = useAuth();
@@ -68,6 +79,17 @@ function AppNavigator() {
       previousPathname.current = pathname;
     }
   }, [pathname, params]);
+
+  // ── Notification tap handler ────────────────────────────────────────────
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const screen = response.notification.request.content.data?.screen as string | undefined;
+      if (!screen) return;
+      const route = NOTIFICATION_ROUTES[screen];
+      if (route) router.push(route as never);
+    });
+    return () => sub.remove();
+  }, [router]);
 
   useEffect(() => {
     if (!navigatorReady) return;
@@ -131,6 +153,8 @@ function AppNavigator() {
   );
 }
 
+configureForegroundBehaviour();
+
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     Syne_700Bold,
@@ -139,6 +163,10 @@ export default function RootLayout() {
     BarlowCondensed_700Bold,
     BarlowCondensed_800ExtraBold,
   });
+
+  useEffect(() => {
+    setupNotificationChannel();
+  }, []);
 
   if (!fontsLoaded) return null;
 

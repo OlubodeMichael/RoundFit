@@ -9,6 +9,7 @@ export default function ProfileLayout() {
       <Stack.Screen name="subscription" />
       <Stack.Screen name="paywall" />
       <Stack.Screen name="targets" />
+      <Stack.Screen name="help" />
     </Stack>
   );
 }

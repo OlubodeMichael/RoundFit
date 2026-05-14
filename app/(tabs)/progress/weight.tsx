@@ -9,6 +9,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Svg, { Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 
 import {
   AnimatedCard,
@@ -16,52 +17,112 @@ import {
   usePalette,
   useScreenPadding,
 } from '@/lib/log-theme';
+import { useWeight } from '@/hooks/use-weight';
+import { useUnits } from '@/hooks/use-units';
+import { useProfile } from '@/hooks/use-profile';
 
-// ─── Dummy data ─────────────────────────────────────────────────────────────
-type WeightEntry = { iso: string; label: string; dateShort: string; kg: number };
-
-const HISTORY: WeightEntry[] = [
-  { iso: '2026-03-19', label: '4 weeks ago',  dateShort: 'Mar 19', kg: 83.2 },
-  { iso: '2026-03-26', label: '3 weeks ago',  dateShort: 'Mar 26', kg: 82.9 },
-  { iso: '2026-04-02', label: '2 weeks ago',  dateShort: 'Apr 2',  kg: 82.6 },
-  { iso: '2026-04-06', label: 'Mon',          dateShort: 'Apr 6',  kg: 82.4 },
-  { iso: '2026-04-07', label: 'Tue',          dateShort: 'Apr 7',  kg: 82.1 },
-  { iso: '2026-04-08', label: 'Wed',          dateShort: 'Apr 8',  kg: 81.9 },
-  { iso: '2026-04-09', label: 'Thu',          dateShort: 'Apr 9',  kg: 82.0 },
-  { iso: '2026-04-10', label: 'Fri',          dateShort: 'Apr 10', kg: 81.7 },
-  { iso: '2026-04-11', label: 'Sat',          dateShort: 'Apr 11', kg: 81.5 },
-  { iso: '2026-04-18', label: 'Today',        dateShort: 'Apr 18', kg: 81.3 },
-];
-
-const GOAL_KG = 78.0;
 
 type RangeKey = '1W' | '1M' | '3M' | 'ALL';
 const RANGES: RangeKey[] = ['1W', '1M', '3M', 'ALL'];
+
+const CHART_H  = 160;
+const CHART_PX = 12;
+const CHART_PY = 14;
+
+function svgLine(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return '';
+  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const cpX = ((pts[i - 1].x + pts[i].x) / 2).toFixed(1);
+    d += ` C ${cpX} ${pts[i - 1].y.toFixed(1)},${cpX} ${pts[i].y.toFixed(1)},${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
+  }
+  return d;
+}
+
+function svgFill(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return '';
+  let d = `M ${pts[0].x.toFixed(1)} ${CHART_H} L ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const cpX = ((pts[i - 1].x + pts[i].x) / 2).toFixed(1);
+    d += ` C ${cpX} ${pts[i - 1].y.toFixed(1)},${cpX} ${pts[i].y.toFixed(1)},${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
+  }
+  d += ` L ${pts[pts.length - 1].x.toFixed(1)} ${CHART_H} Z`;
+  return d;
+}
+
+function daysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString();
+}
+
+function histLabel(iso: string): string {
+  const d    = new Date(iso);
+  const now  = new Date();
+  const diff = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  if (diff < 7)  return d.toLocaleDateString(undefined, { weekday: 'long' });
+  if (diff < 30) return `${diff}d ago`;
+  if (diff < 90) return `${Math.round(diff / 7)}w ago`;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function xLabel(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
 
 export default function WeightLogScreen() {
   const P      = usePalette();
   const pad    = useScreenPadding();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  const { entries, latest } = useWeight();
+  const { weightUnit, toDisplayWeight } = useUnits();
+  const { profile } = useProfile();
+
   const [range, setRange] = useState<RangeKey>('1M');
 
+  // entries are newest-first; reverse for chart (oldest → newest)
+  const allAsc = useMemo(() => [...entries].reverse(), [entries]);
+
   const series = useMemo(() => {
-    if (range === '1W') return HISTORY.slice(-5);
-    if (range === '1M') return HISTORY;
-    return HISTORY;
-  }, [range]);
+    if (range === '1W') return allAsc.filter(e => e.logged_at >= daysAgo(7));
+    if (range === '1M') return allAsc.filter(e => e.logged_at >= daysAgo(30));
+    if (range === '3M') return allAsc.filter(e => e.logged_at >= daysAgo(90));
+    return allAsc;
+  }, [allAsc, range]);
 
-  const current  = HISTORY[HISTORY.length - 1].kg;
-  const starting = HISTORY[0].kg;
-  const delta    = current - starting;
-  const toGoal   = current - GOAL_KG;
+  const currentKg  = latest?.weight_kg ?? profile?.weightKg ?? null;
+  const startingKg = allAsc.length > 0 ? allAsc[0].weight_kg : currentKg;
+  const deltaKg    = currentKg !== null && startingKg !== null ? currentKg - startingKg : 0;
 
-  const min = Math.min(...series.map(s => s.kg));
-  const max = Math.max(...series.map(s => s.kg));
-  const pad2 = (max - min) * 0.15 || 0.8;
-  const yMin = min - pad2;
-  const yMax = max + pad2;
-  const yRange = yMax - yMin;
+  const currentDisplay  = currentKg  !== null ? toDisplayWeight(currentKg).toFixed(1)  : '—';
+  const startingDisplay = startingKg !== null ? toDisplayWeight(startingKg).toFixed(1) : '—';
+  const deltaDisplay    = toDisplayWeight(Math.abs(deltaKg)).toFixed(1);
+
+  // Chart bounds
+  const kgs  = series.map(e => e.weight_kg);
+  const yMin = kgs.length ? Math.min(...kgs) : 0;
+  const yMax = kgs.length ? Math.max(...kgs) : 1;
+  const weightRange = yMax - yMin || 1;
+
+  const [chartW, setChartW] = useState(0);
+  const chartPoints = useMemo(() => {
+    if (!chartW || series.length < 2) return [];
+    const n  = series.length;
+    const cW = chartW - CHART_PX * 2;
+    const cH = CHART_H - CHART_PY * 2;
+    return series.map((e, i) => ({
+      x: CHART_PX + (i / (n - 1)) * cW,
+      y: CHART_PY + (1 - (e.weight_kg - yMin) / weightRange) * cH,
+      isLatest: i === n - 1,
+    }));
+  }, [chartW, series, yMin, weightRange]);
+
+  const isEmpty = entries.length === 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
@@ -85,211 +146,215 @@ export default function WeightLogScreen() {
         />
 
         <View style={styles.stack}>
-          {/* ── Hero card ─────────────────────────────────────── */}
-          <AnimatedCard delay={60} style={{ overflow: 'hidden' }}>
-            <View pointerEvents="none" style={[styles.glow, { backgroundColor: P.weightSoft, top: -80, right: -60 }]} />
 
-            <Text style={[styles.heroEyebrow, { color: P.textFaint }]}>CURRENT</Text>
-            <View style={styles.heroRow}>
-              <Text style={[styles.heroValue, { color: P.text }]}>
-                {current.toFixed(1)}
-              </Text>
-              <Text style={[styles.heroUnit, { color: P.textFaint }]}>kg</Text>
-              <View style={[styles.trendPill, { backgroundColor: P.proteinSoft, marginLeft: 'auto' }]}>
-                <Ionicons name="trending-down" size={11} color={P.protein} />
-                <Text style={[styles.trendText, { color: P.protein }]}>
-                  {delta.toFixed(1)} kg since start
+          {isEmpty ? (
+            /* ── Empty state ─────────────────────────────────────── */
+            <AnimatedCard delay={60}>
+              <View style={{ alignItems: 'center', paddingVertical: 16, gap: 10 }}>
+                <View style={[styles.emptyIcon, { backgroundColor: P.weightSoft }]}>
+                  <Ionicons name="scale-outline" size={26} color={P.weight} />
+                </View>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: P.text, letterSpacing: -0.3 }}>
+                  No entries yet
+                </Text>
+                {currentKg !== null && (
+                  <Text style={{ fontSize: 13, fontWeight: '500', color: P.textFaint, textAlign: 'center' }}>
+                    Profile weight: {currentDisplay} {weightUnit}
+                  </Text>
+                )}
+                <Text style={{ fontSize: 13, fontWeight: '500', color: P.textFaint, textAlign: 'center', paddingHorizontal: 16 }}>
+                  Log your weight regularly to track your progress over time.
                 </Text>
               </View>
-            </View>
+            </AnimatedCard>
+          ) : (
+            /* ── Hero card ─────────────────────────────────────── */
+            <AnimatedCard delay={60} style={{ overflow: 'hidden' }}>
+              <View pointerEvents="none" style={[styles.glow, { backgroundColor: P.weightSoft, top: -80, right: -60 }]} />
 
-            {/* Range segment */}
-            <View style={[styles.segment, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}>
-              {RANGES.map(r => {
-                const active = r === range;
-                return (
-                  <Pressable
-                    key={r}
-                    onPress={() => setRange(r)}
-                    style={({ pressed }) => [
-                      styles.segCell,
-                      active && { backgroundColor: P.card },
-                      pressed && { opacity: 0.9 },
-                    ]}
-                  >
-                    <Text style={[
-                      styles.segText,
-                      { color: active ? P.text : P.textFaint },
-                    ]}>
-                      {r}
+              <Text style={[styles.heroEyebrow, { color: P.textFaint }]}>CURRENT</Text>
+              <View style={styles.heroRow}>
+                <Text style={[styles.heroValue, { color: P.text }]}>{currentDisplay}</Text>
+                <Text style={[styles.heroUnit, { color: P.textFaint }]}>{weightUnit}</Text>
+                {allAsc.length >= 2 && (
+                  <View style={[
+                    styles.trendPill,
+                    { backgroundColor: deltaKg <= -0.1 ? P.proteinSoft : deltaKg >= 0.1 ? P.caloriesSoft : P.sunken, marginLeft: 'auto' },
+                  ]}>
+                    <Ionicons
+                      name={deltaKg <= -0.1 ? 'trending-down' : deltaKg >= 0.1 ? 'trending-up' : 'remove'}
+                      size={11}
+                      color={deltaKg <= -0.1 ? P.protein : deltaKg >= 0.1 ? P.calories : P.textFaint}
+                    />
+                    <Text style={[styles.trendText, { color: deltaKg <= -0.1 ? P.protein : deltaKg >= 0.1 ? P.calories : P.textFaint }]}>
+                      {deltaKg > 0 ? '+' : deltaKg < 0 ? '-' : ''}{deltaDisplay} {weightUnit}
                     </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+                  </View>
+                )}
+              </View>
 
-            {/* Line chart */}
-            <View style={styles.chartWrap}>
-              {/* Y axis gridlines */}
-              {[0, 0.25, 0.5, 0.75, 1].map(t => (
-                <View
-                  key={t}
-                  style={[styles.gridLine, { bottom: `${t * 100}%`, borderColor: P.hair }]}
-                />
-              ))}
+              {/* Range segment */}
+              <View style={[styles.segment, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}>
+                {RANGES.map(r => {
+                  const active = r === range;
+                  return (
+                    <Pressable
+                      key={r}
+                      onPress={() => setRange(r)}
+                      style={({ pressed }) => [
+                        styles.segCell,
+                        active && { backgroundColor: P.card },
+                        pressed && { opacity: 0.9 },
+                      ]}
+                    >
+                      <Text style={[styles.segText, { color: active ? P.text : P.textFaint }]}>
+                        {r}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
-              {/* Goal line */}
-              {GOAL_KG >= yMin && GOAL_KG <= yMax && (
+              {/* SVG line chart */}
+              {series.length >= 2 ? (
                 <>
                   <View
-                    style={[
-                      styles.goalLine,
-                      {
-                        bottom:      `${((GOAL_KG - yMin) / yRange) * 100}%`,
-                        borderColor: P.protein,
-                      },
-                    ]}
-                  />
-                  <View
-                    style={[
-                      styles.goalTag,
-                      { bottom: `${((GOAL_KG - yMin) / yRange) * 100}%`, backgroundColor: P.proteinSoft },
-                    ]}
+                    style={styles.chartWrap}
+                    onLayout={e => setChartW(e.nativeEvent.layout.width)}
                   >
-                    <Text style={[styles.goalTagText, { color: P.protein }]}>
-                      GOAL {GOAL_KG.toFixed(1)}
-                    </Text>
-                  </View>
-                </>
-              )}
-
-              {/* Line segments + dots */}
-              {series.map((pt, i) => {
-                const x1 = (i / (series.length - 1)) * 100;
-                const y1 = ((pt.kg - yMin) / yRange) * 100;
-                const next = series[i + 1];
-                const isLast = i === series.length - 1;
-
-                return (
-                  <View key={pt.iso} style={StyleSheet.absoluteFill}>
-                    {/* segment to next */}
-                    {next && (() => {
-                      const x2 = ((i + 1) / (series.length - 1)) * 100;
-                      const y2 = ((next.kg - yMin) / yRange) * 100;
-                      // inline segment as a rotated 2px View. Compute endpoints in %
-                      // to avoid measuring: we render the segment as an absolutely
-                      // positioned line using simple transforms.
-                      const mxPct = (x1 + x2) / 2;
-                      const myPct = (y1 + y2) / 2;
-                      return (
-                        <LineSegment
-                          x1Pct={x1} y1Pct={y1} x2Pct={x2} y2Pct={y2}
-                          color={P.weight} midX={mxPct} midY={myPct}
-                        />
-                      );
-                    })()}
-
-                    {/* dot */}
-                    <View
-                      style={[
-                        styles.pt,
-                        {
-                          left:   `${x1}%`,
-                          bottom: `${y1}%`,
-                          backgroundColor: isLast ? P.weight : P.card,
-                          borderColor:     isLast ? '#fff' : P.weight,
-                          width:           isLast ? 14 : 8,
-                          height:          isLast ? 14 : 8,
-                          borderRadius:    isLast ? 7 : 4,
-                          marginLeft:      isLast ? -7 : -4,
-                          marginBottom:    isLast ? -7 : -4,
-                          shadowColor:     P.weight,
-                          shadowOpacity:   isLast ? 0.5 : 0,
-                          shadowRadius:    isLast ? 10 : 0,
-                          shadowOffset:    { width: 0, height: 0 },
-                          borderWidth:     2,
-                        },
-                      ]}
-                    />
-                  </View>
-                );
-              })}
-            </View>
-
-            {/* x labels */}
-            <View style={styles.xLabels}>
-              {series.map((pt, i) => (
-                <Text
-                  key={pt.iso + i}
-                  style={[styles.xLabel, { color: P.textFaint, flex: 1, textAlign: 'center' }]}
-                >
-                  {pt.dateShort.split(' ')[1]}
-                </Text>
-              ))}
-            </View>
-          </AnimatedCard>
-
-          {/* ── Stat quad ──────────────────────────────────────── */}
-          <AnimatedCard delay={140} padding={0}>
-            <View style={styles.statGrid}>
-              <StatCell label="Starting" value={`${starting.toFixed(1)} kg`} />
-              <StatCellDivider />
-              <StatCell label="Current"  value={`${current.toFixed(1)} kg`} tone="accent" />
-              <StatCellDivider />
-              <StatCell label="To goal"  value={`${toGoal.toFixed(1)} kg`} tone="positive" />
-            </View>
-          </AnimatedCard>
-
-          {/* ── History list ───────────────────────────────────── */}
-          <View style={{ marginTop: 8 }}>
-            <Text style={[styles.sectionTitle, { color: P.text }]}>History</Text>
-          </View>
-
-          <AnimatedCard delay={200} padding={0}>
-            {[...HISTORY].reverse().map((entry, i, arr) => {
-              const prev = arr[i + 1];
-              const d = prev ? entry.kg - prev.kg : 0;
-              const up = d > 0.05;
-              const dn = d < -0.05;
-              return (
-                <View key={entry.iso}>
-                  <View style={styles.histRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.histLabel, { color: P.text }]}>{entry.label}</Text>
-                      <Text style={[styles.histDate, { color: P.textFaint }]}>{entry.dateShort}</Text>
-                    </View>
-                    <Text style={[styles.histValue, { color: P.text }]}>
-                      {entry.kg.toFixed(1)}
-                      <Text style={[styles.histUnit, { color: P.textFaint }]}> kg</Text>
-                    </Text>
-                    {prev && (
-                      <View
-                        style={[
-                          styles.histDelta,
-                          {
-                            backgroundColor: up ? P.dangerSoft : dn ? P.proteinSoft : P.sunken,
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name={up ? 'arrow-up' : dn ? 'arrow-down' : 'remove'}
-                          size={10}
-                          color={up ? P.danger : dn ? P.protein : P.textFaint}
-                        />
-                        <Text style={[
-                          styles.histDeltaText,
-                          { color: up ? P.danger : dn ? P.protein : P.textFaint },
-                        ]}>
-                          {Math.abs(d).toFixed(1)}
-                        </Text>
-                      </View>
+                    {chartW > 0 && (
+                      <Svg width={chartW} height={CHART_H}>
+                        <Defs>
+                          <LinearGradient id="wgFill" x1="0" y1="0" x2="0" y2="1">
+                            <Stop offset="0" stopColor={P.weight} stopOpacity={0.28} />
+                            <Stop offset="1" stopColor={P.weight} stopOpacity={0} />
+                          </LinearGradient>
+                        </Defs>
+                        {chartPoints.length >= 2 && (
+                          <>
+                            <Path d={svgFill(chartPoints)} fill="url(#wgFill)" />
+                            <Path
+                              d={svgLine(chartPoints)}
+                              fill="none"
+                              stroke={P.weight}
+                              strokeWidth={2.5}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </>
+                        )}
+                        {chartPoints.map((p, i) => (
+                          <Circle
+                            key={i}
+                            cx={p.x}
+                            cy={p.y}
+                            r={p.isLatest ? 6 : 4}
+                            fill={p.isLatest ? P.weight : P.card}
+                            stroke={P.weight}
+                            strokeWidth={p.isLatest ? 0 : 2}
+                          />
+                        ))}
+                      </Svg>
                     )}
                   </View>
-                  {i < arr.length - 1 && <View style={[styles.histDivider, { backgroundColor: P.hair }]} />}
+
+                  <View style={styles.xLabels}>
+                    {series.filter((_, i) => {
+                      const maxLabels = 7;
+                      if (series.length <= maxLabels) return true;
+                      const step = Math.ceil(series.length / maxLabels);
+                      return i % step === 0 || i === series.length - 1;
+                    }).map((pt, i) => (
+                      <Text key={i} style={[styles.xLabel, { color: P.textFaint, flex: 1, textAlign: 'center' }]}>
+                        {xLabel(pt.logged_at).split(' ')[1]}
+                      </Text>
+                    ))}
+                  </View>
+                </>
+              ) : (
+                <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                  <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '500' }}>
+                    Log at least 2 entries to see a chart
+                  </Text>
                 </View>
-              );
-            })}
-          </AnimatedCard>
+              )}
+            </AnimatedCard>
+          )}
+
+          {/* ── Stat quad ──────────────────────────────────────── */}
+          {!isEmpty && (
+            <AnimatedCard delay={140} padding={0}>
+              <View style={styles.statGrid}>
+                <StatCell label="Starting" value={`${startingDisplay} ${weightUnit}`} />
+                <StatCellDivider />
+                <StatCell label="Current"  value={`${currentDisplay} ${weightUnit}`}  tone="accent" />
+                <StatCellDivider />
+                <StatCell
+                  label="Change"
+                  value={`${deltaKg > 0 ? '+' : deltaKg < 0 ? '-' : ''}${deltaDisplay} ${weightUnit}`}
+                  tone={deltaKg < -0.1 ? 'positive' : deltaKg > 0.1 ? 'negative' : undefined}
+                />
+              </View>
+            </AnimatedCard>
+          )}
+
+          {/* ── History list ───────────────────────────────────── */}
+          {!isEmpty && (
+            <>
+              <View style={{ marginTop: 8 }}>
+                <Text style={[styles.sectionTitle, { color: P.text }]}>History</Text>
+              </View>
+
+              <AnimatedCard delay={200} padding={0}>
+                {entries.map((entry, i) => {
+                  const prev = entries[i + 1];
+                  const d    = prev ? entry.weight_kg - prev.weight_kg : 0;
+                  const up   = d > 0.05;
+                  const dn   = d < -0.05;
+                  return (
+                    <View key={entry.id ?? i}>
+                      <View style={styles.histRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.histLabel, { color: P.text }]}>
+                            {histLabel(entry.logged_at)}
+                          </Text>
+                          <Text style={[styles.histDate, { color: P.textFaint }]}>
+                            {xLabel(entry.logged_at)}
+                          </Text>
+                        </View>
+
+                        <Text style={[styles.histValue, { color: P.text }]}>
+                          {toDisplayWeight(entry.weight_kg).toFixed(1)}
+                          <Text style={[styles.histUnit, { color: P.textFaint }]}> {weightUnit}</Text>
+                        </Text>
+                        {prev && (
+                          <View style={[
+                            styles.histDelta,
+                            { backgroundColor: up ? P.dangerSoft : dn ? P.proteinSoft : P.sunken },
+                          ]}>
+                            <Ionicons
+                              name={up ? 'arrow-up' : dn ? 'arrow-down' : 'remove'}
+                              size={10}
+                              color={up ? P.danger : dn ? P.protein : P.textFaint}
+                            />
+                            <Text style={[
+                              styles.histDeltaText,
+                              { color: up ? P.danger : dn ? P.protein : P.textFaint },
+                            ]}>
+                              {toDisplayWeight(Math.abs(d)).toFixed(1)}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      {i < entries.length - 1 && (
+                        <View style={[styles.histDivider, { backgroundColor: P.hair }]} />
+                      )}
+                    </View>
+                  );
+                })}
+              </AnimatedCard>
+            </>
+          )}
 
           {/* ── Log new reading CTA ────────────────────────────── */}
           <Pressable
@@ -301,7 +366,7 @@ export default function WeightLogScreen() {
             ]}
           >
             <Ionicons name="add" size={18} color="#fff" />
-            <Text style={styles.ctaText}>Log today's weight</Text>
+            <Text style={styles.ctaText}>Log today&apos;s weight</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -309,54 +374,14 @@ export default function WeightLogScreen() {
   );
 }
 
-// ─── Thin rotated View rendered as a line segment between two % points ─────
-function LineSegment({
-  x1Pct, y1Pct, x2Pct, y2Pct, color, midX, midY,
-}: {
-  x1Pct: number; y1Pct: number; x2Pct: number; y2Pct: number;
-  color: string; midX: number; midY: number;
-}) {
-  // Convert % distances into a scale factor — we render a fixed-width line and
-  // scale it. Because absolute positioning in % is fluid, we use a raw scale
-  // approach: draw a 1-unit-wide line across the whole chart (pct-based), then
-  // transform it with scaleX. Simpler: use a small line that we rotate and
-  // translate using transformOrigin via percentages.
-  // React Native doesn't expose transformOrigin per se, so we position a thin
-  // line centered at the midpoint and rotate it — the length matches the
-  // % delta using a scale factor.
-  const dx  = x2Pct - x1Pct;
-  const dy  = y2Pct - y1Pct;
-  const ang = Math.atan2(dy, dx) * (180 / Math.PI);
-  // Length as percentage of container width is √(dx² + dy²·(h/w)²). Since
-  // absolute positioning treats both axes in raw %, we approximate length
-  // using the width %. That's acceptable for our ~4:1 chart aspect.
-  const lenPct = Math.hypot(dx, dy);
-
-  return (
-    <View
-      pointerEvents="none"
-      style={{
-        position:    'absolute',
-        left:        `${midX}%`,
-        bottom:      `${midY}%`,
-        width:       `${lenPct}%`,
-        height:      2,
-        marginLeft:  `${-lenPct / 2}%`,
-        marginBottom: -1,
-        backgroundColor: color,
-        borderRadius:    1,
-        transform: [{ rotate: `-${ang}deg` }],
-      }}
-    />
-  );
-}
 
 function StatCell({
   label, value, tone,
-}: { label: string; value: string; tone?: 'accent' | 'positive' }) {
-  const P = usePalette();
+}: { label: string; value: string; tone?: 'accent' | 'positive' | 'negative' }) {
+  const P     = usePalette();
   const color = tone === 'accent'   ? P.weight
               : tone === 'positive' ? P.protein
+              : tone === 'negative' ? P.calories
               :                       P.text;
   return (
     <View style={{ flex: 1, paddingVertical: 18, alignItems: 'center', gap: 5 }}>
@@ -380,187 +405,93 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap:               14,
   },
-
   addBtn: {
     width: 40, height: 40, borderRadius: 14,
-    alignItems:     'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
-
+  emptyIcon: {
+    width: 56, height: 56, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+  },
   glow: {
-    position:     'absolute',
-    width:        240,
-    height:       240,
-    borderRadius: 120,
+    position: 'absolute', width: 240, height: 240, borderRadius: 120,
   },
-
   heroEyebrow: {
-    fontSize:      10,
-    fontWeight:    '800',
-    letterSpacing: 1.8,
-    marginBottom:  6,
+    fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginBottom: 6,
   },
   heroRow: {
-    flexDirection: 'row',
-    alignItems:    'flex-end',
-    gap:           6,
-    marginBottom:  18,
+    flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginBottom: 18,
   },
   heroValue: {
-    fontSize:      56,
-    fontWeight:    '800',
-    letterSpacing: -2.4,
-    lineHeight:    60,
+    fontSize: 56, fontWeight: '800', letterSpacing: -2.4, lineHeight: 60,
   },
   heroUnit: {
-    fontSize:   16,
-    fontWeight: '700',
-    paddingBottom: 10,
+    fontSize: 16, fontWeight: '700', paddingBottom: 10,
   },
   trendPill: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               5,
-    paddingHorizontal: 10,
-    paddingVertical:   6,
-    borderRadius:      999,
-    marginBottom:      8,
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, marginBottom: 8,
   },
   trendText: {
-    fontSize:   10,
-    fontWeight: '800',
+    fontSize: 10, fontWeight: '800',
   },
-
   segment: {
-    flexDirection: 'row',
-    padding:       3,
-    borderRadius:  12,
-    borderWidth:   StyleSheet.hairlineWidth,
-    marginBottom:  20,
+    flexDirection: 'row', padding: 3, borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth, marginBottom: 20,
   },
   segCell: {
-    flex:           1,
-    alignItems:     'center',
-    paddingVertical:7,
-    borderRadius:   10,
+    flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: 10,
   },
   segText: {
-    fontSize:      11,
-    fontWeight:    '800',
-    letterSpacing: 0.3,
+    fontSize: 11, fontWeight: '800', letterSpacing: 0.3,
   },
-
   chartWrap: {
-    height:   160,
-    position: 'relative',
+    height: 160,
   },
-  gridLine: {
-    position:       'absolute',
-    left:           0,
-    right:          0,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  goalLine: {
-    position:       'absolute',
-    left:           0,
-    right:          0,
-    borderTopWidth: 1,
-    borderStyle:    'dashed',
-  },
-  goalTag: {
-    position:          'absolute',
-    right:             0,
-    paddingHorizontal: 6,
-    paddingVertical:   2,
-    borderRadius:      6,
-    marginBottom:      -8,
-  },
-  goalTagText: {
-    fontSize:      8,
-    fontWeight:    '800',
-    letterSpacing: 0.8,
-  },
-  pt: {
-    position: 'absolute',
-  },
-
   xLabels: {
-    flexDirection: 'row',
-    marginTop:     10,
+    flexDirection: 'row', marginTop: 10,
   },
   xLabel: {
-    fontSize:   10,
-    fontWeight: '600',
+    fontSize: 10, fontWeight: '600',
   },
-
   statGrid: {
     flexDirection: 'row',
   },
-
   sectionTitle: {
-    fontSize:      15,
-    fontWeight:    '800',
-    letterSpacing: -0.3,
-    marginTop:     4,
+    fontSize: 15, fontWeight: '800', letterSpacing: -0.3, marginTop: 4,
   },
-
   histRow: {
-    flexDirection:    'row',
-    alignItems:       'center',
-    paddingHorizontal:18,
-    paddingVertical:  14,
-    gap:              12,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 18, paddingVertical: 14, gap: 12,
   },
   histLabel: {
-    fontSize:   14,
-    fontWeight: '700',
+    fontSize: 14, fontWeight: '700',
   },
   histDate: {
-    fontSize:   11,
-    fontWeight: '500',
-    marginTop:  2,
+    fontSize: 11, fontWeight: '500', marginTop: 2,
   },
   histValue: {
-    fontSize:      16,
-    fontWeight:    '800',
-    letterSpacing: -0.4,
+    fontSize: 16, fontWeight: '800', letterSpacing: -0.4,
   },
   histUnit: {
-    fontSize:   12,
-    fontWeight: '600',
+    fontSize: 12, fontWeight: '600',
   },
   histDelta: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               3,
-    paddingHorizontal: 7,
-    paddingVertical:   4,
-    borderRadius:      8,
-    minWidth:          52,
-    justifyContent:    'center',
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 7, paddingVertical: 4,
+    borderRadius: 8, minWidth: 52, justifyContent: 'center',
   },
   histDeltaText: {
-    fontSize:   11,
-    fontWeight: '800',
+    fontSize: 11, fontWeight: '800',
   },
   histDivider: {
-    height:       StyleSheet.hairlineWidth,
-    marginLeft:   18,
+    height: StyleSheet.hairlineWidth, marginLeft: 18,
   },
-
   cta: {
-    flexDirection:   'row',
-    alignItems:      'center',
-    justifyContent:  'center',
-    gap:             8,
-    paddingVertical: 16,
-    borderRadius:    16,
-    marginTop:       8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 16, borderRadius: 16, marginTop: 8,
   },
   ctaText: {
-    color:         '#fff',
-    fontSize:      15,
-    fontWeight:    '800',
-    letterSpacing: -0.2,
+    color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: -0.2,
   },
 });

@@ -52,7 +52,7 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 // ────────────────────────────────────────────────────────────────────────────────
 
 const MAX_TOASTS = 3;
-const DEFAULT_DURATION = 2600;
+const DEFAULT_DURATION = 4000;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -174,7 +174,7 @@ function ToastViewport({
 function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }) {
   const { isDark } = useTheme();
   const opacity    = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(14)).current;
+  const translateY = useRef(new Animated.Value(-14)).current;
   const scale      = useRef(new Animated.Value(0.96)).current;
 
   useEffect(() => {
@@ -188,7 +188,7 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => vo
   const handleDismiss = () => {
     Animated.parallel([
       Animated.timing(opacity,    { toValue: 0, duration: 160, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(translateY, { toValue: 10, duration: 160, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: -10, duration: 160, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
     ]).start(() => onDismiss());
   };
 
@@ -289,7 +289,7 @@ const TONE: Record<ToastKind, Tone> = {
 const styles = StyleSheet.create({
   viewport: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-start',
     alignItems:     'center',
     paddingHorizontal: 16,
     gap: 8,

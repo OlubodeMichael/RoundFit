@@ -1,41 +1,67 @@
-import React, { useMemo, useState } from 'react';
-import { LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { View } from 'react-native';
+import Svg, {
+  Defs,
+  LinearGradient,
+  Path,
+  Stop,
+  Text as SvgText,
+} from 'react-native-svg';
 import type { Palette } from '@/lib/log-theme';
 import type { SleepSegment } from '@/utils/healthkit';
 
-/** Plot height; left rail in `SleepHypnogram` must match. */
-export const HYPNOGRAM_CHART_HEIGHT = 150;
+export const HYPNOGRAM_CHART_HEIGHT = 160;
+export const CHART_PAD_T = 10;
+export const CHART_PAD_B = 20;
 
-const CHART_H   = HYPNOGRAM_CHART_HEIGHT;
-const TIME_H    = 26;
-const GUTTER    = 14;
-const VALUE_MAX = 3;
-const ROW_H     = (CHART_H - 2 * GUTTER) / 4;
-const HAIR      = StyleSheet.hairlineWidth || 1;
+// Extra right margin so the last tick label isn't clipped
+const PAD_R = 24;
 
 type ChartStage = 'awake' | 'rem' | 'core' | 'deep';
 const HK_STAGES = new Set<string>(['awake', 'rem', 'core', 'deep']);
 
-const STAGE_VALUE: Record<ChartStage, number> = {
-  awake: 3,
-  rem:   2,
-  core:  1,
-  deep:  0,
+const STAGE_NR: Record<ChartStage, number> = {
+  awake: 0.08,
+  rem:   0.44,
+  core:  0.54,
+  deep:  0.86,
 };
 
-function bandTop(v: number): number {
-  return GUTTER + (VALUE_MAX - v) * ROW_H;
-}
-
-interface Props {
+export interface HypnogramPlotProps {
   P:           Palette;
   displaySegs: SleepSegment[];
   winStartMs:  number;
   winEndMs:    number;
   winStart:    Date;
   totalMs:     number;
-  ticks:       Date[];
-  rowHeight:   number;
+  /** Fixed pixel width of the SVG — caller decides based on PX_PER_HOUR */
+  width:       number;
+}
+
+function catmullRom(pts: { x: number; y: number }[], tension = 0.35): string {
+  if (pts.length === 0) return '';
+  if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
+  let d = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const p0 = pts[Math.max(0, i - 2)];
+    const p1 = pts[i - 1];
+    const p2 = pts[i];
+    const p3 = pts[Math.min(pts.length - 1, i + 1)];
+    const cp1x = p1.x + (p2.x - p0.x) * tension;
+    const cp1y = p1.y + (p2.y - p0.y) * tension;
+    const cp2x = p2.x - (p3.x - p1.x) * tension;
+    const cp2y = p2.y - (p3.y - p1.y) * tension;
+    d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)} ${cp2x.toFixed(2)} ${cp2y.toFixed(2)} ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+  }
+  return d;
+}
+
+function formatHour(ms: number): string {
+  const d = new Date(ms);
+  const h = d.getHours();
+  if (h === 0)  return '12 AM';
+  if (h === 12) return '12 PM';
+  return h < 12 ? `${h} AM` : `${h - 12} PM`;
 }
 
 export function SleepHypnogramPlot({
@@ -43,130 +69,102 @@ export function SleepHypnogramPlot({
   displaySegs,
   winStartMs,
   totalMs,
-  ticks,
-}: Props) {
-  const [chartWidth, setChartWidth] = useState(0);
+  width,
+}: HypnogramPlotProps) {
+  const plotW = width - PAD_R;
+  const plotH = HYPNOGRAM_CHART_HEIGHT - CHART_PAD_T - CHART_PAD_B;
 
-  const segRects = useMemo(() => {
-    if (chartWidth <= 0 || totalMs <= 0) return [];
-    return displaySegs
-      .filter((s) => HK_STAGES.has(s.stage))
-      .map((seg, i) => {
-        const stage     = seg.stage as ChartStage;
-        const leftFrac  = (seg.start.getTime() - winStartMs) / totalMs;
-        const widthFrac = (seg.end.getTime() - seg.start.getTime()) / totalMs;
-        return {
-          key:   i,
-          left:  Math.max(leftFrac  * chartWidth, 0),
-          width: Math.max(widthFrac * chartWidth, 1),
-          top:   bandTop(STAGE_VALUE[stage]),
-        };
-      });
-  }, [chartWidth, displaySegs, winStartMs, totalMs]);
+  const { linePath, areaPath } = useMemo(() => {
+    if (plotW <= 0 || totalMs <= 0 || displaySegs.length === 0) {
+      return { linePath: '', areaPath: '' };
+    }
 
-  function tickToX(d: Date): number {
-    if (totalMs <= 0 || chartWidth === 0) return 0;
-    return ((d.getTime() - winStartMs) / totalMs) * chartWidth;
-  }
+    const msToX = (ms: number) =>
+      Math.max(0, Math.min(plotW, ((ms - winStartMs) / totalMs) * plotW));
+    const stageToY = (s: ChartStage) =>
+      CHART_PAD_T + (STAGE_NR[s] ?? 0.5) * plotH;
 
-  function formatTick(d: Date): string {
-    const h = d.getHours();
-    if (h === 0)  return '12 AM';
-    if (h === 12) return '12 PM';
-    return h < 12 ? `${h} AM` : `${h - 12} PM`;
-  }
+    const valid = displaySegs.filter((s) => HK_STAGES.has(s.stage));
+    if (valid.length === 0) return { linePath: '', areaPath: '' };
+
+    const pts: { x: number; y: number }[] = [];
+
+    pts.push({
+      x: msToX(valid[0].start.getTime()),
+      y: stageToY(valid[0].stage as ChartStage),
+    });
+    for (const seg of valid) {
+      const mid = (seg.start.getTime() + seg.end.getTime()) / 2;
+      pts.push({ x: msToX(mid), y: stageToY(seg.stage as ChartStage) });
+    }
+    const last = valid[valid.length - 1];
+    pts.push({
+      x: msToX(last.end.getTime()),
+      y: stageToY(last.stage as ChartStage),
+    });
+
+    const line    = catmullRom(pts, 0.35);
+    const bottomY = CHART_PAD_T + plotH;
+    const area    = `${line} L ${pts[pts.length - 1].x.toFixed(2)} ${bottomY} L ${pts[0].x.toFixed(2)} ${bottomY} Z`;
+
+    return { linePath: line, areaPath: area };
+  }, [plotW, plotH, displaySegs, winStartMs, totalMs]);
+
+  // Clock-time ticks: one per full hour that falls inside the window
+  const hourTicks = useMemo(() => {
+    if (totalMs <= 0 || plotW <= 0) return [];
+    const msToX = (ms: number) =>
+      Math.max(0, Math.min(plotW, ((ms - winStartMs) / totalMs) * plotW));
+
+    const cur = new Date(winStartMs);
+    cur.setMinutes(0, 0, 0);
+    if (cur.getTime() < winStartMs) cur.setHours(cur.getHours() + 1);
+
+    const ticks: { x: number; label: string }[] = [];
+    while (cur.getTime() <= winStartMs + totalMs) {
+      ticks.push({ x: msToX(cur.getTime()), label: formatHour(cur.getTime()) });
+      cur.setHours(cur.getHours() + 1);
+    }
+    return ticks;
+  }, [plotW, totalMs, winStartMs]);
 
   return (
-    <View style={{ flex: 1 }}>
-      <View
-        style={[styles.chartArea, { height: CHART_H, backgroundColor: P.sunken }]}
-        onLayout={(e: LayoutChangeEvent) =>
-          setChartWidth(e.nativeEvent.layout.width)
-        }
-      >
-        {chartWidth > 0 && (
-          <>
-            {/* Horizontal grid lines at stage boundaries */}
-            {[1, 2, 3].map((n) => (
-              <View
-                key={`h-${n}`}
-                style={{
-                  position:        'absolute',
-                  left:            0,
-                  right:           0,
-                  top:             GUTTER + n * ROW_H - HAIR / 2,
-                  height:          HAIR,
-                  backgroundColor: P.hair,
-                }}
-              />
-            ))}
+    <View>
+      <Svg width={width} height={HYPNOGRAM_CHART_HEIGHT}>
+        <Defs>
+          <LinearGradient id="sleepFill" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={P.sleep} stopOpacity="0.22" />
+            <Stop offset="1" stopColor={P.sleep} stopOpacity="0.02" />
+          </LinearGradient>
+        </Defs>
 
-            {/* Vertical hour tick lines */}
-            {ticks.map((tick, i) => (
-              <View
-                key={`v-${i}`}
-                style={{
-                  position:        'absolute',
-                  top:             0,
-                  bottom:          0,
-                  left:            tickToX(tick) - HAIR / 2,
-                  width:           HAIR,
-                  backgroundColor: P.hair,
-                }}
-              />
-            ))}
+        {!!areaPath && <Path d={areaPath} fill="url(#sleepFill)" />}
 
-            {/* Sleep stage blocks */}
-            {segRects.map((r) => (
-              <View
-                key={r.key}
-                style={{
-                  position:        'absolute',
-                  left:            r.left,
-                  width:           r.width,
-                  top:             r.top,
-                  height:          ROW_H,
-                  backgroundColor: P.sleep,
-                  opacity:         0.55,
-                  borderRadius:    2,
-                }}
-              />
-            ))}
-          </>
+        {!!linePath && (
+          <Path
+            d={linePath}
+            stroke={P.sleep}
+            strokeWidth={2}
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         )}
-      </View>
 
-      {chartWidth > 0 && (
-        <View style={{ height: TIME_H, position: 'relative', marginTop: 4 }}>
-          {ticks.map((tick, i) => (
-            <Text
-              key={i}
-              style={[
-                styles.tickLabel,
-                { color: P.textFaint, left: tickToX(tick) - 16 },
-              ]}
-            >
-              {formatTick(tick)}
-            </Text>
-          ))}
-        </View>
-      )}
+        {hourTicks.map((t) => (
+          <SvgText
+            key={t.label}
+            x={t.x}
+            y={HYPNOGRAM_CHART_HEIGHT - 4}
+            fontSize={9}
+            fontWeight="600"
+            fill={P.textFaint}
+            textAnchor="middle"
+          >
+            {t.label}
+          </SvgText>
+        ))}
+      </Svg>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  chartArea: {
-    position:     'relative',
-    overflow:     'hidden',
-    borderRadius: 8,
-  },
-  tickLabel: {
-    position:   'absolute',
-    top:        4,
-    fontSize:   9,
-    fontWeight: '600',
-    width:      32,
-    textAlign:  'center',
-  },
-});

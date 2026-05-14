@@ -20,6 +20,7 @@ export function SectionCard({
   accent,
   accentSoft,
   icon,
+  emoji,
   title,
   eyebrow: _eyebrow,
   valueBig,
@@ -31,7 +32,8 @@ export function SectionCard({
   delay?:      number;
   accent:      string;
   accentSoft:  string;
-  icon:        IoniconName;
+  icon?:       IoniconName;
+  emoji?:      string;
   title:       string;
   eyebrow:     string;
   valueBig:    string;
@@ -78,8 +80,11 @@ export function SectionCard({
         ]}
       >
         {/* Icon */}
-        <View style={[s.iconWrap, { backgroundColor: accentSoft }]}>
-          <Ionicons name={icon} size={20} color={accent} />
+        <View style={s.iconWrap}>
+          {emoji
+            ? <Text style={{ fontSize: 28 }}>{emoji}</Text>
+            : <Ionicons name={icon!} size={20} color={accent} />
+          }
         </View>
 
         {/* Content */}
@@ -153,9 +158,9 @@ const s = StyleSheet.create({
     gap:            8,
   },
   title: {
-    fontSize:      15,
-    fontWeight:    '600',
-    letterSpacing: -0.2,
+    fontSize:      18,
+    fontWeight:    '800',
+    letterSpacing: -0.3,
   },
   valueWrap: {
     flexDirection: 'row',

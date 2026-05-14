@@ -80,7 +80,7 @@ function newSet(): SetRow {
 // Performance-log card. Numbers are the hero — BarlowCondensed for all stats,
 // Syne for exercise names. Each set gets a relative weight bar.
 
-function WorkoutEntry({ workout, onDelete }: { workout: Workout; onDelete: (id: string) => void }) {
+function WorkoutEntry({ workout, onDelete, onEdit }: { workout: Workout; onDelete: (id: string) => void; onEdit: (workout: Workout) => void }) {
   const P    = usePalette();
   const meta = WORKOUT_META[workout.type] ?? WORKOUT_META.other;
 
@@ -200,13 +200,22 @@ function WorkoutEntry({ workout, onDelete }: { workout: Workout; onDelete: (id: 
 
       <View style={[card.footerRow, { borderTopColor: P.hair }]}>
         <Text style={[card.footerText, { color: P.textFaint }]}>Logged manually</Text>
-        <TouchableOpacity
-          onPress={() => onDelete(workout.id)}
-          hitSlop={12}
-          style={[card.trash, { backgroundColor: P.sunken }]}
-        >
-          <Ionicons name="trash-outline" size={13} color={P.textFaint} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => onEdit(workout)}
+            hitSlop={12}
+            style={[card.trash, { backgroundColor: P.sunken }]}
+          >
+            <Ionicons name="pencil-outline" size={13} color={P.textFaint} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => onDelete(workout.id)}
+            hitSlop={12}
+            style={[card.trash, { backgroundColor: P.sunken }]}
+          >
+            <Ionicons name="trash-outline" size={13} color={P.textFaint} />
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -270,12 +279,12 @@ const card = StyleSheet.create({
 
 type SheetPage = 'form' | 'exercises';
 
-function LogWorkoutSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+function LogWorkoutSheet({ visible, onClose, editWorkout }: { visible: boolean; onClose: () => void; editWorkout?: Workout | null }) {
   const P      = usePalette();
   const insets = useSafeAreaInsets();
   const toast   = useToast();
   const posthog = usePostHog();
-  const { logWorkout, logSets } = useWorkouts();
+  const { logWorkout, logSets, deleteWorkout } = useWorkouts();
 
   const [page,       setPage]       = useState<SheetPage>('form');
   const [type,       setType]       = useState<WorkoutType>('strength');
@@ -290,6 +299,29 @@ function LogWorkoutSheet({ visible, onClose }: { visible: boolean; onClose: () =
   const [activeCategory, setActiveCategory] = useState('all');
 
   useEffect(() => { if (!visible) setPage('form'); }, [visible]);
+
+  // Pre-fill form when editing an existing workout
+  useEffect(() => {
+    if (!visible || !editWorkout) return;
+    const reverseType = Object.entries(UI_WORKOUT_TYPE_MAP).find(([, v]) => v === editWorkout.type)?.[0] as WorkoutType | undefined;
+    setType(reverseType ?? 'other');
+    const h = Math.floor(editWorkout.duration_mins / 60);
+    const m = editWorkout.duration_mins % 60;
+    setHours(String(h));
+    setMinutes(String(m));
+    const reverseIntensity = Object.entries(UI_INTENSITY_MAP).find(([, v]) => v === editWorkout.intensity)?.[0] as Intensity | undefined;
+    setIntensity(reverseIntensity ?? 'moderate');
+    setNotes(editWorkout.notes ?? '');
+    setNotesOpen(!!editWorkout.notes);
+    if (editWorkout.sets?.length) {
+      const grouped: Record<string, SetRow[]> = {};
+      for (const s of editWorkout.sets) {
+        if (!grouped[s.exercise]) grouped[s.exercise] = [];
+        grouped[s.exercise].push({ id: s.id, reps: String(s.reps ?? ''), weight: String(s.weight ?? '') });
+      }
+      setSelected(Object.entries(grouped).map(([name, sets]) => ({ name, sets })));
+    }
+  }, [visible, editWorkout]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isStrength   = type === 'strength';
   const totalMinutes = useMemo(() => (parseInt(hours) || 0) * 60 + (parseInt(minutes) || 0), [hours, minutes]);
@@ -330,12 +362,13 @@ function LogWorkoutSheet({ visible, onClose }: { visible: boolean; onClose: () =
     const label = (parseInt(hours) || 0) > 0 ? `${hours}h ${minutes}m` : `${minutes} min`;
     setSaving(true);
     try {
+      if (editWorkout) await deleteWorkout(editWorkout.id);
       const w = await logWorkout({ type: UI_WORKOUT_TYPE_MAP[type] ?? 'other', duration_mins: totalMinutes, intensity: UI_INTENSITY_MAP[intensity] ?? 'moderate', calories_burned: estimatedCals, source: 'manual' });
       if (isStrength && selected.length > 0) {
         await logSets(w.id, selected.flatMap(ex => ex.sets.map(s => ({ exercise: ex.name, sets: 1, reps: parseInt(s.reps) || undefined, weight: parseFloat(s.weight) || undefined, weight_unit: 'kg' as const }))));
       }
       posthog.capture('workout_logged', { workout_type: type, duration_mins: totalMinutes, intensity, exercises_count: selected.length, estimated_cals: estimatedCals });
-      toast.success('Logged!', `${isStrength && selected.length ? `${selected.length} exercise${selected.length !== 1 ? 's' : ''} · ` : ''}${label}`);
+      toast.success(editWorkout ? 'Updated!' : 'Logged!', `${isStrength && selected.length ? `${selected.length} exercise${selected.length !== 1 ? 's' : ''} · ` : ''}${label}`);
       resetForm(); onClose();
     } catch { toast.error('Failed to save', 'Please try again.'); }
     finally { setSaving(false); }
@@ -356,7 +389,7 @@ function LogWorkoutSheet({ visible, onClose }: { visible: boolean; onClose: () =
           <Ionicons name={page === 'exercises' ? 'chevron-back' : 'close'} size={16} color={P.text} />
         </Pressable>
         <Text style={[sh.sheetTitle, { color: P.text }]}>
-          {page === 'exercises' ? 'SELECT EXERCISES' : 'LOG WORKOUT'}
+          {page === 'exercises' ? 'SELECT EXERCISES' : editWorkout ? 'EDIT WORKOUT' : 'LOG WORKOUT'}
         </Text>
         {page === 'exercises' ? (
           <Pressable
@@ -698,7 +731,7 @@ function LogWorkoutSheet({ visible, onClose }: { visible: boolean; onClose: () =
 
           {/* Save */}
           <View style={{ paddingHorizontal: 20, marginTop: 24 }}>
-            <PrimaryButton label={`Log ${activeTypeLabel.toLowerCase()}`} icon="checkmark" onPress={handleSave} loading={saving} accent={P.workout} />
+            <PrimaryButton label={editWorkout ? `Save ${activeTypeLabel.toLowerCase()}` : `Log ${activeTypeLabel.toLowerCase()}`} icon="checkmark" onPress={handleSave} loading={saving} accent={P.workout} />
           </View>
         </ScrollView>
       )}
@@ -856,11 +889,22 @@ export default function WorkoutLogScreen() {
   const toast   = useToast();
   const { workouts, totalCaloriesBurned, deleteWorkout } = useWorkouts();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
 
   const handleDelete = useCallback(async (id: string) => {
     try { await deleteWorkout(id); }
     catch { toast.error('Could not delete', 'Please try again.'); }
   }, [deleteWorkout, toast]);
+
+  const handleEdit = useCallback((workout: Workout) => {
+    setEditingWorkout(workout);
+    setSheetOpen(true);
+  }, []);
+
+  const handleSheetClose = useCallback(() => {
+    setSheetOpen(false);
+    setEditingWorkout(null);
+  }, []);
 
   const totalDuration = workouts.reduce((s, w) => s + w.duration_mins, 0);
 
@@ -924,21 +968,21 @@ export default function WorkoutLogScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            workouts.map(w => <WorkoutEntry key={w.id} workout={w} onDelete={handleDelete} />)
+            workouts.map(w => <WorkoutEntry key={w.id} workout={w} onDelete={handleDelete} onEdit={handleEdit} />)
           )}
         </View>
       </ScrollView>
 
       {/* FAB */}
       {workouts.length > 0 && (
-        <View style={[ms.fabWrap, { bottom: insets.bottom + 90 }]}>
-          <TouchableOpacity onPress={() => setSheetOpen(true)} activeOpacity={0.88} style={[ms.fab, { backgroundColor: P.workout }]}>
+        <View style={[ms.fabWrap, { bottom: insets.bottom + 24 }]}>
+          <TouchableOpacity onPress={() => { setEditingWorkout(null); setSheetOpen(true); }} activeOpacity={0.88} style={[ms.fab, { backgroundColor: P.workout }]}>
             <Ionicons name="add" size={26} color="#fff" />
           </TouchableOpacity>
         </View>
       )}
 
-      <LogWorkoutSheet visible={sheetOpen} onClose={() => setSheetOpen(false)} />
+      <LogWorkoutSheet visible={sheetOpen} onClose={handleSheetClose} editWorkout={editingWorkout} />
     </View>
   );
 }

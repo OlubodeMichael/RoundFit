@@ -1,8 +1,16 @@
-import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  LayoutChangeEvent,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { usePalette } from '@/lib/log-theme';
 import type { SleepSegment } from '@/utils/healthkit';
 import {
+  CHART_PAD_B,
+  CHART_PAD_T,
   HYPNOGRAM_CHART_HEIGHT,
   SleepHypnogramPlot,
 } from '@/components/log/SleepHypnogramPlot';
@@ -10,26 +18,23 @@ import {
 const LABEL_W    = 52;
 const MIN_SEG_MS = 60_000;
 
-const VALUE_MAX = 3;
+const PLOT_H = HYPNOGRAM_CHART_HEIGHT - CHART_PAD_T - CHART_PAD_B;
 
-type ChartStage = 'awake' | 'rem' | 'core' | 'deep';
-const CHART_STAGES: ChartStage[] = ['awake', 'rem', 'core', 'deep'];
+const LABEL_ROWS: { text: string; top: number }[] = [
+  { text: 'Awake',        top: CHART_PAD_T + 0.08 * PLOT_H - 6  },
+  { text: 'Light\nSleep', top: CHART_PAD_T + 0.49 * PLOT_H - 12 },
+  { text: 'Deep\nsleep',  top: CHART_PAD_T + 0.86 * PLOT_H - 12 },
+  { text: 'Time',         top: HYPNOGRAM_CHART_HEIGHT - CHART_PAD_B + 4 },
+];
 
-const STAGE_LABELS: Record<ChartStage, string> = {
-  awake: 'Awake',
-  rem:   'REM',
-  core:  'Core',
-  deep:  'Deep',
-};
-
-const STAGE_VALUE: Record<ChartStage, number> = {
-  awake: 3,
-  rem:   2,
-  core:  1,
-  deep:  0,
-};
-
-const GUTTER = 14;
+function formatMs(ms: number): string {
+  const totalMin = Math.round(ms / 60_000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
 
 export function SleepHypnogram({
   segments,
@@ -40,14 +45,16 @@ export function SleepHypnogram({
   windowStart?: Date;
   windowEnd?:   Date;
 }) {
-  const P = usePalette();
+  const P         = usePalette();
+  const scrollRef = useRef<ScrollView>(null);
+  const [availableWidth, setAvailableWidth] = useState(0);
 
   const displaySegs = useMemo(
     () =>
       segments
         .filter(
           (s) =>
-            (CHART_STAGES as string[]).includes(s.stage) &&
+            ['awake', 'rem', 'core', 'deep'].includes(s.stage) &&
             s.end.getTime() - s.start.getTime() >= MIN_SEG_MS,
         )
         .sort((a, b) => a.start.getTime() - b.start.getTime()),
@@ -63,70 +70,108 @@ export function SleepHypnogram({
     [winEndProp, displaySegs],
   );
 
-  const totalMs = useMemo(
-    () => winEnd.getTime() - winStart.getTime(),
-    [winStart, winEnd],
+  const totalMs = winEnd.getTime() - winStart.getTime();
+
+  // Core sleep = first non-awake segment → last non-awake segment
+  const firstSleep = useMemo(
+    () => displaySegs.find((s) => s.stage !== 'awake'),
+    [displaySegs],
+  );
+  const lastSleep = useMemo(
+    () => [...displaySegs].reverse().find((s) => s.stage !== 'awake'),
+    [displaySegs],
   );
 
-  const rowHeight = (HYPNOGRAM_CHART_HEIGHT - 2 * GUTTER) / 4;
+  const coreSleepMs = useMemo(() => {
+    if (!firstSleep || !lastSleep) return totalMs;
+    return lastSleep.end.getTime() - firstSleep.start.getTime();
+  }, [firstSleep, lastSleep, totalMs]);
 
-  function bandTopForValue(v: number): number {
-    return GUTTER + (VALUE_MAX - v) * rowHeight;
-  }
+  const deepSleepMs = useMemo(
+    () =>
+      displaySegs
+        .filter((s) => s.stage === 'deep')
+        .reduce((sum, s) => sum + s.end.getTime() - s.start.getTime(), 0),
+    [displaySegs],
+  );
 
-  function labelTopForValue(v: number): number {
-    return bandTopForValue(v) + rowHeight / 2 - 6;
-  }
+  // Scale so the core sleep portion fills exactly one screen width
+  const pxPerMs    = availableWidth > 0 && coreSleepMs > 0
+    ? availableWidth / coreSleepMs
+    : 0;
+  const chartWidth = pxPerMs > 0 ? totalMs * pxPerMs : 0;
 
-  const ticks = useMemo(() => {
-    if (totalMs <= 0) return [];
-    const result: Date[] = [];
-    const cur = new Date(winStart);
-    cur.setMinutes(0, 0, 0);
-    if (cur.getTime() <= winStart.getTime()) cur.setHours(cur.getHours() + 1);
-    while (cur.getTime() <= winEnd.getTime()) {
-      result.push(new Date(cur));
-      cur.setHours(cur.getHours() + 1);
+  // Offset so the chart opens showing the start of sleep (not pre-sleep awake)
+  const sleepStartOffset = useMemo(() => {
+    if (!firstSleep || pxPerMs === 0) return 0;
+    return (firstSleep.start.getTime() - winStart.getTime()) * pxPerMs;
+  }, [firstSleep, winStart, pxPerMs]);
+
+  useEffect(() => {
+    if (sleepStartOffset > 0) {
+      scrollRef.current?.scrollTo({ x: sleepStartOffset, animated: false });
     }
-    return result;
-  }, [winStart, winEnd, totalMs]);
-
-  const winStartMs = winStart.getTime();
-  const winEndMs   = winEnd.getTime();
+  }, [sleepStartOffset]);
 
   if (displaySegs.length === 0 || totalMs <= 0) return null;
 
   return (
-    <View style={styles.root}>
-      <View
-        style={{ width: LABEL_W, height: HYPNOGRAM_CHART_HEIGHT, position: 'relative' }}
-      >
-        {CHART_STAGES.map((stage) => (
-          <Text
-            key={stage}
-            style={[
-              styles.stageLabel,
-              {
-                color: P.textFaint,
-                top:   labelTopForValue(STAGE_VALUE[stage]),
-              },
-            ]}
-          >
-            {STAGE_LABELS[stage]}
-          </Text>
-        ))}
+    <View>
+      <View style={styles.root}>
+        {/* Pinned y-axis labels */}
+        <View style={{ width: LABEL_W, height: HYPNOGRAM_CHART_HEIGHT }}>
+          {LABEL_ROWS.map((row) => (
+            <Text
+              key={row.text}
+              style={[styles.stageLabel, { color: P.textFaint, top: row.top }]}
+            >
+              {row.text}
+            </Text>
+          ))}
+        </View>
+
+        {/* Horizontally scrollable chart */}
+        <View
+          style={{ flex: 1 }}
+          onLayout={(e: LayoutChangeEvent) =>
+            setAvailableWidth(e.nativeEvent.layout.width)
+          }
+        >
+          {availableWidth > 0 && chartWidth > 0 && (
+            <ScrollView
+              ref={scrollRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              decelerationRate="normal"
+            >
+              <SleepHypnogramPlot
+                P={P}
+                displaySegs={displaySegs}
+                winStartMs={winStart.getTime()}
+                winEndMs={winEnd.getTime()}
+                winStart={winStart}
+                totalMs={totalMs}
+                width={chartWidth}
+              />
+            </ScrollView>
+          )}
+        </View>
       </View>
 
-      <SleepHypnogramPlot
-        P={P}
-        displaySegs={displaySegs}
-        winStartMs={winStartMs}
-        winEndMs={winEndMs}
-        winStart={winStart}
-        totalMs={totalMs}
-        ticks={ticks}
-        rowHeight={rowHeight}
-      />
+      {/* Deep sleep stat */}
+      {deepSleepMs > 0 && (
+        <View style={[styles.footer, { paddingLeft: LABEL_W }]}>
+          <View style={styles.deepStat}>
+            <View style={[styles.deepDot, { backgroundColor: P.sleep }]} />
+            <Text style={[styles.deepText, { color: P.textFaint }]}>
+              Deep sleep{' '}
+              <Text style={{ color: P.text, fontWeight: '800' }}>
+                {formatMs(deepSleepMs)}
+              </Text>
+            </Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -142,5 +187,27 @@ const styles = StyleSheet.create({
     fontWeight:    '700',
     letterSpacing: 0.2,
     textAlign:     'right',
+    lineHeight:    11,
+  },
+  footer: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'flex-end',
+    marginTop:      4,
+    paddingRight:   4,
+  },
+  deepStat: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           5,
+  },
+  deepDot: {
+    width:        5,
+    height:       5,
+    borderRadius: 3,
+  },
+  deepText: {
+    fontSize:   10,
+    fontWeight: '600',
   },
 });

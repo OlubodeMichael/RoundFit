@@ -16,17 +16,17 @@ import { usePalette } from '@/lib/log-theme'
 
 const SIZE     = 284
 const C        = SIZE / 2
-const TRACK_R  = 112   // arc track radius
-const LABEL_R  = 90    // hour number position radius
-const HANDLE_R = 14    // draggable handle radius
+const TRACK_R  = 112
+const LABEL_R  = 90
+const HANDLE_R = 14
 
-const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const
-const CARDINAL = new Set([12, 3, 6, 9])  // show AM/PM label on these
+const HOURS    = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const
+const CARDINAL = new Set([12, 3, 6, 9])
 
 // ── Math helpers ──────────────────────────────────────────────────────────
 
 function hourToDeg(h: number): number {
-  return (h % 12) * 30  // 12→0°, 1→30°, … 11→330°
+  return (h % 12) * 30
 }
 
 function degToXY(deg: number, r: number): [number, number] {
@@ -49,7 +49,6 @@ function arcPath(startDeg: number, endDeg: number, r: number): string {
   const [x1, y1] = degToXY(startDeg, r)
   const [x2, y2] = degToXY(endDeg,   r)
   const large = sweep > 180 ? 1 : 0
-  // Degenerate: if sweep ≈ 0, return a tiny arc so the path is valid
   if (sweep < 2) {
     const mid = degToXY(startDeg + 1, r)
     return `M ${x1} ${y1} A ${r} ${r} 0 0 1 ${mid[0]} ${mid[1]}`
@@ -59,26 +58,48 @@ function arcPath(startDeg: number, endDeg: number, r: number): string {
 
 // ── Time helpers ──────────────────────────────────────────────────────────
 
-interface ClockTime { hour: number; period: 'AM' | 'PM' }
+interface ClockTime { hour: number; minute: number; period: 'AM' | 'PM' }
 
 function parseClockString(s: string): ClockTime {
   const m = s.trim().toUpperCase().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/)
-  if (!m) return { hour: 11, period: 'PM' }
-  let h = parseInt(m[1], 10)
+  if (!m) return { hour: 11, minute: 0, period: 'PM' }
+  let h   = parseInt(m[1], 10)
   if (h < 1 || h > 12) h = 12
-  const p = (m[3] as 'AM' | 'PM') ?? 'PM'
-  return { hour: h, period: p }
+  // Round incoming minutes to nearest 5
+  const rawMin = m[2] ? parseInt(m[2], 10) : 0
+  const minute = Math.round(rawMin / 5) * 5 % 60
+  const period = (m[3] as 'AM' | 'PM') ?? 'PM'
+  return { hour: h, minute, period }
 }
 
 function clockTimeToString(t: ClockTime): string {
-  return `${t.hour}:00 ${t.period}`
+  return `${t.hour}:${String(t.minute).padStart(2, '0')} ${t.period}`
 }
 
-function durationHours(bed: ClockTime, wake: ClockTime): number {
-  const b24  = (bed.hour  % 12) + (bed.period  === 'PM' ? 12 : 0)
-  const w24  = (wake.hour % 12) + (wake.period === 'PM' ? 12 : 0)
-  const diff = ((w24 - b24) + 24) % 24
-  return diff === 0 ? 24 : diff
+function to24h(t: ClockTime): number {
+  let h = t.hour
+  if (t.period === 'PM' && h < 12) h += 12
+  if (t.period === 'AM' && h === 12) h = 0
+  return h * 60 + t.minute
+}
+
+function durationMins(bed: ClockTime, wake: ClockTime): number {
+  const bedMins  = to24h(bed)
+  const wakeMins = to24h(wake)
+  let diff = wakeMins - bedMins
+  if (diff <= 0) diff += 24 * 60
+  return diff
+}
+
+function durationLabel(bed: ClockTime, wake: ClockTime): string {
+  const mins = durationMins(bed, wake)
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return m === 0 ? `${h}h` : `${h}h ${m}m`
+}
+
+function stepMinute(t: ClockTime, dir: 1 | -1): ClockTime {
+  return { ...t, minute: (t.minute + dir * 5 + 60) % 60 }
 }
 
 // ── Component ─────────────────────────────────────────────────────────────
@@ -103,7 +124,6 @@ export function SleepTimePicker({
   const [bed,  setBed]  = useState<ClockTime>(() => parseClockString(bedtimeProp))
   const [wake, setWake] = useState<ClockTime>(() => parseClockString(wakeupProp))
 
-  // Sync when picker opens
   useEffect(() => {
     if (visible) {
       setBed(parseClockString(bedtimeProp))
@@ -111,7 +131,6 @@ export function SleepTimePicker({
     }
   }, [visible]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Stable refs for PanResponder (created once)
   const bedRef   = useRef(bed)
   const wakeRef  = useRef(wake)
   bedRef.current  = bed
@@ -136,7 +155,6 @@ export function SleepTimePicker({
         const { pageX, pageY } = e.nativeEvent
         const lx = pageX - clockPosRef.current.x
         const ly = pageY - clockPosRef.current.y
-
         const bedDeg  = hourToDeg(bedRef.current.hour)
         const wakeDeg = hourToDeg(wakeRef.current.hour)
         const [bx, by] = degToXY(bedDeg,  TRACK_R)
@@ -152,22 +170,20 @@ export function SleepTimePicker({
         const ly  = pageY - clockPosRef.current.y
         const deg = xyToDeg(lx, ly)
         const h   = snapToHour(deg)
-
-        if (activeRef.current === 'bed')  setBed(prev  => ({ ...prev,  hour: h }))
+        if (activeRef.current === 'bed')  setBed(prev  => ({ ...prev, hour: h }))
         else                              setWake(prev => ({ ...prev, hour: h }))
       },
     }),
   ).current
 
-  // Derived geometry
   const bedDeg  = hourToDeg(bed.hour)
   const wakeDeg = hourToDeg(wake.hour)
   const [bedX,  bedY]  = degToXY(bedDeg,  TRACK_R)
   const [wakeX, wakeY] = degToXY(wakeDeg, TRACK_R)
-  const duration = durationHours(bed, wake)
+  const durLabel = durationLabel(bed, wake)
 
-  const SLEEP_CLR  = P.sleep        // indigo
-  const WAKE_CLR   = '#F59E0B'      // amber — sunrise
+  const SLEEP_CLR = P.sleep
+  const WAKE_CLR  = '#F59E0B'
 
   return (
     <Modal
@@ -181,27 +197,46 @@ export function SleepTimePicker({
         <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} />
 
         <View style={[s.sheet, { backgroundColor: P.bg, shadowColor: '#000' }]}>
-          {/* Drag handle */}
           <View style={[s.dragHandle, { backgroundColor: P.cardEdge }]} />
-
-          {/* Title */}
           <Text style={[s.title, { color: P.text }]}>Sleep Window</Text>
 
-          {/* ── Top: start / duration / end ─────────────────── */}
+          {/* ── Top: bedtime / duration / wakeup ─────────────── */}
           <View style={s.timesRow}>
 
             {/* Bedtime */}
             <View style={s.timeCol}>
-              <View style={[s.timeIconRow]}>
+              <View style={s.timeIconRow}>
                 <View style={[s.iconPill, { backgroundColor: SLEEP_CLR + '22' }]}>
                   <Ionicons name="moon" size={12} color={SLEEP_CLR} />
                 </View>
                 <Text style={[s.timeEye, { color: P.textFaint }]}>BEDTIME</Text>
               </View>
-              <Text style={[s.timeNum, { color: P.text }]}>
-                {bed.hour}
-                <Text style={[s.timeColon, { color: P.textDim }]}>:00</Text>
-              </Text>
+
+              <View style={s.timeWithSteppers}>
+                <Text style={[s.timeNum, { color: P.text }]}>
+                  {bed.hour}
+                  <Text style={[s.timeColon, { color: P.textDim }]}>
+                    :{String(bed.minute).padStart(2, '0')}
+                  </Text>
+                </Text>
+                <View style={s.steppers}>
+                  <TouchableOpacity
+                    onPress={() => setBed(prev => stepMinute(prev, 1))}
+                    hitSlop={8}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="chevron-up" size={18} color={SLEEP_CLR} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setBed(prev => stepMinute(prev, -1))}
+                    hitSlop={8}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="chevron-down" size={18} color={SLEEP_CLR} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
               <View style={s.periodRow}>
                 {(['AM', 'PM'] as const).map(p => (
                   <TouchableOpacity
@@ -224,8 +259,7 @@ export function SleepTimePicker({
 
             {/* Duration badge */}
             <View style={[s.durBadge, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
-              <Text style={[s.durNum, { color: P.text }]}>{duration}</Text>
-              <Text style={[s.durUnit, { color: P.textFaint }]}>hr</Text>
+              <Text style={[s.durNum, { color: P.text }]}>{durLabel}</Text>
             </View>
 
             {/* Wakeup */}
@@ -236,10 +270,32 @@ export function SleepTimePicker({
                 </View>
                 <Text style={[s.timeEye, { color: P.textFaint }]}>WAKE UP</Text>
               </View>
-              <Text style={[s.timeNum, { color: P.text }]}>
-                {wake.hour}
-                <Text style={[s.timeColon, { color: P.textDim }]}>:00</Text>
-              </Text>
+
+              <View style={[s.timeWithSteppers, { flexDirection: 'row-reverse' }]}>
+                <Text style={[s.timeNum, { color: P.text }]}>
+                  {wake.hour}
+                  <Text style={[s.timeColon, { color: P.textDim }]}>
+                    :{String(wake.minute).padStart(2, '0')}
+                  </Text>
+                </Text>
+                <View style={s.steppers}>
+                  <TouchableOpacity
+                    onPress={() => setWake(prev => stepMinute(prev, 1))}
+                    hitSlop={8}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="chevron-up" size={18} color={WAKE_CLR} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setWake(prev => stepMinute(prev, -1))}
+                    hitSlop={8}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="chevron-down" size={18} color={WAKE_CLR} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
               <View style={[s.periodRow, { justifyContent: 'flex-end' }]}>
                 {(['AM', 'PM'] as const).map(p => (
                   <TouchableOpacity
@@ -261,7 +317,7 @@ export function SleepTimePicker({
             </View>
           </View>
 
-          {/* ── Clock face ──────────────────────────────────── */}
+          {/* ── Clock face (hour only) ───────────────────────── */}
           <View
             ref={clockRef}
             onLayout={measureClock}
@@ -276,9 +332,8 @@ export function SleepTimePicker({
                 </LinearGradient>
               </Defs>
 
-              {/* Outer tick marks */}
               {Array.from({ length: 60 }, (_, i) => {
-                const deg = i * 6
+                const deg    = i * 6
                 const isHour = i % 5 === 0
                 const r1 = TRACK_R + (isHour ? 10 : 6)
                 const r2 = TRACK_R + (isHour ? 18 : 10)
@@ -294,7 +349,6 @@ export function SleepTimePicker({
                 )
               })}
 
-              {/* Background track */}
               <Circle
                 cx={C} cy={C} r={TRACK_R}
                 fill="none"
@@ -302,7 +356,6 @@ export function SleepTimePicker({
                 strokeWidth={10}
               />
 
-              {/* Sleep arc */}
               <Path
                 d={arcPath(bedDeg, wakeDeg, TRACK_R)}
                 fill="none"
@@ -311,17 +364,15 @@ export function SleepTimePicker({
                 strokeLinecap="round"
               />
 
-              {/* Hour labels */}
               {HOURS.map(h => {
-                const deg    = hourToDeg(h)
+                const deg      = hourToDeg(h)
                 const [lx, ly] = degToXY(deg, LABEL_R)
-                const isBed  = h === bed.hour
-                const isWake = h === wake.hour
-                const isCard = CARDINAL.has(h)
-                const label  = isCard
+                const isBed    = h === bed.hour
+                const isWake   = h === wake.hour
+                const isCard   = CARDINAL.has(h)
+                const label    = isCard
                   ? (isBed ? `${h}${bed.period}` : isWake ? `${h}${wake.period}` : String(h))
                   : String(h)
-
                 return (
                   <SvgText
                     key={h}
@@ -341,20 +392,17 @@ export function SleepTimePicker({
                 )
               })}
 
-              {/* Bedtime handle — moon */}
               <Circle cx={bedX}  cy={bedY}  r={HANDLE_R + 5} fill={P.isDark ? P.card : '#fff'} />
               <Circle cx={bedX}  cy={bedY}  r={HANDLE_R}     fill={SLEEP_CLR} />
               <Circle cx={bedX}  cy={bedY}  r={HANDLE_R - 5} fill={P.isDark ? P.card : '#fff'} opacity={0.3} />
 
-              {/* Wakeup handle — sun */}
               <Circle cx={wakeX} cy={wakeY} r={HANDLE_R + 5} fill={P.isDark ? P.card : '#fff'} />
               <Circle cx={wakeX} cy={wakeY} r={HANDLE_R}     fill={WAKE_CLR} />
               <Circle cx={wakeX} cy={wakeY} r={HANDLE_R - 5} fill={P.isDark ? P.card : '#fff'} opacity={0.3} />
             </Svg>
 
-            {/* Center label */}
             <View style={s.centerLabel} pointerEvents="none">
-              <Text style={[s.centerDur, { color: P.text }]}>{duration}<Text style={[s.centerUnit, { color: P.textDim }]}> hr</Text></Text>
+              <Text style={[s.centerDur, { color: P.text }]}>{durLabel}</Text>
               <Text style={[s.centerSub, { color: P.textFaint }]}>SLEEP</Text>
             </View>
           </View>
@@ -410,14 +458,13 @@ const s = StyleSheet.create({
     fontSize: 17, fontWeight: '800', letterSpacing: -0.4, marginBottom: 18,
   },
 
-  // ── Time row ──
   timesRow: {
-    flexDirection:  'row',
-    alignItems:     'center',
+    flexDirection:     'row',
+    alignItems:        'center',
     paddingHorizontal: 28,
-    width:          '100%',
-    marginBottom:   6,
-    gap:            12,
+    width:             '100%',
+    marginBottom:      6,
+    gap:               12,
   },
   timeCol: {
     flex: 1,
@@ -435,17 +482,24 @@ const s = StyleSheet.create({
   timeEye: {
     fontSize: 9, fontWeight: '800', letterSpacing: 1.4,
   },
+  timeWithSteppers: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           6,
+  },
   timeNum: {
-    fontSize: 30, fontWeight: '800', letterSpacing: -1,
-    lineHeight: 34,
+    fontSize: 30, fontWeight: '800', letterSpacing: -1, lineHeight: 34,
   },
   timeColon: {
     fontSize: 18, fontWeight: '600',
   },
+  steppers: {
+    gap: 0,
+  },
   periodRow: {
     flexDirection: 'row',
-    gap: 4,
-    marginTop: 6,
+    gap:           4,
+    marginTop:     6,
   },
   periodBtn: {
     paddingHorizontal: 9,
@@ -457,30 +511,24 @@ const s = StyleSheet.create({
     fontSize: 11, fontWeight: '800', letterSpacing: 0.3,
   },
 
-  // ── Duration badge ──
   durBadge: {
     alignItems:        'center',
     paddingHorizontal: 10,
     paddingVertical:   12,
     borderRadius:      16,
     borderWidth:       1,
-    flexDirection:     'column',
-    minWidth:          52,
+    minWidth:          60,
   },
   durNum: {
-    fontSize: 22, fontWeight: '800', letterSpacing: -0.6,
-  },
-  durUnit: {
-    fontSize: 10, fontWeight: '700', letterSpacing: 0.5, marginTop: 1,
+    fontSize: 16, fontWeight: '800', letterSpacing: -0.4, textAlign: 'center',
   },
 
-  // ── Clock ──
   clockWrap: {
-    width:           SIZE,
-    height:          SIZE,
-    alignItems:      'center',
-    justifyContent:  'center',
-    marginVertical:  4,
+    width:          SIZE,
+    height:         SIZE,
+    alignItems:     'center',
+    justifyContent: 'center',
+    marginVertical: 4,
   },
   centerLabel: {
     position:   'absolute',
@@ -489,14 +537,10 @@ const s = StyleSheet.create({
   centerDur: {
     fontSize: 34, fontWeight: '800', letterSpacing: -1.2,
   },
-  centerUnit: {
-    fontSize: 16, fontWeight: '600',
-  },
   centerSub: {
     fontSize: 9, fontWeight: '800', letterSpacing: 2.2, marginTop: 1,
   },
 
-  // ── Actions ──
   actions: {
     flexDirection:     'row',
     gap:               12,
@@ -505,24 +549,24 @@ const s = StyleSheet.create({
     marginTop:         8,
   },
   cancelBtn: {
-    flex:            1,
-    height:          52,
-    borderRadius:    16,
-    alignItems:      'center',
-    justifyContent:  'center',
-    borderWidth:     1.5,
+    flex:           1,
+    height:         52,
+    borderRadius:   16,
+    alignItems:     'center',
+    justifyContent: 'center',
+    borderWidth:    1.5,
   },
   cancelTxt: {
     fontSize: 15, fontWeight: '700',
   },
   doneBtn: {
-    flex:            2,
-    height:          52,
-    borderRadius:    16,
-    alignItems:      'center',
-    justifyContent:  'center',
-    flexDirection:   'row',
-    gap:             6,
+    flex:           2,
+    height:         52,
+    borderRadius:   16,
+    alignItems:     'center',
+    justifyContent: 'center',
+    flexDirection:  'row',
+    gap:            6,
   },
   doneTxt: {
     fontSize: 15, fontWeight: '800', color: '#fff',

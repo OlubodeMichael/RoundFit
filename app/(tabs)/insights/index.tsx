@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -58,6 +58,7 @@ function relativeDay(isoDate: string): string {
   const diff   = Math.round((nowMid.getTime() - dMid.getTime()) / 86_400_000);
   if (diff === 0) return 'Today';
   if (diff === 1) return 'Yesterday';
+  if (diff < 0)   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   if (diff <= 6)  return d.toLocaleDateString(undefined, { weekday: 'short' });
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
@@ -78,10 +79,10 @@ function toDisplay(insight: ApiInsight, fallbackDate?: string): DisplayInsight {
     isoDate,
     date: relativeDay(rawDate),
     dateLong: longDay(rawDate),
-    tag: isAi ? 'AI insight' : 'Daily insight',
+    tag: isAi ? 'RIS insight' : 'Daily insight',
     tint: isAi ? 'fat' : 'protein',
     icon: isAi ? 'sparkles' : 'bulb-outline',
-    title: extractTitle(insight.message),
+    title: insight.title || extractTitle(insight.message),
     body: insight.message,
     source: isAi ? 'ai' : 'rule',
   };
@@ -174,7 +175,7 @@ export default function InsightsScreen() {
     setActiveTab(tab);
   };
 
-  const { todayInsight, claudeInsight, history, isLoading, dismissInsight } = useInsights();
+  const { todayInsight, claudeInsight, history, isLoading, dismissInsight, pendingSleepSync, submitManualSleep } = useInsights();
   const { data: weekData, isLoading: weekLoading, isRefreshing: weekRefreshing, refresh: weekRefresh } =
     useWeeklyInsights(getWeekStart());
 
@@ -182,10 +183,12 @@ export default function InsightsScreen() {
   const heroDisplay = heroSource ? toDisplay(heroSource, new Date().toISOString()) : null;
   const todayId     = heroSource?.id;
 
-  const pastDisplay = useMemo(
-    () => history.filter(i => !i.dismissed && i.id !== todayId).map(i => toDisplay(i)),
-    [history, todayId],
-  );
+  const pastDisplay = useMemo(() => {
+    const today = getLocalDateString();
+    return history
+      .filter(i => !i.dismissed && i.date !== today)
+      .map(i => toDisplay(i));
+  }, [history]);
 
   const longDate = useMemo(
     () => new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
@@ -227,6 +230,8 @@ export default function InsightsScreen() {
               heroDisplay={heroDisplay}
               heroSource={heroSource}
               pastDisplay={pastDisplay}
+              pendingSleepSync={pendingSleepSync}
+              onSubmitSleep={submitManualSleep}
               onDismiss={id => dismissInsight(id)}
             />
           ) : (
@@ -241,13 +246,15 @@ export default function InsightsScreen() {
 // ─── Today view ───────────────────────────────────────────────────────────────
 
 function TodayView({
-  isLoading, heroDisplay, heroSource, pastDisplay, onDismiss,
+  isLoading, heroDisplay, heroSource, pastDisplay, pendingSleepSync, onSubmitSleep, onDismiss,
 }: {
-  isLoading:   boolean;
-  heroDisplay: DisplayInsight | null;
-  heroSource:  ApiInsight | null;
-  pastDisplay: DisplayInsight[];
-  onDismiss:   (id: string) => void;
+  isLoading:        boolean;
+  heroDisplay:      DisplayInsight | null;
+  heroSource:       ApiInsight | null;
+  pastDisplay:      DisplayInsight[];
+  pendingSleepSync: boolean;
+  onSubmitSleep:    (date: string, hours: number) => Promise<void>;
+  onDismiss:        (id: string) => void;
 }) {
   const P      = usePalette();
   const router = useRouter();
@@ -267,6 +274,8 @@ function TodayView({
           onDismiss={() => onDismiss(heroSource!.id)}
           onPress={() => router.push({ pathname: '/insights/daily', params: { date: heroDisplay.isoDate } })}
         />
+      ) : pendingSleepSync ? (
+        <SleepPromptCard delay={60} onSubmitSleep={onSubmitSleep} />
       ) : (
         <EmptyInsightCard
           delay={60}
@@ -333,13 +342,24 @@ function WeekView({ data, isLoading }: { data: ReturnType<typeof useWeeklyInsigh
   const weekRange   = formatWeekRange(data.week_start, data.week_end);
   const consistency = data.consistency_score;
   const targets     = data.targets_snapshot;
+  const todayStr    = getLocalDateString();
 
-  const dayBars = data.days.map(d => ({
-    label:  getDayLetter(d.date),
-    score:  d.score,
-    onTarget: d.met_calories === 'met',
-    empty:  d.is_partial,
-  }));
+  const dayMap = new Map(data.days.map(d => [d.date, d]));
+  const dayBars = Array.from({ length: 7 }, (_, i) => {
+    const base = new Date(data.week_start + 'T12:00:00');
+    base.setDate(base.getDate() + i);
+    const mm   = String(base.getMonth() + 1).padStart(2, '0');
+    const dd   = String(base.getDate()).padStart(2, '0');
+    const date = `${base.getFullYear()}-${mm}-${dd}`;
+    const d    = dayMap.get(date);
+    return {
+      label:    getDayLetter(date),
+      score:    d?.score ?? 0,
+      onTarget: d?.met_calories === 'met',
+      hasData:  d != null && !d.is_partial,
+      today:    date === todayStr,
+    };
+  });
 
   const bestDay = data.best_day_date
     ? data.days.find(d => d.date === data.best_day_date)
@@ -404,19 +424,26 @@ function WeekView({ data, isLoading }: { data: ReturnType<typeof useWeeklyInsigh
           <View style={[s.progressFill, { width: `${consistency}%`, backgroundColor: P.calories }]} />
         </View>
 
-        {/* Day bars */}
+        {/* Day bars — always 7, ghost track for days without data */}
         <View style={s.daysRow}>
           {dayBars.map((d, i) => {
-            const pct   = d.score / 100;
-            const color = d.empty ? P.sunken : d.onTarget ? P.protein : P.textFaint;
+            const pct   = d.hasData ? d.score / 100 : 0;
+            const color = d.score >= 70 ? P.protein
+                        : d.score >= 40 ? P.carbs
+                        : P.calories;
             return (
               <View key={i} style={s.dayCol}>
                 <View style={[s.dayTrack, { backgroundColor: P.sunken }]}>
-                  {!d.empty && (
-                    <View style={[s.dayFill, { height: `${pct * 100}%`, backgroundColor: color, opacity: d.onTarget ? 1 : 0.5 }]} />
+                  {d.hasData && (
+                    <View style={[s.dayFill, { height: `${pct * 100}%`, backgroundColor: color }]} />
                   )}
                 </View>
-                <Text style={[s.dayLabel, { color: P.textFaint }]}>{d.label}</Text>
+                <Text style={[s.dayLabel, {
+                  color:      d.today ? P.calories : P.textFaint,
+                  fontWeight: d.today ? '800' : '700',
+                }]}>
+                  {d.label}
+                </Text>
               </View>
             );
           })}
@@ -545,13 +572,15 @@ function HeroInsightCard({ insight, delay, onDismiss, onPress }: {
           <Ionicons name="sparkles" size={15} color={P.fat} />
         </View>
         <View style={{ flex: 1, gap: 2 }}>
-          <Text style={[s.heroEyebrow, { color: P.fat }]}>{"TODAY'S INSIGHT"}</Text>
+          <Text style={[s.heroEyebrow, { color: P.fat }]}>
+            {insight.isoDate === getLocalDateString() ? "TODAY'S INSIGHT" : `${insight.date.toUpperCase()} INSIGHT`}
+          </Text>
           <Text style={[s.heroMeta, { color: P.textFaint }]}>{insight.dateLong}</Text>
         </View>
         {insight.source === 'ai' && (
           <View style={[s.aiBadge, { backgroundColor: P.fatSoft }]}>
             <Ionicons name="flash" size={10} color={P.fat} />
-            <Text style={[s.aiBadgeText, { color: P.fat }]}>AI</Text>
+            <Text style={[s.aiBadgeText, { color: P.fat }]}>RIS</Text>
           </View>
         )}
       </View>
@@ -603,6 +632,108 @@ function EmptyInsightCard({ delay, onPress }: { delay: number; onPress?: () => v
   );
 }
 
+type SleepStep = 'ask' | 'enter' | 'submitting';
+
+function SleepPromptCard({ delay, onSubmitSleep }: {
+  delay: number;
+  onSubmitSleep: (date: string, hours: number) => Promise<void>;
+}) {
+  const P = usePalette();
+  const [step, setStep]       = useState<SleepStep>('ask');
+  const [sleepHours, setSleep] = useState(7.5);
+
+  const yesterday = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+  }, []);
+
+  const adjust = useCallback((delta: number) => {
+    setSleep(h => Math.min(12, Math.max(3, Math.round((h + delta) * 2) / 2)));
+  }, []);
+
+  const handleSubmit = useCallback(async () => {
+    setStep('submitting');
+    try {
+      await onSubmitSleep(yesterday, sleepHours);
+    } catch {
+      setStep('enter');
+    }
+  }, [yesterday, sleepHours, onSubmitSleep]);
+
+  return (
+    <AnimatedCard delay={delay} padding={24}>
+      <View style={s.sleepHead}>
+        <View style={[s.iconTile, { backgroundColor: P.sleepSoft }]}>
+          <Ionicons name="moon-outline" size={15} color={P.sleep} />
+        </View>
+        <Text style={[s.sleepTitle, { color: P.text }]}>
+          {step === 'ask' ? 'No sleep data found' : 'How long did you sleep?'}
+        </Text>
+      </View>
+
+      {step === 'ask' && (
+        <>
+          <Text style={[s.sleepBody, { color: P.textDim }]}>
+            Did you wear your watch last night?
+          </Text>
+          <View style={s.sleepBtnRow}>
+            <Pressable
+              style={[s.sleepBtn, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}
+              onPress={() => {/* they'll pull to refresh once it syncs */}}
+            >
+              <Text style={[s.sleepBtnText, { color: P.textDim }]}>Yes, still syncing</Text>
+            </Pressable>
+            <Pressable
+              style={[s.sleepBtn, { backgroundColor: P.sleep + '22', borderColor: P.sleep + '44' }]}
+              onPress={() => setStep('enter')}
+            >
+              <Text style={[s.sleepBtnText, { color: P.sleep }]}>No, I'll enter it</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
+
+      {(step === 'enter' || step === 'submitting') && (
+        <>
+          <Text style={[s.sleepBody, { color: P.textDim }]}>
+            Enter last night's sleep hours so your report can generate.
+          </Text>
+          <View style={s.stepperRow}>
+            <Pressable
+              onPress={() => adjust(-0.5)}
+              style={[s.stepBtn, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}
+              disabled={step === 'submitting'}
+            >
+              <Ionicons name="remove" size={18} color={P.text} />
+            </Pressable>
+            <Text style={[s.stepValue, { color: P.text }]}>
+              {sleepHours % 1 === 0 ? `${sleepHours}h` : `${sleepHours}h`}
+            </Text>
+            <Pressable
+              onPress={() => adjust(0.5)}
+              style={[s.stepBtn, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}
+              disabled={step === 'submitting'}
+            >
+              <Ionicons name="add" size={18} color={P.text} />
+            </Pressable>
+          </View>
+          <Pressable
+            style={[s.sleepSubmit, { backgroundColor: P.sleep, opacity: step === 'submitting' ? 0.6 : 1 }]}
+            onPress={handleSubmit}
+            disabled={step === 'submitting'}
+          >
+            {step === 'submitting'
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={s.sleepSubmitText}>Generate my report</Text>
+            }
+          </Pressable>
+        </>
+      )}
+    </AnimatedCard>
+  );
+}
+
 function PastInsightCard({ insight, delay, onPress }: { insight: DisplayInsight; delay: number; onPress: () => void }) {
   const P    = usePalette();
   const tint = P[insight.tint] as string;
@@ -620,7 +751,7 @@ function PastInsightCard({ insight, delay, onPress }: { insight: DisplayInsight;
             {insight.source === 'ai' && (
               <View style={[s.miniAi, { backgroundColor: P.fatSoft }]}>
                 <Ionicons name="sparkles" size={8} color={P.fat} />
-                <Text style={[s.miniAiText, { color: P.fat }]}>AI</Text>
+                <Text style={[s.miniAiText, { color: P.fat }]}>RIS</Text>
               </View>
             )}
           </View>
@@ -740,9 +871,9 @@ const s = StyleSheet.create({
   progressTrack: { height: 6, borderRadius: 4, overflow: 'hidden', marginBottom: 16 },
   progressFill:  { height: '100%', borderRadius: 4 },
 
-  daysRow:  { flexDirection: 'row', gap: 5, height: 80, alignItems: 'flex-end' },
+  daysRow:  { flexDirection: 'row', gap: 5, height: 120, alignItems: 'flex-end' },
   dayCol:   { flex: 1, alignItems: 'center', gap: 5 },
-  dayTrack: { width: '100%', height: 62, borderRadius: 5, justifyContent: 'flex-end', overflow: 'hidden' },
+  dayTrack: { width: '100%', height: 100, borderRadius: 5, justifyContent: 'flex-end', overflow: 'hidden' },
   dayFill:  { width: '100%', borderRadius: 5 },
   dayLabel: { fontSize: 10, fontWeight: '700' },
 
@@ -776,6 +907,19 @@ const s = StyleSheet.create({
   emptyRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
   emptyTitle: { fontSize: 15, fontWeight: '700', letterSpacing: -0.3, marginBottom: 4 },
   emptyBody:  { fontSize: 13, fontWeight: '400', lineHeight: 19 },
+
+  // ── Sleep prompt ──
+  sleepHead:       { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  sleepTitle:      { fontSize: 15, fontWeight: '700', letterSpacing: -0.3, flex: 1 },
+  sleepBody:       { fontSize: 13, fontWeight: '400', lineHeight: 20, marginBottom: 16 },
+  sleepBtnRow:     { flexDirection: 'row', gap: 10 },
+  sleepBtn:        { flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
+  sleepBtnText:    { fontSize: 13, fontWeight: '700' },
+  stepperRow:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20, marginBottom: 20 },
+  stepBtn:         { width: 44, height: 44, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  stepValue:       { fontSize: 36, fontWeight: '800', letterSpacing: -1, minWidth: 80, textAlign: 'center' },
+  sleepSubmit:     { borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  sleepSubmitText: { fontSize: 14, fontWeight: '800', color: '#fff', letterSpacing: -0.2 },
 
   // ── Today: section ──
   sectionHead:    { marginTop: 10, marginBottom: -2, gap: 2 },

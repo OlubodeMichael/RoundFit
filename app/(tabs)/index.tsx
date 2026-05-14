@@ -3,10 +3,8 @@ import { useCycle } from "@/context/cycle-context";
 import { useWorkouts } from "@/context/workout-context";
 import type { Workout } from "@/context/workout-context";
 import { distanceValue, distanceUnitLabel } from "@/utils/units";
-import { CheckinModal } from "@/components/checkin/CheckinModal";
 import { useProfile } from "@/hooks/use-profile";
 import { useHealth } from "@/hooks/use-health";
-import { useCheckin } from "@/hooks/use-checkin";
 import { useUnits } from "@/hooks/use-units";
 import { calculateNutritionPlan } from "@/utils/nutrition";
 import { useRouter } from "expo-router";
@@ -21,10 +19,12 @@ import {
   BurnActivityPicker,
   type BurnActivity,
 } from "@/components/home/burn-activity-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Animated,
+    AppState,
     Easing,
     Platform,
     Pressable,
@@ -126,12 +126,12 @@ function usePalette() {
 
 type Palette = ReturnType<typeof usePalette>;
 
-const MEAL_ICONS: Record<string, IoniconsName> = {
-  breakfast: 'cafe',
-  lunch:     'restaurant',
-  dinner:    'moon',
-  snack:     'nutrition',
-  other:     'fast-food',
+const MEAL_EMOJIS: Record<string, string> = {
+  breakfast: '🍳',
+  lunch:     '🥗',
+  dinner:    '🍽️',
+  snack:     '🍎',
+  other:     '🍴',
 };
 
 
@@ -1374,13 +1374,14 @@ function MacroCell({
 // Today's meals — rows in a card
 // ───────────────────────────────────────────────────────────────────────────────
 function MealsCard({
-  P, delay = 0, meals, totalCalories, onLogMore,
+  P, delay = 0, meals, totalCalories, title = "Today's Meals", onLogMore,
 }: {
   P: Palette;
   delay?: number;
-  meals: import('@/hooks/use-food').MealItem[];
+  meals: import('@/context/food-context').MealItem[];
   totalCalories: number;
-  onLogMore: () => void;
+  title?: string;
+  onLogMore?: () => void;
 }) {
   const TINT_KEYS = ['calories', 'protein', 'carbs', 'fat'] as const;
 
@@ -1388,44 +1389,49 @@ function MealsCard({
     <Card padding={0} delay={delay}>
       <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 }}>
         <SectionHead
-          title="Today's Meals"
+          title={title}
           caption={meals.length === 0
             ? 'Nothing logged yet'
             : `${meals.length} ${meals.length === 1 ? 'entry' : 'entries'}  ·  ${totalCalories.toLocaleString()} kcal`}
-          action="See all"
+          action={onLogMore ? 'See all' : undefined}
           P={P}
           onAction={onLogMore}
         />
       </View>
 
       {meals.length === 0 ? (
-        <Pressable
-          onPress={onLogMore}
-          style={({ pressed }) => [
-            { paddingHorizontal: 20, paddingBottom: 20, flexDirection: 'row', alignItems: 'center', gap: 10 },
-            pressed && { opacity: 0.7 },
-          ]}
-        >
-          <Ionicons name="add-circle-outline" size={18} color={P.textFaint} />
-          <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '600' }}>Log your first meal</Text>
-        </Pressable>
+        onLogMore ? (
+          <Pressable
+            onPress={onLogMore}
+            style={({ pressed }) => [
+              { paddingHorizontal: 20, paddingBottom: 20, flexDirection: 'row', alignItems: 'center', gap: 10 },
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Ionicons name="add-circle-outline" size={18} color={P.textFaint} />
+            <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '600' }}>Log your first meal</Text>
+          </Pressable>
+        ) : (
+          <View style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
+            <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '600' }}>No meals logged this day</Text>
+          </View>
+        )
       ) : (
         <View>
           {meals.slice(0, 5).map((meal, i) => {
             const tintKey = TINT_KEYS[i % TINT_KEYS.length];
-            const tint     = P[tintKey] as string;
             const tintSoft = P[`${tintKey}Soft` as keyof Palette] as string;
-            const icon     = MEAL_ICONS[meal.meal.toLowerCase()] ?? 'fast-food';
+            const emoji    = MEAL_EMOJIS[meal.meal.toLowerCase()] ?? '🍴';
 
             return (
               <View key={meal.id}>
                 {i > 0 && <View style={[styles.mealDivider, { backgroundColor: P.hair }]} />}
                 <Pressable
                   onPress={onLogMore}
-                  style={({ pressed }) => [styles.mealRow, pressed && { backgroundColor: P.sunken }]}
+                  style={({ pressed }) => [styles.mealRow, onLogMore && pressed && { backgroundColor: P.sunken }]}
                 >
                   <View style={[styles.mealIcon, { backgroundColor: tintSoft }]}>
-                    <Ionicons name={icon} size={18} color={tint} />
+                    <Text style={{ fontSize: 20 }}>{emoji}</Text>
                   </View>
                   <View style={{ flex: 1, gap: 3 }}>
                     <Text style={[styles.mealName, { color: P.text }]} numberOfLines={1}>
@@ -1446,17 +1452,19 @@ function MealsCard({
         </View>
       )}
 
-      <TouchableOpacity
-        onPress={onLogMore}
-        activeOpacity={0.7}
-        style={[styles.addMealBtn, { borderTopColor: P.hair }]}
-      >
-        <View style={[styles.addMealIcon, { backgroundColor: P.caloriesSoft }]}>
-          <Ionicons name="add" size={16} color={P.calories} />
-        </View>
-        <Text style={[styles.addMealText, { color: P.text }]}>Log another meal</Text>
-        <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
-      </TouchableOpacity>
+      {onLogMore && (
+        <TouchableOpacity
+          onPress={onLogMore}
+          activeOpacity={0.7}
+          style={[styles.addMealBtn, { borderTopColor: P.hair }]}
+        >
+          <View style={[styles.addMealIcon, { backgroundColor: P.caloriesSoft }]}>
+            <Ionicons name="add" size={16} color={P.calories} />
+          </View>
+          <Text style={[styles.addMealText, { color: P.text }]}>Log another meal</Text>
+          <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
+        </TouchableOpacity>
+      )}
     </Card>
   );
 }
@@ -1496,7 +1504,7 @@ function WorkoutCard({
   delay?: number;
   workouts: Workout[];
   totalCaloriesBurned: number;
-  onLogMore: () => void;
+  onLogMore?: () => void;
 }) {
   const ACCENT_CYCLE = [
     { fill: P.protein,  soft: P.proteinSoft  },
@@ -1521,16 +1529,22 @@ function WorkoutCard({
       </View>
 
       {workouts.length === 0 ? (
-        <Pressable
-          onPress={onLogMore}
-          style={({ pressed }) => [
-            { paddingHorizontal: 20, paddingBottom: 20, flexDirection: 'row', alignItems: 'center', gap: 10 },
-            pressed && { opacity: 0.7 },
-          ]}
-        >
-          <Ionicons name="add-circle-outline" size={18} color={P.textFaint} />
-          <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '600' }}>Log your first workout</Text>
-        </Pressable>
+        onLogMore ? (
+          <Pressable
+            onPress={onLogMore}
+            style={({ pressed }) => [
+              { paddingHorizontal: 20, paddingBottom: 20, flexDirection: 'row', alignItems: 'center', gap: 10 },
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Ionicons name="add-circle-outline" size={18} color={P.textFaint} />
+            <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '600' }}>Log your first workout</Text>
+          </Pressable>
+        ) : (
+          <View style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
+            <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '600' }}>No workouts logged this day</Text>
+          </View>
+        )
       ) : (
         <View>
           {workouts.map((w, i) => {
@@ -1544,7 +1558,7 @@ function WorkoutCard({
                 {i > 0 && <View style={[wkStyles.divider, { backgroundColor: P.hair }]} />}
                 <Pressable
                   onPress={onLogMore}
-                  style={({ pressed }) => [wkStyles.row, pressed && { backgroundColor: P.sunken }]}
+                  style={({ pressed }) => [wkStyles.row, onLogMore && pressed && { backgroundColor: P.sunken }]}
                 >
                   <View style={[wkStyles.iconBox, { backgroundColor: accent.soft }]}>
                     <Ionicons name={cfg.icon} size={18} color={accent.fill} />
@@ -1596,17 +1610,19 @@ function WorkoutCard({
         </View>
       )}
 
-      <TouchableOpacity
-        onPress={onLogMore}
-        activeOpacity={0.7}
-        style={[styles.addMealBtn, { borderTopColor: P.hair }]}
-      >
-        <View style={[styles.addMealIcon, { backgroundColor: P.proteinSoft }]}>
-          <Ionicons name="add" size={16} color={P.protein} />
-        </View>
-        <Text style={[styles.addMealText, { color: P.text }]}>Log a workout</Text>
-        <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
-      </TouchableOpacity>
+      {onLogMore && (
+        <TouchableOpacity
+          onPress={onLogMore}
+          activeOpacity={0.7}
+          style={[styles.addMealBtn, { borderTopColor: P.hair }]}
+        >
+          <View style={[styles.addMealIcon, { backgroundColor: P.proteinSoft }]}>
+            <Ionicons name="add" size={16} color={P.protein} />
+          </View>
+          <Text style={[styles.addMealText, { color: P.text }]}>Log a workout</Text>
+          <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
+        </TouchableOpacity>
+      )}
     </Card>
   );
 }
@@ -1774,27 +1790,173 @@ function greetingFor(h = new Date().getHours()) {
 // ───────────────────────────────────────────────────────────────────────────────
 // Screen
 // ───────────────────────────────────────────────────────────────────────────────
+const CACHE_TTL_MS     = 5 * 60 * 1000;
+const STORAGE_TTL_MS   = 7 * 24 * 60 * 60 * 1000;
+const CACHE_KEY_PREFIX = '@roundfit/day_cache/';
+
+type DayCacheEntry = {
+  meals: import('@/context/food-context').MealItem[];
+  workouts: Workout[];
+  fetchedAt: number;
+};
+
 export default function HomeScreen() {
   const P      = usePalette();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { appStatus, refreshStatus } = useCheckin();
   const { profile, avatarUrl, avatarLetter, firstName, refreshProfile } = useProfile();
   const {
-    meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
-    remaining, refreshLogs,
+    meals: todayMeals, mealGoal,
+    refreshLogs, fetchForDate: fetchMealsForDate,
   } = useFood();
   const { today: healthToday, refresh: refreshHealth } = useHealth();
   const toast = useToast();
 
-  const { workouts, totalCaloriesBurned: workoutCalsBurned, refreshWorkouts } = useWorkouts();
+  const { workouts: todayWorkouts, refreshWorkouts, fetchForDate: fetchWorkoutsForDate } = useWorkouts();
 
   const [date, setDate]         = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
+
+  // ── Per-day cache ──────────────────────────────────────────────────────────
+  // Cache is a mutable ref (Map). Reading it synchronously during render gives
+  // instant results on cache hits — no React state round-trip needed.
+  // `cacheVersion` bumps when new data lands so React re-renders to pick it up.
+  // Fetch functions are stored in refs so they never appear in the effect dep
+  // array — the effect must ONLY re-run when the selected date changes.
+  const dayCache           = useRef<Map<string, DayCacheEntry>>(new Map());
+  const [cacheVersion, setCacheVersion] = useState(0);
+  const fetchMealsRef      = useRef(fetchMealsForDate);
+  const fetchWorkoutsRef   = useRef(fetchWorkoutsForDate);
+  fetchMealsRef.current    = fetchMealsForDate;
+  fetchWorkoutsRef.current = fetchWorkoutsForDate;
+
+  const todayStr = useMemo(() => getLocalDateString(), []);
+  const dateStr  = useMemo(() => getLocalDateString(date), [date]);
+  const isToday  = dateStr === todayStr;
+
+  // L1 memory → L2 AsyncStorage → L3 network.
+  // Only re-runs when the selected date changes.
+  useEffect(() => {
+    if (isToday) return;
+
+    // L1: in-memory
+    const hit = dayCache.current.get(dateStr);
+    if (hit && Date.now() - hit.fetchedAt < CACHE_TTL_MS) return;
+
+    let cancelled = false;
+
+    (async () => {
+      // L2: AsyncStorage
+      try {
+        const raw = await AsyncStorage.getItem(CACHE_KEY_PREFIX + dateStr);
+        if (raw && !cancelled) {
+          const parsed = JSON.parse(raw) as DayCacheEntry;
+          if (Date.now() - parsed.fetchedAt < STORAGE_TTL_MS) {
+            dayCache.current.set(dateStr, parsed);
+            setCacheVersion(v => v + 1);
+            return;
+          }
+        }
+      } catch {}
+
+      if (cancelled) return;
+
+      // L3: Network
+      const [histMeals, histWorkouts] = await Promise.all([
+        fetchMealsRef.current(dateStr),
+        fetchWorkoutsRef.current(dateStr),
+      ]);
+      if (cancelled) return;
+      const entry: DayCacheEntry = { meals: histMeals, workouts: histWorkouts, fetchedAt: Date.now() };
+      dayCache.current.set(dateStr, entry);
+      setCacheVersion(v => v + 1);
+      AsyncStorage.setItem(CACHE_KEY_PREFIX + dateStr, JSON.stringify(entry)).catch(() => {});
+    })();
+
+    return () => { cancelled = true; };
+  }, [dateStr, isToday]); // intentionally excludes fetch fns — they live in refs
+
+  // Pre-cache all 6 past days in the strip on mount so taps are instant.
+  useEffect(() => {
+    const pastDays = Array.from({ length: 6 }).map((_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (i + 1)); // yesterday through 6 days ago
+      return getLocalDateString(d);
+    });
+
+    void Promise.all(pastDays.map(async (key) => {
+      if (dayCache.current.has(key)) return;
+      try {
+        const raw = await AsyncStorage.getItem(CACHE_KEY_PREFIX + key);
+        if (raw) {
+          const parsed = JSON.parse(raw) as DayCacheEntry;
+          if (Date.now() - parsed.fetchedAt < STORAGE_TTL_MS) {
+            dayCache.current.set(key, parsed);
+            setCacheVersion(v => v + 1);
+            return;
+          }
+        }
+      } catch {}
+      const [meals, workouts] = await Promise.all([
+        fetchMealsRef.current(key),
+        fetchWorkoutsRef.current(key),
+      ]);
+      const entry: DayCacheEntry = { meals, workouts, fetchedAt: Date.now() };
+      dayCache.current.set(key, entry);
+      setCacheVersion(v => v + 1);
+      AsyncStorage.setItem(CACHE_KEY_PREFIX + key, JSON.stringify(entry)).catch(() => {});
+    }));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sliding-window eviction: when the day rolls over, evict the day that fell
+  // off the strip (7 days ago) and write the previous today into AsyncStorage.
+  useEffect(() => {
+    const ref = { current: AppState.currentState };
+    const sub = AppState.addEventListener('change', (next) => {
+      const prev = ref.current;
+      ref.current = next;
+      if (!prev.match(/inactive|background/) || next !== 'active') return;
+      const newToday = getLocalDateString();
+      if (newToday === todayStr) return; // same day, nothing to do
+
+      // Evict the day that just fell off the left edge of the strip
+      const evict = new Date();
+      evict.setDate(evict.getDate() - 7);
+      const evictKey = getLocalDateString(evict);
+      dayCache.current.delete(evictKey);
+      AsyncStorage.removeItem(CACHE_KEY_PREFIX + evictKey).catch(() => {});
+
+      // Cache yesterday (todayStr = the previous today, now a past day)
+      void (async () => {
+        try {
+          const [meals, workouts] = await Promise.all([
+            fetchMealsRef.current(todayStr),
+            fetchWorkoutsRef.current(todayStr),
+          ]);
+          const entry: DayCacheEntry = { meals, workouts, fetchedAt: Date.now() };
+          dayCache.current.set(todayStr, entry);
+          await AsyncStorage.setItem(CACHE_KEY_PREFIX + todayStr, JSON.stringify(entry));
+        } catch {}
+      })();
+    });
+    return () => sub.remove();
+  }, [todayStr]);
+
+  // Synchronous cache read — instant on cache hit, empty while fetching
+  const cachedEntry  = !isToday ? dayCache.current.get(dateStr) : undefined;
+  const validEntry   = cachedEntry && Date.now() - cachedEntry.fetchedAt < STORAGE_TTL_MS ? cachedEntry : null;
+
+  // Derived display values — live context for today, cache for past days
+  const meals               = isToday ? todayMeals    : (validEntry?.meals    ?? []);
+  const workouts            = isToday ? todayWorkouts  : (validEntry?.workouts ?? []);
+  const totalCalories       = useMemo(() => meals.reduce((s, m) => s + m.cals, 0),           [meals]);
+  const totalProtein        = useMemo(() => meals.reduce((s, m) => s + (m.protein ?? 0), 0), [meals]);
+  const totalCarbs          = useMemo(() => meals.reduce((s, m) => s + (m.carbs ?? 0), 0),   [meals]);
+  const totalFat            = useMemo(() => meals.reduce((s, m) => s + (m.fat ?? 0), 0),     [meals]);
+  const workoutCalsBurned   = useMemo(() => workouts.reduce((s, w) => s + w.calories_burned, 0), [workouts]);
+  const remaining           = mealGoal - totalCalories;
   const [isStatusModalVisible, setIsStatusModalVisible] = useState(false);
-  const [isCheckinModalVisible, setIsCheckinModalVisible] = useState(false);
   const [statusModalKind, setStatusModalKind] = useState<InsightStatusModalKind>("ready");
-  const appStatusRef = useRef(appStatus);
 
   // Macro targets from the same nutrition plan used on the reveal screen
   const nutritionPlan = useMemo(() => {
@@ -1840,13 +2002,18 @@ export default function HomeScreen() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      const today = getLocalDateString();
-      await Promise.all([
-        refreshLogs(today),
-        refreshProfile(),
-        refreshHealth(),
-        refreshWorkouts(today),
-      ]);
+      if (isToday) {
+        const today = getLocalDateString();
+        await Promise.all([refreshLogs(today), refreshProfile(), refreshHealth(), refreshWorkouts(today)]);
+      } else {
+        dayCache.current.delete(dateStr);
+        await AsyncStorage.removeItem(CACHE_KEY_PREFIX + dateStr).catch(() => {});
+        const [histMeals, histWorkouts] = await Promise.all([fetchMealsForDate(dateStr), fetchWorkoutsForDate(dateStr)]);
+        const entry: DayCacheEntry = { meals: histMeals, workouts: histWorkouts, fetchedAt: Date.now() };
+        dayCache.current.set(dateStr, entry);
+        AsyncStorage.setItem(CACHE_KEY_PREFIX + dateStr, JSON.stringify(entry)).catch(() => {});
+        setCacheVersion(v => v + 1);
+      }
     } catch {
       toast.error('Could not refresh', 'Please try again.');
     } finally {
@@ -1863,13 +2030,16 @@ export default function HomeScreen() {
     router.push('/insights/daily');
   };
 
-  useEffect(() => {
-    appStatusRef.current = appStatus;
-  }, [appStatus]);
-
-  const burnedToday = healthToday?.active_calories ?? 0;
+  const burnedToday = isToday
+    ? (healthToday?.active_calories ?? 0)
+    : workoutCalsBurned;
 
   const isFemale = profile?.sex === 'female';
+
+  const dayLabel = useMemo(
+    () => date.toLocaleDateString(undefined, { weekday: 'long' }),
+    [date],
+  );
 
   const longDate = useMemo(
     () => date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
@@ -1923,33 +2093,40 @@ export default function HomeScreen() {
         {/* ── Week strip ──────────────────────────────────────── */}
         <WeekStrip selected={date} onSelect={setDate} P={P} />
 
+       
+
         {/* ── Content stack ───────────────────────────────────── */}
         <View style={styles.stack}>
-          {isFemale && <CyclePhaseCard P={P} delay={60} />}
+          {isToday && isFemale && <CyclePhaseCard P={P} delay={60} />}
           <HeroBudgetLedger
             P={P}
             delay={120}
             eaten={totalCalories}
             goal={mealGoal}
             burned={burnedToday}
-            stepsToday={healthToday?.steps}
+            stepsToday={isToday ? healthToday?.steps : undefined}
             remaining={remaining}
             earnedFromActivity={burnedToday}
           />
-          <BurnCoachStrip
-            caloriesToBurn={coachData.caloriesToBurn}
-            activity={coachData.activity}
-            goalProgress={coachData.goalProgress}
-            isLive={true}
-            onPress={() => setPickerOpen(true)}
-          />
-          <InsightCard
-            P={P}
-            delay={280}
-            onPress={handleInsightPress}
-          />
+          {isToday && (
+            <BurnCoachStrip
+              caloriesToBurn={coachData.caloriesToBurn}
+              activity={coachData.activity}
+              goalProgress={coachData.goalProgress}
+              isLive={true}
+              onPress={() => setPickerOpen(true)}
+            />
+          )}
+          {isToday && <ReadinessCard P={P} delay={260} />}
+          {isToday && (
+            <InsightCard
+              P={P}
+              delay={320}
+              onPress={handleInsightPress}
+            />
+          )}
           <MacrosCard P={P} delay={360} macros={macros} />
-          {Platform.OS === 'ios' && (
+          {isToday && Platform.OS === 'ios' && (
             <ActivityCard P={P} delay={430} data={healthToday} />
           )}
           <MealsCard
@@ -1957,14 +2134,15 @@ export default function HomeScreen() {
             delay={440}
             meals={meals}
             totalCalories={totalCalories}
-            onLogMore={() => router.replace('/(tabs)/log/food')}
+            title={isToday ? "Today's Meals" : `${dayLabel}'s Meals`}
+            onLogMore={isToday ? () => router.replace('/(tabs)/log/food') : undefined}
           />
           <WorkoutCard
             P={P}
             delay={500}
             workouts={workouts}
             totalCaloriesBurned={workoutCalsBurned}
-            onLogMore={() => router.push('/(tabs)/log/workout')}
+            onLogMore={isToday ? () => router.push('/(tabs)/log/workout') : undefined}
           />
         </View>
       </ScrollView>
@@ -2020,8 +2198,76 @@ export default function HomeScreen() {
         </View>
       </AppModal>
 
-      <CheckinModal visible={isCheckinModalVisible} onClose={() => setIsCheckinModalVisible(false)} />
     </View>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Readiness card — dummy data, taps into progress/recovery
+// ───────────────────────────────────────────────────────────────────────────────
+const READINESS_SCORE  = 74;
+const READINESS_FACTORS = [
+  { label: 'Sleep',    value: '7h 25m', icon: 'moon-outline'     as IoniconsName, ok: true  },
+  { label: 'Load',     value: 'Moderate', icon: 'barbell-outline' as IoniconsName, ok: true  },
+  { label: 'Nutrition',value: 'Low protein', icon: 'nutrition-outline' as IoniconsName, ok: false },
+];
+
+function ReadinessCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
+  const router = useRouter();
+  const score  = READINESS_SCORE;
+  const accent = score >= 70 ? P.protein : score >= 40 ? P.carbs : P.calories;
+  const soft   = score >= 70 ? P.proteinSoft : score >= 40 ? P.carbsSoft : P.caloriesSoft;
+  const verdict = score >= 70 ? 'Good · Ready to train' : score >= 40 ? 'Moderate · Take it easy' : 'Low · Rest today';
+
+  return (
+    <Card delay={delay} padding={0} style={{ overflow: 'hidden' }}>
+      <Pressable
+        onPress={() => router.push('/(tabs)/progress/recovery')}
+        style={({ pressed }) => [{ padding: 18, borderRadius: 20 }, pressed && { opacity: 0.9 }]}
+      >
+        {/* Top row */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
+          <View style={[styles.iconTile, { backgroundColor: soft }]}>
+            <Ionicons name="heart-circle-outline" size={16} color={accent} />
+          </View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={[styles.insightEyebrow, { color: accent }]}>READINESS</Text>
+            <Text style={[styles.insightMeta, { color: P.textFaint }]}>Today&apos;s recovery score</Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={{ fontSize: 32, fontWeight: '800', letterSpacing: -1.2, color: accent }}>{score}</Text>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: P.textFaint, marginTop: -2 }}>/100</Text>
+          </View>
+        </View>
+
+        {/* Verdict bar */}
+        <View style={{ height: 4, borderRadius: 2, backgroundColor: P.hair, marginBottom: 14, overflow: 'hidden' }}>
+          <View style={{ width: `${score}%`, height: '100%', backgroundColor: accent, borderRadius: 2 }} />
+        </View>
+
+        {/* Factor pills */}
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {READINESS_FACTORS.map((f) => (
+            <View
+              key={f.label}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 4,
+                backgroundColor: f.ok ? P.proteinSoft : P.caloriesSoft,
+                paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8,
+              }}
+            >
+              <Ionicons name={f.icon} size={10} color={f.ok ? P.protein : P.calories} />
+              <Text style={{ fontSize: 10, fontWeight: '700', color: f.ok ? P.protein : P.calories }}>
+                {f.value}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Verdict label */}
+        <Text style={{ fontSize: 11, fontWeight: '600', color: P.textFaint, marginTop: 10 }}>{verdict}</Text>
+      </Pressable>
+    </Card>
   );
 }
 
@@ -2547,5 +2793,22 @@ const styles = StyleSheet.create({
   statusModalSecondaryText: {
     fontSize: 13,
     fontWeight: "600",
+  },
+
+  // Past-day read-only banner
+  pastBanner: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               7,
+    marginHorizontal:  20,
+    marginBottom:      12,
+    paddingHorizontal: 14,
+    paddingVertical:   9,
+    borderRadius:      12,
+    borderWidth:       StyleSheet.hairlineWidth,
+  },
+  pastBannerText: {
+    fontSize:   12,
+    fontWeight: '600',
   },
 });

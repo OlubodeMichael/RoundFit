@@ -5,6 +5,11 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
+import {
+  hasCheckedInToday as storageHasCheckedInToday,
+  markCheckedInToday,
+  clearCheckinStorage,
+} from '@/utils/checkin-storage';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
@@ -147,15 +152,6 @@ function fromApiInsight(row: Record<string, unknown>): CheckinInsight {
   };
 }
 
-function fromApiStatus(body: Record<string, unknown>): CheckinStatus {
-  return {
-    should_show_checkin:        body.should_show_checkin        === true,
-    should_show_workout_prompt: body.should_show_workout_prompt === true,
-    checkin_completed:          body.checkin_completed          === true,
-    workout_logged:             body.workout_logged             === true,
-    reason:                     typeof body.reason === 'string' ? body.reason : null,
-  };
-}
 
 function fromApiStats(body: Record<string, unknown>): CheckinStats {
   const eb = (body.energy_breakdown as Record<string, unknown>) ?? {};
@@ -182,28 +178,49 @@ const CheckinContext = createContext<CheckinContextValue | null>(null);
 export function CheckinProvider({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
 
-  const [today,     setToday]     = useState<CheckIn | null>(null);
-  const [history,   setHistory]   = useState<CheckIn[]>([]);
-  const [stats,     setStats]     = useState<CheckinStats | null>(null);
-  const [appStatus, setAppStatus] = useState<CheckinStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [today,              setToday]              = useState<CheckIn | null>(null);
+  const [history,            setHistory]            = useState<CheckIn[]>([]);
+  const [stats,              setStats]              = useState<CheckinStats | null>(null);
+  const [appStatus,          setAppStatus]          = useState<CheckinStatus | null>(null);
+  const [isLoading,          setIsLoading]          = useState(true);
+  const [shouldShowCheckin,  setShouldShowCheckin]  = useState(false);
   const appStateRef      = useRef(AppState.currentState);
   const lastFetchDateRef = useRef('');
+  const doneThisSession  = useRef(false);
 
-  const hasCheckedInToday     = useMemo(() => today?.completed === true, [today]);
-  const shouldShowCheckin     = useMemo(() => appStatus?.should_show_checkin        ?? false, [appStatus]);
+  const hasCheckedInToday       = useMemo(() => today?.completed === true, [today]);
   const shouldShowWorkoutPrompt = useMemo(() => appStatus?.should_show_workout_prompt ?? false, [appStatus]);
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
 
-  const fetchAppStatus = useCallback(async () => {
-    const { ok, body } = await apiFetch('/checkin/status');
-    if (ok) setAppStatus(fromApiStatus(body));
-  }, []);
-
+  // Fetches today's check-in from the DB and derives shouldShowCheckin from
+  // the server response — the single source of truth. Local storage is a
+  // secondary cache so the modal doesn't flash before the network resolves.
   const fetchToday = useCallback(async () => {
+    if (doneThisSession.current) {
+      setShouldShowCheckin(false);
+      return;
+    }
+
     const { ok, body } = await apiFetch('/checkin/today');
-    if (ok && body.checkin) setToday(fromApiCheckin(body.checkin as Record<string, unknown>));
+
+    if (ok && body.checkin) {
+      const checkin = fromApiCheckin(body.checkin as Record<string, unknown>);
+      setToday(checkin);
+
+      const alreadyDone = checkin.completed || checkin.skipped;
+      if (alreadyDone) {
+        doneThisSession.current = true;
+        setShouldShowCheckin(false);
+        void markCheckedInToday();
+      } else {
+        setShouldShowCheckin(true);
+      }
+    } else {
+      // No check-in record for today — show the modal (unless local cache says done)
+      const localDone = await storageHasCheckedInToday();
+      setShouldShowCheckin(!localDone);
+    }
   }, []);
 
   const fetchHistory = useCallback(async () => {
@@ -226,6 +243,9 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
       setHistory([]);
       setStats(null);
       setAppStatus(null);
+      setShouldShowCheckin(false);
+      doneThisSession.current = false;
+      void clearCheckinStorage();
       setIsLoading(false);
       return;
     }
@@ -241,7 +261,6 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
       try {
         lastFetchDateRef.current = getLocalDateString();
         await Promise.all([
-          fetchAppStatus(),
           fetchToday(),
           fetchHistory(),
           fetchStats(),
@@ -252,7 +271,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, fetchAppStatus, fetchToday, fetchHistory, fetchStats]);
+  }, [status, user?.id, fetchToday, fetchHistory, fetchStats]);
 
   // ── Reset to today when app returns to foreground on a new day ─────────
   useEffect(() => {
@@ -260,17 +279,17 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
       const prev = appStateRef.current;
       appStateRef.current = next;
       if (prev.match(/inactive|background/) && next === 'active') {
-        const today = getLocalDateString();
-        if (lastFetchDateRef.current !== today) {
-          lastFetchDateRef.current = today;
+        const todayDate = getLocalDateString();
+        if (lastFetchDateRef.current !== todayDate) {
+          lastFetchDateRef.current = todayDate;
+          doneThisSession.current = false;
           setToday(null);
-          setAppStatus(null);
-          void Promise.all([fetchAppStatus(), fetchToday(), fetchHistory(), fetchStats()]);
+          void Promise.all([fetchToday(), fetchHistory(), fetchStats()]);
         }
       }
     });
     return () => sub.remove();
-  }, [fetchAppStatus, fetchToday, fetchHistory, fetchStats]);
+  }, [fetchToday, fetchHistory, fetchStats]);
 
   // ── Submit morning check-in ──────────────────────────────────────────────
   const submitMorningCheckin = useCallback(async (
@@ -301,11 +320,12 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
       return [checkin, ...without];
     });
 
-    // Refresh status so should_show_checkin flips to false
-    void fetchAppStatus();
+    doneThisSession.current = true;
+    setShouldShowCheckin(false);
+    void markCheckedInToday();
 
     return { checkin, insight };
-  }, [fetchAppStatus]);
+  }, []);
 
   // ── Skip check-in ────────────────────────────────────────────────────────
   const skipCheckin = useCallback(async (date: string): Promise<CheckIn> => {
@@ -324,10 +344,12 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
       return [checkin, ...without];
     });
 
-    void fetchAppStatus();
+    doneThisSession.current = true;
+    setShouldShowCheckin(false);
+    void markCheckedInToday();
 
     return checkin;
-  }, [fetchAppStatus]);
+  }, []);
 
   // ── Fetch by date ────────────────────────────────────────────────────────
   const fetchByDate = useCallback(async (date: string): Promise<CheckIn | null> => {
@@ -338,13 +360,13 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
 
   // ── Refresh status ───────────────────────────────────────────────────────
   const refreshStatus = useCallback(async () => {
-    await fetchAppStatus();
-  }, [fetchAppStatus]);
+    await fetchToday();
+  }, [fetchToday]);
 
   // ── Full refresh ─────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
-    await Promise.all([fetchAppStatus(), fetchToday(), fetchHistory(), fetchStats()]);
-  }, [fetchAppStatus, fetchToday, fetchHistory, fetchStats]);
+    await Promise.all([fetchToday(), fetchHistory(), fetchStats()]);
+  }, [fetchToday, fetchHistory, fetchStats]);
 
   return (
     <CheckinContext.Provider value={{

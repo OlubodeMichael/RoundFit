@@ -330,7 +330,7 @@ export default function WeeklyReportScreen() {
                   <Ionicons name="sparkles" size={16} color={P.fat} />
                 </View>
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={[styles.smallLabel, { color: P.fat }]}>WEEKLY INSIGHT</Text>
+                  <Text style={[styles.smallLabel, { color: P.fat }]}>RIS INSIGHT</Text>
                   <Text style={[styles.claudeMeta, { color: P.textFaint }]}>Based on this week's data</Text>
                 </View>
               </View>
@@ -344,7 +344,7 @@ export default function WeeklyReportScreen() {
                   <Ionicons name="sparkles-outline" size={16} color={P.textFaint} />
                 </View>
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={[styles.smallLabel, { color: P.textFaint }]}>WEEKLY INSIGHT</Text>
+                  <Text style={[styles.smallLabel, { color: P.textFaint }]}>RIS INSIGHT</Text>
                   <Text style={[styles.claudeMeta, { color: P.textFaint }]}>Log more days for a personalised insight</Text>
                 </View>
               </View>

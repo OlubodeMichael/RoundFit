@@ -1,3 +1,12 @@
+import { supabase } from "@/lib/supabase";
+import {
+    apiFetch,
+    clearTokens,
+    proactiveRefreshIfNeeded,
+    storeTokens,
+} from "@/utils/api";
+import * as AppleAuthentication from "expo-apple-authentication";
+import * as WebBrowser from "expo-web-browser";
 import React, {
     createContext,
     useCallback,
@@ -7,10 +16,6 @@ import React, {
     useState,
 } from "react";
 import { AppState, type AppStateStatus } from "react-native";
-import * as WebBrowser from "expo-web-browser";
-import * as AppleAuthentication from "expo-apple-authentication";
-import { apiFetch, clearTokens, storeTokens, proactiveRefreshIfNeeded } from "@/utils/api";
-import { supabase } from "@/lib/supabase";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -25,7 +30,11 @@ const AUTH_ERROR_DISPLAY_MS = 4_000;
  * Canonical UI / app-state goal.
  * What every screen, store, and prop in the app speaks.
  */
-export type UserGoal = "lose_weight" | "build_muscle" | "boost_energy" | "maintain";
+export type UserGoal =
+  | "lose_weight"
+  | "build_muscle"
+  | "boost_energy"
+  | "maintain";
 
 /**
  * What the RoundFit API stores and expects on the wire.
@@ -60,10 +69,15 @@ export interface UserProfile {
   avatarUrl?: string | null;
   tdee?: number;
   calorieBudget?: number;
+  currentStreak?: number;
   createdAt: string;
 }
 
-export type AuthStatus = "loading" | "authenticated" | "unauthenticated" | "needs-profile";
+export type AuthStatus =
+  | "loading"
+  | "authenticated"
+  | "unauthenticated"
+  | "needs-profile";
 
 export type AuthError =
   | "EMAIL_IN_USE"
@@ -119,7 +133,10 @@ interface AuthContextValue {
    * the full profile and transitions to `authenticated`.
    */
   setupOAuthProfile: (
-    profile: Omit<UserProfile, "id" | "email" | "createdAt" | "tdee" | "calorieBudget">,
+    profile: Omit<
+      UserProfile,
+      "id" | "email" | "createdAt" | "tdee" | "calorieBudget"
+    >,
   ) => Promise<void>;
 
   /** Clears the last error. */
@@ -144,8 +161,8 @@ export function normaliseProfileUnit(
  * enters the app — legacy UI strings, GET /me payloads, query params, etc.
  */
 export function normaliseGoal(g: string): UserGoal {
-  if (g === "lose_weight"  || g === "lose")   return "lose_weight";
-  if (g === "build_muscle" || g === "gain")   return "build_muscle";
+  if (g === "lose_weight" || g === "lose") return "lose_weight";
+  if (g === "build_muscle" || g === "gain") return "build_muscle";
   if (g === "boost_energy" || g === "energy") return "boost_energy";
   return "maintain";
 }
@@ -157,10 +174,14 @@ export function normaliseGoal(g: string): UserGoal {
  */
 export function toApiGoal(g: UserGoal): ApiGoal {
   switch (g) {
-    case "lose_weight":  return "lose";
-    case "build_muscle": return "gain";
-    case "boost_energy": return "energy";
-    case "maintain":     return "maintain";
+    case "lose_weight":
+      return "lose";
+    case "build_muscle":
+      return "gain";
+    case "boost_energy":
+      return "energy";
+    case "maintain":
+      return "maintain";
   }
 }
 
@@ -172,10 +193,14 @@ export function toApiGoal(g: UserGoal): ApiGoal {
  */
 export function fromApiGoal(g: ApiGoal): UserGoal {
   switch (g) {
-    case "lose":     return "lose_weight";
-    case "gain":     return "build_muscle";
-    case "energy":   return "boost_energy";
-    case "maintain": return "maintain";
+    case "lose":
+      return "lose_weight";
+    case "gain":
+      return "build_muscle";
+    case "energy":
+      return "boost_energy";
+    case "maintain":
+      return "maintain";
   }
 }
 
@@ -234,6 +259,8 @@ function fromApiProfile(row: Record<string, unknown>): UserProfile {
     tdee: typeof row.tdee === "number" ? row.tdee : undefined,
     calorieBudget:
       typeof row.calorie_budget === "number" ? row.calorie_budget : undefined,
+    currentStreak:
+      typeof row.current_streak === "number" ? row.current_streak : undefined,
     createdAt: str(row.created_at, new Date().toISOString()),
   };
 }
@@ -305,9 +332,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [oauthProfilePending, setOauthProfilePending] = useState(false);
 
   // Stable ref so updateProfile's rollback always sees the latest snapshot.
-  const userRef      = useRef<UserProfile | null>(null);
-  const appStateRef  = useRef<AppStateStatus>(AppState.currentState);
-  userRef.current    = user;
+  const userRef = useRef<UserProfile | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  userRef.current = user;
 
   const isAuth = status === "authenticated";
 
@@ -329,27 +356,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // API call goes out.  This keeps the Supabase session alive as long as the
   // user opens the app at least once before the server-side inactivity window.
   useEffect(() => {
-    const sub = AppState.addEventListener('change', async (next: AppStateStatus) => {
-      const prev = appStateRef.current;
-      appStateRef.current = next;
+    const sub = AppState.addEventListener(
+      "change",
+      async (next: AppStateStatus) => {
+        const prev = appStateRef.current;
+        appStateRef.current = next;
 
-      if (!prev.match(/inactive|background/) || next !== 'active') return;
-      if (status !== 'authenticated') return;
+        if (!prev.match(/inactive|background/) || next !== "active") return;
+        if (status !== "authenticated") return;
 
-      const stillValid = await proactiveRefreshIfNeeded();
-      if (!stillValid) {
-        setUser(null);
-        setStatus('unauthenticated');
-        return;
-      }
+        const stillValid = await proactiveRefreshIfNeeded();
+        if (!stillValid) {
+          setUser(null);
+          setStatus("unauthenticated");
+          return;
+        }
 
-      // Re-fetch user profile silently so stale data doesn't linger
-      try {
-        setUser(await fetchMe(userRef.current?.email ?? ''));
-      } catch {
-        // network hiccup — keep existing profile data
-      }
-    });
+        // Re-fetch user profile silently so stale data doesn't linger
+        try {
+          setUser(await fetchMe(userRef.current?.email ?? ""));
+        } catch {
+          // network hiccup — keep existing profile data
+        }
+      },
+    );
     return () => sub.remove();
   }, [status]);
 
@@ -472,32 +502,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const { data, error: idTokenError } = await supabase.auth.signInWithIdToken({
-          provider: "apple",
-          token: identityToken,
-        });
+        const { data, error: idTokenError } =
+          await supabase.auth.signInWithIdToken({
+            provider: "apple",
+            token: identityToken,
+          });
 
         if (idTokenError || !data.session) {
           setError("UNKNOWN");
           return;
         }
 
-        await storeTokens(data.session.access_token, data.session.refresh_token);
+        await storeTokens(
+          data.session.access_token,
+          data.session.refresh_token,
+        );
       } else {
         // ── Google — browser OAuth flow ───────────────────────────────────
         const redirectTo = "roundfit://auth/callback";
 
-        const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
-          provider: "google",
-          options: { redirectTo, skipBrowserRedirect: true },
-        });
+        const { data, error: oauthError } = await supabase.auth.signInWithOAuth(
+          {
+            provider: "google",
+            options: { redirectTo, skipBrowserRedirect: true },
+          },
+        );
 
         if (oauthError || !data.url) {
           setError("UNKNOWN");
           return;
         }
 
-        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+        const result = await WebBrowser.openAuthSessionAsync(
+          data.url,
+          redirectTo,
+        );
 
         if (result.type !== "success") {
           // User cancelled — not an error
@@ -537,13 +576,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ── OAuth profile setup ───────────────────────────────────────────────────
   const setupOAuthProfile = useCallback(
     async (
-      profile: Omit<UserProfile, "id" | "email" | "createdAt" | "tdee" | "calorieBudget">,
+      profile: Omit<
+        UserProfile,
+        "id" | "email" | "createdAt" | "tdee" | "calorieBudget"
+      >,
     ) => {
       setError(null);
       setIsLoading(true);
 
       try {
-        const { ok, status: s, body } = await apiFetch("/auth/oauth-setup", {
+        const {
+          ok,
+          status: s,
+          body,
+        } = await apiFetch("/auth/oauth-setup", {
           method: "POST",
           body: JSON.stringify(toApiBody(profile)),
         });
@@ -632,7 +678,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ── Refresh user ─────────────────────────────────────────────────────────
   const refreshUser = useCallback(async () => {
     try {
-      const fresh = await fetchMe(userRef.current?.email ?? '');
+      const fresh = await fetchMe(userRef.current?.email ?? "");
       setUser(fresh);
     } catch {
       // silently ignore — stale data is better than a crash

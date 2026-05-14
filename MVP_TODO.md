@@ -40,6 +40,22 @@
 
 ---
 
+## ENGAGEMENT / DELIGHT
+
+- [ ] **Goal celebration screen** — full-screen branded celebration when a daily target (steps, calories, protein) is first reached for the day.
+  - **Trigger:** detect threshold crossing in home/summary context (value goes from below → at/above target in the same render cycle)
+  - **Local storage guard:** `AsyncStorage` key `roundfit:celebrated:<userId>:<YYYY-MM-DD>:<goalType>` — write on first trigger, read on mount to skip re-firing after app restart. Clear stale keys on sign-out.
+  - **Design (branded, not generic):** RoundFit orange + dark palette, large bold metric ("10,000 STEPS"), animated number count-up, custom particle burst using `react-native-reanimated` (no third-party confetti lib — keep it ours). Dismissable by tap anywhere or auto-dismiss after 4s.
+  - Goals to celebrate: `calories`, `steps`, `protein` (each fires independently)
+
+- [ ] **Badge reward system** — persistent badges users earn and keep, displayed in profile.
+  - **Architecture:** `badges` table in Supabase (`user_id`, `badge_id`, `earned_at`). Badge definitions live in a config file (not DB) so new badges ship with app updates. Frontend fetches earned badge IDs and maps them to the local config for display.
+  - **Display:** trophy/badge shelf in the profile tab — locked badges shown as greyed-out silhouettes, earned ones lit up with earn date.
+  - **Business logic:** TBD — define trigger conditions per badge before implementing the award engine (server-side vs. client-side evaluation TBD).
+  - **Celebration hook:** earning a badge triggers the goal celebration screen with a special badge variant.
+
+---
+
 ## POST-LAUNCH (phase 2)
 
 - [ ] Barcode food scan — full implementation

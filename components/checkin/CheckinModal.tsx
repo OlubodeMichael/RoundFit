@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Pressable,
-  Animated, Easing, ActivityIndicator,
+  View, Text, StyleSheet, Pressable,
+  Animated, Easing, ActivityIndicator, Platform,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -10,64 +10,30 @@ import { AppModal } from '@/components/ui/AppModal';
 import { useCheckin } from '@/hooks/use-checkin';
 import type { EnergyLevel, CheckinInsight } from '@/hooks/use-checkin';
 import { useProfile } from '@/hooks/use-profile';
-import { useTheme } from '@/hooks/use-theme';
+import { usePalette } from '@/lib/log-theme';
 import { getLocalDateString } from '@/utils/date';
 
-// ── Palette ────────────────────────────────────────────────────────────────
+// ── Data ───────────────────────────────────────────────────────────────────
 
-function usePalette() {
-  const { isDark } = useTheme();
-  return isDark ? {
-    bg:        '#1C1D23',
-    surface:   '#0E0F13',
-    text:      '#F4F4F5',
-    textDim:   '#C4C4C8',
-    textFaint: '#909096',
-    hair:      'rgba(255,255,255,0.10)',
-    cardEdge:  'rgba(255,255,255,0.10)',
-    accent:    '#F97316',
-    accentSoft:'rgba(249,115,22,0.18)',
-    good:      '#34D399',
-    goodSoft:  'rgba(52,211,153,0.16)',
-    warn:      '#FBBF24',
-    warnSoft:  'rgba(251,191,36,0.16)',
-    danger:    '#F87171',
-    dangerSoft:'rgba(248,113,113,0.14)',
-    isDark:    true,
-  } : {
-    bg:        '#FAFAF8',
-    surface:   '#F1F1F4',
-    text:      '#111111',
-    textDim:   '#52525B',
-    textFaint: '#A1A1AA',
-    hair:      'rgba(15,23,42,0.08)',
-    cardEdge:  'rgba(15,23,42,0.06)',
-    accent:    '#F97316',
-    accentSoft:'rgba(249,115,22,0.10)',
-    good:      '#10B981',
-    goodSoft:  'rgba(16,185,129,0.10)',
-    warn:      '#D97706',
-    warnSoft:  'rgba(217,119,6,0.10)',
-    danger:    '#DC2626',
-    dangerSoft:'rgba(220,38,38,0.08)',
-    isDark:    false,
-  };
-}
-
-// ── Sleep quality config ───────────────────────────────────────────────────
-
+// Each sleep option has its own vivid color — red→orange→amber→indigo→green
 const SLEEP_OPTIONS = [
-  { value: 1, label: 'Poor',      icon: 'sad-outline'      as const },
-  { value: 2, label: 'Light',     icon: 'partly-sunny-outline' as const },
-  { value: 3, label: 'OK',        icon: 'remove-circle-outline' as const },
-  { value: 4, label: 'Good',      icon: 'happy-outline'    as const },
-  { value: 5, label: 'Great',     icon: 'star-outline'     as const },
+  { value: 1, label: 'Poor',  icon: 'moon-outline'         as const, color: '#F97066' },
+  { value: 2, label: 'Light', icon: 'cloud-outline'        as const, color: '#FB923C' },
+  { value: 3, label: 'OK',    icon: 'remove-outline'       as const, color: '#FBBF24' },
+  { value: 4, label: 'Good',  icon: 'partly-sunny-outline' as const, color: '#818CF8' },
+  { value: 5, label: 'Great', icon: 'sunny-outline'        as const, color: '#34D399' },
 ];
 
-const ENERGY_OPTIONS: { value: EnergyLevel; label: string; icon: React.ComponentProps<typeof Ionicons>['name'] }[] = [
-  { value: 'low',    label: 'Low',    icon: 'battery-dead-outline'  },
-  { value: 'medium', label: 'Medium', icon: 'battery-half-outline'  },
-  { value: 'high',   label: 'High',   icon: 'flash'                 },
+const ENERGY_OPTIONS: {
+  value: EnergyLevel;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  color: string;
+  soft: string;
+}[] = [
+  { value: 'low',    label: 'Low',    icon: 'remove-circle-outline', color: '#F97066', soft: '#F9706622' },
+  { value: 'medium', label: 'Medium', icon: 'pulse-outline',         color: '#FBBF24', soft: '#FBBF2422' },
+  { value: 'high',   label: 'High',   icon: 'flash',                 color: '#34D399', soft: '#34D39922' },
 ];
 
 function greetingFor() {
@@ -77,64 +43,72 @@ function greetingFor() {
   return 'Good evening';
 }
 
+function greetingIcon(): React.ComponentProps<typeof Ionicons>['name'] {
+  const h = new Date().getHours();
+  if (h < 12) return 'sunny';
+  if (h < 17) return 'partly-sunny';
+  return 'moon';
+}
+
+function todayLabel() {
+  return new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 // ── Insight reveal ─────────────────────────────────────────────────────────
 
-function InsightReveal({
-  insight,
-  onDone,
-  P,
-}: {
-  insight: CheckinInsight;
-  onDone: () => void;
-  P: ReturnType<typeof usePalette>;
-}) {
-  const anim = useRef(new Animated.Value(0)).current;
+function InsightReveal({ insight, onDone }: { insight: CheckinInsight; onDone: () => void }) {
+  const P        = usePalette();
+  const ringAnim = useRef(new Animated.Value(0)).current;
+  const bodyAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(anim, {
-      toValue: 1, duration: 480,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [anim]);
+    Animated.sequence([
+      Animated.spring(ringAnim, { toValue: 1, friction: 5, tension: 180, useNativeDriver: true }),
+      Animated.timing(bodyAnim, { toValue: 1, duration: 380, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+    ]).start();
+  }, [ringAnim, bodyAnim]);
 
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] });
+  const ringScale = ringAnim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.2, 1.1, 1] });
+  const bodyY     = bodyAnim.interpolate({ inputRange: [0, 1], outputRange: [16, 0] });
 
   return (
-    <Animated.View style={{ opacity: anim, transform: [{ translateY }] }}>
-      {/* Success tick */}
-      <View style={[s.successRing, { borderColor: P.good }]}>
-        <Ionicons name="checkmark" size={28} color={P.good} />
-      </View>
-
-      <Text style={[s.successTitle, { color: P.text }]}>Check-in complete</Text>
-      <Text style={[s.successSub, { color: P.textFaint }]}>Here&apos;s your daily insight</Text>
-
-      {/* Insight card */}
-      <View style={[s.insightBox, { backgroundColor: P.accentSoft, borderColor: P.hair }]}>
-        <View style={[s.insightIcon, { backgroundColor: P.accentSoft }]}>
-          <Ionicons name="sparkles" size={16} color={P.accent} />
+    <View style={s.successWrap}>
+      <Animated.View style={{ transform: [{ scale: ringScale }], opacity: ringAnim }}>
+        <View style={[s.successRing, { borderColor: '#34D399', backgroundColor: '#34D39922' }]}>
+          <Ionicons name="checkmark" size={32} color="#34D399" />
         </View>
-        <Text style={[s.insightText, { color: P.textDim }]}>{insight.message}</Text>
-      </View>
+      </Animated.View>
 
-      <TouchableOpacity
-        onPress={onDone}
-        activeOpacity={0.85}
-        style={[s.submitBtn, { backgroundColor: P.accent, marginTop: 8 }]}
-      >
-        <Text style={s.submitText}>Let&apos;s go</Text>
-        <Ionicons name="arrow-forward" size={16} color="#fff" />
-      </TouchableOpacity>
-    </Animated.View>
+      <Animated.View style={{ opacity: bodyAnim, transform: [{ translateY: bodyY }], alignSelf: 'stretch', marginTop: 20 }}>
+        <Text style={[s.successTitle, { color: P.text }]}>All set for today</Text>
+        <Text style={[s.successSub, { color: P.textFaint, marginTop: 6 }]}>Here's your morning insight</Text>
+
+        <View style={[s.insightCard, { backgroundColor: P.card, borderColor: P.cardEdge, marginTop: 18 }]}>
+          <View pointerEvents="none" style={[s.insightGlow, { backgroundColor: '#FF784922' }]} />
+          <View style={[s.insightBadge, { backgroundColor: '#FF784918' }]}>
+            <Ionicons name="sparkles" size={11} color="#FF7849" />
+            <Text style={[s.insightBadgeText, { color: '#FF7849' }]}>DAILY INSIGHT</Text>
+          </View>
+          <Text style={[s.insightBody, { color: P.textDim }]}>{insight.message}</Text>
+        </View>
+
+        <Pressable
+          onPress={onDone}
+          style={({ pressed }) => [s.submitBtn, { backgroundColor: '#34D399', marginTop: 14, opacity: pressed ? 0.85 : 1 }]}
+        >
+          <Text style={s.submitText}>Let's crush it</Text>
+          <Ionicons name="arrow-forward" size={16} color="#fff" />
+        </Pressable>
+      </Animated.View>
+    </View>
   );
 }
 
 // ── Main modal ─────────────────────────────────────────────────────────────
 
 interface Props {
-  visible:  boolean;
-  onClose:  () => void;
+  visible: boolean;
+  onClose: () => void;
 }
 
 export function CheckinModal({ visible, onClose }: Props) {
@@ -142,43 +116,87 @@ export function CheckinModal({ visible, onClose }: Props) {
   const { firstName } = useProfile();
   const { submitMorningCheckin, skipCheckin } = useCheckin();
 
-  const [sleepQuality,     setSleepQuality]     = useState<number | null>(null);
-  const [energyLevel,      setEnergyLevel]      = useState<EnergyLevel | null>(null);
-  const [plannedWorkout,   setPlannedWorkout]   = useState(false);
-  const [isSaving,         setIsSaving]         = useState(false);
-  const [insight,          setInsight]          = useState<CheckinInsight | null>(null);
-  const [done,             setDone]             = useState(false);
+  const [sleepQuality,   setSleepQuality]   = useState<number | null>(null);
+  const [energyLevel,    setEnergyLevel]    = useState<EnergyLevel | null>(null);
+  const [plannedWorkout, setPlannedWorkout] = useState(false);
+  const [isSaving,       setIsSaving]       = useState(false);
+  const [insight,        setInsight]        = useState<CheckinInsight | null>(null);
+  const [done,           setDone]           = useState(false);
 
-  const todayStr = getLocalDateString();
+  // Staggered entrance anims
+  const anim0 = useRef(new Animated.Value(0)).current;
+  const anim1 = useRef(new Animated.Value(0)).current;
+  const anim2 = useRef(new Animated.Value(0)).current;
+  const anim3 = useRef(new Animated.Value(0)).current;
+  const anim4 = useRef(new Animated.Value(0)).current;
+
+  // Per-sleep-option scale bounce
+  const sleepScales = useRef(SLEEP_OPTIONS.map(() => new Animated.Value(1))).current;
+
+  // Workout pill toggle
+  const toggleAnim = useRef(new Animated.Value(0)).current;
+  const toggleX    = toggleAnim.interpolate({ inputRange: [0, 1], outputRange: [2, 22] });
+
+  const todayStr  = getLocalDateString();
   const canSubmit = sleepQuality !== null && energyLevel !== null && !isSaving;
 
-  // Reset state each time the modal opens
   useEffect(() => {
-    if (visible) {
-      setSleepQuality(null);
-      setEnergyLevel(null);
-      setPlannedWorkout(false);
-      setIsSaving(false);
-      setInsight(null);
-      setDone(false);
-    }
+    if (!visible) return;
+    setSleepQuality(null); setEnergyLevel(null); setPlannedWorkout(false);
+    setIsSaving(false); setInsight(null); setDone(false);
+    toggleAnim.setValue(0);
+    [anim0, anim1, anim2, anim3, anim4].forEach((a) => a.setValue(0));
+
+    Animated.sequence([
+      Animated.delay(80),
+      Animated.stagger(60, [anim0, anim1, anim2, anim3, anim4].map((a) =>
+        Animated.timing(a, { toValue: 1, duration: 360, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      )),
+    ]).start();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
+
+  function fadeUp(a: Animated.Value) {
+    return {
+      opacity:   a,
+      transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }],
+    };
+  }
+
+  const handleSleepSelect = (value: number) => {
+    setSleepQuality(value);
+    void Haptics.selectionAsync();
+    const i = value - 1;
+    Animated.sequence([
+      Animated.spring(sleepScales[i], { toValue: 1.18, friction: 4, tension: 300, useNativeDriver: true }),
+      Animated.spring(sleepScales[i], { toValue: 1,    friction: 5, tension: 220, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const handleEnergySelect = (value: EnergyLevel) => {
+    setEnergyLevel(value);
+    void Haptics.selectionAsync();
+  };
+
+  const handleWorkoutToggle = () => {
+    const next = !plannedWorkout;
+    setPlannedWorkout(next);
+    void Haptics.selectionAsync();
+    Animated.spring(toggleAnim, { toValue: next ? 1 : 0, friction: 5, tension: 150, useNativeDriver: true }).start();
+  };
 
   const handleSubmit = useCallback(async () => {
     if (!canSubmit || sleepQuality === null || energyLevel === null) return;
     setIsSaving(true);
     try {
       const { insight: returned } = await submitMorningCheckin({
-        date:            todayStr,
-        sleep_quality:   sleepQuality,
-        energy_level:    energyLevel,
-        planned_workout: plannedWorkout,
+        date: todayStr, sleep_quality: sleepQuality,
+        energy_level: energyLevel, planned_workout: plannedWorkout,
       });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setInsight(returned);
       setDone(true);
     } catch {
-      // Silently fail — don't block the user
       onClose();
     } finally {
       setIsSaving(false);
@@ -186,173 +204,183 @@ export function CheckinModal({ visible, onClose }: Props) {
   }, [canSubmit, sleepQuality, energyLevel, plannedWorkout, todayStr, submitMorningCheckin, onClose]);
 
   const handleSkip = useCallback(async () => {
-    try {
-      await skipCheckin(todayStr);
-    } catch {
-      // Best-effort skip
-    }
+    try { await skipCheckin(todayStr); } catch { /* best-effort */ }
     onClose();
   }, [skipCheckin, todayStr, onClose]);
 
   return (
-    <AppModal
-      visible={visible}
-      onClose={onClose}
-      sheetHeight={done ? 0.52 : 0.62}
-      openAnimation="ease"
-    >
+    <AppModal visible={visible} onClose={onClose} sheetHeight={0.68} openAnimation="ease">
       <View style={s.body}>
+
         {done && insight ? (
-          <InsightReveal insight={insight} onDone={onClose} P={P} />
+          <InsightReveal insight={insight} onDone={onClose} />
         ) : done ? (
-          // Completed but no insight returned — just close
-          <View style={{ alignItems: 'center', paddingTop: 12 }}>
-            <View style={[s.successRing, { borderColor: P.good }]}>
-              <Ionicons name="checkmark" size={28} color={P.good} />
+          <View style={s.successWrap}>
+            <View style={[s.successRing, { borderColor: '#34D399', backgroundColor: '#34D39922' }]}>
+              <Ionicons name="checkmark" size={32} color="#34D399" />
             </View>
-            <Text style={[s.successTitle, { color: P.text }]}>Check-in complete</Text>
-            <TouchableOpacity
+            <Text style={[s.successTitle, { color: P.text, marginTop: 20 }]}>All set for today</Text>
+            <Text style={[s.successSub, { color: P.textFaint, marginTop: 6 }]}>Your check-in has been logged</Text>
+            <Pressable
               onPress={onClose}
-              activeOpacity={0.85}
-              style={[s.submitBtn, { backgroundColor: P.accent, marginTop: 20 }]}
+              style={({ pressed }) => [s.submitBtn, { backgroundColor: '#34D399', marginTop: 28, opacity: pressed ? 0.85 : 1 }]}
             >
-              <Text style={s.submitText}>Let&apos;s go</Text>
-            </TouchableOpacity>
+              <Text style={s.submitText}>Let's go</Text>
+              <Ionicons name="arrow-forward" size={16} color="#fff" />
+            </Pressable>
           </View>
         ) : (
           <>
-            {/* ── Greeting ──────────────────────────────────── */}
-            <View style={s.greetRow}>
-              <View style={[s.sunIcon, { backgroundColor: P.accentSoft }]}>
-                <Ionicons name="sunny" size={18} color={P.accent} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[s.greeting, { color: P.text }]}>
-                  {greetingFor()}{firstName ? `, ${firstName}` : ''}
+            {/* ── Colored header strip ─────────────────────── */}
+            <Animated.View style={[s.header, fadeUp(anim0)]}>
+              {/* Decorative glow behind icon */}
+              <View pointerEvents="none" style={[s.headerGlow, { backgroundColor: P.caloriesSoft }]} />
+
+              <View style={s.headerLeft}>
+                <View style={[s.headerBadge, { backgroundColor: P.caloriesSoft }]}>
+                  <Ionicons name={greetingIcon()} size={12} color={P.calories} />
+                  <Text style={[s.headerBadgeText, { color: P.calories }]}>MORNING CHECK-IN</Text>
+                </View>
+                <Text style={[s.headerName, { color: P.text }]}>
+                  {greetingFor()}{firstName ? `,\n${firstName}` : ''}
                 </Text>
-                <Text style={[s.greetSub, { color: P.textFaint }]}>
-                  Quick morning check-in
-                </Text>
+                <Text style={[s.headerDate, { color: P.textFaint }]}>{todayLabel()}</Text>
               </View>
-            </View>
+            </Animated.View>
 
-            {/* ── Sleep quality ──────────────────────────────── */}
-            <Text style={[s.sectionLabel, { color: P.textFaint }]}>HOW DID YOU SLEEP?</Text>
-            <View style={s.sleepRow}>
-              {SLEEP_OPTIONS.map((opt) => {
-                const active = sleepQuality === opt.value;
-                return (
-                  <Pressable
-                    key={opt.value}
-                    onPress={() => { setSleepQuality(opt.value); Haptics.selectionAsync(); }}
-                    style={({ pressed }) => [
-                      s.sleepCell,
-                      {
-                        backgroundColor: active ? P.accent : P.surface,
-                        borderColor:     active ? P.accent : P.cardEdge,
-                        opacity: pressed ? 0.8 : 1,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={opt.icon}
-                      size={20}
-                      color={active ? '#fff' : P.textFaint}
-                    />
-                    <Text style={[s.sleepNum, { color: active ? '#fff' : P.text }]}>
-                      {opt.value}
-                    </Text>
-                    <Text style={[s.sleepLabel, { color: active ? 'rgba(255,255,255,0.8)' : P.textFaint }]}>
-                      {opt.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {/* ── Energy level ───────────────────────────────── */}
-            <Text style={[s.sectionLabel, { color: P.textFaint }]}>ENERGY TODAY</Text>
-            <View style={s.energyRow}>
-              {ENERGY_OPTIONS.map((opt) => {
-                const active = energyLevel === opt.value;
-                const tint   = opt.value === 'high' ? P.good
-                             : opt.value === 'medium' ? P.warn
-                             : P.textFaint;
-                const tintSoft = opt.value === 'high' ? P.goodSoft
-                               : opt.value === 'medium' ? P.warnSoft
-                               : P.dangerSoft;
-                return (
-                  <Pressable
-                    key={opt.value}
-                    onPress={() => { setEnergyLevel(opt.value); Haptics.selectionAsync(); }}
-                    style={({ pressed }) => [
-                      s.energyCell,
-                      {
-                        backgroundColor: active ? tintSoft : P.surface,
-                        borderColor:     active ? tint     : P.cardEdge,
-                        opacity: pressed ? 0.8 : 1,
-                      },
-                    ]}
-                  >
-                    <Ionicons name={opt.icon} size={18} color={active ? tint : P.textFaint} />
-                    <Text style={[s.energyLabel, { color: active ? tint : P.text }]}>
-                      {opt.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {/* ── Planned workout ────────────────────────────── */}
-            <Pressable
-              onPress={() => { setPlannedWorkout((v) => !v); Haptics.selectionAsync(); }}
-              style={[
-                s.workoutRow,
-                {
-                  backgroundColor: plannedWorkout ? P.goodSoft : P.surface,
-                  borderColor:     plannedWorkout ? P.good     : P.cardEdge,
-                },
-              ]}
-            >
-              <View style={[s.workoutCheck, {
-                backgroundColor: plannedWorkout ? P.good : 'transparent',
-                borderColor:     plannedWorkout ? P.good : P.textFaint,
-              }]}>
-                {plannedWorkout && <Ionicons name="checkmark" size={12} color="#fff" />}
+            {/* ── Sleep quality ───────────────────────────── */}
+            <Animated.View style={fadeUp(anim1)}>
+              <Text style={[s.sectionLabel, { color: P.textFaint }]}>HOW DID YOU SLEEP?</Text>
+              <View style={s.sleepRow}>
+                {SLEEP_OPTIONS.map((opt, idx) => {
+                  const active = sleepQuality === opt.value;
+                  return (
+                    <Pressable
+                      key={opt.value}
+                      onPress={() => handleSleepSelect(opt.value)}
+                      style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1, alignItems: 'center', flex: 1 })}
+                    >
+                      <Animated.View style={[
+                        s.sleepCell,
+                        active
+                          ? { backgroundColor: opt.color, borderColor: opt.color, borderWidth: 0 }
+                          : { backgroundColor: P.sunken, borderColor: P.cardEdge, borderWidth: StyleSheet.hairlineWidth },
+                        { transform: [{ scale: sleepScales[idx] }] },
+                      ]}>
+                        <Ionicons
+                          name={opt.icon}
+                          size={22}
+                          color={active ? '#fff' : P.textFaint}
+                        />
+                      </Animated.View>
+                      <Text style={[s.sleepCellLabel, { color: active ? opt.color : P.textFaint }]}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
-              <Ionicons name="barbell-outline" size={16} color={plannedWorkout ? P.good : P.textFaint} />
-              <Text style={[s.workoutLabel, { color: plannedWorkout ? P.good : P.text }]}>
-                Planning a workout today
-              </Text>
-            </Pressable>
+            </Animated.View>
 
-            {/* ── Submit ─────────────────────────────────────── */}
-            <TouchableOpacity
-              onPress={handleSubmit}
-              activeOpacity={canSubmit ? 0.85 : 1}
-              disabled={!canSubmit}
-              style={[
-                s.submitBtn,
-                { backgroundColor: canSubmit ? P.accent : P.surface, marginTop: 16 },
-              ]}
-            >
-              {isSaving ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={[s.submitText, { color: canSubmit ? '#fff' : P.textFaint }]}>
-                  Submit Check-in
+            {/* ── Energy level ────────────────────────────── */}
+            <Animated.View style={[{ marginTop: 20 }, fadeUp(anim2)]}>
+              <Text style={[s.sectionLabel, { color: P.textFaint }]}>ENERGY LEVEL</Text>
+              <View style={s.energyRow}>
+                {ENERGY_OPTIONS.map((opt) => {
+                  const active = energyLevel === opt.value;
+                  return (
+                    <Pressable
+                      key={opt.value}
+                      onPress={() => handleEnergySelect(opt.value)}
+                      style={({ pressed }) => [
+                        s.energyCell,
+                        active
+                          ? { backgroundColor: opt.color, borderColor: opt.color, borderWidth: 0 }
+                          : { backgroundColor: P.sunken, borderColor: P.cardEdge, borderWidth: StyleSheet.hairlineWidth },
+                        { opacity: pressed ? 0.8 : 1 },
+                      ]}
+                    >
+                      <Ionicons
+                        name={opt.icon}
+                        size={20}
+                        color={active ? '#fff' : P.textFaint}
+                      />
+                      <Text style={[s.energyCellLabel, { color: active ? '#fff' : P.textDim }]}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </Animated.View>
+
+            {/* ── Planned workout ─────────────────────────── */}
+            <Animated.View style={[{ marginTop: 14 }, fadeUp(anim3)]}>
+              <Pressable
+                onPress={handleWorkoutToggle}
+                style={({ pressed }) => [
+                  s.workoutRow,
+                  {
+                    backgroundColor: plannedWorkout ? '#22D3EE18' : P.sunken,
+                    borderColor:     plannedWorkout ? '#22D3EE'   : P.cardEdge,
+                    borderWidth:     plannedWorkout ? 1.5 : StyleSheet.hairlineWidth,
+                    opacity: pressed ? 0.8 : 1,
+                  },
+                ]}
+              >
+                <View style={[s.workoutIconBox, { backgroundColor: plannedWorkout ? '#22D3EE22' : P.cardEdge }]}>
+                  <Ionicons name="barbell-outline" size={15} color={plannedWorkout ? '#22D3EE' : P.textFaint} />
+                </View>
+                <Text style={[s.workoutLabel, { color: plannedWorkout ? '#22D3EE' : P.textDim }]}>
+                  Planning a workout today
                 </Text>
-              )}
-            </TouchableOpacity>
+                {/* Pill toggle */}
+                <View style={[s.toggleTrack, { backgroundColor: plannedWorkout ? '#22D3EE55' : P.cardEdge }]}>
+                  <Animated.View style={[
+                    s.toggleNub,
+                    { backgroundColor: plannedWorkout ? '#22D3EE' : P.textFaint, transform: [{ translateX: toggleX }] },
+                  ]} />
+                </View>
+              </Pressable>
+            </Animated.View>
 
-            {/* ── Skip ───────────────────────────────────────── */}
-            <TouchableOpacity
-              onPress={handleSkip}
-              activeOpacity={0.6}
-              style={s.skipBtn}
-            >
-              <Text style={[s.skipText, { color: P.textFaint }]}>Skip for now</Text>
-            </TouchableOpacity>
+            {/* ── Submit ──────────────────────────────────── */}
+            <Animated.View style={[{ marginTop: 20 }, fadeUp(anim4)]}>
+              <Pressable
+                onPress={canSubmit ? handleSubmit : undefined}
+                style={({ pressed }) => [
+                  s.submitBtn,
+                  canSubmit
+                    ? {
+                        backgroundColor: P.calories,
+                        opacity: pressed ? 0.88 : 1,
+                        transform: pressed ? [{ scale: 0.985 }] : [],
+                        ...Platform.select({ ios: {
+                          shadowColor: P.calories, shadowOpacity: 0.5,
+                          shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
+                        }}),
+                      }
+                    : { backgroundColor: P.sunken },
+                ]}
+              >
+                {isSaving
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <>
+                      <Text style={[s.submitText, { color: canSubmit ? '#fff' : P.textFaint }]}>
+                        Log Check-in
+                      </Text>
+                      {canSubmit && <Ionicons name="checkmark-circle" size={18} color="#fff" />}
+                    </>
+                }
+              </Pressable>
+
+              <Pressable
+                onPress={handleSkip}
+                style={({ pressed }) => [s.skipBtn, { opacity: pressed ? 0.45 : 1 }]}
+              >
+                <Text style={[s.skipText, { color: P.textFaint }]}>Skip for now</Text>
+              </Pressable>
+            </Animated.View>
           </>
         )}
       </View>
@@ -364,149 +392,151 @@ export function CheckinModal({ visible, onClose }: Props) {
 
 const s = StyleSheet.create({
   body: {
-    paddingHorizontal: 24,
-    paddingTop: 4,
-    paddingBottom: 8,
+    paddingHorizontal: 22,
+    paddingTop:        2,
+    paddingBottom:     8,
   },
 
-  // Greeting
-  greetRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+  // ── Header
+  header: {
     marginBottom: 22,
+    overflow: 'hidden',
   },
-  sunIcon: {
-    width: 40, height: 40, borderRadius: 14,
-    alignItems: 'center', justifyContent: 'center',
+  headerGlow: {
+    position: 'absolute', top: -30, right: -30,
+    width: 120, height: 120, borderRadius: 60,
   },
-  greeting: {
-    fontSize: 17, fontWeight: '800', letterSpacing: -0.4,
+  headerLeft: {
+    gap: 6,
   },
-  greetSub: {
-    fontSize: 12, fontWeight: '500', marginTop: 1,
+  headerBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 9, paddingVertical: 4,
+    borderRadius: 99,
+    marginBottom: 2,
+  },
+  headerBadgeText: {
+    fontSize: 10, fontWeight: '800', letterSpacing: 1.2,
+  },
+  headerName: {
+    fontSize: 26, fontWeight: '800', letterSpacing: -0.8, lineHeight: 31,
+  },
+  headerDate: {
+    fontSize: 12, fontWeight: '500', marginTop: 2,
   },
 
-  // Section labels
+  // ── Section label
   sectionLabel: {
-    fontSize: 10, fontWeight: '800', letterSpacing: 1.4,
-    marginBottom: 10,
+    fontSize: 10, fontWeight: '800', letterSpacing: 1.5,
+    marginBottom: 12,
   },
 
-  // Sleep quality
+  // ── Sleep quality
   sleepRow: {
-    flexDirection: 'row',
-    gap: 7,
-    marginBottom: 20,
+    flexDirection: 'row', gap: 6,
   },
   sleepCell: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    gap: 4,
+    width: '100%', aspectRatio: 1,
+    borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
   },
-  sleepNum: {
-    fontSize: 15, fontWeight: '800', letterSpacing: -0.3,
-  },
-  sleepLabel: {
-    fontSize: 8, fontWeight: '700', letterSpacing: 0.3,
+  sleepCellLabel: {
+    fontSize: 10, fontWeight: '700', marginTop: 6, letterSpacing: 0.1,
   },
 
-  // Energy
+  // ── Energy level
   energyRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
+    flexDirection: 'row', gap: 8,
   },
   energyCell: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flex: 1, height: 72,
+    borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
     gap: 6,
-    paddingVertical: 13,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
   },
-  energyLabel: {
-    fontSize: 13, fontWeight: '700',
+  energyCellLabel: {
+    fontSize: 12, fontWeight: '700', letterSpacing: -0.2,
   },
 
-  // Workout toggle
+  // ── Workout
   workoutRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 13, paddingHorizontal: 14,
+    borderRadius: 16,
   },
-  workoutCheck: {
-    width: 20, height: 20, borderRadius: 6,
-    borderWidth: 1.5,
+  workoutIconBox: {
+    width: 32, height: 32, borderRadius: 10,
     alignItems: 'center', justifyContent: 'center',
   },
   workoutLabel: {
-    fontSize: 14, fontWeight: '600',
+    flex: 1, fontSize: 13, fontWeight: '600', letterSpacing: -0.2,
+  },
+  toggleTrack: {
+    width: 44, height: 24, borderRadius: 12,
+  },
+  toggleNub: {
+    position: 'absolute', top: 2, left: 0,
+    width: 20, height: 20, borderRadius: 10,
   },
 
-  // Submit
+  // ── Submit
   submitBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 16,
-    borderRadius: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 16, borderRadius: 16,
   },
   submitText: {
-    fontSize: 15, fontWeight: '800', letterSpacing: -0.2,
-    color: '#fff',
+    fontSize: 15, fontWeight: '800', letterSpacing: -0.3, color: '#fff',
   },
-
-  // Skip
   skipBtn: {
-    alignItems: 'center',
-    paddingVertical: 12,
-    marginTop: 2,
+    alignItems: 'center', paddingVertical: 12, marginTop: 2,
   },
   skipText: {
     fontSize: 13, fontWeight: '500',
   },
 
-  // Insight reveal
+  // ── Success reveal
+  successWrap: {
+    alignItems: 'center',
+    paddingTop: 36,
+    paddingBottom: 16,
+  },
   successRing: {
-    width: 60, height: 60, borderRadius: 30,
-    borderWidth: 2,
+    width: 80, height: 80, borderRadius: 40,
+    borderWidth: 2.5,
     alignItems: 'center', justifyContent: 'center',
-    alignSelf: 'center',
-    marginBottom: 14,
-    marginTop: 4,
   },
   successTitle: {
-    fontSize: 20, fontWeight: '800', letterSpacing: -0.5,
-    textAlign: 'center', marginBottom: 4,
+    fontSize: 24, fontWeight: '800', letterSpacing: -0.7,
+    textAlign: 'center',
   },
   successSub: {
     fontSize: 13, fontWeight: '500',
-    textAlign: 'center', marginBottom: 18,
+    textAlign: 'center',
   },
-  insightBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    padding: 14,
-    borderRadius: 16,
+  insightCard: {
+    width: '100%', borderRadius: 20,
     borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 16,
+    padding: 16, overflow: 'hidden',
+    ...Platform.select({
+      ios:     { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 2 },
+    }),
   },
-  insightIcon: {
-    width: 32, height: 32, borderRadius: 10,
-    alignItems: 'center', justifyContent: 'center',
+  insightGlow: {
+    position: 'absolute', top: -40, right: -40,
+    width: 120, height: 120, borderRadius: 60,
   },
-  insightText: {
-    flex: 1, fontSize: 14, fontWeight: '500', lineHeight: 21,
+  insightBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 8, marginBottom: 10,
+  },
+  insightBadgeText: {
+    fontSize: 9, fontWeight: '800', letterSpacing: 1.0,
+  },
+  insightBody: {
+    fontSize: 14, fontWeight: '500', lineHeight: 21, letterSpacing: -0.1,
   },
 });
