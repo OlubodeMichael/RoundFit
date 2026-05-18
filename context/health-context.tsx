@@ -1,7 +1,7 @@
 import React, {
   createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
-import { Platform } from 'react-native';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import { useAuth } from '@/context/auth-context';
 import { apiFetch } from '@/utils/api';
 import {
@@ -12,6 +12,7 @@ import {
   type HealthKitSummary,
 } from '@/utils/healthkit';
 import { getLocalDateString } from '@/utils/date';
+import { invalidateUserTodayCaches } from '@/utils/daily-summary-cache';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
@@ -133,6 +134,37 @@ function isEmptySummary(s: HealthKitSummary): boolean {
       && s.weight_kg === null;
 }
 
+/** Merges fresh device data into a HealthData shape for optimistic UI updates. */
+function applyKitSummary(current: HealthData | null, s: HealthKitSummary, date: string): HealthData {
+  return {
+    id:                    current?.id ?? '',
+    active_calories:       s.active_calories,
+    resting_calories:      s.resting_calories,
+    total_calories_burned: s.total_calories_burned,
+    steps:                 s.steps,
+    distance:              s.distance,
+    distance_unit:         s.distance_unit,
+    avg_heart_rate:        current?.avg_heart_rate ?? null,
+    max_heart_rate:        current?.max_heart_rate ?? null,
+    resting_heart_rate:    s.resting_heart_rate,
+    hrv:                   s.hrv,
+    vo2_max:               s.vo2_max,
+    active_minutes:        s.active_minutes,
+    mindfulness_minutes:   s.mindfulness_minutes,
+    sleep_hours:           s.sleep_hours,
+    deep_sleep_hours:      s.deep_sleep_hours,
+    rem_sleep_hours:       s.rem_sleep_hours,
+    sleep_efficiency:      s.sleep_efficiency,
+    time_in_bed_hours:     s.time_in_bed_hours,
+    bedtime_iso:           s.bedtime_iso,
+    wakeup_iso:            s.wakeup_iso,
+    weight_kg:             s.weight_kg,
+    source:                'healthkit',
+    recorded_at:           current?.recorded_at ?? new Date().toISOString(),
+    date,
+  };
+}
+
 /** Maps a HealthKit read into the POST /health/sync payload. */
 function toSyncInput(s: HealthKitSummary): SyncHealthInput {
   const input: SyncHealthInput = {
@@ -235,7 +267,9 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const [today,       setToday]       = useState<HealthData | null>(null);
   const [isLoading,   setIsLoading]   = useState(true);
   const [isConnected, setIsConnected] = useState(false);
-  const hasFetchedRef    = useRef(false);
+  const hasFetchedRef = useRef(false);
+  const todayRef      = useRef<HealthData | null>(null);
+  useEffect(() => { todayRef.current = today; }, [today]);
 
   // ── Fetch today ──────────────────────────────────────────────────────────
   const fetchByDate = useCallback(async (targetDate: string): Promise<HealthData | null> => {
@@ -267,9 +301,12 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     });
     if (!ok || !body.health_data) throw new Error('Failed to sync health data');
     const saved = fromApiData(body.health_data as Record<string, unknown>);
-    if (applyTodayState) setToday(saved);
+    if (applyTodayState) {
+      setToday(saved);
+      if (user?.id) void invalidateUserTodayCaches(user.id);
+    }
     return saved;
-  }, []);
+  }, [user?.id]);
 
   const syncHealth = useCallback(async (input: SyncHealthInput): Promise<HealthData> => {
     return saveHealthSnapshot(input, true);
@@ -288,7 +325,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
 
       if (!force && lastSync) {
         const minutesSince = (now - parseInt(lastSync)) / 60000;
-        if (minutesSince < 30) {
+        if (minutesSince < 3) {
           console.log('[HealthKit] skipping sync — last sync was', Math.round(minutesSince), 'mins ago');
           return;
         }
@@ -337,6 +374,8 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       const payload = toSyncInput(summary);
       console.log('[HealthKit] POST /health/sync payload:', JSON.stringify(payload, null, 2));
 
+      // Optimistic update: paint fresh device data immediately, server confirms after.
+      setToday(applyKitSummary(todayRef.current, summary, todayDate));
       await saveHealthSnapshot(payload, true);
       await persistConnectedFlag();
       await AsyncStorage.setItem('@roundfit/last_health_sync', now.toString());
@@ -368,8 +407,8 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const hasData = await fetchToday();
-        if (!cancelled) await syncFromDevice(!hasData);
+        await fetchToday();
+        if (!cancelled) await syncFromDevice(false);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -391,10 +430,20 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
+  // ── Re-sync whenever the app returns to foreground ───────────────────────
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || status !== 'authenticated') return;
+    const handleAppState = (nextState: AppStateStatus) => {
+      if (nextState === 'active') syncFromDevice(false);
+    };
+    const sub = AppState.addEventListener('change', handleAppState);
+    return () => sub.remove();
+  }, [status, syncFromDevice]);
+
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
-    const hasData = await fetchToday();
-    await syncFromDevice(!hasData);
+    await fetchToday();
+    await syncFromDevice(false);
   }, [fetchToday, syncFromDevice]);
 
   return (

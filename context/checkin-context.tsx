@@ -260,11 +260,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         lastFetchDateRef.current = getLocalDateString();
-        await Promise.all([
-          fetchToday(),
-          fetchHistory(),
-          fetchStats(),
-        ]);
+        await fetchToday();
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -284,12 +280,12 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
           lastFetchDateRef.current = todayDate;
           doneThisSession.current = false;
           setToday(null);
-          void Promise.all([fetchToday(), fetchHistory(), fetchStats()]);
+          void fetchToday();
         }
       }
     });
     return () => sub.remove();
-  }, [fetchToday, fetchHistory, fetchStats]);
+  }, [fetchToday]);
 
   // ── Submit morning check-in ──────────────────────────────────────────────
   const submitMorningCheckin = useCallback(async (

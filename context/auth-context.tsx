@@ -1,10 +1,12 @@
 import { supabase } from "@/lib/supabase";
+import type { DeleteAccountInput } from "@/types/account-deletion";
 import {
     apiFetch,
     clearTokens,
     proactiveRefreshIfNeeded,
     storeTokens,
 } from "@/utils/api";
+import Constants from "expo-constants";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as WebBrowser from "expo-web-browser";
 import React, {
@@ -15,7 +17,7 @@ import React, {
     useRef,
     useState,
 } from "react";
-import { AppState, type AppStateStatus } from "react-native";
+import { AppState, Platform, type AppStateStatus } from "react-native";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -69,6 +71,7 @@ export interface UserProfile {
   avatarUrl?: string | null;
   tdee?: number;
   calorieBudget?: number;
+  stepsTarget?: number;
   currentStreak?: number;
   createdAt: string;
 }
@@ -140,7 +143,7 @@ interface AuthContextValue {
   ) => Promise<void>;
 
   /** Permanently deletes the account and all its data. */
-  deleteAccount: () => Promise<void>;
+  deleteAccount: (input: DeleteAccountInput) => Promise<void>;
 
   /** Clears the last error. */
   clearError: () => void;
@@ -233,6 +236,7 @@ function toApiBody(
     out.goal = toApiGoal(normaliseGoal(profile.goal));
   }
   if (profile.unit !== undefined) out.unit = profile.unit;
+  if (profile.stepsTarget !== undefined) out.steps_target = profile.stepsTarget;
   return out;
 }
 
@@ -262,6 +266,8 @@ function fromApiProfile(row: Record<string, unknown>): UserProfile {
     tdee: typeof row.tdee === "number" ? row.tdee : undefined,
     calorieBudget:
       typeof row.calorie_budget === "number" ? row.calorie_budget : undefined,
+    stepsTarget:
+      typeof row.steps_target === "number" ? row.steps_target : undefined,
     currentStreak:
       typeof row.current_streak === "number" ? row.current_streak : undefined,
     createdAt: str(row.created_at, new Date().toISOString()),
@@ -661,9 +667,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── Delete account ───────────────────────────────────────────────────────
-  const deleteAccount = useCallback(async () => {
-    const { ok } = await apiFetch("/auth/account", { method: "DELETE" });
-    if (!ok) throw new Error("delete_account_failed");
+  const deleteAccount = useCallback(async (input: DeleteAccountInput) => {
+    const platform =
+      Platform.OS === "ios"
+        ? "ios"
+        : Platform.OS === "android"
+          ? "android"
+          : undefined;
+    const { ok, body } = await apiFetch("/auth/account", {
+      method: "DELETE",
+      body: JSON.stringify({
+        reason: input.reason,
+        details: input.details,
+        platform,
+        app_version: Constants.expoConfig?.version ?? undefined,
+      }),
+    });
+    if (!ok) {
+      const msg =
+        typeof body.error === "string" ? body.error : "delete_account_failed";
+      throw new Error(msg);
+    }
     await clearTokens();
     setUser(null);
     setOauthProfilePending(false);

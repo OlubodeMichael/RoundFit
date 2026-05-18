@@ -1,264 +1,262 @@
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput,
-  KeyboardAvoidingView, Platform, ScrollView, Animated, Easing,
+  View, Text, StyleSheet, TouchableOpacity, Animated, Easing,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GoogleLogo } from '@/components/ui/GoogleLogo';
-import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/hooks/use-auth';
-import { usePostHog } from 'posthog-react-native';
+
+const C = {
+  bg:      '#FAFAF8',
+  text:    '#111111',
+  mid:     '#888888',
+  line:    '#E8E3DC',
+  accent:  '#F97316',
+  accentS: 'rgba(249,115,22,0.07)',
+};
 
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isDark } = useTheme();
-  const { signIn, signInWithOAuth, isLoading, error, clearError, isAuth } = useAuth();
-  const posthog = usePostHog();
-
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [showPass, setShowPass] = useState(false);
-  const [focused, setFocused]   = useState<'email' | 'password' | null>(null);
-
-  const emailUnderline    = useRef(new Animated.Value(0)).current;
-  const passwordUnderline = useRef(new Animated.Value(0)).current;
-
-  const bg  = isDark ? '#0A0B0F' : '#FAFAF8';
-  const hi  = isDark ? '#F4F4F5' : '#111111';
-  const mid = isDark ? '#909096' : '#888';
-  const lo  = isDark ? '#2A2A32' : '#E8E3DC';
+  const { signInWithOAuth, isLoading } = useAuth();
 
   const fade  = useRef(new Animated.Value(0)).current;
-  const slideY = useRef(new Animated.Value(24)).current;
+  const slideY = useRef(new Animated.Value(20)).current;
+  const btnsFade = useRef(new Animated.Value(0)).current;
+  const btnsY    = useRef(new Animated.Value(16)).current;
 
   useEffect(() => {
+    const ease = Easing.out(Easing.cubic);
     Animated.parallel([
-      Animated.timing(fade,   { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.timing(slideY, { toValue: 0, duration: 450, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(fade,      { toValue: 1, duration: 480, delay:  60, useNativeDriver: true }),
+      Animated.timing(slideY,    { toValue: 0, duration: 480, delay:  60, easing: ease, useNativeDriver: true }),
+      Animated.timing(btnsFade,  { toValue: 1, duration: 480, delay: 220, useNativeDriver: true }),
+      Animated.timing(btnsY,     { toValue: 0, duration: 480, delay: 220, easing: ease, useNativeDriver: true }),
     ]).start();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    Animated.timing(emailUnderline, {
-      toValue: focused === 'email' ? 1 : 0, duration: 250, useNativeDriver: false,
-    }).start();
-  }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    Animated.timing(passwordUnderline, {
-      toValue: focused === 'password' ? 1 : 0, duration: 250, useNativeDriver: false,
-    }).start();
-  }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Navigate once auth succeeds
-  useEffect(() => {
-    if (isAuth) router.replace('/(tabs)');
-  }, [isAuth]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const canSubmit = email.trim().length > 4 && password.length >= 6 && !isLoading;
-
-  const ERROR_LABELS: Record<string, string> = {
-    INVALID_CREDENTIALS: 'Incorrect email or password.',
-    INVALID_EMAIL:       'Please enter a valid email address.',
-    UNKNOWN:             'Something went wrong. Please try again.',
-  };
-
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView
-        style={{ flex: 1, backgroundColor: bg }}
-        contentContainerStyle={{ flexGrow: 1 }}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={[s.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 28 }]}>
+    <View style={[s.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 }]}>
 
-          {/* Back */}
-          <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
-            <Ionicons name="chevron-back" size={22} color={hi} />
-          </TouchableOpacity>
+      {/* Decorative blob */}
+      <View style={s.bgBlob} pointerEvents="none" />
 
-          {/* Heading */}
-          <Animated.View style={[s.headBlock, { opacity: fade, transform: [{ translateY: slideY }] }]}>
-            <Text style={[s.headline, { color: hi }]}>Welcome{'\n'}back.</Text>
-            <Text style={[s.sub, { color: mid }]}>Log in to continue your journey.</Text>
-          </Animated.View>
+      {/* Back */}
+      <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
+        <Ionicons name="chevron-back" size={20} color={C.text} />
+      </TouchableOpacity>
 
-          {/* Form */}
-          <Animated.View style={[s.form, { opacity: fade }]}>
-            {/* Email */}
-            <View style={s.fieldWrap}>
-              <Text style={[s.fieldLabel, { color: mid }]}>Email</Text>
-              <View style={s.fieldInner}>
-                <TextInput
-                  style={[s.fieldInput, { color: hi }]}
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="you@example.com"
-                  placeholderTextColor={lo}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  onFocus={() => setFocused('email')}
-                  onBlur={() => setFocused(null)}
-                />
-              </View>
-              <View style={[s.underlineTrack, { backgroundColor: lo }]}>
-                <Animated.View style={[s.underlineFill, {
-                  width: emailUnderline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                }]} />
-              </View>
-            </View>
-
-            {/* Password */}
-            <View style={s.fieldWrap}>
-              <View style={s.fieldLabelRow}>
-                <Text style={[s.fieldLabel, { color: mid }]}>Password</Text>
-                <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/auth/forgot-password')}>
-                  <Text style={s.forgotText}>Forgot password?</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={s.fieldInner}>
-                <TextInput
-                  style={[s.fieldInput, { color: hi }]}
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="Your password"
-                  placeholderTextColor={lo}
-                  secureTextEntry={!showPass}
-                  autoCapitalize="none"
-                  onFocus={() => setFocused('password')}
-                  onBlur={() => setFocused(null)}
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPass(v => !v)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={mid} />
-                </TouchableOpacity>
-              </View>
-              <View style={[s.underlineTrack, { backgroundColor: lo }]}>
-                <Animated.View style={[s.underlineFill, {
-                  width: passwordUnderline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                }]} />
-              </View>
-            </View>
-          </Animated.View>
-
-          <View style={{ flex: 1 }} />
-
-          {/* CTA */}
-          <Animated.View style={[s.bottom, { opacity: fade }]}>
-            {error && ERROR_LABELS[error] && (
-              <TouchableOpacity onPress={clearError} activeOpacity={0.8}>
-                <Text style={s.errorText}>{ERROR_LABELS[error]}</Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity
-              style={[s.cta, { opacity: canSubmit ? 1 : 0.35 }]}
-              activeOpacity={0.85}
-              disabled={!canSubmit}
-              onPress={async () => {
-                try {
-                  await signIn(email.trim(), password);
-                  posthog.identify(email.trim(), { $set: { email: email.trim() } });
-                  posthog.capture('user_signed_in');
-                } catch (err) {
-                  const e = err instanceof Error ? err : new Error(String(err));
-                  posthog.capture('$exception', {
-                    $exception_list: [{ type: e.name, value: e.message, stacktrace: { type: 'raw', frames: e.stack ?? '' } }],
-                    $exception_source: 'sign_in',
-                  });
-                }
-              }}
-            >
-              <Text style={s.ctaText}>{isLoading ? 'Logging in…' : 'Log in  →'}</Text>
-            </TouchableOpacity>
-
-            {/* Divider */}
-            <View style={s.dividerRow}>
-              <View style={[s.dividerLine, { backgroundColor: lo }]} />
-              <Text style={[s.dividerText, { color: mid }]}>or</Text>
-              <View style={[s.dividerLine, { backgroundColor: lo }]} />
-            </View>
-
-            {/* Apple */}
-            <TouchableOpacity
-              style={[s.socialBtn, { backgroundColor: isDark ? '#1C1C1E' : '#000', borderColor: isDark ? '#2A2A32' : '#000', opacity: isLoading ? 0.5 : 1 }]}
-              activeOpacity={0.8}
-              disabled={isLoading}
-              onPress={() => signInWithOAuth('apple')}
-            >
-              <Ionicons name="logo-apple" size={20} color="#FFF" />
-              <Text style={[s.socialBtnText, { color: '#FFF' }]}>Continue with Apple</Text>
-            </TouchableOpacity>
-
-            {/* Google */}
-            <TouchableOpacity
-              style={[s.socialBtn, { backgroundColor: isDark ? '#1C1C1E' : '#FFF', borderColor: isDark ? '#2A2A32' : '#E5E5E5', opacity: isLoading ? 0.5 : 1 }]}
-              activeOpacity={0.8}
-              disabled={isLoading}
-              onPress={() => signInWithOAuth('google')}
-            >
-              <GoogleLogo size={18} />
-              <Text style={[s.socialBtnText, { color: hi }]}>Continue with Google</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={() => router.push('/onboarding/value-hook')} activeOpacity={0.7}>
-              <Text style={[s.switchLink, { color: mid }]}>
-                New here?{'  '}
-                <Text style={{ color: '#F97316', fontWeight: '700' }}>Get started</Text>
-              </Text>
-            </TouchableOpacity>
-          </Animated.View>
-
+      {/* Heading */}
+      <Animated.View style={[s.headBlock, { opacity: fade, transform: [{ translateY: slideY }] }]}>
+        <View style={s.eyebrowRow}>
+          <View style={s.eyebrowDash} />
+          <Text style={s.eyebrow}>WELCOME</Text>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        <Text style={s.headline}>
+          Start your{'\n'}
+          <Text style={s.headlineAccent}>round.</Text>
+        </Text>
+        <Text style={s.sub}>Pick how you'd like to sign in. Takes about 30 seconds.</Text>
+      </Animated.View>
+
+      <View style={{ flex: 1 }} />
+
+      {/* Auth options */}
+      <Animated.View style={[s.buttons, { opacity: btnsFade, transform: [{ translateY: btnsY }] }]}>
+
+        {/* Apple */}
+        <TouchableOpacity
+          style={[s.appleBtn, { opacity: isLoading ? 0.6 : 1 }]}
+          activeOpacity={0.85}
+          disabled={isLoading}
+          onPress={() => signInWithOAuth('apple')}
+        >
+          <Ionicons name="logo-apple" size={20} color="#FFF" />
+          <Text style={s.appleBtnText}>Continue with Apple</Text>
+        </TouchableOpacity>
+
+        {/* Google */}
+        <TouchableOpacity
+          style={[s.outlineBtn, { opacity: isLoading ? 0.6 : 1 }]}
+          activeOpacity={0.85}
+          disabled={isLoading}
+          onPress={() => signInWithOAuth('google')}
+        >
+          <GoogleLogo size={18} />
+          <Text style={s.outlineBtnText}>Continue with Google</Text>
+        </TouchableOpacity>
+
+        {/* Email */}
+        <TouchableOpacity
+          style={s.outlineBtn}
+          activeOpacity={0.85}
+          onPress={() => router.push('/auth/email-login')}
+        >
+          <Ionicons name="mail-outline" size={19} color={C.text} />
+          <Text style={s.outlineBtnText}>Continue with email</Text>
+        </TouchableOpacity>
+
+        {/* OR divider */}
+        <View style={s.dividerRow}>
+          <View style={s.dividerLine} />
+          <Text style={s.dividerText}>OR</Text>
+          <View style={s.dividerLine} />
+        </View>
+
+        {/* Create account */}
+        <TouchableOpacity
+          style={s.createBtn}
+          activeOpacity={0.9}
+          onPress={() => router.push('/onboarding/value-hook')}
+        >
+          <Text style={s.createBtnText}>Create new account  →</Text>
+        </TouchableOpacity>
+
+        {/* Legal */}
+        <Text style={s.legal}>
+          By continuing you agree to our{' '}
+          <Text style={s.legalLink}>Terms</Text>
+          {' '}and{' '}
+          <Text style={s.legalLink}>Privacy Policy</Text>.
+        </Text>
+
+      </Animated.View>
+
+    </View>
   );
 }
 
 const s = StyleSheet.create({
-  root:    { flex: 1, paddingHorizontal: 28, gap: 40 },
-  backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginLeft: -4 },
-
-  headBlock: { gap: 10 },
-  headline:  { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48 },
-  sub:       { fontSize: 15, fontWeight: '400', lineHeight: 22 },
-
-  form:      { gap: 32 },
-  fieldWrap: { gap: 0 },
-  fieldLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  fieldLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 },
-  fieldInner: { flexDirection: 'row', alignItems: 'center', paddingBottom: 8 },
-  fieldInput: { flex: 1, fontSize: 20, fontWeight: '600', letterSpacing: -0.3 },
-  forgotText: { fontSize: 13, fontWeight: '600', color: '#F97316' },
-
-  underlineTrack: { height: 1.5, overflow: 'hidden' },
-  underlineFill:  { height: 1.5, backgroundColor: '#F97316' },
-
-  errorText:  { fontSize: 13, color: '#EF4444', textAlign: 'center', lineHeight: 18 },
-  bottom:     { gap: 14 },
-  cta:    {
-    backgroundColor: '#F97316', borderRadius: 14,
-    paddingVertical: 18, alignItems: 'center',
-    shadowColor: '#F97316', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35, shadowRadius: 12, elevation: 8,
+  root: {
+    flex:              1,
+    backgroundColor:   C.bg,
+    paddingHorizontal: 24,
   },
-  ctaText:    { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
-  switchLink: { fontSize: 13, textAlign: 'center' },
 
-  dividerRow:  { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  dividerLine: { flex: 1, height: 1 },
-  dividerText: { fontSize: 12, fontWeight: '600', letterSpacing: 0.5 },
-
-  socialBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
-    borderRadius: 14, borderWidth: 1, paddingVertical: 16,
+  bgBlob: {
+    position:        'absolute',
+    top:             -60,
+    right:           -70,
+    width:           200,
+    height:          200,
+    borderRadius:    100,
+    backgroundColor: C.accentS,
   },
-  socialBtnText: { fontSize: 15, fontWeight: '700', letterSpacing: -0.1 },
+
+  backBtn: {
+    width:           36,
+    height:          36,
+    borderRadius:    18,
+    backgroundColor: '#F0EDE8',
+    alignItems:      'center',
+    justifyContent:  'center',
+    marginBottom:    8,
+  },
+
+  headBlock:   { gap: 12 },
+  eyebrowRow:  { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  eyebrowDash: { width: 20, height: 2, backgroundColor: C.accent, borderRadius: 1 },
+  eyebrow:     {
+    fontFamily:    'Syne_700Bold',
+    fontSize:      10,
+    letterSpacing: 2.2,
+    color:         C.accent,
+  },
+
+  headline: {
+    fontFamily:    'Syne_800ExtraBold',
+    fontSize:      48,
+    lineHeight:    54,
+    letterSpacing: -2,
+    color:         C.text,
+  },
+  headlineAccent: { color: C.accent },
+
+  sub: {
+    fontSize:   15,
+    lineHeight: 22,
+    color:      C.mid,
+  },
+
+  buttons: { gap: 12 },
+
+  appleBtn: {
+    flexDirection:   'row',
+    alignItems:      'center',
+    justifyContent:  'center',
+    gap:             10,
+    backgroundColor: '#000000',
+    borderRadius:    14,
+    paddingVertical: 17,
+  },
+  appleBtnText: {
+    color:         '#FFF',
+    fontFamily:    'Syne_700Bold',
+    fontSize:      15,
+    letterSpacing: -0.1,
+  },
+
+  outlineBtn: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'center',
+    gap:               10,
+    backgroundColor:   '#FFFFFF',
+    borderRadius:      14,
+    borderWidth:       1,
+    borderColor:       C.line,
+    paddingVertical:   16,
+  },
+  outlineBtnText: {
+    color:         C.text,
+    fontFamily:    'Syne_700Bold',
+    fontSize:      15,
+    letterSpacing: -0.1,
+  },
+
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           12,
+    marginVertical: 2,
+  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: C.line },
+  dividerText: {
+    fontSize:      12,
+    fontWeight:    '600',
+    color:         C.mid,
+    letterSpacing: 0.8,
+  },
+
+  createBtn: {
+    backgroundColor: C.accent,
+    borderRadius:    14,
+    paddingVertical: 17,
+    alignItems:      'center',
+    shadowColor:     C.accent,
+    shadowOffset:    { width: 0, height: 8 },
+    shadowOpacity:   0.28,
+    shadowRadius:    16,
+    elevation:       8,
+  },
+  createBtnText: {
+    color:         '#FFF',
+    fontFamily:    'Syne_700Bold',
+    fontSize:      15,
+    letterSpacing: 0.1,
+  },
+
+  legal: {
+    fontSize:   12,
+    color:      C.mid,
+    textAlign:  'center',
+    lineHeight: 18,
+    marginTop:  4,
+  },
+  legalLink: {
+    color:      C.text,
+    fontWeight: '600',
+  },
 });

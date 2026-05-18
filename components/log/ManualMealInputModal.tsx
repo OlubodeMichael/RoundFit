@@ -1,8 +1,9 @@
 import { AppModal } from "@/components/ui/AppModal";
-import { useTheme } from "@/hooks/use-theme";
+import { usePalette } from "@/lib/log-theme";
 import { useEffect, useState } from "react";
 import {
     Alert,
+    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -40,25 +41,20 @@ type ManualMealInputModalProps = {
   visible: boolean;
   onClose: () => void;
   onSubmit: (value: ManualMealInput) => void;
-  /**
-   * When set, the modal opens with this meal label already chosen and hides
-   * the picker (a compact "Adding to …" chip is shown instead). Use this when
-   * the user entered the modal from a specific meal section so they don't
-   * have to pick the label again.
-   */
   presetLabel?: MealLabel;
-  /** Pre-fills all fields — used when editing an existing entry. */
   initialValues?: ManualMealInitialValues;
 };
 
 const LABELS: { id: MealLabel; title: string }[] = [
-  { id: "breakfast", title: "Breakfast" },
-  { id: "lunch", title: "Lunch" },
-  { id: "dinner", title: "Dinner" },
-  { id: "snack", title: "Snack" },
-  { id: "pre_workout", title: "Pre Workout" },
-  { id: "post_workout", title: "Post Workout" },
+  { id: "breakfast",    title: "Breakfast"    },
+  { id: "lunch",        title: "Lunch"        },
+  { id: "dinner",       title: "Dinner"       },
+  { id: "snack",        title: "Snack"        },
+  { id: "pre_workout",  title: "Pre-workout"  },
+  { id: "post_workout", title: "Post-workout" },
 ];
+
+const O = '#F97316';
 
 function parseOptionalNumber(value: string): number | undefined {
   const t = value.trim();
@@ -80,14 +76,14 @@ export function ManualMealInputModal({
   presetLabel,
   initialValues,
 }: ManualMealInputModalProps) {
-  const { isDark } = useTheme();
-  const [name, setName] = useState("");
-  const [label, setLabel] = useState<MealLabel>(presetLabel ?? "breakfast");
+  const P = usePalette();
+
+  const [name,     setName]     = useState("");
+  const [label,    setLabel]    = useState<MealLabel>(presetLabel ?? "breakfast");
   const [calories, setCalories] = useState("");
-  const [showMacros, setShowMacros] = useState(false);
-  const [protein, setProtein] = useState("");
-  const [carbs, setCarbs] = useState("");
-  const [fat, setFat] = useState("");
+  const [protein,  setProtein]  = useState("");
+  const [carbs,    setCarbs]    = useState("");
+  const [fat,      setFat]      = useState("");
 
   const isEditing = !!initialValues;
 
@@ -97,28 +93,18 @@ export function ManualMealInputModal({
       setName(initialValues.name ?? "");
       setLabel(presetLabel ?? "breakfast");
       setCalories(initialValues.calories != null ? String(initialValues.calories) : "");
-      setProtein(initialValues.protein  != null ? String(initialValues.protein)  : "");
-      setCarbs(  initialValues.carbs    != null ? String(initialValues.carbs)    : "");
-      setFat(    initialValues.fat      != null ? String(initialValues.fat)      : "");
-      setShowMacros(
-        initialValues.protein != null || initialValues.carbs != null || initialValues.fat != null,
-      );
+      setProtein(initialValues.protein   != null ? String(initialValues.protein)  : "");
+      setCarbs(  initialValues.carbs     != null ? String(initialValues.carbs)    : "");
+      setFat(    initialValues.fat       != null ? String(initialValues.fat)      : "");
     } else {
       setName("");
       setLabel(presetLabel ?? "breakfast");
       setCalories("");
-      setShowMacros(false);
       setProtein("");
       setCarbs("");
       setFat("");
     }
   }, [visible, presetLabel, initialValues]);
-
-  const bg = isDark ? "#1C1D23" : "#FFFFFF";
-  const hi = isDark ? "#F4F4F5" : "#111111";
-  const mid = isDark ? "#C4C4C8" : "#666666";
-  const line = isDark ? "#333340" : "#EAEAEA";
-  const inputBg = isDark ? "#141519" : "#FAFAFA";
 
   const submit = () => {
     const cleanName = name.trim();
@@ -136,8 +122,8 @@ export function ManualMealInputModal({
       label,
       calories: Math.round(cals),
       protein: parseOptionalNumber(protein),
-      carbs: parseOptionalNumber(carbs),
-      fat: parseOptionalNumber(fat),
+      carbs:   parseOptionalNumber(carbs),
+      fat:     parseOptionalNumber(fat),
     });
     onClose();
   };
@@ -146,259 +132,379 @@ export function ManualMealInputModal({
     <AppModal
       visible={visible}
       onClose={onClose}
-      title={isEditing ? "Edit Entry" : "Manual Entry"}
-      sheetHeight="full"
+      sheetHeight={0.80}
     >
       <ScrollView
-        style={{ flex: 1, backgroundColor: bg }}
-        contentContainerStyle={{
-          paddingHorizontal: 20,
-          paddingVertical: 16,
-          gap: 14,
-        }}
+        style={{ flex: 1 }}
+        contentContainerStyle={s.scroll}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <View style={s.row}>
-          <Text style={[s.label, { color: mid }]}>Meal name</Text>
+        {/* ── Header ─────────────────────────────────────────── */}
+        <View style={s.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.eyebrow}>
+              {isEditing ? 'EDIT ENTRY' : 'NEW ENTRY'}
+            </Text>
+            <Text style={[s.title, { color: P.text }]}>
+              {isEditing ? 'Edit meal' : 'Add manually'}
+            </Text>
+          </View>
+          <Pressable
+            onPress={onClose}
+            hitSlop={10}
+            style={[s.closeBtn, { backgroundColor: P.sunken }]}
+          >
+            <Text style={[s.closeBtnText, { color: P.textDim }]}>✕</Text>
+          </Pressable>
+        </View>
+
+        {/* ── Meal name ───────────────────────────────────────── */}
+        <View style={s.section}>
+          <Text style={[s.sectionLabel, { color: P.textFaint }]}>MEAL NAME</Text>
           <TextInput
             value={name}
             onChangeText={setName}
             placeholder="e.g. Chicken rice bowl"
-            placeholderTextColor={mid}
-            style={[
-              s.input,
-              {
-                color: hi,
-                borderColor: line,
-                backgroundColor: inputBg,
-              },
-            ]}
+            placeholderTextColor={P.textFaint}
+            autoCapitalize="sentences"
+            style={[s.textInput, { color: P.text, backgroundColor: P.sunken }]}
           />
         </View>
 
-        {presetLabel ? (
-          <View style={s.row}>
-            <Text style={[s.label, { color: mid }]}>Adding to</Text>
-            <View
-              style={[
-                s.presetChip,
-                { borderColor: "#F97316", backgroundColor: "rgba(249,115,22,0.22)" },
-              ]}
-            >
-              <Text style={[s.presetChipText, { color: "#F97316" }]}>
+        {/* ── Meal type ───────────────────────────────────────── */}
+        <View style={s.section}>
+          <Text style={[s.sectionLabel, { color: P.textFaint }]}>MEAL TYPE</Text>
+          {presetLabel ? (
+            <View style={[s.presetChip, { backgroundColor: 'rgba(249,115,22,0.12)', borderColor: O }]}>
+              <Text style={[s.presetChipText, { color: O }]}>
                 {LABELS.find((l) => l.id === presetLabel)?.title ?? presetLabel}
               </Text>
             </View>
-          </View>
-        ) : (
-          <View style={s.row}>
-            <Text style={[s.label, { color: mid }]}>Meal label</Text>
-            <View style={s.tagWrap}>
+          ) : (
+            <View style={s.chipWrap}>
               {LABELS.map((opt) => {
                 const active = opt.id === label;
                 return (
                   <TouchableOpacity
                     key={opt.id}
                     onPress={() => setLabel(opt.id)}
+                    activeOpacity={0.75}
                     style={[
-                      s.tag,
-                      {
-                        borderColor: active ? "#F97316" : line,
-                        backgroundColor: active
-                          ? "rgba(249,115,22,0.22)"
-                          : "transparent",
-                      },
+                      s.chip,
+                      active
+                        ? { backgroundColor: O, borderColor: O }
+                        : { backgroundColor: P.sunken, borderColor: P.sunken },
                     ]}
                   >
-                    <Text style={[s.tagText, { color: active ? "#F97316" : hi }]}>
+                    <Text style={[s.chipText, { color: active ? '#fff' : P.text }]}>
                       {opt.title}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
-          </View>
-        )}
-
-        <View style={s.row}>
-          <Text style={[s.label, { color: mid }]}>Calories</Text>
-          <TextInput
-            value={calories}
-            onChangeText={setCalories}
-            keyboardType="number-pad"
-            placeholder="e.g. 430"
-            placeholderTextColor={mid}
-            style={[
-              s.input,
-              {
-                color: hi,
-                borderColor: line,
-                backgroundColor: inputBg,
-              },
-            ]}
-          />
+          )}
         </View>
 
-        <TouchableOpacity
-          style={[s.collapseBtn, { borderColor: line }]}
-          onPress={() => setShowMacros((v) => !v)}
-        >
-          <Text style={[s.collapseText, { color: hi }]}>
-            Protein / Carbs / Fat (optional)
-          </Text>
-          <Text style={[s.collapseIcon, { color: mid }]}>
-            {showMacros ? "−" : "+"}
-          </Text>
-        </TouchableOpacity>
-
-        {showMacros ? (
-          <View style={s.macroGrid}>
-            <View style={s.macroField}>
-              <Text style={[s.label, { color: mid }]}>Protein (g)</Text>
-              <TextInput
-                value={protein}
-                onChangeText={(v) => setProtein(sanitizeNumericInput(v))}
-                keyboardType="decimal-pad"
-                placeholder="0"
-                placeholderTextColor={mid}
-                style={[
-                  s.input,
-                  s.macroInput,
-                  {
-                    color: hi,
-                    borderColor: line,
-                    backgroundColor: inputBg,
-                  },
-                ]}
-              />
-            </View>
-            <View style={s.macroField}>
-              <Text style={[s.label, { color: mid }]}>Carbs (g)</Text>
-              <TextInput
-                value={carbs}
-                onChangeText={(v) => setCarbs(sanitizeNumericInput(v))}
-                keyboardType="decimal-pad"
-                placeholder="0"
-                placeholderTextColor={mid}
-                style={[
-                  s.input,
-                  s.macroInput,
-                  {
-                    color: hi,
-                    borderColor: line,
-                    backgroundColor: inputBg,
-                  },
-                ]}
-              />
-            </View>
-            <View style={s.macroField}>
-              <Text style={[s.label, { color: mid }]}>Fat (g)</Text>
-              <TextInput
-                value={fat}
-                onChangeText={(v) => setFat(sanitizeNumericInput(v))}
-                keyboardType="decimal-pad"
-                placeholder="0"
-                placeholderTextColor={mid}
-                style={[
-                  s.input,
-                  s.macroInput,
-                  {
-                    color: hi,
-                    borderColor: line,
-                    backgroundColor: inputBg,
-                  },
-                ]}
-              />
-            </View>
+        {/* ── Calories ────────────────────────────────────────── */}
+        <View style={s.section}>
+          <Text style={[s.sectionLabel, { color: P.textFaint }]}>CALORIES</Text>
+          <View style={[s.calsBox, { backgroundColor: P.sunken }]}>
+            <TextInput
+              value={calories}
+              onChangeText={(t) => setCalories(sanitizeNumericInput(t))}
+              keyboardType="number-pad"
+              placeholder="e.g. 430"
+              placeholderTextColor={P.textFaint}
+              style={[s.calsInput, { color: P.text }]}
+            />
+            <Text style={[s.calsUnit, { color: P.textFaint }]}>kcal</Text>
           </View>
-        ) : null}
+        </View>
+
+        {/* ── Macros ──────────────────────────────────────────── */}
+        <View style={s.section}>
+          <View style={s.macrosHeader}>
+            <Text style={[s.sectionLabel, { color: P.textFaint }]}>MACROS · GRAMS</Text>
+            <Text style={[s.optionalText, { color: P.textFaint }]}>Optional</Text>
+          </View>
+          <View style={s.macroGrid}>
+            <MacroCell
+              dot={P.protein}
+              label="PROTEIN"
+              value={protein}
+              onChange={setProtein}
+              P={P}
+            />
+            <MacroCell
+              dot={P.carbs}
+              label="CARBS"
+              value={carbs}
+              onChange={setCarbs}
+              P={P}
+            />
+            <MacroCell
+              dot={P.fat}
+              label="FAT"
+              value={fat}
+              onChange={setFat}
+              P={P}
+            />
+          </View>
+        </View>
       </ScrollView>
 
-      <View style={[s.footer, { borderTopColor: line, backgroundColor: bg }]}>
+      {/* ── Footer ─────────────────────────────────────────────── */}
+      <View style={[s.footer, { borderTopColor: P.hair, backgroundColor: P.bg }]}>
         <TouchableOpacity
-          style={[s.secondaryBtn, { borderColor: line }]}
+          style={[s.cancelBtn, { backgroundColor: P.sunken }]}
           onPress={onClose}
+          activeOpacity={0.8}
         >
-          <Text style={[s.secondaryText, { color: hi }]}>Cancel</Text>
+          <Text style={[s.cancelText, { color: P.text }]}>Cancel</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.primaryBtn} onPress={submit}>
-          <Text style={s.primaryText}>{isEditing ? 'Save changes' : 'Add meal'}</Text>
+        <TouchableOpacity
+          style={s.submitBtn}
+          onPress={submit}
+          activeOpacity={0.85}
+        >
+          <Text style={s.submitText}>
+            {isEditing ? 'Save changes' : 'Add meal  →'}
+          </Text>
         </TouchableOpacity>
       </View>
     </AppModal>
   );
 }
 
+// ── MacroCell ─────────────────────────────────────────────────────────────────
+
+function MacroCell({
+  dot, label, value, onChange, P,
+}: {
+  dot: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  P: ReturnType<typeof usePalette>;
+}) {
+  return (
+    <View style={[s.macroCell, { backgroundColor: P.sunken }]}>
+      <View style={s.macroCellHeader}>
+        <View style={[s.macroDot, { backgroundColor: dot }]} />
+        <Text style={[s.macroCellLabel, { color: P.textFaint }]}>{label}</Text>
+      </View>
+      <View style={s.macroCellRow}>
+        <TextInput
+          value={value}
+          onChangeText={(t) => onChange(sanitizeNumericInput(t))}
+          keyboardType="decimal-pad"
+          placeholder="0"
+          placeholderTextColor={P.textFaint}
+          style={[s.macroCellInput, { color: P.text }]}
+        />
+        <Text style={[s.macroCellUnit, { color: P.textFaint }]}>g</Text>
+      </View>
+    </View>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
 const s = StyleSheet.create({
-  row: { gap: 8 },
-  label: { fontSize: 12, fontWeight: "600" },
-  input: {
-    height: 46,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    fontSize: 15,
-    fontWeight: "500",
+  scroll: {
+    paddingHorizontal: 20,
+    paddingBottom:     20,
+    gap:               20,
   },
-  tagWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  tag: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+
+  // Header
+  header: {
+    flexDirection:  'row',
+    alignItems:     'flex-start',
+    paddingTop:     4,
   },
-  tagText: { fontSize: 12, fontWeight: "700" },
+  eyebrow: {
+    fontSize:      11,
+    fontWeight:    '800',
+    letterSpacing: 1.4,
+    color:         O,
+    marginBottom:  4,
+  },
+  title: {
+    fontFamily:    'Syne_700Bold',
+    fontSize:      28,
+    fontWeight:    '800',
+    letterSpacing: -0.8,
+    lineHeight:    32,
+  },
+  closeBtn: {
+    width:           36,
+    height:          36,
+    borderRadius:    18,
+    alignItems:      'center',
+    justifyContent:  'center',
+    marginTop:       4,
+  },
+  closeBtnText: {
+    fontSize:   13,
+    fontWeight: '700',
+  },
+
+  // Sections
+  section: {
+    gap: 10,
+  },
+  sectionLabel: {
+    fontSize:      11,
+    fontWeight:    '800',
+    letterSpacing: 1.2,
+  },
+
+  // Text input (meal name)
+  textInput: {
+    height:            52,
+    borderRadius:      14,
+    paddingHorizontal: 16,
+    fontSize:          15,
+    fontWeight:        '500',
+  },
+
+  // Meal type chips
   presetChip: {
-    alignSelf:         "flex-start",
+    alignSelf:         'flex-start',
     borderWidth:       1,
     borderRadius:      999,
     paddingHorizontal: 14,
     paddingVertical:   8,
   },
   presetChipText: {
-    fontSize:      12,
-    fontWeight:    "800",
-    letterSpacing: 0.1,
+    fontSize:   13,
+    fontWeight: '800',
   },
-  collapseBtn: {
-    marginTop: 4,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  chipWrap: {
+    flexDirection: 'row',
+    flexWrap:      'wrap',
+    gap:           8,
   },
-  collapseText: { fontSize: 13, fontWeight: "600" },
-  collapseIcon: { fontSize: 22, lineHeight: 22, fontWeight: "500" },
-  macroGrid: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
-  macroField: { flex: 1, gap: 8 },
-  macroInput: { textAlign: "center" },
+  chip: {
+    borderRadius:      999,
+    paddingHorizontal: 16,
+    paddingVertical:   9,
+  },
+  chipText: {
+    fontSize:      13,
+    fontWeight:    '700',
+    letterSpacing: -0.1,
+  },
+
+  // Calories
+  calsBox: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    borderRadius:      14,
+    paddingHorizontal: 16,
+    paddingVertical:   10,
+    gap:               8,
+  },
+  calsInput: {
+    flex:          1,
+    fontSize:      34,
+    fontWeight:    '800',
+    letterSpacing: -1.2,
+    padding:       0,
+  },
+  calsUnit: {
+    fontSize:   14,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+
+  // Macros
+  macrosHeader: {
+    flexDirection:  'row',
+    justifyContent: 'space-between',
+    alignItems:     'center',
+  },
+  optionalText: {
+    fontSize:   12,
+    fontWeight: '500',
+  },
+  macroGrid: {
+    flexDirection: 'row',
+    gap:           10,
+  },
+  macroCell: {
+    flex:          1,
+    borderRadius:  14,
+    padding:       12,
+    gap:           6,
+  },
+  macroCellHeader: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           6,
+  },
+  macroDot: {
+    width:        7,
+    height:       7,
+    borderRadius: 3.5,
+  },
+  macroCellLabel: {
+    fontSize:      9,
+    fontWeight:    '800',
+    letterSpacing: 1.1,
+  },
+  macroCellRow: {
+    flexDirection: 'row',
+    alignItems:    'baseline',
+    gap:           4,
+  },
+  macroCellInput: {
+    flex:          1,
+    fontSize:      26,
+    fontWeight:    '800',
+    letterSpacing: -0.8,
+    padding:       0,
+  },
+  macroCellUnit: {
+    fontSize:   13,
+    fontWeight: '700',
+  },
+
+  // Footer
   footer: {
-    borderTopWidth: 1,
+    flexDirection:     'row',
+    gap:               10,
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 6,
-    flexDirection: "row",
-    gap: 10,
+    paddingTop:        12,
+    paddingBottom:     8,
+    borderTopWidth:    StyleSheet.hairlineWidth,
   },
-  secondaryBtn: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    height: 46,
+  cancelBtn: {
+    flex:            1,
+    height:          52,
+    borderRadius:    14,
+    alignItems:      'center',
+    justifyContent:  'center',
   },
-  secondaryText: { fontSize: 14, fontWeight: "700" },
-  primaryBtn: {
-    flex: 1,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    height: 46,
-    backgroundColor: "#F97316",
+  cancelText: {
+    fontSize:   15,
+    fontWeight: '700',
   },
-  primaryText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
+  submitBtn: {
+    flex:            2,
+    height:          52,
+    borderRadius:    14,
+    alignItems:      'center',
+    justifyContent:  'center',
+    backgroundColor: O,
+  },
+  submitText: {
+    color:      '#FFFFFF',
+    fontSize:   15,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
 });

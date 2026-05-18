@@ -4,9 +4,10 @@ import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { DeleteAccountModal } from '@/components/profile/DeleteAccountModal';
 import { UserAvatar } from '@/components/profile/UserAvatar';
 import { AppModal } from '@/components/ui/AppModal';
 import { useAuth } from '@/hooks/use-auth';
@@ -87,9 +88,7 @@ export default function ProfileScreen() {
   const [viewingAvatar,     setViewingAvatar]     = useState(false);
   const [sleepTarget,       setSleepTarget]       = useState(8);
   const [stepsTarget,       setStepsTarget]       = useState(10000);
-  const [deleteModalOpen,   setDeleteModalOpen]   = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  const [deleting,          setDeleting]          = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -177,23 +176,6 @@ export default function ProfileScreen() {
       Alert.alert('Could not remove avatar', msg || 'Please try again.');
     } finally {
       setAvatarUploading(false);
-    }
-  }
-
-  function handleDeleteAccount() {
-    setDeleteConfirmText('');
-    setDeleteModalOpen(true);
-  }
-
-  async function confirmDeleteAccount() {
-    if (deleteConfirmText !== 'DELETE' || deleting) return;
-    setDeleting(true);
-    try {
-      await deleteAccount();
-    } catch {
-      setDeleting(false);
-      setDeleteModalOpen(false);
-      Alert.alert('Error', 'Could not delete your account. Please try again.');
     }
   }
 
@@ -428,109 +410,18 @@ export default function ProfileScreen() {
           labelColor="#EF4444"
           P={P}
           last
-          onPress={handleDeleteAccount}
+          onPress={() => setDeleteModalOpen(true)}
           hideChevron
         />
       </Section>
 
       <Text style={[s.version, { color: P.faint }]}>RoundFit v1.0.0</Text>
 
-      {/* ── Delete account confirmation ─────────────────────────────── */}
-      <Modal
+      <DeleteAccountModal
         visible={deleteModalOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => { if (!deleting) setDeleteModalOpen(false); }}
-        statusBarTranslucent
-      >
-        <KeyboardAvoidingView
-          style={{ flex: 1, justifyContent: 'flex-end' }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <TouchableOpacity
-            style={StyleSheet.absoluteFillObject}
-            activeOpacity={1}
-            onPress={() => { if (!deleting) setDeleteModalOpen(false); }}
-          />
-          <View style={[s.deleteSheet, { backgroundColor: P.card }]}>
-            {/* Handle */}
-            <View style={{ alignItems: 'center', paddingTop: 14, paddingBottom: 6 }}>
-              <View style={[s.deleteHandle, { backgroundColor: P.faint }]} />
-            </View>
-
-            {/* Header */}
-            <View style={[s.deleteHeader, { borderBottomColor: P.hair }]}>
-              <View style={[s.deleteHeaderAccent, { backgroundColor: '#EF4444' }]} />
-              <Text style={[s.deleteHeaderTitle, { color: P.text }]}>Delete Account</Text>
-            </View>
-
-            <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 24, gap: 20 }}>
-              {/* Warning block */}
-              <View style={[s.dangerBox, { backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)' }]}>
-                <Ionicons name="warning" size={18} color="#EF4444" />
-                <View style={{ flex: 1, gap: 4 }}>
-                  <Text style={[s.dangerTitle, { color: '#EF4444' }]}>This cannot be undone</Text>
-                  <Text style={[s.dangerBody, { color: P.dim }]}>
-                    Your account, all progress, history and personal data will be permanently deleted. There is no way to recover this.
-                  </Text>
-                </View>
-              </View>
-
-              {/* Confirmation input */}
-              <View style={{ gap: 8 }}>
-                <Text style={[s.confirmLabel, { color: P.text }]}>
-                  Type <Text style={{ color: '#EF4444', fontWeight: '700' }}>DELETE</Text> to confirm
-                </Text>
-                <TextInput
-                  style={[
-                    s.confirmInput,
-                    {
-                      backgroundColor: P.sunken,
-                      borderColor: deleteConfirmText === 'DELETE' ? '#EF4444' : P.edge,
-                      color: P.text,
-                    },
-                  ]}
-                  placeholder="DELETE"
-                  placeholderTextColor={P.faint}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  value={deleteConfirmText}
-                  onChangeText={setDeleteConfirmText}
-                  editable={!deleting}
-                />
-              </View>
-
-              {/* Action buttons */}
-              <View style={{ gap: 10 }}>
-                <TouchableOpacity
-                  style={[
-                    s.deleteBtn,
-                    {
-                      backgroundColor: deleteConfirmText === 'DELETE' ? '#EF4444' : P.sunken,
-                      opacity: deleting ? 0.6 : 1,
-                    },
-                  ]}
-                  onPress={confirmDeleteAccount}
-                  disabled={deleteConfirmText !== 'DELETE' || deleting}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[s.deleteBtnText, { color: deleteConfirmText === 'DELETE' ? '#FFF' : P.faint }]}>
-                    {deleting ? 'Deleting…' : 'Permanently Delete Account'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[s.cancelBtn, { backgroundColor: P.sunken, borderColor: P.edge }]}
-                  onPress={() => setDeleteModalOpen(false)}
-                  disabled={deleting}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[s.cancelBtnText, { color: P.dim }]}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        onClose={() => setDeleteModalOpen(false)}
+        onDelete={deleteAccount}
+      />
 
       {/* ── Avatar action sheet ─────────────────────────────────────── */}
       <AppModal
@@ -834,77 +725,6 @@ const s = StyleSheet.create({
   },
 
   version: { textAlign: 'center', fontSize: 12, paddingTop: 4, paddingBottom: 8 },
-
-  // Delete account modal
-  deleteSheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    elevation: 24,
-  },
-  deleteHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-  },
-  deleteHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  deleteHeaderAccent: {
-    width: 3,
-    height: 18,
-    borderRadius: 2,
-  },
-  deleteHeaderTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: -0.2,
-  },
-
-  dangerBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  dangerTitle: { fontSize: 13, fontWeight: '700' },
-  dangerBody:  { fontSize: 13, lineHeight: 18 },
-
-  confirmLabel: { fontSize: 14, fontWeight: '500' },
-  confirmInput: {
-    borderWidth: 1.5,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: 1,
-  },
-
-  deleteBtn: {
-    borderRadius: 12,
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  deleteBtnText: { fontSize: 15, fontWeight: '700' },
-
-  cancelBtn: {
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  cancelBtnText: { fontSize: 15, fontWeight: '500' },
 
   // Avatar sheet
   sheetAvatar: {

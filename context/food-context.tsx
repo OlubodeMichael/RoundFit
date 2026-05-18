@@ -6,6 +6,7 @@ import { useAuth } from '@/context/auth-context';
 import type { ManualMealInput } from '@/components/log/ManualMealInputModal';
 import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
+import { invalidateUserTodayCaches } from '@/utils/daily-summary-cache';
 import { getCachedAnalysis, cacheAnalysis } from '@/utils/photo-cache';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -203,6 +204,10 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     return user.calorieBudget ?? user.tdee ?? DEFAULT_MEAL_GOAL;
   }, [user]);
 
+  const invalidateTodaySummary = useCallback(async () => {
+    if (user?.id) await invalidateUserTodayCaches(user.id);
+  }, [user?.id]);
+
   const totalCalories = useMemo(() => meals.reduce((sum, m) => sum + m.cals,              0), [meals]);
   const totalProtein  = useMemo(() => meals.reduce((sum, m) => sum + (m.protein ?? 0),    0), [meals]);
   const totalCarbs    = useMemo(() => meals.reduce((sum, m) => sum + (m.carbs   ?? 0),    0), [meals]);
@@ -300,13 +305,14 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     if (ok && body.data) {
       const saved = fromApiLog(body.data as Record<string, unknown>);
       setMeals((prev) => prev.map((m) => m.id === tempId ? saved : m));
+      void invalidateTodaySummary();
       return;
     }
 
     // rollback on failure
     setMeals((prev) => prev.filter((m) => m.id !== tempId));
     throw new Error('Failed to log meal');
-  }, []);
+  }, [invalidateTodaySummary]);
 
   // ── Preview via photo (analyze only, no DB save) ─────────────────────────
   const previewPhoto = useCallback(async (base64Image: string): Promise<PhotoPreview | null> => {
@@ -335,6 +341,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     const cached = await getCachedAnalysis(base64Image);
     if (cached) {
       setMeals((prev) => [...prev, cached]);
+      void invalidateTodaySummary();
       return cached;
     }
 
@@ -355,8 +362,9 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     }
     setMeals((prev) => [...prev, item]);
     cacheAnalysis(base64Image, item);
+    void invalidateTodaySummary();
     return item;
-  }, []);
+  }, [invalidateTodaySummary]);
 
   // ── Log via barcode ──────────────────────────────────────────────────────
   const logBarcode = useCallback(async (barcode: string) => {
@@ -367,8 +375,10 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     if (!ok || !body.data) {
       throw new Error('Failed to look up barcode');
     }
-    setMeals((prev) => [...prev, fromApiLog(body.data as Record<string, unknown>)]);
-  }, []);
+    const saved = fromApiLog(body.data as Record<string, unknown>);
+    setMeals((prev) => [...prev, saved]);
+    void invalidateTodaySummary();
+  }, [invalidateTodaySummary]);
 
   // ── Delete meal ──────────────────────────────────────────────────────────
   const deleteMeal = useCallback(async (id: string) => {
@@ -380,7 +390,8 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       setMeals(snapshot); // rollback
       throw new Error('Failed to delete meal');
     }
-  }, [meals]);
+    void invalidateTodaySummary();
+  }, [meals, invalidateTodaySummary]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refreshLogs = useCallback(async (date?: string) => {

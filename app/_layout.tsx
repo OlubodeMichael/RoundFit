@@ -183,17 +183,17 @@ export default function RootLayout() {
                     <CycleProvider>
                       <WeightProvider>
                         <HealthProvider>
-                          <RecoveryProvider>
-                            <CheckinProvider>
-                              <SummaryProvider>
+                          <CheckinProvider>
+                            <SummaryProvider>
+                              <RecoveryProvider>
                                 <EngineProvider>
                                   <InsightsProvider>
                                     <AppNavigator />
                                   </InsightsProvider>
                                 </EngineProvider>
-                              </SummaryProvider>
-                            </CheckinProvider>
-                          </RecoveryProvider>
+                              </RecoveryProvider>
+                            </SummaryProvider>
+                          </CheckinProvider>
                         </HealthProvider>
                       </WeightProvider>
                     </CycleProvider>

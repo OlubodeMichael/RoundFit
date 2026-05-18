@@ -134,7 +134,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        await Promise.all([fetchToday(), fetchHistory()]);
+        await fetchToday();
       } finally {
         if (!cancelled) setIsLoading(false);
       }

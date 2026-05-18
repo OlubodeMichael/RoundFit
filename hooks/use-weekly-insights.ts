@@ -97,7 +97,7 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
       {
         calorie_budget: snapshot.calorie_budget ?? DEFAULT_CALORIE_BUDGET,
         protein_target: snapshot.protein_target ?? DEFAULT_PROTEIN_TARGET,
-        steps_target:   local.steps_target ?? snapshot.steps_target ?? null,
+        steps_target:   local.steps_target ?? snapshot.steps_target ?? user?.stepsTarget ?? 10000,
         sleep_target:   local.sleep_target ?? snapshot.sleep_target ?? null,
       },
       fallbackProtein,
@@ -113,7 +113,7 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
       const fallbackProtein = deriveProteinTarget(user)
       const merged: InsightTargets = {
         ...d.targets_snapshot,
-        steps_target: local.steps_target ?? d.targets_snapshot.steps_target,
+        steps_target: local.steps_target ?? d.targets_snapshot.steps_target ?? user?.stepsTarget ?? 10000,
         sleep_target: local.sleep_target ?? d.targets_snapshot.sleep_target,
       }
       const targets = ensureValidTargets(merged, fallbackProtein)

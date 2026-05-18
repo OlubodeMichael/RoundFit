@@ -15,11 +15,15 @@ import { useTheme } from '@/hooks/use-theme';
 import { useToast } from '@/components/ui/Toast';
 
 const { width: SW, height: SH } = Dimensions.get('window');
-const IMAGE_H = Math.round(SH * 0.42);
+const IMAGE_H = Math.round(SH * 0.40);
 
 const O   = '#F97316';
 const O10 = 'rgba(249,115,22,0.10)';
 const O20 = 'rgba(249,115,22,0.20)';
+
+const C_PROTEIN = '#22C55E';
+const C_FAT     = '#A855F7';
+const C_CARBS   = '#EAB308';
 
 type Status = 'analyzing' | 'review' | 'error' | 'retry';
 
@@ -39,6 +43,28 @@ function deriveMealLabel(): MealLabel {
   return 'snack';
 }
 
+function formatTime(): string {
+  const now = new Date();
+  let h = now.getHours();
+  const m = now.getMinutes().toString().padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${m} ${ampm}`;
+}
+
+function estimateWeight(cals: number): number {
+  return Math.round(cals * 0.65);
+}
+
+function splitFoodName(name: string): { main: string; sub: string | null } {
+  const lower = name.toLowerCase();
+  for (const w of [' with ', ' & ', ' - ']) {
+    const idx = lower.indexOf(w);
+    if (idx > 0) return { main: name.slice(0, idx), sub: name.slice(idx + w.length) };
+  }
+  return { main: name, sub: null };
+}
+
 interface Props {
   visible:     boolean;
   imageUri:    string;
@@ -47,35 +73,30 @@ interface Props {
   onRetry?:    () => void;
 }
 
-// ── Theme palette ─────────────────────────────────────────────────────────────
-
 function usePalette(isDark: boolean) {
   return {
-    bg:             isDark ? '#111111'                   : '#F5F5F7',
-    card:           isDark ? '#1A1A1A'                   : '#FFFFFF',
-    surface:        isDark ? 'rgba(255,255,255,0.05)'    : 'rgba(0,0,0,0.04)',
-    surfaceBorder:  isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.08)',
-    text:           isDark ? '#FFFFFF'                   : '#111111',
-    textMid:        isDark ? 'rgba(255,255,255,0.50)'    : '#666666',
-    textFaint:      isDark ? 'rgba(255,255,255,0.35)'    : '#999999',
-    divider:        isDark ? 'rgba(255,255,255,0.07)'    : '#EEEEEE',
-    iconBg:         isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.05)',
-    pillBg:         isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.06)',
-    handle:         isDark ? 'rgba(255,255,255,0.18)'    : 'rgba(0,0,0,0.12)',
-    discardBg:      isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.05)',
-    discardBorder:  isDark ? 'rgba(255,255,255,0.10)'    : 'rgba(0,0,0,0.10)',
-    discardText:    isDark ? 'rgba(255,255,255,0.55)'    : '#555555',
-    inputBorder:    isDark ? 'rgba(255,255,255,0.10)'    : '#DDDDDD',
-    badgeBg:        isDark ? 'rgba(255,255,255,0.06)'    : 'rgba(0,0,0,0.05)',
-    badgeText:      isDark ? 'rgba(255,255,255,0.40)'    : '#888888',
-    penBg:          isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.06)',
-    penBorder:      isDark ? 'rgba(255,255,255,0.08)'    : 'rgba(0,0,0,0.09)',
-    penIcon:        isDark ? 'rgba(255,255,255,0.55)'    : '#888888',
-    shadow:         isDark ? '#000000'                   : '#AAAAAA',
+    bg:          isDark ? '#111111'                   : '#F5F5F7',
+    card:        isDark ? '#1A1A1A'                   : '#FFFFFF',
+    surface:     isDark ? 'rgba(255,255,255,0.06)'    : 'rgba(0,0,0,0.04)',
+    text:        isDark ? '#FFFFFF'                   : '#111111',
+    textMid:     isDark ? 'rgba(255,255,255,0.50)'    : '#666666',
+    textFaint:   isDark ? 'rgba(255,255,255,0.30)'    : '#999999',
+    divider:     isDark ? 'rgba(255,255,255,0.07)'    : '#EBEBEB',
+    handle:      isDark ? 'rgba(255,255,255,0.18)'    : 'rgba(0,0,0,0.12)',
+    pillActive:  isDark ? '#2C2C2E'                   : '#1C1C1E',
+    energyBg:    isDark ? 'rgba(255,255,255,0.04)'    : '#F7F7F8',
+    discardBg:   isDark ? 'rgba(255,255,255,0.07)'    : '#F0F0F2',
+    discardText: isDark ? 'rgba(255,255,255,0.55)'    : '#555555',
+    badgeBg:     isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.05)',
+    badgeText:   isDark ? 'rgba(255,255,255,0.45)'    : '#888888',
+    penBg:       isDark ? 'rgba(255,255,255,0.07)'    : 'rgba(0,0,0,0.05)',
+    penIcon:     isDark ? 'rgba(255,255,255,0.50)'    : '#888888',
+    inputBorder: isDark ? 'rgba(255,255,255,0.10)'    : '#DDDDDD',
+    shadow:      isDark ? '#000000'                   : '#AAAAAA',
   };
 }
 
-// ── Scan overlay (always dark — over photo) ───────────────────────────────────
+// ── Scan overlay ──────────────────────────────────────────────────────────────
 
 const BRACKET_THCK = 2.5;
 const BRACKET_LEN  = 28;
@@ -142,7 +163,7 @@ function PulseDot() {
     ]));
     loop.start();
     return () => loop.stop();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <View style={{ width: 10, height: 10, alignItems: 'center', justifyContent: 'center' }}>
       <Animated.View style={{ position: 'absolute', width: 10, height: 10, borderRadius: 5, backgroundColor: O, transform: [{ scale }], opacity }} />
@@ -151,43 +172,21 @@ function PulseDot() {
   );
 }
 
-// ── Nutrient row ──────────────────────────────────────────────────────────────
+// ── MacroBar ──────────────────────────────────────────────────────────────────
 
-const MACRO_META: Record<string, { emoji: string; kcalPer: number }> = {
-  Protein: { emoji: '🥩', kcalPer: 4 },
-  Carbs:   { emoji: '🌾', kcalPer: 4 },
-  Fat:     { emoji: '🫙', kcalPer: 9 },
-};
-
-function NutrientRow({ name, grams, iconBg, text, textMid, divider }: {
-  name: string; grams: string;
-  iconBg: string; text: string; textMid: string; divider: string;
-}) {
-  const meta = MACRO_META[name];
-  const g    = parseInt(grams, 10) || 0;
-  const kcal = Math.round(g * meta.kcalPer);
+function MacroBar({ proteinG, fatG, carbsG }: { proteinG: number; fatG: number; carbsG: number }) {
+  const pKcal = proteinG * 4;
+  const fKcal = fatG * 9;
+  const cKcal = carbsG * 4;
+  const total = pKcal + fKcal + cKcal || 1;
   return (
-    <View style={nr.row}>
-      <View style={[nr.iconWrap, { backgroundColor: iconBg }]}>
-        <Text style={nr.emoji}>{meta.emoji}</Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[nr.name, { color: text }]}>{name}</Text>
-        <Text style={[nr.grams, { color: textMid }]}>{g}g</Text>
-      </View>
-      <Text style={[nr.kcal, { color: textMid }]}>{kcal} kcal</Text>
+    <View style={{ flexDirection: 'row', height: 5, borderRadius: 99, overflow: 'hidden', gap: 2, marginTop: 14, marginBottom: 16 }}>
+      <View style={{ flex: pKcal / total, backgroundColor: C_PROTEIN, borderRadius: 99 }} />
+      <View style={{ flex: fKcal / total, backgroundColor: C_FAT,     borderRadius: 99 }} />
+      <View style={{ flex: cKcal / total, backgroundColor: C_CARBS,   borderRadius: 99 }} />
     </View>
   );
 }
-
-const nr = StyleSheet.create({
-  row:      { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12 },
-  iconWrap: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  emoji:    { fontSize: 20 },
-  name:     { fontSize: 14, fontWeight: '700', letterSpacing: -0.2 },
-  grams:    { fontSize: 12, fontWeight: '500', marginTop: 1 },
-  kcal:     { fontSize: 13, fontWeight: '600' },
-});
 
 // ── MacroInput (edit mode) ────────────────────────────────────────────────────
 
@@ -210,7 +209,7 @@ function MacroInput({ label, value, color, bg, inputBorder, onChange }: {
         onBlur={() => setFocused(false)}
         textAlign="center"
       />
-      <Text style={[mi.unit, { color }]}>{' '}g</Text>
+      <Text style={[mi.unit, { color }]}>{' '}g</Text>
       <Text style={mi.label}>{label}</Text>
     </View>
   );
@@ -226,16 +225,18 @@ const mi = StyleSheet.create({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, onRetry }: Props) {
-  const insets              = useSafeAreaInsets();
-  const { isDark }          = useTheme();
-  const P                   = usePalette(isDark);
-  const { previewPhoto, addMeal } = useFood();
-  const toast               = useToast();
+  const insets                        = useSafeAreaInsets();
+  const { isDark }                    = useTheme();
+  const P                             = usePalette(isDark);
+  const { previewPhoto, addMeal, mealGoal } = useFood();
+  const toast                         = useToast();
 
-  const [status,    setStatus]    = useState<Status>('analyzing');
-  const [dots,      setDots]      = useState('');
-  const [isSaving,  setIsSaving]  = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+  const [status,        setStatus]        = useState<Status>('analyzing');
+  const [dots,          setDots]          = useState('');
+  const [isSaving,      setIsSaving]      = useState(false);
+  const [isEditing,     setIsEditing]     = useState(false);
+  const [microExpanded, setMicroExpanded] = useState(false);
+  const [logTime,       setLogTime]       = useState('');
 
   const [editName,    setEditName]    = useState('');
   const [editMeal,    setEditMeal]    = useState<MealLabel>(deriveMealLabel());
@@ -251,6 +252,7 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
     setEditProtein(String(p.protein));
     setEditCarbs(String(p.carbs));
     setEditFat(String(p.fat));
+    setLogTime(formatTime());
   };
 
   useEffect(() => {
@@ -259,6 +261,7 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
       setDots('');
       setIsSaving(false);
       setIsEditing(false);
+      setMicroExpanded(false);
       return;
     }
     let cancelled = false;
@@ -302,10 +305,14 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
     }
   };
 
-  const hasProtein = parseInt(editProtein) > 0;
-  const hasFat     = parseInt(editFat)     > 0;
-  const hasCarbs   = parseInt(editCarbs)   > 0;
-  const nutriCount = [hasProtein, hasFat, hasCarbs].filter(Boolean).length;
+  const cals      = parseInt(editCals,    10) || 0;
+  const protein   = parseInt(editProtein, 10) || 0;
+  const fat       = parseInt(editFat,     10) || 0;
+  const carbs     = parseInt(editCarbs,   10) || 0;
+  const hasMacros = protein > 0 || fat > 0 || carbs > 0;
+  const dailyPct  = mealGoal > 0 ? Math.round((cals / mealGoal) * 100) : 0;
+  const estWeight = estimateWeight(cals);
+  const { main: foodMain, sub: foodSub } = splitFoodName(editName || 'Meal');
 
   return (
     <Modal
@@ -315,9 +322,9 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
       onRequestClose={status !== 'analyzing' ? onClose : undefined}
     >
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={[s.root, { backgroundColor: P.bg }]}>
+        <View style={[s.root, { backgroundColor: '#000' }]}>
 
-          {/* ── Image box (always dark — it's a photo) ── */}
+          {/* ── Photo ── */}
           <View style={s.imageBox}>
             <Image source={imageUri} style={s.image} contentFit="cover" cachePolicy="memory-disk" />
             <View style={s.imageDim} />
@@ -331,10 +338,9 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
                 <Ionicons name="close" size={20} color="#FFF" />
               </TouchableOpacity>
             )}
-            {/* Retake pill — visible once food is identified */}
             {status === 'review' && (
               <TouchableOpacity
-                style={s.retakeChip}
+                style={[s.retakeChip, { top: insets.top + 12 }]}
                 onPress={() => { onClose(); onRetry?.(); }}
                 activeOpacity={0.8}
               >
@@ -344,7 +350,7 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
             )}
           </View>
 
-          {/* ── Card ── */}
+          {/* ── Bottom sheet ── */}
           <View style={[s.card, { backgroundColor: P.card, paddingBottom: insets.bottom + 16, shadowColor: P.shadow }]}>
             <View style={[s.handle, { backgroundColor: P.handle }]} />
 
@@ -359,85 +365,148 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
               </View>
             )}
 
-            {/* ── Review (display) ── */}
+            {/* ── Review ── */}
             {status === 'review' && !isEditing && (
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={s.reviewContent}>
 
-                {/* Food name + pen */}
-                <View style={s.nameRow}>
-                  <View style={{ flex: 1 }}>
-                    <View style={s.successBadge}>
-                      <Ionicons name="checkmark-circle" size={12} color="#22C55E" />
-                      <Text style={s.successText}>AI identified your meal</Text>
-                    </View>
-                    <Text style={[s.foodName, { color: P.text }]} numberOfLines={2}>{editName || 'Meal'}</Text>
+                {/* AI badge + edit pen */}
+                <View style={s.headerRow}>
+                  <View style={[s.aiBadge, { backgroundColor: P.badgeBg }]}>
+                    <Ionicons name="sparkles" size={10} color={P.badgeText} />
+                    <Text style={[s.aiBadgeText, { color: P.badgeText }]}>AI DETECTED</Text>
+                    <View style={[s.aiBadgeSep, { backgroundColor: P.badgeText }]} />
+                    <Text style={[s.aiBadgeText, { color: P.badgeText }]}>94%</Text>
                   </View>
                   <TouchableOpacity
-                    style={[s.penBtn, { backgroundColor: P.penBg, borderColor: P.penBorder }]}
+                    style={[s.penBtn, { backgroundColor: P.penBg }]}
                     onPress={() => setIsEditing(true)}
                     hitSlop={8}
                   >
-                    <Ionicons name="pencil" size={15} color={P.penIcon} />
+                    <Ionicons name="pencil" size={14} color={P.penIcon} />
                   </TouchableOpacity>
                 </View>
 
-                {/* Meal pills */}
-                <View style={s.mealRow}>
+                {/* Food name */}
+                <Text style={[s.foodMain, { color: P.text }]} numberOfLines={2}>{foodMain}</Text>
+                {foodSub ? (
+                  <Text style={[s.foodSub, { color: P.textMid }]} numberOfLines={1}>{foodSub}</Text>
+                ) : null}
+
+                {/* Meta: serving · weight · time */}
+                <Text style={[s.metaLine, { color: P.textFaint }]}>
+                  {'1 serving  ·  '}~{estWeight} g{'  ·  '}{logTime}
+                </Text>
+
+                {/* Meal type tabs */}
+                <View style={[s.mealTabsWrap, { backgroundColor: P.surface }]}>
                   {MEAL_OPTIONS.map((opt) => {
                     const active = editMeal === opt.id;
                     return (
                       <Pressable
                         key={opt.id}
-                        style={[s.mealPill, { backgroundColor: active ? O20 : P.pillBg }, active && s.mealPillActive]}
+                        style={[s.mealTab, active && [s.mealTabActive, { backgroundColor: P.pillActive }]]}
                         onPress={() => setEditMeal(opt.id)}
                       >
-                        <Text style={[s.mealPillText, { color: active ? O : P.textMid }]}>{opt.label}</Text>
+                        <Text style={[s.mealTabText, { color: active ? '#FFFFFF' : P.textMid }]}>
+                          {opt.label}
+                        </Text>
                       </Pressable>
                     );
                   })}
                 </View>
 
-                {/* Nutrition card */}
-                <View style={[s.nutriCard, { backgroundColor: P.surface, borderColor: P.surfaceBorder }]}>
-                  <View style={s.nutriHeader}>
-                    <View>
-                      <Text style={[s.nutriTitle, { color: P.text }]}>Total nutrition</Text>
-                      <Text style={[s.nutriCals,  { color: P.textMid }]}>{editCals} kcal</Text>
+                {/* Energy + macros card */}
+                <View style={[s.energyCard, { backgroundColor: P.energyBg }]}>
+                  <Text style={[s.energyLabel, { color: P.textFaint }]}>TOTAL ENERGY</Text>
+
+                  <View style={s.energyRow}>
+                    <View style={s.energyNumWrap}>
+                      <Text style={[s.energyNum, { color: P.text }]}>{cals}</Text>
+                      <Text style={[s.energyUnit, { color: P.textMid }]}>kcal</Text>
                     </View>
-                    {nutriCount > 0 && (
-                      <View style={[s.nutriBadge, { backgroundColor: P.badgeBg }]}>
-                        <Ionicons name="restaurant-outline" size={11} color={P.badgeText} />
-                        <Text style={[s.nutriBadgeText, { color: P.badgeText }]}>{nutriCount} nutrients</Text>
+                    {dailyPct > 0 && (
+                      <View style={s.dailyRow}>
+                        <View style={[s.dailyDot, { backgroundColor: O }]} />
+                        <Text style={[s.dailyPctText, { color: P.textMid }]}>{dailyPct}% of daily</Text>
                       </View>
                     )}
                   </View>
 
-                  {nutriCount > 0 && <View style={[s.nutriDivider, { backgroundColor: P.divider }]} />}
+                  {hasMacros && <MacroBar proteinG={protein} fatG={fat} carbsG={carbs} />}
 
-                  {hasProtein && (
-                    <>
-                      <NutrientRow name="Protein" grams={editProtein} iconBg={P.iconBg} text={P.text} textMid={P.textMid} divider={P.divider} />
-                      {(hasFat || hasCarbs) && <View style={[s.nutriDivider, { backgroundColor: P.divider }]} />}
-                    </>
-                  )}
-                  {hasFat && (
-                    <>
-                      <NutrientRow name="Fat" grams={editFat} iconBg={P.iconBg} text={P.text} textMid={P.textMid} divider={P.divider} />
-                      {hasCarbs && <View style={[s.nutriDivider, { backgroundColor: P.divider }]} />}
-                    </>
-                  )}
-                  {hasCarbs && (
-                    <NutrientRow name="Carbs" grams={editCarbs} iconBg={P.iconBg} text={P.text} textMid={P.textMid} divider={P.divider} />
+                  {hasMacros && (
+                    <View style={s.macroGrid}>
+                      {protein > 0 && (
+                        <View style={s.macroCol}>
+                          <View style={s.macroDotRow}>
+                            <View style={[s.macroDot, { backgroundColor: C_PROTEIN }]} />
+                            <Text style={[s.macroName, { color: P.textMid }]}>Protein</Text>
+                          </View>
+                          <Text style={[s.macroGrams, { color: P.text }]}>
+                            {protein}<Text style={[s.macroGUnit, { color: P.textMid }]}> g</Text>
+                          </Text>
+                          <Text style={[s.macroKcal, { color: P.textFaint }]}>{protein * 4} kcal</Text>
+                        </View>
+                      )}
+                      {fat > 0 && (
+                        <View style={[s.macroCol, s.macroColBordered, { borderLeftColor: P.divider }]}>
+                          <View style={s.macroDotRow}>
+                            <View style={[s.macroDot, { backgroundColor: C_FAT }]} />
+                            <Text style={[s.macroName, { color: P.textMid }]}>Fat</Text>
+                          </View>
+                          <Text style={[s.macroGrams, { color: P.text }]}>
+                            {fat}<Text style={[s.macroGUnit, { color: P.textMid }]}> g</Text>
+                          </Text>
+                          <Text style={[s.macroKcal, { color: P.textFaint }]}>{fat * 9} kcal</Text>
+                        </View>
+                      )}
+                      {carbs > 0 && (
+                        <View style={[s.macroCol, s.macroColBordered, { borderLeftColor: P.divider }]}>
+                          <View style={s.macroDotRow}>
+                            <View style={[s.macroDot, { backgroundColor: C_CARBS }]} />
+                            <Text style={[s.macroName, { color: P.textMid }]}>Carbs</Text>
+                          </View>
+                          <Text style={[s.macroGrams, { color: P.text }]}>
+                            {carbs}<Text style={[s.macroGUnit, { color: P.textMid }]}> g</Text>
+                          </Text>
+                          <Text style={[s.macroKcal, { color: P.textFaint }]}>{carbs * 4} kcal</Text>
+                        </View>
+                      )}
+                    </View>
                   )}
                 </View>
 
+                {/* Micronutrients accordion */}
+                <TouchableOpacity
+                  style={[s.microRow, { borderTopColor: P.divider, borderBottomColor: microExpanded ? 'transparent' : P.divider }]}
+                  onPress={() => setMicroExpanded(!microExpanded)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[s.microText, { color: P.textMid }]}>See micronutrients</Text>
+                  <Ionicons name={microExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={P.textFaint} />
+                </TouchableOpacity>
+                {microExpanded && (
+                  <View style={[s.microContent, { borderBottomColor: P.divider }]}>
+                    <Text style={[s.microEmpty, { color: P.textFaint }]}>Micronutrient data coming soon.</Text>
+                  </View>
+                )}
+
                 {/* Actions */}
                 <View style={s.actionRow}>
-                  <TouchableOpacity style={[s.discardBtn, { backgroundColor: P.discardBg, borderColor: P.discardBorder }]} onPress={onClose} activeOpacity={0.75}>
+                  <TouchableOpacity
+                    style={[s.discardBtn, { backgroundColor: P.discardBg }]}
+                    onPress={onClose}
+                    activeOpacity={0.75}
+                  >
                     <Text style={[s.discardBtnText, { color: P.discardText }]}>Discard</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[s.logBtn, isSaving && { opacity: 0.6 }]} onPress={handleAddToLog} activeOpacity={0.85} disabled={isSaving}>
-                    <Text style={s.logBtnText}>{isSaving ? 'Saving…' : 'Add to Log'}</Text>
+                  <TouchableOpacity
+                    style={[s.logBtn, isSaving && { opacity: 0.6 }]}
+                    onPress={handleAddToLog}
+                    activeOpacity={0.85}
+                    disabled={isSaving}
+                  >
+                    <Text style={s.logBtnText}>{isSaving ? 'Saving…' : 'Add to log'}</Text>
                     {!isSaving && <Ionicons name="arrow-forward" size={16} color="#FFF" />}
                   </TouchableOpacity>
                 </View>
@@ -447,7 +516,6 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
             {/* ── Edit mode ── */}
             {status === 'review' && isEditing && (
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={s.reviewContent}>
-
                 <View style={s.editHeader}>
                   <Text style={[s.editTitle, { color: P.text }]}>Edit details</Text>
                   <TouchableOpacity style={s.doneBtn} onPress={() => setIsEditing(false)}>
@@ -491,21 +559,30 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
 
                 <View style={s.fieldBlock}>
                   <Text style={[s.fieldLabel, { color: P.textFaint }]}>NUTRITION</Text>
-                  <View style={s.macroGrid}>
-                    <MacroInput label="Protein" value={editProtein} color="#F97316" bg={O10}                    inputBorder={P.inputBorder} onChange={setEditProtein} />
-                    <MacroInput label="Carbs"   value={editCarbs}   color="#FB923C" bg="rgba(251,146,60,0.10)"  inputBorder={P.inputBorder} onChange={setEditCarbs}   />
-                    <MacroInput label="Fat"     value={editFat}     color="#FDBA74" bg="rgba(253,186,116,0.10)" inputBorder={P.inputBorder} onChange={setEditFat}     />
+                  <View style={s.macroInputGrid}>
+                    <MacroInput label="Protein" value={editProtein} color={C_PROTEIN} bg="rgba(34,197,94,0.08)"  inputBorder={P.inputBorder} onChange={setEditProtein} />
+                    <MacroInput label="Fat"     value={editFat}     color={C_FAT}     bg="rgba(168,85,247,0.08)" inputBorder={P.inputBorder} onChange={setEditFat}     />
+                    <MacroInput label="Carbs"   value={editCarbs}   color={C_CARBS}   bg="rgba(234,179,8,0.08)"  inputBorder={P.inputBorder} onChange={setEditCarbs}   />
                   </View>
                 </View>
 
                 <View style={[s.divider, { backgroundColor: P.divider }]} />
 
                 <View style={s.actionRow}>
-                  <TouchableOpacity style={[s.discardBtn, { backgroundColor: P.discardBg, borderColor: P.discardBorder }]} onPress={onClose} activeOpacity={0.75}>
+                  <TouchableOpacity
+                    style={[s.discardBtn, { backgroundColor: P.discardBg }]}
+                    onPress={onClose}
+                    activeOpacity={0.75}
+                  >
                     <Text style={[s.discardBtnText, { color: P.discardText }]}>Discard</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[s.logBtn, isSaving && { opacity: 0.6 }]} onPress={handleAddToLog} activeOpacity={0.85} disabled={isSaving}>
-                    <Text style={s.logBtnText}>{isSaving ? 'Saving…' : 'Add to Log'}</Text>
+                  <TouchableOpacity
+                    style={[s.logBtn, isSaving && { opacity: 0.6 }]}
+                    onPress={handleAddToLog}
+                    activeOpacity={0.85}
+                    disabled={isSaving}
+                  >
+                    <Text style={s.logBtnText}>{isSaving ? 'Saving…' : 'Add to log'}</Text>
                     {!isSaving && <Ionicons name="arrow-forward" size={16} color="#FFF" />}
                   </TouchableOpacity>
                 </View>
@@ -523,7 +600,7 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
                   Make sure food is clearly visible in the frame and try again.
                 </Text>
                 <View style={[s.actionRow, { alignSelf: 'stretch' }]}>
-                  <TouchableOpacity style={[s.discardBtn, { backgroundColor: P.discardBg, borderColor: P.discardBorder }]} onPress={onClose} activeOpacity={0.75}>
+                  <TouchableOpacity style={[s.discardBtn, { backgroundColor: P.discardBg }]} onPress={onClose} activeOpacity={0.75}>
                     <Text style={[s.discardBtnText, { color: P.discardText }]}>Cancel</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={s.logBtn} onPress={() => { onClose(); onRetry?.(); }} activeOpacity={0.85}>
@@ -544,7 +621,11 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
                 <Text style={[s.analyzeCaption, { color: P.textMid }]}>
                   Try a clearer photo or add the meal manually.
                 </Text>
-                <TouchableOpacity style={[s.logBtn, { backgroundColor: '#374151', alignSelf: 'stretch' }]} onPress={onClose} activeOpacity={0.85}>
+                <TouchableOpacity
+                  style={[s.logBtn, { backgroundColor: '#374151', alignSelf: 'stretch' }]}
+                  onPress={onClose}
+                  activeOpacity={0.85}
+                >
                   <Text style={s.logBtnText}>Close</Text>
                 </TouchableOpacity>
               </View>
@@ -556,14 +637,14 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
   );
 }
 
-// ── Static styles (layout only — colours applied inline) ─────────────────────
+// ── Styles ────────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  root: { flex: 1 },
-
+  root:     { flex: 1 },
   imageBox: { height: IMAGE_H, width: SW, overflow: 'hidden', backgroundColor: '#000' },
   image:    { width: SW, height: IMAGE_H },
-  imageDim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.12)' },
+  imageDim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.18)' },
+
   closeBtn: {
     position: 'absolute', left: 20,
     width: 38, height: 38, borderRadius: 19,
@@ -571,72 +652,99 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   retakeChip: {
-    position: 'absolute', bottom: 16, right: 16,
+    position: 'absolute', right: 16,
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 12, paddingVertical: 7,
-    borderRadius: 99,
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
   },
   retakeChipText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
 
   card: {
     flex: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingTop: 10, marginTop: -20,
-    shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 20,
+    paddingTop: 10, marginTop: -24,
+    shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.10, shadowRadius: 18, elevation: 20,
   },
-  handle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, marginBottom: 4 },
+  handle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, marginBottom: 8 },
 
   reviewContent: { paddingHorizontal: 20, paddingBottom: 8 },
 
-  nameRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingTop: 8, paddingBottom: 14 },
-  successBadge: {
-    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
-    gap: 4, backgroundColor: 'rgba(34,197,94,0.12)',
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 99, marginBottom: 6,
+  // Header
+  headerRow:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  aiBadge:     { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99 },
+  aiBadgeSep:  { width: 3, height: 3, borderRadius: 1.5, opacity: 0.6 },
+  aiBadgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  penBtn:      { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+
+  // Food name
+  foodMain: { fontFamily: 'Syne_700Bold', fontSize: 28, fontWeight: '800', letterSpacing: -0.7, lineHeight: 34, marginBottom: 2 },
+  foodSub:  { fontSize: 16, fontWeight: '500', letterSpacing: -0.2, marginBottom: 4 },
+  metaLine: { fontSize: 12, fontWeight: '500', marginBottom: 14 },
+
+  // Meal tabs (segment control)
+  mealTabsWrap: { flexDirection: 'row', borderRadius: 12, padding: 3, marginBottom: 16 },
+  mealTab:      { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
+  mealTabActive: {
+    shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 }, elevation: 3,
   },
-  successText: { color: '#22C55E', fontSize: 10, fontWeight: '700', letterSpacing: 0.3 },
-  foodName:    { fontSize: 22, fontWeight: '800', letterSpacing: -0.5, lineHeight: 28 },
-  penBtn:      { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 24, borderWidth: 1 },
+  mealTabText: { fontSize: 12, fontWeight: '600' },
 
-  mealRow:        { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  mealPill:       { flex: 1, paddingVertical: 9, borderRadius: 12, alignItems: 'center' },
-  mealPillActive: { borderWidth: 1, borderColor: O },
-  mealPillText:   { fontSize: 12, fontWeight: '600' },
+  // Energy + macro card
+  energyCard:    { borderRadius: 16, padding: 16, marginBottom: 4 },
+  energyLabel:   { fontSize: 10, fontWeight: '700', letterSpacing: 1, marginBottom: 4 },
+  energyRow:     { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
+  energyNumWrap: { flexDirection: 'row', alignItems: 'baseline', gap: 5 },
+  energyNum:     { fontSize: 52, fontWeight: '800', letterSpacing: -2.5, lineHeight: 56 },
+  energyUnit:    { fontSize: 17, fontWeight: '600', marginBottom: 5 },
+  dailyRow:      { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 },
+  dailyDot:      { width: 7, height: 7, borderRadius: 3.5 },
+  dailyPctText:  { fontSize: 13, fontWeight: '600' },
 
-  nutriCard:      { borderRadius: 20, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 16 },
-  nutriHeader:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  nutriTitle:     { fontSize: 15, fontWeight: '700', letterSpacing: -0.2 },
-  nutriCals:      { fontSize: 12, fontWeight: '500', marginTop: 2 },
-  nutriBadge:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99 },
-  nutriBadgeText: { fontSize: 11, fontWeight: '600' },
-  nutriDivider:   { height: 1, marginVertical: 2 },
+  // Macro columns
+  macroGrid:       { flexDirection: 'row' },
+  macroCol:        { flex: 1, paddingVertical: 4, paddingHorizontal: 10 },
+  macroColBordered: { borderLeftWidth: 1 },
+  macroDotRow:     { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 },
+  macroDot:        { width: 7, height: 7, borderRadius: 3.5 },
+  macroName:       { fontSize: 11, fontWeight: '500' },
+  macroGrams:      { fontSize: 20, fontWeight: '800', letterSpacing: -0.5 },
+  macroGUnit:      { fontSize: 13, fontWeight: '500' },
+  macroKcal:       { fontSize: 11, fontWeight: '500', marginTop: 1 },
 
-  editHeader:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, paddingBottom: 16 },
-  editTitle:   { fontSize: 17, fontWeight: '800' },
-  doneBtn:     { backgroundColor: O20, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10 },
-  doneBtnText: { color: O, fontSize: 13, fontWeight: '700' },
+  // Micronutrients
+  microRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderTopWidth: 1, borderBottomWidth: 1, marginBottom: 12 },
+  microText:    { fontSize: 14, fontWeight: '600' },
+  microContent: { paddingBottom: 12, borderBottomWidth: 1, marginBottom: 4, marginTop: -12 },
+  microEmpty:   { fontSize: 12, fontWeight: '500', textAlign: 'center', paddingVertical: 8 },
 
-  fieldBlock: { gap: 8 },
-  fieldLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1 },
-  nameInput:  { fontSize: 20, fontWeight: '800', letterSpacing: -0.4, paddingVertical: 4, borderBottomWidth: 1 },
-  calsInput:  { fontSize: 42, fontWeight: '800', letterSpacing: -1.5, paddingVertical: 0, minWidth: 80 },
-  calsUnit:   { fontSize: 16, fontWeight: '600' },
-  macroGrid:  { flexDirection: 'row', gap: 8 },
-  divider:    { height: 1, marginVertical: 12 },
-
-  centerContent: { alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8, gap: 12 },
-  analyzeTitle:  { fontSize: 18, fontWeight: '700' },
-  analyzeCaption: { fontSize: 13, fontWeight: '500', textAlign: 'center' },
-  statusIcon:    { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
-
+  // Actions
   actionRow:      { flexDirection: 'row', gap: 10, paddingTop: 4, paddingBottom: 4 },
-  discardBtn:     { flex: 1, height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  discardBtn:     { flex: 1, height: 54, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   discardBtnText: { fontSize: 15, fontWeight: '700' },
   logBtn: {
-    flex: 2, height: 52, borderRadius: 14, backgroundColor: O,
+    flex: 2, height: 54, borderRadius: 16, backgroundColor: O,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     shadowColor: O, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
   },
   logBtnText: { color: '#FFF', fontSize: 15, fontWeight: '800' },
+
+  // Edit mode
+  editHeader:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, paddingBottom: 16 },
+  editTitle:    { fontFamily: 'Syne_700Bold', fontSize: 17, fontWeight: '800' },
+  doneBtn:      { backgroundColor: O20, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10 },
+  doneBtnText:  { color: O, fontSize: 13, fontWeight: '700' },
+  fieldBlock:   { gap: 8 },
+  fieldLabel:   { fontSize: 10, fontWeight: '700', letterSpacing: 1 },
+  nameInput:    { fontSize: 20, fontWeight: '800', letterSpacing: -0.4, paddingVertical: 4, borderBottomWidth: 1 },
+  calsInput:    { fontSize: 42, fontWeight: '800', letterSpacing: -1.5, paddingVertical: 0, minWidth: 80 },
+  calsUnit:     { fontSize: 16, fontWeight: '600' },
+  macroInputGrid: { flexDirection: 'row', gap: 8 },
+  divider:      { height: 1, marginVertical: 12 },
+
+  // States
+  centerContent:  { alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8, gap: 12 },
+  analyzeTitle:   { fontFamily: 'Syne_700Bold', fontSize: 18, fontWeight: '700' },
+  analyzeCaption: { fontSize: 13, fontWeight: '500', textAlign: 'center' },
+  statusIcon:     { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
 });

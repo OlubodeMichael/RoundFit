@@ -26,6 +26,9 @@ export interface WeightContextValue {
   /** True while the initial fetch is in-flight. */
   isLoading: boolean;
 
+  /** True once the first fetch has completed (set false until progress tab is visited). */
+  initialized: boolean;
+
   /** Logs a new weight entry — hits POST /weight. */
   logWeight: (weightKg: number, unit?: 'metric' | 'imperial') => Promise<WeightEntry>;
 
@@ -52,8 +55,9 @@ const WeightContext = createContext<WeightContextValue | null>(null);
 export function WeightProvider({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
 
-  const [entries,   setEntries]   = useState<WeightEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [entries,     setEntries]     = useState<WeightEntry[]>([]);
+  const [isLoading,   setIsLoading]   = useState(false);
+  const [initialized, setInitialized] = useState(false);
 
   const latest = useMemo(() => entries[0] ?? null, [entries]);
 
@@ -65,29 +69,14 @@ export function WeightProvider({ children }: { children: React.ReactNode }) {
     setEntries(rows.map(fromApiEntry));
   }, []);
 
+  // Reset state on logout only — data is fetched lazily when progress tab is first visited.
   useEffect(() => {
-    if (status === 'loading') return;
-
     if (status === 'unauthenticated') {
       setEntries([]);
       setIsLoading(false);
-      return;
+      setInitialized(false);
     }
-
-    let cancelled = false;
-    setIsLoading(true);
-    setEntries([]);
-
-    (async () => {
-      try {
-        await fetchEntries();
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [status, user?.id, fetchEntries]);
+  }, [status, user?.id]);
 
   // ── Log weight ───────────────────────────────────────────────────────────
   const logWeight = useCallback(async (
@@ -106,12 +95,18 @@ export function WeightProvider({ children }: { children: React.ReactNode }) {
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refresh = useCallback(async (limit?: number) => {
-    await fetchEntries(limit);
+    setIsLoading(true);
+    try {
+      await fetchEntries(limit);
+    } finally {
+      setIsLoading(false);
+      setInitialized(true);
+    }
   }, [fetchEntries]);
 
   return (
     <WeightContext.Provider value={{
-      entries, latest, isLoading,
+      entries, latest, isLoading, initialized,
       logWeight, refresh,
     }}>
       {children}

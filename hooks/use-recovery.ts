@@ -7,4 +7,5 @@ export type {
   Readiness,
   LogRecoveryInput,
   RecoveryContextValue,
+  RecoveryDisplay,
 } from '@/context/recovery-context';

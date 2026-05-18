@@ -206,14 +206,16 @@ export default function TargetsScreen() {
         AsyncStorage.getItem(STEPS_KEY),
       ]);
       const sleepVal = sleepRaw !== null ? parseFloat(sleepRaw) : 8;
-      const stepsVal = stepsRaw !== null ? parseInt(stepsRaw, 10) : 10000;
+      // Prefer the server value; fall back to AsyncStorage, then default 10000
+      const stepsVal = profile?.stepsTarget
+        ?? (stepsRaw !== null ? parseInt(stepsRaw, 10) : 10000);
       setSleep(sleepVal);
       setSteps(stepsVal);
       setSavedSleep(sleepVal);
       setSavedSteps(stepsVal);
       setLoaded(true);
     })();
-  }, []);
+  }, [profile?.stepsTarget]);
 
   const originalCalories = profile?.calorieBudget ?? tdee;
   const isDirty = loaded && (
@@ -227,7 +229,7 @@ export default function TargetsScreen() {
     setSaving(true);
     try {
       await Promise.all([
-        updateProfile({ calorieBudget: calories }),
+        updateProfile({ calorieBudget: calories, stepsTarget: steps }),
         AsyncStorage.setItem(SLEEP_KEY, String(sleep)),
         AsyncStorage.setItem(STEPS_KEY, String(steps)),
       ]);

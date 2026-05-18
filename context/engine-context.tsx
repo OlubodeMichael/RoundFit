@@ -4,6 +4,7 @@ import React, {
 import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
+import { TTL_FOREGROUND_SKIP_MS } from '@/utils/daily-summary-cache';
 import { apiFetch } from '@/utils/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -105,8 +106,9 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
   const [daily,     setDaily]     = useState<DailyEngine | null>(null);
   const [patterns,  setPatterns]  = useState<DetectedPattern[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const appStateRef      = useRef(AppState.currentState);
-  const lastFetchDateRef = useRef('');
+  const appStateRef              = useRef(AppState.currentState);
+  const lastFetchDateRef         = useRef('');
+  const lastForegroundFetchRef   = useRef(0);
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
   const fetchDaily = useCallback(async () => {
@@ -139,7 +141,8 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         lastFetchDateRef.current = getLocalDateString();
-        await Promise.all([fetchDaily(), fetchPatterns()]);
+        lastForegroundFetchRef.current = Date.now();
+        await fetchDaily();
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -155,11 +158,17 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
       appStateRef.current = next;
       if (prev.match(/inactive|background/) && next === 'active') {
         const today = getLocalDateString();
-        if (lastFetchDateRef.current !== today) {
-          lastFetchDateRef.current = today;
-          setDaily(null);
-          void Promise.all([fetchDaily(), fetchPatterns()]);
-        }
+        const dayRolled = lastFetchDateRef.current !== today;
+        const stale = Date.now() - lastForegroundFetchRef.current > TTL_FOREGROUND_SKIP_MS;
+        if (!dayRolled && !stale) return;
+
+        lastFetchDateRef.current = today;
+        lastForegroundFetchRef.current = Date.now();
+        if (dayRolled) setDaily(null);
+        void Promise.all([
+          fetchDaily(),
+          dayRolled ? fetchPatterns() : Promise.resolve(),
+        ]);
       }
     });
     return () => sub.remove();

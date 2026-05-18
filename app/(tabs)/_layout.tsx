@@ -6,6 +6,7 @@ import { useState } from "react";
 import {
     Dimensions,
     StyleSheet,
+    Text,
     TouchableOpacity,
     View,
 } from "react-native";
@@ -19,17 +20,17 @@ type FeatherName = React.ComponentProps<typeof Feather>["name"];
 
 const SW = Dimensions.get("window").width;
 
-const PILL_H    = 64;
+const PILL_H    = 70;
 const PILL_W    = SW - 48;
 const FAB_D     = 46;
 const FLOAT_BOT = 16;
 
-const TABS: { name: string; icon: FeatherName; fab?: true }[] = [
-    { name: "index",    icon: "home"     },
-    { name: "insights", icon: "zap"      },
-    { name: "log",      icon: "plus", fab: true },
-    { name: "progress", icon: "activity" },
-    { name: "profile",  icon: "user"     },
+const TABS: { name: string; icon: FeatherName; label: string; fab?: true }[] = [
+    { name: "index",    icon: "home",     label: "Home"     },
+    { name: "insights", icon: "zap",      label: "Insights" },
+    { name: "log",      icon: "plus",     label: "Log",  fab: true },
+    { name: "progress", icon: "activity", label: "Progress" },
+    { name: "profile",  icon: "user",     label: "Profile"  },
 ];
 
 const PROFILE_SUB_SCREENS = [
@@ -126,7 +127,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                                 >
                                     <Feather
                                         name="plus"
-                                        size={26.5}
+                                        size={24}
                                         color={focused ? "#fff" : INACTIVE}
                                     />
                                 </View>
@@ -142,10 +143,8 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                             onPress={() => go(route.key, route.name, focused)}
                             activeOpacity={0.65}
                         >
-                            <Feather name={cfg.icon} size={22.5} color={color} />
-                            {focused && (
-                                <View style={[s.activeDot, { backgroundColor: ACTIVE }]} />
-                            )}
+                            <Feather name={cfg.icon} size={20} color={color} />
+                            <Text style={[s.tabLabel, { color }]}>{cfg.label}</Text>
                         </TouchableOpacity>
                     );
                 })}
@@ -209,17 +208,17 @@ const s = StyleSheet.create({
     },
 
     tabBtn: {
-        flex:            1,
-        alignItems:      "center",
-        justifyContent:  "center",
-        height:          PILL_H,
-        gap:             4,
+        flex:           1,
+        alignItems:     "center",
+        justifyContent: "center",
+        height:         PILL_H,
+        gap:            3,
     },
 
-    activeDot: {
-        width:        3,
-        height:       3,
-        borderRadius: 2,
+    tabLabel: {
+        fontSize:      9,
+        fontWeight:    "700",
+        letterSpacing: 0.3,
     },
 
     fabSlot: {
@@ -227,6 +226,7 @@ const s = StyleSheet.create({
         alignItems:     "center",
         justifyContent: "center",
         height:         PILL_H,
+        gap:            3,
     },
 
     fab: {

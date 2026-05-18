@@ -16,6 +16,7 @@ import type { ComponentProps } from 'react';
 import Svg, { Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 
 import { AnimatedCard, usePalette } from '@/lib/log-theme';
+import { ReadinessWidget } from '@/components/home/ReadinessWidget';
 import { useHealth } from '@/hooks/use-health';
 import { useUnits } from '@/hooks/use-units';
 import { useSummary } from '@/hooks/use-summary';
@@ -332,6 +333,9 @@ export default function ProgressScreen() {
               accentColor={P.carbs}
             />
           </View>
+
+          {/* ── Readiness widget ───────────────────────────────── */}
+          <ReadinessWidget delay={180} />
 
           {/* ── Consistency index strip ────────────────────────── */}
           <AnimatedCard delay={220}>

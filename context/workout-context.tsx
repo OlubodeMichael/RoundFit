@@ -5,6 +5,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
+import { invalidateUserTodayCaches } from '@/utils/daily-summary-cache';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -158,6 +159,10 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     [workouts],
   );
 
+  const invalidateTodaySummary = useCallback(async () => {
+    if (user?.id) await invalidateUserTodayCaches(user.id);
+  }, [user?.id]);
+
   // ── Fetch workouts ──────────────────────────────────────────────────────
   const fetchWorkouts = useCallback(async (date: string) => {
     const isToday = date === todayDateString();
@@ -222,8 +227,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     if (!ok) throw new Error((body.error as string) ?? 'Failed to log workout');
     const saved = fromApiWorkout(body.workout as Record<string, unknown>);
     setWorkouts((prev) => [saved, ...prev]);
+    void invalidateTodaySummary();
     return saved;
-  }, []);
+  }, [invalidateTodaySummary]);
 
   // ── Log sets ─────────────────────────────────────────────────────────────
   const logSets = useCallback(async (workoutId: string, sets: LogSetInput[]): Promise<WorkoutSet[]> => {
@@ -253,7 +259,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       setWorkouts(snapshot);
       throw new Error((body.error as string) ?? 'Failed to delete workout');
     }
-  }, [workouts]);
+    void invalidateTodaySummary();
+  }, [workouts, invalidateTodaySummary]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refreshWorkouts = useCallback(async (date?: string) => {

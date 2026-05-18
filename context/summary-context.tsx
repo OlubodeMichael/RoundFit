@@ -4,6 +4,11 @@ import React, {
 import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
+import {
+  fetchDailySummaryBundle,
+  invalidateUserTodayCaches,
+  TTL_FOREGROUND_SKIP_MS,
+} from '@/utils/daily-summary-cache';
 import { apiFetch } from '@/utils/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -106,18 +111,21 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
   const [daily,     setDaily]     = useState<DailySummary | null>(null);
   const [weekly,    setWeekly]    = useState<WeeklySummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const appStateRef = useRef(AppState.currentState);
-
-  // ── Fetch helpers ────────────────────────────────────────────────────────
-  const fetchTodayDaily = useCallback(async () => {
-    const { ok, body } = await apiFetch(`/summary/daily/${todayDateString()}`);
-    if (ok && body.summary) setDaily(fromApiDaily(body.summary as Record<string, unknown>));
-  }, []);
+  const appStateRef           = useRef(AppState.currentState);
+  const lastFetchDateRef      = useRef('');
+  const lastForegroundFetchRef = useRef(0);
 
   const fetchWeekly = useCallback(async () => {
     const { ok, body } = await apiFetch('/summary/weekly');
     if (ok) setWeekly(fromApiWeekly(body));
   }, []);
+
+  const loadTodayDaily = useCallback(async (force = false) => {
+    if (!user?.id) return;
+    const today = todayDateString();
+    const bundle = await fetchDailySummaryBundle(user.id, today, { force });
+    if (bundle) setDaily(bundle.daily);
+  }, [user?.id]);
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -126,6 +134,8 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
       setDaily(null);
       setWeekly(null);
       setIsLoading(false);
+      lastFetchDateRef.current = '';
+      lastForegroundFetchRef.current = 0;
       return;
     }
 
@@ -136,40 +146,50 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        await Promise.all([fetchTodayDaily(), fetchWeekly()]);
+        lastFetchDateRef.current = todayDateString();
+        lastForegroundFetchRef.current = Date.now();
+        await Promise.all([loadTodayDaily(), fetchWeekly()]);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, fetchTodayDaily, fetchWeekly]);
+  }, [status, user?.id, loadTodayDaily, fetchWeekly]);
 
-  // ── Reset to today's summary when app returns to foreground on a new day ─
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       const prev = appStateRef.current;
       appStateRef.current = next;
-      if (prev.match(/inactive|background/) && next === 'active') {
-        void Promise.all([fetchTodayDaily(), fetchWeekly()]);
-      }
+      if (!prev.match(/inactive|background/) || next !== 'active') return;
+      if (status !== 'authenticated' || !user?.id) return;
+
+      const today = todayDateString();
+      const dayRolled = lastFetchDateRef.current !== today;
+      const stale = Date.now() - lastForegroundFetchRef.current > TTL_FOREGROUND_SKIP_MS;
+
+      if (!dayRolled && !stale) return;
+
+      lastFetchDateRef.current = today;
+      lastForegroundFetchRef.current = Date.now();
+      void Promise.all([
+        loadTodayDaily(dayRolled),
+        dayRolled ? fetchWeekly() : Promise.resolve(),
+      ]);
     });
     return () => sub.remove();
-  }, [fetchTodayDaily, fetchWeekly]);
+  }, [status, user?.id, loadTodayDaily, fetchWeekly]);
 
-  // ── Fetch daily by date ──────────────────────────────────────────────────
   const fetchDaily = useCallback(async (date: string): Promise<DailySummary | null> => {
-    const { ok, body } = await apiFetch(`/summary/daily/${date}`);
-    if (!ok || !body.summary) return null;
-    const result = fromApiDaily(body.summary as Record<string, unknown>);
-    if (date === todayDateString()) setDaily(result);
-    return result;
-  }, []);
+    if (!user?.id) return null;
+    const bundle = await fetchDailySummaryBundle(user.id, date);
+    if (!bundle) return null;
+    if (date === todayDateString()) setDaily(bundle.daily);
+    return bundle.daily;
+  }, [user?.id]);
 
-  // ── Update water ─────────────────────────────────────────────────────────
   const updateWater = useCallback(async (date: string, glasses: number) => {
     const snapshot = daily;
-    // Optimistic update for today
     if (date === todayDateString()) {
       setDaily((prev) => prev ? { ...prev, water_glasses: glasses } : prev);
     }
@@ -183,13 +203,16 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
       if (date === todayDateString()) setDaily(snapshot);
       throw new Error('Failed to update water intake');
     }
-  }, [daily]);
 
-  // ── Refresh ──────────────────────────────────────────────────────────────
+    if (user?.id) await invalidateUserTodayCaches(user.id);
+  }, [daily, user?.id]);
+
   const refresh = useCallback(async () => {
-    await Promise.all([fetchTodayDaily(), fetchWeekly()]);
-  }, [fetchTodayDaily, fetchWeekly]);
-
+    if (!user?.id) return;
+    await invalidateUserTodayCaches(user.id);
+    lastForegroundFetchRef.current = Date.now();
+    await Promise.all([loadTodayDaily(true), fetchWeekly()]);
+  }, [user?.id, loadTodayDaily, fetchWeekly]);
 
   return (
     <SummaryContext.Provider value={{

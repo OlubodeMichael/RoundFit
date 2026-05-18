@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'reac
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
+import { CalorieBudgetCard, LIGHT_CALORIE_PALETTE } from '@/components/home/CalorieBudgetCard';
 
 const COLORS = {
   bg:         '#FAFAF8',
@@ -10,12 +11,20 @@ const COLORS = {
   line:       '#E8E3DC',
   lineSoft:   '#EFE9E2',
   accent:     '#F97316',
-  accentSoft: 'rgba(249,115,22,0.10)',
+  accentSoft: 'rgba(249,115,22,0.07)',
+  dark:       '#131318',
+  green:      '#22C55E',
 };
 
-const RING = 320;
-const MID  = RING * 0.60;
-const CORE = RING * 0.18;
+// Static demo data shown on the auth preview card
+const DEMO = {
+  eaten:      1247,
+  goal:       2100,
+  burned:     400,
+  stepsToday: 4312,
+  remaining:  1647,
+  dateLabel:  'Today · May 14',
+};
 
 export default function AuthLandingScreen() {
   const router = useRouter();
@@ -23,135 +32,100 @@ export default function AuthLandingScreen() {
 
   const logoFade    = useRef(new Animated.Value(0)).current;
   const logoY       = useRef(new Animated.Value(-10)).current;
-  const ringsFade   = useRef(new Animated.Value(0)).current;
-  const ringsScale  = useRef(new Animated.Value(0.86)).current;
-  const eyebrowFade = useRef(new Animated.Value(0)).current;
-  const eyebrowY    = useRef(new Animated.Value(12)).current;
-  const headFade    = useRef(new Animated.Value(0)).current;
-  const headY       = useRef(new Animated.Value(22)).current;
-  const bodyFade    = useRef(new Animated.Value(0)).current;
-  const bodyY       = useRef(new Animated.Value(16)).current;
+  const streakFade  = useRef(new Animated.Value(0)).current;
+  const streakX     = useRef(new Animated.Value(-14)).current;
+  const cardFade    = useRef(new Animated.Value(0)).current;
+  const floatAnim   = useRef(new Animated.Value(22)).current;  // entrance offset → float loop
+  const liveFade    = useRef(new Animated.Value(0)).current;
+  const liveY       = useRef(new Animated.Value(8)).current;
   const btnsFade    = useRef(new Animated.Value(0)).current;
-  const btnsY       = useRef(new Animated.Value(16)).current;
-
-  const arcSpin   = useRef(new Animated.Value(0)).current;
-  const orbitSpin = useRef(new Animated.Value(0)).current;
-  const breathe   = useRef(new Animated.Value(0)).current;
+  const btnsY       = useRef(new Animated.Value(14)).current;
+  const breathe     = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const ease = Easing.out(Easing.cubic);
-
     Animated.parallel([
-      Animated.timing(logoFade,    { toValue: 1, duration: 500, delay:  80, useNativeDriver: true }),
-      Animated.timing(logoY,       { toValue: 0, duration: 500, delay:  80, easing: ease, useNativeDriver: true }),
+      Animated.timing(logoFade,    { toValue: 1, duration: 480, delay:  60, useNativeDriver: true }),
+      Animated.timing(logoY,       { toValue: 0, duration: 480, delay:  60, easing: ease, useNativeDriver: true }),
+      Animated.timing(streakFade,  { toValue: 1, duration: 560, delay: 180, useNativeDriver: true }),
+      Animated.timing(streakX,     { toValue: 0, duration: 560, delay: 180, easing: ease, useNativeDriver: true }),
+      Animated.timing(cardFade,    { toValue: 1, duration: 650, delay: 260, useNativeDriver: true }),
+      Animated.timing(liveFade,    { toValue: 1, duration: 480, delay: 440, useNativeDriver: true }),
+      Animated.timing(liveY,       { toValue: 0, duration: 480, delay: 440, easing: ease, useNativeDriver: true }),
+      Animated.timing(btnsFade,    { toValue: 1, duration: 460, delay: 560, useNativeDriver: true }),
+      Animated.timing(btnsY,       { toValue: 0, duration: 460, delay: 560, easing: ease, useNativeDriver: true }),
+    ]).start();
 
-      Animated.timing(ringsFade,   { toValue: 1, duration: 900, delay: 140, useNativeDriver: true }),
-      Animated.timing(ringsScale,  { toValue: 1, duration: 900, delay: 140, easing: ease, useNativeDriver: true }),
-
-      Animated.timing(eyebrowFade, { toValue: 1, duration: 500, delay: 360, useNativeDriver: true }),
-      Animated.timing(eyebrowY,    { toValue: 0, duration: 500, delay: 360, easing: ease, useNativeDriver: true }),
-
-      Animated.timing(headFade,    { toValue: 1, duration: 650, delay: 460, useNativeDriver: true }),
-      Animated.timing(headY,       { toValue: 0, duration: 650, delay: 460, easing: ease, useNativeDriver: true }),
-
-      Animated.timing(bodyFade,    { toValue: 1, duration: 500, delay: 640, useNativeDriver: true }),
-      Animated.timing(bodyY,       { toValue: 0, duration: 500, delay: 640, easing: ease, useNativeDriver: true }),
-
-      Animated.timing(btnsFade,    { toValue: 1, duration: 500, delay: 780, useNativeDriver: true }),
-      Animated.timing(btnsY,       { toValue: 0, duration: 500, delay: 780, easing: ease, useNativeDriver: true }),
+    // Card float: slide in from below, then gently bob forever
+    Animated.sequence([
+      Animated.timing(floatAnim, {
+        toValue: 0, duration: 700, delay: 260,
+        easing: Easing.out(Easing.cubic), useNativeDriver: true,
+      }),
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(floatAnim, { toValue: -8, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(floatAnim, { toValue:  0, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ])
+      ),
     ]).start();
 
     Animated.loop(
-      Animated.timing(arcSpin, { toValue: 1, duration: 6000, easing: Easing.linear, useNativeDriver: true })
-    ).start();
-
-    Animated.loop(
-      Animated.timing(orbitSpin, { toValue: 1, duration: 11000, easing: Easing.linear, useNativeDriver: true })
-    ).start();
-
-    Animated.loop(
       Animated.sequence([
-        Animated.timing(breathe, { toValue: 1, duration: 2200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(breathe, { toValue: 0, duration: 2200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(breathe, { toValue: 1, duration: 850, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(breathe, { toValue: 0, duration: 850, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
       ])
     ).start();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const arcRotate    = arcSpin.interpolate({   inputRange: [0, 1], outputRange: ['0deg',  '360deg'] });
-  const orbitRotate  = orbitSpin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-360deg'] });
-  const breatheScale = breathe.interpolate({   inputRange: [0, 1], outputRange: [1, 1.08] });
-  const breatheOpac  = breathe.interpolate({   inputRange: [0, 1], outputRange: [0.85, 1] });
+  const dotOpac = breathe.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] });
 
   return (
-    <View style={[s.root, { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 24 }]}>
+    <View style={[s.root, { paddingTop: insets.top + 14, paddingBottom: insets.bottom + 16 }]}>
 
-      {/* ─────────── Decorative animated rings ─────────── */}
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          s.ringsWrap,
-          { opacity: ringsFade, transform: [{ scale: ringsScale }] },
-        ]}
-      >
-        {/* Nested concentric rings */}
-        <View style={s.outerRing}>
-          <View style={s.midRing}>
-            <Animated.View
-              style={[
-                s.coreDisc,
-                { opacity: breatheOpac, transform: [{ scale: breatheScale }] },
-              ]}
-            >
-              <View style={s.coreDot} />
-            </Animated.View>
-          </View>
-        </View>
+      <View style={s.bgBlob} pointerEvents="none" />
 
-        {/* Rotating quarter-arc overlay (orange) */}
-        <Animated.View style={[s.arcOverlay, { transform: [{ rotate: arcRotate }] }]}>
-          <View style={s.arcRing} />
-        </Animated.View>
-
-        {/* Orbiting accent dot */}
-        <Animated.View style={[s.orbitOverlay, { transform: [{ rotate: orbitRotate }] }]}>
-          <View style={s.orbitDot} />
-        </Animated.View>
-      </Animated.View>
-
-      {/* ─────────── Wordmark ─────────── */}
+      {/* ── Wordmark ── */}
       <Animated.View style={[s.logoRow, { opacity: logoFade, transform: [{ translateY: logoY }] }]}>
-        <Text style={s.logo}>
-          Round<Text style={s.logoAccent}>Fit</Text>
-        </Text>
+        <Text style={s.logo}>Round<Text style={s.logoAccent}>Fit</Text></Text>
         <View style={s.logoDot} />
       </Animated.View>
 
       <View style={{ flex: 1 }} />
 
-      {/* ─────────── Hero copy ─────────── */}
-      <View style={s.hero}>
-        <Animated.View style={{ opacity: eyebrowFade, transform: [{ translateY: eyebrowY }] }}>
-          <View style={s.eyebrowRow}>
-            <View style={s.eyebrowDash} />
-            <Text style={s.eyebrow}>FITNESS · NUTRITION · PROGRESS</Text>
+      {/* ── Preview cards — centred, floating ── */}
+      <Animated.View style={[s.cardsSection, { opacity: cardFade, transform: [{ translateY: floatAnim }] }]}>
+
+        <Animated.View style={[s.streakBadge, { opacity: streakFade, transform: [{ translateX: streakX }] }]}>
+          <Text style={s.streakFlame}>🔥</Text>
+          <View>
+            <Text style={s.streakDays}>14 days</Text>
+            <Text style={s.streakSub}>STREAK</Text>
           </View>
         </Animated.View>
 
-        <Animated.View style={{ opacity: headFade, transform: [{ translateY: headY }] }}>
-          <Text style={s.headline}>
-            Your body.{'\n'}
-            <Text style={s.headlineAccent}>Your rules.</Text>
-          </Text>
+        <CalorieBudgetCard
+            P={LIGHT_CALORIE_PALETTE}
+            eaten={DEMO.eaten}
+            goal={DEMO.goal}
+            burned={DEMO.burned}
+            stepsToday={DEMO.stepsToday}
+            remaining={DEMO.remaining}
+            dateLabel={DEMO.dateLabel}
+          />
+
+        <Animated.View style={[s.livePill, { opacity: liveFade, transform: [{ translateY: liveY }] }]}>
+          <Animated.View style={[s.liveDot, { opacity: dotOpac }]} />
+          <Text style={s.liveTag}>LIVE</Text>
+          <Text style={s.liveRunner}>🏃</Text>
+          <Text style={s.liveActivity}>Walk 85 min · 434 kcal</Text>
         </Animated.View>
 
-        <Animated.View style={{ opacity: bodyFade, transform: [{ translateY: bodyY }] }}>
-          <Text style={s.body}>
-            Train smarter, eat with intention,{'\n'}and recover like it matters.
-          </Text>
-        </Animated.View>
-      </View>
+      </Animated.View>
 
-      {/* ─────────── Actions ─────────── */}
+      <View style={{ flex: 1 }} />
+
+      {/* ── Actions — pinned bottom ── */}
       <Animated.View style={[s.buttons, { opacity: btnsFade, transform: [{ translateY: btnsY }] }]}>
         <TouchableOpacity
           style={s.primaryBtn}
@@ -173,188 +147,95 @@ export default function AuthLandingScreen() {
           </Text>
         </TouchableOpacity>
       </Animated.View>
+
     </View>
   );
 }
 
 const s = StyleSheet.create({
   root: {
-    flex: 1,
-    backgroundColor: COLORS.bg,
-    paddingHorizontal: 28,
+    flex:              1,
+    backgroundColor:   COLORS.bg,
+    paddingHorizontal: 22,
   },
 
-  /* ───── Rings ───── */
-  ringsWrap: {
-    position: 'absolute',
-    top:   -RING * 0.30,
-    right: -RING * 0.40,
-    width:  RING,
-    height: RING,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  outerRing: {
-    width: RING,
-    height: RING,
-    borderRadius: RING / 2,
-    borderWidth: 1,
-    borderColor: COLORS.line,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  midRing: {
-    width: MID,
-    height: MID,
-    borderRadius: MID / 2,
-    borderWidth: 1,
-    borderColor: COLORS.lineSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  coreDisc: {
-    width: CORE,
-    height: CORE,
-    borderRadius: CORE / 2,
+  bgBlob: {
+    position:        'absolute',
+    top:             -70,
+    right:           -80,
+    width:           230,
+    height:          230,
+    borderRadius:    115,
     backgroundColor: COLORS.accentSoft,
-    borderWidth: 1,
-    borderColor: COLORS.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  coreDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: COLORS.accent,
-  },
-  arcOverlay: {
-    position: 'absolute',
-    width:  RING,
-    height: RING,
-  },
-  arcRing: {
-    width: RING,
-    height: RING,
-    borderRadius: RING / 2,
-    borderWidth: 2,
-    borderTopColor: COLORS.accent,
-    borderRightColor:  'transparent',
-    borderBottomColor: 'transparent',
-    borderLeftColor:   'transparent',
-  },
-  orbitOverlay: {
-    position: 'absolute',
-    width:  RING,
-    height: RING,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-  },
-  orbitDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: COLORS.accent,
-    marginTop: -5,
-    shadowColor: COLORS.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.55,
-    shadowRadius: 8,
-    elevation: 6,
   },
 
-  /* ───── Wordmark ───── */
-  logoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  logo: {
-    fontFamily: 'Syne_800ExtraBold',
-    fontSize: 20,
-    color: COLORS.text,
-    letterSpacing: -0.2,
-  },
+  logoRow:    { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  logo:       { fontFamily: 'Syne_800ExtraBold', fontSize: 20, color: COLORS.text, letterSpacing: -0.2 },
   logoAccent: { color: COLORS.accent },
-  logoDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: COLORS.accent,
-  },
+  logoDot:    { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.accent },
 
-  /* ───── Hero ───── */
-  hero: { gap: 22, marginBottom: 40 },
+  cardsSection: { gap: 8, marginBottom: 20 },
 
-  eyebrowRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  streakBadge: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               10,
+    alignSelf:         'flex-start',
+    backgroundColor:   '#FFFFFF',
+    borderRadius:      14,
+    paddingVertical:   8,
+    paddingHorizontal: 13,
+    borderWidth:       1,
+    borderColor:       COLORS.lineSoft,
+    shadowColor:       '#000',
+    shadowOffset:      { width: 0, height: 2 },
+    shadowOpacity:     0.06,
+    shadowRadius:      8,
+    elevation:         3,
   },
-  eyebrowDash: {
-    width: 22,
-    height: 2,
-    backgroundColor: COLORS.accent,
-    borderRadius: 1,
-  },
-  eyebrow: {
-    fontFamily: 'Syne_700Bold',
-    fontSize: 10,
-    letterSpacing: 2.2,
-    color: COLORS.accent,
-  },
+  streakFlame: { fontSize: 20 },
+  streakDays:  { fontFamily: 'Syne_700Bold', fontSize: 13, color: COLORS.text },
+  streakSub:   { fontFamily: 'Syne_700Bold', fontSize: 9, letterSpacing: 1.4, color: COLORS.mid, marginTop: 1 },
 
-  headline: {
-    fontFamily: 'Syne_800ExtraBold',
-    fontSize: 60,
-    lineHeight: 64,
-    letterSpacing: -3,
-    color: COLORS.text,
+  livePill: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               7,
+    alignSelf:         'flex-end',
+    backgroundColor:   COLORS.dark,
+    borderRadius:      50,
+    paddingVertical:   9,
+    paddingHorizontal: 14,
+    marginTop:         -18,
+    shadowColor:       '#000',
+    shadowOffset:      { width: 0, height: 4 },
+    shadowOpacity:     0.26,
+    shadowRadius:      10,
+    elevation:         8,
   },
-  headlineAccent: { color: COLORS.accent },
+  liveDot:      { width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.green },
+  liveTag:      { fontFamily: 'Syne_700Bold', fontSize: 10, color: COLORS.green, letterSpacing: 1.2 },
+  liveRunner:   { fontSize: 12 },
+  liveActivity: { fontSize: 12, color: '#FFFFFF', letterSpacing: 0.2 },
 
-  body: {
-    fontSize: 16,
-    lineHeight: 25,
-    color: COLORS.mid,
-  },
-
-  /* ───── Actions ───── */
-  buttons: { gap: 4 },
+  buttons:    { gap: 0 },
   primaryBtn: {
     backgroundColor: COLORS.accent,
-    borderRadius: 14,
-    paddingVertical: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: COLORS.accent,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.30,
-    shadowRadius: 20,
-    elevation: 10,
+    borderRadius:    14,
+    paddingVertical: 16,
+    flexDirection:   'row',
+    alignItems:      'center',
+    justifyContent:  'center',
+    shadowColor:     COLORS.accent,
+    shadowOffset:    { width: 0, height: 8 },
+    shadowOpacity:   0.28,
+    shadowRadius:    18,
+    elevation:       10,
   },
-  primaryText: {
-    color: '#FFF',
-    fontFamily: 'Syne_700Bold',
-    fontSize: 16,
-    letterSpacing: 0.3,
-  },
-  primaryArrow: {
-    color: '#FFF',
-    fontFamily: 'Syne_700Bold',
-    fontSize: 16,
-  },
-  loginBtn: {
-    paddingVertical: 18,
-    alignItems: 'center',
-  },
-  loginText: {
-    fontSize: 14,
-    color: COLORS.mid,
-  },
-  loginAccent: {
-    color: COLORS.accent,
-    fontFamily: 'Syne_700Bold',
-  },
+  primaryText:  { color: '#FFF', fontFamily: 'Syne_700Bold', fontSize: 16, letterSpacing: 0.3 },
+  primaryArrow: { color: '#FFF', fontFamily: 'Syne_700Bold', fontSize: 16 },
+
+  loginBtn:   { paddingVertical: 14, alignItems: 'center' },
+  loginText:  { fontSize: 14, color: COLORS.mid },
+  loginAccent: { color: COLORS.accent, fontFamily: 'Syne_700Bold' },
 });
