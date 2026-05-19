@@ -1,190 +1,206 @@
 import { Platform, StyleSheet, Text, View } from 'react-native';
 
-import { AnimatedCard } from '@/lib/log-theme';
 import type { TrendPalette } from '@/components/recovery/recovery-trend-utils';
 
 const H_PAD = 20;
 
 export interface RecoveryDayMetricsProps {
-  rhr: number | null;
-  hrv: number | null;
+  rhr:        number | null;
+  hrv:        number | null;
   sleepHours: number | null;
-  rhrDelta: number | null;
-  hrvDelta: number | null;
+  rhrDelta:   number | null;
+  hrvDelta:   number | null;
   sleepScore: number | null;
-  palette: TrendPalette;
+  strain:     number | null;
+  palette:    TrendPalette;
 }
 
-interface MetricColumnProps {
-  label: string;
-  value: string;
-  unit: string;
-  sub: string;
-  subColor: string;
-  hasValue: boolean;
-  palette: TrendPalette;
-  showDivider: boolean;
+interface StatCardProps {
+  label:      string;
+  value:      string;
+  valueUnit:  string;
+  tag:        string;
+  tagColor:   string;
+  sub:        string;
+  subColor:   string;
+  palette:    TrendPalette;
 }
 
-function MetricColumn({
-  label,
-  value,
-  unit,
-  sub,
-  subColor,
-  hasValue,
-  palette,
-  showDivider,
-}: MetricColumnProps) {
+function StatCard({ label, value, valueUnit, tag, tagColor, sub, subColor, palette }: StatCardProps) {
   return (
-    <>
-      {showDivider && <View style={[styles.divider, { backgroundColor: palette.hair }]} />}
-      <View style={styles.column}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: palette.card, borderColor: palette.cardEdge },
+        Platform.select({
+          ios: {
+            shadowColor:   '#000',
+            shadowOpacity: palette.isDark ? 0.22 : 0.07,
+            shadowRadius:  10,
+            shadowOffset:  { width: 0, height: 2 },
+          },
+          android: { elevation: 2 },
+        }),
+      ]}
+    >
+      <View style={styles.header}>
         <Text style={[styles.label, { color: palette.textFaint }]}>{label}</Text>
-        <View style={styles.reading}>
-          <Text style={[styles.value, { color: hasValue ? palette.text : palette.textFaint }]}>
-            {value}
-          </Text>
-          <Text style={[styles.unit, { color: palette.textFaint }]}>{unit}</Text>
-        </View>
-        <Text style={[styles.sub, { color: subColor }]} numberOfLines={1}>
-          {sub}
-        </Text>
+        <Text style={[styles.tag, { color: tagColor }]}>{tag}</Text>
       </View>
-    </>
+
+      <View style={styles.valueRow}>
+        <Text style={[styles.value, { color: palette.text }]} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
+        {valueUnit.length > 0 && (
+          <Text style={[styles.unit, { color: palette.textFaint }]}>{valueUnit}</Text>
+        )}
+      </View>
+
+      <Text style={[styles.sub, { color: subColor }]} numberOfLines={1}>{sub}</Text>
+    </View>
   );
 }
 
 function fmtDelta(diff: number, unit: string): string {
   const sign = diff > 0 ? '+' : '';
-  return `${sign}${diff} ${unit}`;
+  return `${sign}${diff} ${unit} vs avg`;
+}
+
+function fmtSleep(h: number): string {
+  const hrs  = Math.floor(h);
+  const mins = Math.round((h - hrs) * 60);
+  return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+}
+
+function strainZone(s: number): { tag: string; sub: string } {
+  if (s >= 18) return { tag: 'MAX',  sub: 'All out'       };
+  if (s >= 14) return { tag: 'HARD', sub: 'Hard training' };
+  if (s >= 10) return { tag: 'MOD',  sub: 'Moderate'      };
+  return              { tag: 'REC',  sub: 'Recovery'      };
 }
 
 export function RecoveryDayMetrics({
-  rhr,
-  hrv,
-  sleepHours,
-  rhrDelta,
-  hrvDelta,
-  sleepScore,
-  palette,
+  rhr, hrv, sleepHours, rhrDelta, hrvDelta, sleepScore, strain, palette,
 }: RecoveryDayMetricsProps) {
-  const rhrSub = rhrDelta != null
-    ? { text: `${fmtDelta(rhrDelta, 'bpm')} avg`, color: rhrDelta <= 0 ? palette.protein : palette.calories }
-    : { text: '—', color: palette.textFaint };
+  // ── SLEEP ────────────────────────────────────────────────────────────────────
+  const sleepColor    = sleepScore != null
+    ? (sleepScore >= 70 ? palette.protein : sleepScore >= 40 ? palette.carbs : palette.calories)
+    : palette.textFaint;
+  const sleepVal      = sleepHours != null ? fmtSleep(sleepHours) : '—';
+  const sleepUnit     = sleepHours != null ? 'hrs' : '';
+  const sleepTag      = sleepScore != null ? String(Math.round(sleepScore)) : '—';
+  const sleepSub      = sleepScore != null
+    ? (sleepScore >= 70 ? 'Good quality' : sleepScore >= 40 ? 'Fair quality' : 'Poor quality')
+    : 'No data';
 
-  const hrvSub = hrvDelta != null
-    ? { text: `${fmtDelta(hrvDelta, 'ms')} avg`, color: hrvDelta >= 0 ? palette.protein : palette.calories }
-    : { text: '—', color: palette.textFaint };
+  // ── HRV ──────────────────────────────────────────────────────────────────────
+  const hrvColor      = hrv != null
+    ? (hrv >= 50 ? palette.protein : hrv >= 30 ? palette.carbs : palette.calories)
+    : palette.textFaint;
+  const rhrVal        = rhr != null ? String(Math.round(rhr)) : '—';
+  const hrvTag        = hrv != null ? `${Math.round(hrv)} ms` : '—';
+  const hrvSub        = hrvDelta != null
+    ? fmtDelta(hrvDelta, 'ms')
+    : (rhrDelta != null ? fmtDelta(rhrDelta, 'bpm') : 'No baseline');
+  const hrvSubColor   = hrvDelta != null
+    ? (hrvDelta >= 0 ? palette.protein : palette.calories)
+    : (rhrDelta != null ? (rhrDelta <= 0 ? palette.protein : palette.calories) : palette.textFaint);
 
-  const sleepSub = sleepScore != null
-    ? {
-        text: `Score ${sleepScore}`,
-        color: sleepScore >= 60 ? palette.protein : palette.calories,
-      }
-    : { text: '—', color: palette.textFaint };
-
-  const sleepVal = sleepHours != null
-    ? (sleepHours % 1 === 0 ? String(sleepHours) : sleepHours.toFixed(1))
-    : '—';
+  // ── STRAIN ───────────────────────────────────────────────────────────────────
+  const strainColor   = strain != null
+    ? (strain < 10 ? palette.protein : strain < 14 ? palette.carbs : palette.calories)
+    : palette.textFaint;
+  const strainVal     = strain != null ? strain.toFixed(1) : '—';
+  const strainUnit    = strain != null ? '/ 21' : '';
+  const { tag: strainTag, sub: strainSub } = strain != null
+    ? strainZone(strain)
+    : { tag: '—', sub: 'No workout' };
 
   return (
-    <AnimatedCard
-      delay={120}
-      padding={0}
-      style={[styles.cardOuter, { marginHorizontal: H_PAD }]}
-    >
-      <View style={styles.cardInner}>
-        <MetricColumn
-          label="RHR"
-          value={rhr != null ? String(Math.round(rhr)) : '—'}
-          unit="bpm"
-          sub={rhrSub.text}
-          subColor={rhrSub.color}
-          hasValue={rhr != null}
-          palette={palette}
-          showDivider={false}
-        />
-        <MetricColumn
-          label="HRV"
-          value={hrv != null ? String(Math.round(hrv)) : '—'}
-          unit="ms"
-          sub={hrvSub.text}
-          subColor={hrvSub.color}
-          hasValue={hrv != null}
-          palette={palette}
-          showDivider
-        />
-        <MetricColumn
-          label="Sleep"
-          value={sleepVal}
-          unit="hrs"
-          sub={sleepSub.text}
-          subColor={sleepSub.color}
-          hasValue={sleepHours != null}
-          palette={palette}
-          showDivider
-        />
-      </View>
-    </AnimatedCard>
+    <View style={[styles.row, { paddingHorizontal: H_PAD }]}>
+      <StatCard
+        label="SLEEP"
+        value={sleepVal}
+        valueUnit={sleepUnit}
+        tag={sleepTag}
+        tagColor={sleepColor}
+        sub={sleepSub}
+        subColor={sleepColor}
+        palette={palette}
+      />
+      <StatCard
+        label="HRV"
+        value={rhrVal}
+        valueUnit="bpm"
+        tag={hrvTag}
+        tagColor={hrvColor}
+        sub={hrvSub}
+        subColor={hrvSubColor}
+        palette={palette}
+      />
+      <StatCard
+        label="STRAIN"
+        value={strainVal}
+        valueUnit={strainUnit}
+        tag={strainTag}
+        tagColor={strainColor}
+        sub={strainSub}
+        subColor={strainColor}
+        palette={palette}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  cardOuter: {
-    borderRadius: 18,
-    overflow:     'hidden',
-    ...Platform.select({
-      ios: {
-        shadowColor:   '#000',
-        shadowOpacity: 0.2,
-        shadowRadius:  14,
-        shadowOffset:  { width: 0, height: 6 },
-      },
-      android: { elevation: 3 },
-    }),
+  row: {
+    flexDirection: 'row',
+    gap:           10,
   },
-  cardInner: {
-    flexDirection:     'row',
-    paddingVertical:   16,
-    paddingHorizontal: 8,
-  },
-  column: {
+  card: {
     flex:              1,
-    alignItems:        'center',
-    justifyContent:    'center',
-    gap:               5,
-    paddingHorizontal: 4,
+    borderRadius:      16,
+    borderWidth:       StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingTop:        12,
+    paddingBottom:     14,
   },
-  divider: {
-    width:     StyleSheet.hairlineWidth,
-    alignSelf: 'stretch',
-    marginVertical: 2,
+  header: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+    marginBottom:   10,
   },
   label: {
-    fontSize:      10,
-    fontWeight:    '600',
-    letterSpacing: 1.1,
+    fontSize:      9,
+    fontWeight:    '700',
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
   },
-  reading: {
+  tag: {
+    fontSize:   10,
+    fontWeight: '700',
+  },
+  valueRow: {
     flexDirection: 'row',
     alignItems:    'baseline',
-    gap:           3,
+    gap:           4,
   },
   value: {
-    fontSize:      22,
-    fontWeight:    '700',
-    letterSpacing: -0.6,
-    fontVariant:   ['tabular-nums'],
+    fontFamily:    'Syne_700Bold',
+    fontSize:      26,
+    fontWeight:    '800',
+    letterSpacing: -1,
+    lineHeight:    30,
   },
   unit: {
-    fontSize:   12,
-    fontWeight: '500',
+    fontSize:     11,
+    fontWeight:   '500',
+    marginBottom: 1,
   },
   sub: {
-    fontSize:   11,
-    fontWeight: '500',
-    minHeight:  14,
+    fontSize:   10,
+    fontWeight: '600',
+    marginTop:  7,
+    letterSpacing: 0.1,
   },
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps } from 'react';
 import {
   Platform,
@@ -8,8 +8,11 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Svg, { Circle } from 'react-native-svg';
@@ -20,8 +23,6 @@ import {
   MiniLabel,
   NotesField,
   PrimaryButton,
-  StatColumn,
-  StatDivider,
   TextField,
   usePalette,
 } from '@/lib/log-theme';
@@ -32,6 +33,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
 import { usePostHog } from 'posthog-react-native';
+import { ForceDarkScope } from '@/context/theme-context';
 import { apiFetch } from '@/utils/api';
 import {
   getHealthKitModule,
@@ -73,10 +75,27 @@ function formatNavDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function QualityRing({ quality, size = 54, strokeWidth = 5 }: { quality: Quality; size?: number; strokeWidth?: number }) {
-  const P      = usePalette();
-  const score  = qualityPct(quality);
-  const color  = qualityRingColor(P, quality);
+function formatStageTime(ms: number): string {
+  const totalMin = Math.round(ms / 60_000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
+function QualityRing({
+  quality,
+  score: scoreProp,
+  size = 54,
+  strokeWidth = 5,
+}: {
+  quality: Quality;
+  score?: number | null;
+  size?: number;
+  strokeWidth?: number;
+}) {
+  const P     = usePalette();
+  const score = scoreProp ?? qualityPct(quality);
+  const color = qualityRingColor(P, quality);
   const r      = (size - strokeWidth) / 2;
   const cx     = size / 2;
   const cy     = size / 2;
@@ -100,14 +119,77 @@ function QualityRing({ quality, size = 54, strokeWidth = 5 }: { quality: Quality
       </Svg>
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ fontSize: 12, fontWeight: '800', color }}>{score}%</Text>
+          <Text style={{ fontSize: 14, fontWeight: '800', color }}>{score}</Text>
         </View>
       </View>
     </View>
   );
 }
 
-export default function SleepLogScreen() {
+// ── Star field + atmospheric glow ─────────────────────────────────────────
+function StarFieldBackground() {
+  const { width, height } = useWindowDimensions();
+
+  // Deterministic star positions — seeded via sin/cos so they never re-randomize
+  const stars = useMemo(() => {
+    const count = 90;
+    return Array.from({ length: count }, (_, i) => {
+      const sx = Math.abs(Math.sin(i * 127.1) * 99991) % 1;
+      const sy = Math.abs(Math.sin(i * 311.7) * 99991) % 1;
+      const sr = Math.abs(Math.sin(i * 513.3) * 99991) % 1;
+      const so = Math.abs(Math.sin(i * 719.9) * 99991) % 1;
+      return {
+        cx: sx * width,
+        cy: sy * height,
+        r:  sr < 0.7 ? 0.6 : sr < 0.92 ? 1.1 : 1.6,
+        opacity: 0.15 + so * 0.55,
+      };
+    });
+  }, [width, height]);
+
+  return (
+    <View style={{ ...StyleSheet.absoluteFillObject, zIndex: 0 }} pointerEvents="none">
+      {/* Violet atmospheric glow — top centre */}
+      <LinearGradient
+        colors={['rgba(88,60,180,0.28)', 'rgba(60,40,130,0.10)', 'transparent']}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: height * 0.52 }}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      />
+      {/* Secondary indigo glow — upper-right bloom */}
+      <LinearGradient
+        colors={['rgba(100,60,200,0.14)', 'transparent']}
+        style={{ position: 'absolute', top: 0, right: 0, width: width * 0.7, height: height * 0.35 }}
+        start={{ x: 1, y: 0 }}
+        end={{ x: 0, y: 1 }}
+      />
+      {/* Stars */}
+      <Svg width={width} height={height} style={StyleSheet.absoluteFillObject}>
+        {stars.map((s, i) => (
+          <Circle
+            key={i}
+            cx={s.cx}
+            cy={s.cy}
+            r={s.r}
+            fill="white"
+            opacity={s.opacity}
+          />
+        ))}
+      </Svg>
+    </View>
+  );
+}
+
+// ── Wrapper: forces dark palette for the entire screen tree ────────────────
+export default function SleepLogScreenWrapper() {
+  return (
+    <ForceDarkScope>
+      <SleepLogScreen />
+    </ForceDarkScope>
+  );
+}
+
+function SleepLogScreen() {
   const P               = usePalette();
   const router          = useRouter();
   const insets          = useSafeAreaInsets();
@@ -127,8 +209,11 @@ export default function SleepLogScreen() {
     setActiveDate(next);
   };
 
+  // ── Per-date caches (keyed by ISO date string, screen-lifetime) ───────────
+  const healthCache   = useRef<Map<string, HealthData | null>>(new Map());
+  const segmentCache  = useRef<Map<string, SleepSegment[]>>(new Map());
+
   // ── Per-date health data ───────────────────────────────────────────────────
-  // Today comes from context; other dates fetched on demand.
   const [dateHealthData, setDateHealthData] = useState<HealthData | null>(null);
   const [loadingDate,    setLoadingDate]    = useState(false);
 
@@ -142,27 +227,37 @@ export default function SleepLogScreen() {
       setDateHealthData(null);
       return;
     }
+    // Serve from cache immediately — no loading flash
+    if (healthCache.current.has(activeDate)) {
+      setDateHealthData(healthCache.current.get(activeDate) ?? null);
+      setLoadingDate(false);
+      return;
+    }
     let cancelled = false;
     setLoadingDate(true);
     apiFetch(`/health/today?date=${activeDate}`)
       .then(({ ok, body }) => {
         if (cancelled) return;
-        if (ok && body.health_data) {
-          setDateHealthData(body.health_data as HealthData);
-        } else {
+        const data = ok && body.health_data ? (body.health_data as HealthData) : null;
+        healthCache.current.set(activeDate, data);
+        setDateHealthData(data);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          healthCache.current.set(activeDate, null);
           setDateHealthData(null);
         }
       })
-      .catch(() => { if (!cancelled) setDateHealthData(null); })
       .finally(() => { if (!cancelled) setLoadingDate(false); });
     return () => { cancelled = true; };
   }, [activeDate, isToday]);
 
   // ── Form state ─────────────────────────────────────────────────────────────
   const [fromHealthKit, setFromHealthKit] = useState(false);
-  const [bedtime,  setBedtime] = useState('11:00 PM');
-  const [wakeup,   setWakeup]  = useState('7:00 AM');
-  const [quality,  setQuality] = useState<Quality>('good');
+  const [bedtime,      setBedtime]      = useState('11:00 PM');
+  const [wakeup,       setWakeup]       = useState('7:00 AM');
+  const [quality,      setQuality]      = useState<Quality>('good');
+  const [qualityScore, setQualityScore] = useState<number | null>(null);
   const [deepH,    setDeepH]   = useState('');
   const [deepM,    setDeepM]   = useState('');
   const [notes,    setNotes]   = useState('');
@@ -170,29 +265,39 @@ export default function SleepLogScreen() {
   const [pickerVisible,       setPickerVisible]       = useState(false);
   const [noSleepModalVisible, setNoSleepModalVisible] = useState(false);
   const [qualityExpanded,     setQualityExpanded]     = useState(false);
+  const [notesExpanded,       setNotesExpanded]       = useState(false);
 
   // ── Sleep stage segments (for hypnogram chart) ─────────────────────────────
   const [sleepSegments, setSleepSegments] = useState<SleepSegment[]>([]);
 
   useEffect(() => {
+    // Serve from cache immediately
+    if (segmentCache.current.has(activeDate)) {
+      setSleepSegments(segmentCache.current.get(activeDate) ?? []);
+      return;
+    }
     let cancelled = false;
     const hk = getHealthKitModule();
     if (!hk) return;
     readSleepSegmentsForNight(hk, activeDate).then((segs) => {
-      if (!cancelled) setSleepSegments(segs);
+      if (!cancelled) {
+        segmentCache.current.set(activeDate, segs);
+        setSleepSegments(segs);
+      }
     });
     return () => { cancelled = true; };
   }, [activeDate]);
 
-  // Reset + re-populate whenever the active date (or its health data) changes
   const populateFromHealthKit = useCallback((hk: HealthData) => {
     setFromHealthKit(true);
-    setQuality(sleepHoursToQuality({
+    const { quality: q, score: s } = computeSleepQuality({
       sleep_hours:      hk.sleep_hours!,
       deep_sleep_hours: hk.deep_sleep_hours,
       rem_sleep_hours:  hk.rem_sleep_hours,
       sleep_efficiency: hk.sleep_efficiency,
-    }));
+    });
+    setQuality(q);
+    setQualityScore(s);
     if (hk.deep_sleep_hours !== null && hk.deep_sleep_hours > 0) {
       const totalMin = Math.round(hk.deep_sleep_hours * 60);
       setDeepH(String(Math.floor(totalMin / 60)));
@@ -215,24 +320,24 @@ export default function SleepLogScreen() {
   }, []);
 
   useEffect(() => {
-    // Reset form each time date switches
     setFromHealthKit(false);
     setBedtime('11:00 PM');
     setWakeup('7:00 AM');
     setQuality('good');
+    setQualityScore(null);
     setDeepH('');
     setDeepM('');
     setNotes('');
+    setNotesExpanded(false);
+    setQualityExpanded(false);
   }, [activeDate]);
 
   useEffect(() => {
     if (hkSleep && !fromHealthKit) {
       populateFromHealthKit(hkSleep);
     }
-  }, [hkSleep]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hkSleep, fromHealthKit, populateFromHealthKit]);
 
-  // Show no-sleep modal only for today — past dates may simply have no data logged.
-  // Showing it on past dates blocks the navigation header (modal backdrop is absoluteFill).
   useEffect(() => {
     if (isToday && !loadingDate && health.isConnected && !hkSleep) {
       setNoSleepModalVisible(true);
@@ -241,8 +346,42 @@ export default function SleepLogScreen() {
     }
   }, [isToday, loadingDate, hkSleep, health.isConnected]);
 
-  // ── Computed hours (always from clock inputs so edits update hero live) ────
+  // ── Computed values ────────────────────────────────────────────────────────
   const hours = useMemo(() => computeHours(bedtime, wakeup), [bedtime, wakeup]);
+
+  // True while we're waiting for data to arrive — suppresses default-value flash
+  const heroLoading = !fromHealthKit && (loadingDate || !!hkSleep);
+
+  const hasSegments = useMemo(
+    () => sleepSegments.some((s) =>
+      ['awake', 'rem', 'core', 'deep'].includes(s.stage),
+    ),
+    [sleepSegments],
+  );
+
+  const stageSummary = useMemo(() => {
+    const sum = (stage: string) =>
+      sleepSegments
+        .filter((s) => s.stage === stage)
+        .reduce((acc, s) => acc + s.end.getTime() - s.start.getTime(), 0);
+    const remMs   = sum('rem');
+    const lightMs = sum('core');
+    const deepMs  = sum('deep');
+    const awakeMs = sum('awake');
+    const totalMs = remMs + lightMs + deepMs;
+    const pct = (ms: number) => totalMs > 0 ? Math.round((ms / totalMs) * 100) : 0;
+    return [
+      { label: 'REM',   ms: remMs,   pct: pct(remMs),   color: P.sleep },
+      { label: 'LIGHT', ms: lightMs, pct: pct(lightMs), color: P.water },
+      { label: 'DEEP',  ms: deepMs,  pct: pct(deepMs),  color: P.fat   },
+      { label: 'AWAKE', ms: awakeMs, pct: pct(awakeMs), color: P.carbs },
+    ];
+  }, [sleepSegments, P.sleep, P.water, P.fat, P.carbs]);
+
+  const fullCycles = useMemo(
+    () => sleepSegments.filter((s) => s.stage === 'rem').length,
+    [sleepSegments],
+  );
 
   // ── Save ───────────────────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -267,8 +406,6 @@ export default function SleepLogScreen() {
         date:             isToday ? undefined : activeDate,
       });
 
-      // Also write sleep into health_data so the home screen and insights
-      // pick it up — logRecovery only writes to recovery_logs.
       if (sleepH > 0) {
         await health.syncHealth({
           source,
@@ -300,44 +437,27 @@ export default function SleepLogScreen() {
     }
   };
 
-  // ── Hero foot ──────────────────────────────────────────────────────────────
-  const heroFoot = hkSleep ? (
-    <>
-      <StatColumn label="Deep"   value={formatHoursShort(hkSleep.deep_sleep_hours ?? 0)} />
-      <StatDivider />
-      <StatColumn label="REM"    value={formatHoursShort(hkSleep.rem_sleep_hours ?? 0)} />
-      <StatDivider />
-      <StatColumn label="Effic." value={`${Math.round(hkSleep.sleep_efficiency ?? 0)}%`} />
-    </>
-  ) : (
-    <>
-      <StatColumn label="Bedtime" value={bedtime} />
-      <StatDivider />
-      <StatColumn label="Wake"    value={wakeup}  />
-      <StatDivider />
-      <StatColumn label="Goal"    value="8h"      />
-    </>
-  );
-
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
+      <StatusBar style="light" />
+      <StarFieldBackground />
       <ScrollView
         contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Header with date navigator ───────────────────────────────────── */}
+        {/* ── Header ──────────────────────────────────────────────────────── */}
         <View style={[sleepStyles.header, { paddingTop: insets.top + 4 }]}>
           <TouchableOpacity
             onPress={() => router.back()}
             hitSlop={10}
             activeOpacity={0.7}
-            style={[sleepStyles.backBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
+            style={[sleepStyles.iconBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
           >
             <Ionicons name="chevron-back" size={20} color={P.text} />
           </TouchableOpacity>
 
           <View style={{ flex: 1, alignItems: 'center', gap: 6 }}>
-            <Text style={[sleepStyles.eyebrow, { color: P.textFaint }]}>SLEEP LOG</Text>
+            <Text style={[sleepStyles.eyebrow, { color: P.textFaint }]}>SLEEP</Text>
 
             <View style={[sleepStyles.datePill, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
               <TouchableOpacity
@@ -374,102 +494,128 @@ export default function SleepLogScreen() {
             </View>
           </View>
 
-          <View style={{ width: 40 }} />
+          <View style={{ width: 38 }} />
         </View>
 
-        {/* ── Hero: hours summary ──────────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 20, marginTop: 16 }}>
-          <AnimatedCard delay={60}>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 12 }}>
-              <View style={[sleepStyles.moon, { backgroundColor: P.sleepSoft }]}>
-                <Ionicons name="moon" size={22} color={P.sleep} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[sleepStyles.heroEyebrow, { color: P.textFaint }]}>TIME ASLEEP</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-                  <Text style={[sleepStyles.heroBig, { color: P.text }]}>{hours.hours}</Text>
-                  <Text style={[sleepStyles.heroUnit, { color: P.textDim }]}>h</Text>
-                  <Text style={[sleepStyles.heroBig, { color: P.text, marginLeft: 6 }]}>{hours.minutes}</Text>
-                  <Text style={[sleepStyles.heroUnit, { color: P.textDim }]}>m</Text>
-                </View>
-              </View>
+        {/* ── Hero ────────────────────────────────────────────────────────── */}
+        <View style={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 28 }}>
+          {!heroLoading && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <Text style={{ color: P.textFaint, fontSize: 10, fontWeight: '800', letterSpacing: 1.8 }}>
+                ASLEEP
+              </Text>
+              <Text style={{ color: P.textDim, fontSize: 13, fontWeight: '600', letterSpacing: -0.2 }}>
+                {bedtime}
+                <Text style={{ color: P.textFaint }}>{' → '}</Text>
+                {wakeup}
+              </Text>
             </View>
+          )}
 
-            <View style={[sleepStyles.barTrack, { backgroundColor: P.sunken }]}>
-              <View
-                style={[
-                  sleepStyles.barFill,
-                  {
-                    width: `${Math.min(hours.rawHours / 9, 1) * 100}%`,
-                    backgroundColor: loadingDate ? P.cardEdge : P.sleep,
-                  },
-                ]}
-              />
-            </View>
-
-            <View style={[sleepStyles.heroFoot, { borderTopColor: P.hair }]}>
-              {heroFoot}
-            </View>
-          </AnimatedCard>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+            <Text style={[sleepStyles.heroNum, { color: P.text }]}>
+              {heroLoading ? '—' : String(hours.hours)}
+            </Text>
+            {!heroLoading && (
+              <Text style={[sleepStyles.heroSub, { color: P.textDim, paddingBottom: 14, marginLeft: 2 }]}>
+                h
+              </Text>
+            )}
+            {!heroLoading && <View style={{ width: 12 }} />}
+            <Text style={[sleepStyles.heroNum, { color: P.text }]}>
+              {heroLoading ? '' : String(hours.minutes).padStart(2, '0')}
+            </Text>
+            {!heroLoading && (
+              <Text style={[sleepStyles.heroSub, { color: P.textDim, paddingBottom: 14, marginLeft: 2 }]}>
+                m
+              </Text>
+            )}
+          </View>
         </View>
 
-        {/* ── Apple Health sync banner ─────────────────────────────────────── */}
+        {/* ── Apple Health banner ──────────────────────────────────────────── */}
         {fromHealthKit && (
-          <View style={{ paddingHorizontal: 20, marginTop: 12 }}>
+          <View style={{ paddingHorizontal: 20, marginBottom: 14 }}>
             <View style={[sleepStyles.hkBanner, { backgroundColor: P.waterSoft, borderColor: P.water + '40' }]}>
               <Ionicons name="logo-apple" size={13} color="#EF4444" />
               <Text style={[sleepStyles.hkBannerText, { color: P.water }]}>
                 Synced from Apple Health
               </Text>
               <View style={{ flex: 1 }} />
-              <Text style={[sleepStyles.hkBannerSub, { color: P.water }]}>Edit below</Text>
             </View>
           </View>
         )}
 
-
-        {/* ── Hypnogram chart ──────────────────────────────────────────────── */}
-        {fromHealthKit && sleepSegments.some(
-          (s) => s.stage === 'awake' || s.stage === 'rem' || s.stage === 'core' || s.stage === 'deep',
-        ) && (
-          <View style={{ paddingHorizontal: 20, marginTop: 14 }}>
+        {/* ── Sleep Stages ─────────────────────────────────────────────────── */}
+        {fromHealthKit && hasSegments && (
+          <View style={{ paddingHorizontal: 20, marginBottom: 14 }}>
+            <View style={sleepStyles.sectionHeader}>
+              <Text style={[sleepStyles.sectionLabel, { color: P.textFaint }]}>SLEEP STAGES</Text>
+              {fullCycles > 0 && (
+                <Text style={[sleepStyles.sectionSub, { color: P.textFaint }]}>
+                  {fullCycles} full {fullCycles === 1 ? 'cycle' : 'cycles'}
+                </Text>
+              )}
+            </View>
             <AnimatedCard delay={90} padding={16}>
-              <Text style={[sleepStyles.heroEyebrow, { color: P.textFaint, marginBottom: 12 }]}>
-                SLEEP STAGES
-              </Text>
               <SleepHypnogram
                 segments={sleepSegments}
                 windowStart={hkSleep?.bedtime_iso ? new Date(hkSleep.bedtime_iso) : undefined}
                 windowEnd={hkSleep?.wakeup_iso   ? new Date(hkSleep.wakeup_iso)   : undefined}
               />
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                {stageSummary.map((st) =>
+                  st.ms > 0 ? (
+                    <View
+                      key={st.label}
+                      style={[sleepStyles.stagePill, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                        <View style={[sleepStyles.stageDot, { backgroundColor: st.color }]} />
+                        <Text style={{ color: P.textFaint, fontSize: 8, fontWeight: '800', letterSpacing: 0.8 }}>
+                          {st.label}
+                        </Text>
+                      </View>
+                      <Text style={{ color: P.text, fontSize: 13, fontWeight: '800', letterSpacing: -0.3 }}>
+                        {formatStageTime(st.ms)}
+                      </Text>
+                      <Text style={{ color: P.textFaint, fontSize: 10, fontWeight: '600', marginTop: 1 }}>
+                        {st.pct}%
+                      </Text>
+                    </View>
+                  ) : null,
+                )}
+              </View>
             </AnimatedCard>
           </View>
         )}
 
-        {/* ── Bedtime / Wakeup ─────────────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 20, marginTop: 14 }}>
-          <AnimatedCard delay={120} onPress={() => setPickerVisible(true)}>
-            <FieldLabel>Sleep window</FieldLabel>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}>
-              <View style={{ flex: 1 }}>
-                <MiniLabel>Bedtime</MiniLabel>
-                <Text style={{ color: P.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.6, marginTop: 2 }}>
-                  {bedtime}
-                </Text>
+        {/* ── Bedtime / Wakeup (manual only) ───────────────────────────────── */}
+        {!fromHealthKit && (
+          <View style={{ paddingHorizontal: 20, marginBottom: 14 }}>
+            <AnimatedCard delay={120} onPress={() => setPickerVisible(true)}>
+              <FieldLabel>Sleep window</FieldLabel>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <MiniLabel>Bedtime</MiniLabel>
+                  <Text style={{ color: P.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.6, marginTop: 2 }}>
+                    {bedtime}
+                  </Text>
+                </View>
+                <View style={{ width: 1, height: 36, backgroundColor: P.cardEdge }} />
+                <View style={{ flex: 1 }}>
+                  <MiniLabel>Wake up</MiniLabel>
+                  <Text style={{ color: P.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.6, marginTop: 2 }}>
+                    {wakeup}
+                  </Text>
+                </View>
+                <View style={{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: P.sleepSoft }}>
+                  <Ionicons name="time-outline" size={17} color={P.sleep} />
+                </View>
               </View>
-              <View style={[{ width: 1, height: 36, backgroundColor: P.cardEdge }]} />
-              <View style={{ flex: 1 }}>
-                <MiniLabel>Wake up</MiniLabel>
-                <Text style={{ color: P.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.6, marginTop: 2 }}>
-                  {wakeup}
-                </Text>
-              </View>
-              <View style={[{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: P.sleepSoft }]}>
-                <Ionicons name="time-outline" size={17} color={P.sleep} />
-              </View>
-            </View>
-          </AnimatedCard>
-        </View>
+            </AnimatedCard>
+          </View>
+        )}
 
         <SleepTimePicker
           visible={pickerVisible}
@@ -483,25 +629,37 @@ export default function SleepLogScreen() {
           onCancel={() => setPickerVisible(false)}
         />
 
-        {/* ── Quality ──────────────────────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 20, marginTop: 14 }}>
-          <AnimatedCard delay={180} onPress={() => setQualityExpanded((v) => !v)}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-              <QualityRing quality={quality} size={80} strokeWidth={7} />
+        {/* ── Sleep Quality ────────────────────────────────────────────────── */}
+        <View style={{ paddingHorizontal: 20, marginBottom: 14 }}>
+          <AnimatedCard
+            delay={180}
+            onPress={!fromHealthKit ? () => setQualityExpanded((v) => !v) : undefined}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+              <QualityRing quality={quality} score={qualityScore} size={72} strokeWidth={6} />
               <View style={{ flex: 1 }}>
                 <Text style={[sleepStyles.heroEyebrow, { color: P.textFaint }]}>SLEEP QUALITY</Text>
-                <Text style={{ color: P.text, fontSize: 19, fontWeight: '800', marginTop: 3, letterSpacing: -0.4 }}>
+                <Text style={{ color: P.text, fontSize: 22, fontWeight: '800', letterSpacing: -0.5, marginTop: 3 }}>
                   {capital(quality)}
                 </Text>
               </View>
-              <Ionicons
-                name={qualityExpanded ? 'chevron-up' : 'chevron-down'}
-                size={16}
-                color={P.textFaint}
-              />
+              {fromHealthKit && hkSleep?.sleep_efficiency != null ? (
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={[sleepStyles.heroEyebrow, { color: P.textFaint }]}>EFFIC.</Text>
+                  <Text style={{ color: P.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.5, marginTop: 2 }}>
+                    {Math.round(hkSleep.sleep_efficiency)}%
+                  </Text>
+                </View>
+              ) : !fromHealthKit ? (
+                <Ionicons
+                  name={qualityExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={16}
+                  color={P.textFaint}
+                />
+              ) : null}
             </View>
 
-            {qualityExpanded && (
+            {qualityExpanded && !fromHealthKit && (
               <View style={[sleepStyles.qualityRow, { marginTop: 14 }]}>
                 {QUALITY.map((q) => {
                   const active = q.id === quality;
@@ -531,43 +689,70 @@ export default function SleepLogScreen() {
           </AnimatedCard>
         </View>
 
-        {/* ── Deep sleep + notes ───────────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 20, marginTop: 14 }}>
-          <AnimatedCard delay={240}>
-            <FieldLabel>Deep sleep (optional)</FieldLabel>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        {/* ── How did it feel? / Notes ─────────────────────────────────────── */}
+        <View style={{ paddingHorizontal: 20, marginBottom: 14 }}>
+          <AnimatedCard delay={240} onPress={() => setNotesExpanded((v) => !v)}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <View style={{ flex: 1 }}>
-                <TextField
-                  value={deepH}
-                  onChangeText={setDeepH}
-                  placeholder="0"
-                  keyboardType="number-pad"
-                  unit="hr"
-                />
+                <Text style={{ color: P.text, fontSize: 15, fontWeight: '700', letterSpacing: -0.2 }}>
+                  How did it feel?
+                </Text>
+                <Text style={{ color: P.textFaint, fontSize: 12, fontWeight: '500', marginTop: 2 }}>
+                  Add dreams, disruptions, late caffeine
+                </Text>
               </View>
-              <Text style={{ color: P.textFaint, fontSize: 18, fontWeight: '700', marginBottom: 2 }}>:</Text>
-              <View style={{ flex: 1 }}>
-                <TextField
-                  value={deepM}
-                  onChangeText={setDeepM}
-                  placeholder="00"
-                  keyboardType="number-pad"
-                  unit="min"
-                />
-              </View>
+              {notesExpanded ? (
+                <Ionicons name="chevron-up" size={16} color={P.textFaint} />
+              ) : (
+                <View style={[sleepStyles.notesPill, { borderColor: P.cardEdge }]}>
+                  <Text style={{ color: P.textDim, fontSize: 12, fontWeight: '700' }}>+ Notes</Text>
+                </View>
+              )}
             </View>
-            <View style={{ height: 14 }} />
-            <FieldLabel>Notes</FieldLabel>
-            <NotesField
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Dreams, disruptions, caffeine late?"
-            />
+            {notesExpanded && (
+              <View style={{ marginTop: 12 }}>
+                <NotesField
+                  value={notes}
+                  onChangeText={setNotes}
+                  placeholder="Dreams, disruptions, caffeine late?"
+                />
+              </View>
+            )}
           </AnimatedCard>
         </View>
 
+        {/* ── Deep sleep (manual only) ──────────────────────────────────────── */}
+        {!fromHealthKit && (
+          <View style={{ paddingHorizontal: 20, marginBottom: 14 }}>
+            <AnimatedCard delay={300}>
+              <FieldLabel>Deep sleep (optional)</FieldLabel>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <TextField
+                    value={deepH}
+                    onChangeText={setDeepH}
+                    placeholder="0"
+                    keyboardType="number-pad"
+                    unit="hr"
+                  />
+                </View>
+                <Text style={{ color: P.textFaint, fontSize: 18, fontWeight: '700', marginBottom: 2 }}>:</Text>
+                <View style={{ flex: 1 }}>
+                  <TextField
+                    value={deepM}
+                    onChangeText={setDeepM}
+                    placeholder="00"
+                    keyboardType="number-pad"
+                    unit="min"
+                  />
+                </View>
+              </View>
+            </AnimatedCard>
+          </View>
+        )}
+
         {/* ── CTA ──────────────────────────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 20, marginTop: 20 }}>
+        <View style={{ paddingHorizontal: 20, marginTop: 8 }}>
           <PrimaryButton
             label={isToday ? 'Save sleep log' : `Save for ${formatNavDate(activeDate)}`}
             icon="checkmark"
@@ -611,7 +796,6 @@ function clockToIso(
   if (role === 'wakeup') {
     return new Date(y, (mo ?? 1) - 1, d ?? 1, parsed.h, parsed.m, 0, 0).toISOString();
   }
-  // Bedtime is the evening before the wake date when hour >= 12 (noon+)
   const isPM = parsed.h >= 12;
   const date = isPM
     ? new Date(y, (mo ?? 1) - 1, (d ?? 1) - 1, parsed.h, parsed.m, 0, 0)
@@ -670,73 +854,53 @@ function estimateBedtime(sleepHours: number): { bedtime: string; wakeup: string 
   };
 }
 
-function sleepHoursToQuality(hk: {
-  sleep_hours:      number;
+function computeSleepQuality(hk: {
+  sleep_hours:       number;
   deep_sleep_hours?: number | null;
   rem_sleep_hours?:  number | null;
   sleep_efficiency?: number | null;
-}): Quality {
+}): { score: number; quality: Quality } {
   const h = hk.sleep_hours;
 
-  // ── Duration score (weight 4) ───────────────────────────────────────────
-  // NSF recommendation: 7–9 h for adults
+  // Duration (weight 4) — NSF recommendation 7–9 h
   let durationScore: number;
-  if (h >= 7 && h <= 9)  durationScore = 1.0;
-  else if (h >= 6.5)     durationScore = 0.75;
-  else if (h >= 6)       durationScore = 0.50;
-  else if (h >= 5)       durationScore = 0.25;
-  else                   durationScore = 0.0;
+  if (h >= 7 && h <= 9)       durationScore = 1.00;
+  else if (h >= 6.5)           durationScore = 0.80;
+  else if (h >= 6)             durationScore = 0.55;
+  else if (h >= 5)             durationScore = 0.30;
+  else                         durationScore = 0.05;
 
   let weightedSum = durationScore * 4;
   let totalWeight = 4;
 
-  // ── Efficiency score (weight 3) ─────────────────────────────────────────
-  // ≥85% is clinically "good"; <75% is poor
+  // Efficiency (weight 3) — ≥85% clinically "good"
   if (hk.sleep_efficiency != null && hk.sleep_efficiency > 0) {
     const eff = hk.sleep_efficiency;
-    const effScore = eff >= 90 ? 1.0 : eff >= 85 ? 0.75 : eff >= 75 ? 0.50 : 0.20;
-    weightedSum += effScore * 3;
+    const s = eff >= 92 ? 1.0 : eff >= 88 ? 0.85 : eff >= 83 ? 0.70 : eff >= 75 ? 0.50 : 0.20;
+    weightedSum += s * 3;
     totalWeight += 3;
   }
 
-  // ── Deep sleep ratio (weight 2) ─────────────────────────────────────────
-  // Healthy range: 13–23% of total sleep
+  // Deep sleep ratio (weight 2) — healthy 13–23% of total
   if (hk.deep_sleep_hours != null && hk.deep_sleep_hours > 0 && h > 0) {
     const pct = (hk.deep_sleep_hours / h) * 100;
-    let deepScore: number;
-    if (pct >= 13 && pct <= 23)   deepScore = 1.0;
-    else if (pct >= 10 || pct <= 28) deepScore = 0.65;
-    else                          deepScore = 0.30;
-    weightedSum += deepScore * 2;
+    const s = (pct >= 13 && pct <= 23) ? 1.0 : (pct >= 10 && pct <= 28) ? 0.65 : 0.30;
+    weightedSum += s * 2;
     totalWeight += 2;
   }
 
-  // ── REM ratio (weight 1) ────────────────────────────────────────────────
-  // Healthy range: 20–25% of total sleep
+  // REM ratio (weight 1) — healthy 20–25% of total
   if (hk.rem_sleep_hours != null && hk.rem_sleep_hours > 0 && h > 0) {
     const pct = (hk.rem_sleep_hours / h) * 100;
-    let remScore: number;
-    if (pct >= 20 && pct <= 25)   remScore = 1.0;
-    else if (pct >= 15 || pct <= 30) remScore = 0.65;
-    else                          remScore = 0.30;
-    weightedSum += remScore * 1;
+    const s = (pct >= 20 && pct <= 25) ? 1.0 : (pct >= 15 && pct <= 30) ? 0.65 : 0.30;
+    weightedSum += s * 1;
     totalWeight += 1;
   }
 
-  const score = weightedSum / totalWeight;
-  if (score >= 0.80) return 'great';
-  if (score >= 0.60) return 'good';
-  if (score >= 0.35) return 'fair';
-  return 'poor';
-}
-
-function formatHoursShort(h: number): string {
-  const totalMin = Math.round(h * 60);
-  const hh = Math.floor(totalMin / 60);
-  const mm = totalMin % 60;
-  if (hh === 0) return `${mm}m`;
-  if (mm === 0) return `${hh}h`;
-  return `${hh}h ${mm}m`;
+  const raw = weightedSum / totalWeight;
+  const score: number = Math.round(raw * 100);
+  const quality: Quality = raw >= 0.80 ? 'great' : raw >= 0.60 ? 'good' : raw >= 0.35 ? 'fair' : 'poor';
+  return { score, quality };
 }
 
 function qualityColor(P: ReturnType<typeof usePalette>, q: Quality): string {
@@ -763,13 +927,13 @@ function capital(s: string): string {
 // ── Styles ─────────────────────────────────────────────────────────────────
 const sleepStyles = StyleSheet.create({
   header: {
-    flexDirection:  'row',
-    alignItems:     'center',
+    flexDirection:     'row',
+    alignItems:        'center',
     paddingHorizontal: 20,
-    gap:            12,
-    marginBottom:   4,
+    gap:               12,
+    marginBottom:      4,
   },
-  backBtn: {
+  iconBtn: {
     width:          40,
     height:         40,
     borderRadius:   14,
@@ -804,12 +968,12 @@ const sleepStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   dateLabelWrap: {
-    flexDirection:  'row',
-    alignItems:     'center',
-    gap:            6,
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               6,
     paddingHorizontal: 10,
-    minWidth:       90,
-    justifyContent: 'center',
+    minWidth:          90,
+    justifyContent:    'center',
   },
   todayDot: {
     width:        6,
@@ -821,45 +985,56 @@ const sleepStyles = StyleSheet.create({
     fontWeight:    '700',
     letterSpacing: -0.3,
   },
-  moon: {
-    width: 52, height: 52, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
+  heroNum: {
+    fontSize:      80,
+    fontWeight:    '800',
+    letterSpacing: -3.5,
+    lineHeight:    84,
+  },
+  heroSub: {
+    fontSize:   28,
+    fontWeight: '800',
   },
   heroEyebrow: {
     fontSize: 10, fontWeight: '800', letterSpacing: 1.5, marginBottom: 2,
   },
-  heroBig: {
-    fontSize: 38, fontWeight: '800', letterSpacing: -1.4, lineHeight: 42,
+  sectionHeader: {
+    flexDirection:     'row',
+    justifyContent:    'space-between',
+    alignItems:        'center',
+    marginBottom:      10,
+    paddingHorizontal: 4,
   },
-  heroUnit: {
-    fontSize: 13, fontWeight: '800', letterSpacing: 0.4,
+  sectionLabel: {
+    fontSize:      10,
+    fontWeight:    '800',
+    letterSpacing: 1.8,
   },
-  qualityDot: {
-    width: 54, height: 54, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
+  sectionSub: {
+    fontSize:   11,
+    fontWeight: '600',
   },
-  qualityDotText: {
-    fontSize: 13, fontWeight: '800', letterSpacing: -0.3,
+  stagePill: {
+    flex:              1,
+    borderRadius:      12,
+    borderWidth:       StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    paddingVertical:   10,
+    alignItems:        'flex-start',
   },
-  barTrack: {
-    marginTop: 16, height: 6, borderRadius: 3, overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%', borderRadius: 3,
-  },
-  heroFoot: {
-    flexDirection: 'row',
-    marginTop: 16, paddingTop: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
+  stageDot: {
+    width:        6,
+    height:       6,
+    borderRadius: 3,
   },
   hkBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               8,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical:   10,
+    borderRadius:      12,
+    borderWidth:       StyleSheet.hairlineWidth,
   },
   hkBannerText: {
     fontSize: 12, fontWeight: '700',
@@ -871,12 +1046,22 @@ const sleepStyles = StyleSheet.create({
     flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2,
   },
   qualityPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 14, paddingVertical: 10,
-    borderRadius: 999, borderWidth: StyleSheet.hairlineWidth,
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               6,
+    paddingHorizontal: 14,
+    paddingVertical:   10,
+    borderRadius:      999,
+    borderWidth:       StyleSheet.hairlineWidth,
   },
   qualityLabel: {
     fontSize: 13, fontWeight: '800', letterSpacing: -0.2,
+  },
+  notesPill: {
+    paddingHorizontal: 14,
+    paddingVertical:   8,
+    borderRadius:      20,
+    borderWidth:       StyleSheet.hairlineWidth,
   },
   hint: {
     marginTop: 12, fontSize: 11, fontWeight: '500', textAlign: 'center',

@@ -11,6 +11,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Path, Stop } from 'react-native-svg';
 
 import { RecoveryArcGauge } from '@/components/recovery/RecoveryArcGauge';
 import { RecoveryDayMetrics } from '@/components/recovery/RecoveryDayMetrics';
@@ -22,45 +24,24 @@ import { useRecovery } from '@/hooks/use-recovery';
 import { useHealth } from '@/context/health-context';
 import { usePalette } from '@/lib/log-theme';
 import { getLocalDateString } from '@/utils/date';
+import type { ReadinessHistoryPoint, ReadinessFactor } from '@/types/readiness';
+import {
+  computeTrendStats,
+  weekdayLetter,
+  isToday,
+  scoreTint,
+} from '@/components/recovery/recovery-trend-utils';
+import type { TrendPalette } from '@/components/recovery/recovery-trend-utils';
 
 type Period = 'D' | 'W' | 'M';
 type P = ReturnType<typeof usePalette>;
 
-// ── Factor bar ────────────────────────────────────────────────────────────────
+// ── Layout constants ──────────────────────────────────────────────────────────
+const SCREEN_PAD  = 20;
+const SECTION_GAP = 20;
+const GAUGE_MAX   = 272;
 
-function FactorBar({ label, score, note, status, last, palette }: {
-  label:   string;
-  score:   number;
-  note:    string;
-  status:  'good' | 'ok' | 'poor';
-  last:    boolean;
-  palette: P;
-}) {
-  const P        = palette;
-  const barColor = status === 'good' ? P.protein : status === 'ok' ? P.carbs : P.calories;
-
-  return (
-    <View>
-      <View style={s.factorRow}>
-        <View style={s.factorLeft}>
-          <Text style={[s.factorLabel, { color: P.text }]}>{label}</Text>
-          <View style={[s.barTrack, { backgroundColor: P.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)' }]}>
-            <View style={[s.barFill, { width: `${Math.min(score, 100)}%`, backgroundColor: barColor }]} />
-          </View>
-        </View>
-        <View style={s.factorRight}>
-          <Text style={[s.factorScore, { color: P.text }]}>{score}</Text>
-          {note.length > 0 && (
-            <Text style={[s.factorNote, { color: barColor }]} numberOfLines={1}>{note}</Text>
-          )}
-        </View>
-      </View>
-      {!last && <View style={[s.factorDivider, { backgroundColor: P.hair }]} />}
-    </View>
-  );
-}
-
-// ── Copy helpers ──────────────────────────────────────────────────────────────
+// ── Gauge label map ────────────────────────────────────────────────────────────
 
 const GAUGE_LABELS: Record<string, string> = {
   'Train hard':    'OPTIMAL',
@@ -69,33 +50,408 @@ const GAUGE_LABELS: Record<string, string> = {
   'Rest':          'LOW',
 };
 
-function insightParts(rec: string | null): [string, string, string] {
-  switch (rec) {
-    case 'Train hard':    return ['Your body is primed.', ' Push it today', ' — high-intensity training is recommended.'];
-    case 'Moderate':      return ['You\'re in good shape.', ' Train with purpose', ' — moderate effort is ideal.'];
-    case 'Light workout': return ['Your body needs care.', ' Take it easy', ' — light movement or stretching is best.'];
-    case 'Rest':          return ['Your body is asking to recover.', ' Rest today', ' — prioritize sleep and nutrition.'];
-    default:              return ['Sync health data or log recovery', ' to unlock', ' your readiness score.'];
-  }
+// ── MetricRow ─────────────────────────────────────────────────────────────────
+
+function MetricRow({ factor, last, palette }: {
+  factor:  ReadinessFactor;
+  last:    boolean;
+  palette: P;
+}) {
+  const P = palette;
+  const valueColor = factor.status === 'good' ? P.protein
+                   : factor.status === 'ok'   ? P.carbs
+                   :                            P.calories;
+
+  const deltaArrow = factor.status === 'good' ? '▲'
+                   : factor.status === 'poor'  ? '▼'
+                   : '•';
+  const deltaLabel = factor.status === 'good' ? 'Strong'
+                   : factor.status === 'poor'  ? 'Low'
+                   : 'Steady';
+  const deltaColor = valueColor;
+
+  const displayScore = factor.ringScore != null ? factor.ringScore : factor.score;
+
+  return (
+    <View>
+      <View style={ms.row}>
+        {/* Left: label + note */}
+        <View style={ms.left}>
+          <Text style={[ms.label, { color: P.text }]} numberOfLines={1}>{factor.label}</Text>
+          {factor.note.length > 0 && (
+            <Text style={[ms.note, { color: P.textFaint }]} numberOfLines={1}>{factor.note}</Text>
+          )}
+        </View>
+        {/* Right: score + status */}
+        <View style={ms.right}>
+          <Text style={[ms.score, { color: valueColor }]}>{displayScore}</Text>
+          <Text style={[ms.status, { color: deltaColor }]}>{deltaArrow} {deltaLabel}</Text>
+        </View>
+      </View>
+      {!last && <View style={[ms.divider, { backgroundColor: P.hair }]} />}
+    </View>
+  );
 }
 
-const PLAN_COPY: Record<string, string> = {
-  'Train hard':    'High-intensity intervals — 35 min',
-  'Moderate':      'Strength training — 40 min',
-  'Light workout': 'Yoga or mobility — 30 min',
-  'Rest':          'Walk & stretch — 20 min',
-};
+const ms = StyleSheet.create({
+  row: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    paddingHorizontal: 14,
+    paddingVertical:   13,
+    gap:               12,
+  },
+  left:  { flex: 1, gap: 3 },
+  label: { fontSize: 15, fontWeight: '700', letterSpacing: -0.2 },
+  note:  { fontSize: 12, fontWeight: '500' },
+  right: { alignItems: 'flex-end', gap: 2, minWidth: 52 },
+  score: {
+    fontFamily:    'Syne_700Bold',
+    fontSize:      18,
+    fontWeight:    '800',
+    letterSpacing: -0.5,
+  },
+  status: {
+    fontSize:   10,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  divider: {
+    height:     StyleSheet.hairlineWidth,
+    marginLeft: 14,
+  },
+});
+
+// ── MiniTrendSection ──────────────────────────────────────────────────────────
+
+const SPARKLINE_H   = 72;
+const SPARKLINE_PAD = 14;
+
+interface SparkDot {
+  cx: number;
+  cy: number;
+  score: number;
+  hasData: boolean;
+  today: boolean;
+  date: string;
+}
+
+/** Smooth bezier through ALL dots (including no-data ones at ground). Used for the dashed guide. */
+function buildFullPath(dots: SparkDot[]): string {
+  if (dots.length < 2) return '';
+  let d = `M ${dots[0].cx.toFixed(1)} ${dots[0].cy.toFixed(1)}`;
+  for (let i = 1; i < dots.length; i++) {
+    const p0 = dots[i - 1];
+    const p1 = dots[i];
+    const t = (p1.cx - p0.cx) * 0.35;
+    d += ` C ${(p0.cx + t).toFixed(1)} ${p0.cy.toFixed(1)} ${(p1.cx - t).toFixed(1)} ${p1.cy.toFixed(1)} ${p1.cx.toFixed(1)} ${p1.cy.toFixed(1)}`;
+  }
+  return d;
+}
+
+/** Solid bezier through data-only segments (no-data gaps create breaks). */
+function buildDataPath(dots: SparkDot[]): string {
+  const segs: SparkDot[][] = [];
+  let cur: SparkDot[] = [];
+  for (const dot of dots) {
+    if (dot.hasData) { cur.push(dot); }
+    else if (cur.length > 0) { segs.push(cur); cur = []; }
+  }
+  if (cur.length > 0) segs.push(cur);
+
+  return segs.map((seg) => {
+    if (seg.length < 2) return '';
+    let d = `M ${seg[0].cx.toFixed(1)} ${seg[0].cy.toFixed(1)}`;
+    for (let i = 1; i < seg.length; i++) {
+      const p0 = seg[i - 1];
+      const p1 = seg[i];
+      const t = (p1.cx - p0.cx) * 0.35;
+      d += ` C ${(p0.cx + t).toFixed(1)} ${p0.cy.toFixed(1)} ${(p1.cx - t).toFixed(1)} ${p1.cy.toFixed(1)} ${p1.cx.toFixed(1)} ${p1.cy.toFixed(1)}`;
+    }
+    return d;
+  }).filter(Boolean).join(' ');
+}
+
+/** Area fill closed path for data-only segments. */
+function buildAreaPath(dots: SparkDot[], bottom: number): string {
+  const segs: SparkDot[][] = [];
+  let cur: SparkDot[] = [];
+  for (const dot of dots) {
+    if (dot.hasData) { cur.push(dot); }
+    else if (cur.length > 0) { segs.push(cur); cur = []; }
+  }
+  if (cur.length > 0) segs.push(cur);
+
+  return segs.map((seg) => {
+    if (seg.length < 2) return '';
+    let d = `M ${seg[0].cx.toFixed(1)} ${seg[0].cy.toFixed(1)}`;
+    for (let i = 1; i < seg.length; i++) {
+      const p0 = seg[i - 1];
+      const p1 = seg[i];
+      const t = (p1.cx - p0.cx) * 0.35;
+      d += ` C ${(p0.cx + t).toFixed(1)} ${p0.cy.toFixed(1)} ${(p1.cx - t).toFixed(1)} ${p1.cy.toFixed(1)} ${p1.cx.toFixed(1)} ${p1.cy.toFixed(1)}`;
+    }
+    d += ` L ${seg[seg.length - 1].cx.toFixed(1)} ${bottom} L ${seg[0].cx.toFixed(1)} ${bottom} Z`;
+    return d;
+  }).filter(Boolean).join(' ');
+}
+
+function MiniTrendSection({ points, tint, palette, onViewPress }: {
+  points:      ReadinessHistoryPoint[];
+  tint:        string;
+  palette:     TrendPalette;
+  onViewPress: () => void;
+}) {
+  const stats     = computeTrendStats(points);
+  const { width } = useWindowDimensions();
+  const chartW    = width - SCREEN_PAD * 2 - 28;
+
+  if (points.length === 0) return null;
+
+  const last7 = points.slice(-7);
+
+  const validScores = last7.filter((p) => p.score > 0).map((p) => p.score);
+  const minS  = validScores.length > 0 ? Math.min(...validScores) : 0;
+  const maxS  = validScores.length > 0 ? Math.max(...validScores) : 100;
+  const range = Math.max(maxS - minS, 20);
+  const plotH = SPARKLINE_H - SPARKLINE_PAD * 2;
+  const slotW = chartW / 7;
+
+  const dots: SparkDot[] = last7.map((p, i) => {
+    const hasData = p.score > 0;
+    const cx = slotW * i + slotW / 2;
+    // No-data days go to the literal bottom edge so the dashed guide "touches ground"
+    const cy = hasData
+      ? SPARKLINE_H - SPARKLINE_PAD - ((p.score - minS) / range) * plotH
+      : SPARKLINE_H;
+    return { cx, cy, score: p.score, hasData, today: isToday(p.date), date: p.date };
+  });
+
+  const fullPath = buildFullPath(dots);
+  const dataPath = buildDataPath(dots);
+  const areaPath = buildAreaPath(dots, SPARKLINE_H);
+
+  // Average reference line y-position
+  const avgY = stats.average != null
+    ? SPARKLINE_H - SPARKLINE_PAD - ((stats.average - minS) / range) * plotH
+    : null;
+
+  const avgText  = stats.average != null ? `Avg ${stats.average}` : null;
+  const daysText = stats.loggedDays > 0
+    ? `${stats.loggedDays} day${stats.loggedDays !== 1 ? 's' : ''} logged`
+    : 'No data yet';
+
+  const gradFillId = 'mini-trend-fill';
+
+  return (
+    <View style={[ts.wrap, { backgroundColor: palette.card, borderColor: palette.cardEdge }]}>
+      {/* Header */}
+      <View style={ts.header}>
+        <Text style={[ts.sectionLabel, { color: palette.textFaint }]}>7-DAY TREND</Text>
+        <TouchableOpacity onPress={onViewPress} activeOpacity={0.7} style={ts.viewBtn}>
+          <Text style={[ts.viewText, { color: tint }]}>View</Text>
+          <Ionicons name="arrow-up-right-box" size={12} color={tint} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Avg + days */}
+      <View style={ts.summaryRow}>
+        {avgText && (
+          <Text style={[ts.avgScore, { color: palette.text }]}>{avgText}</Text>
+        )}
+        <Text style={[ts.avgDays, { color: palette.textFaint }]}>
+          {avgText ? `  ·  ${daysText}` : daysText}
+        </Text>
+      </View>
+
+      {/* Chart + score label overlay */}
+      <View style={{ width: chartW, height: SPARKLINE_H, marginTop: 12 }}>
+        <Svg width={chartW} height={SPARKLINE_H}>
+          <Defs>
+            <SvgLinearGradient id={gradFillId} x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%"   stopColor={tint} stopOpacity={palette.isDark ? 0.30 : 0.18} />
+              <Stop offset="100%" stopColor={tint} stopOpacity={0} />
+            </SvgLinearGradient>
+          </Defs>
+
+          {/* Avg dashed reference */}
+          {avgY != null && (
+            <Path
+              d={`M 0 ${avgY.toFixed(1)} L ${chartW} ${avgY.toFixed(1)}`}
+              stroke={palette.textFaint}
+              strokeWidth={1}
+              strokeOpacity={0.25}
+              strokeDasharray="3 5"
+              fill="none"
+            />
+          )}
+
+          {/* Area fill — data segments only */}
+          {areaPath.length > 0 && (
+            <Path d={areaPath} fill={`url(#${gradFillId})`} />
+          )}
+
+          {/* Dashed full guide — runs through all 7 slots, dips to ground on no-data days */}
+          {fullPath.length > 0 && (
+            <Path
+              d={fullPath}
+              fill="none"
+              stroke={tint}
+              strokeWidth={1.5}
+              strokeOpacity={0.30}
+              strokeDasharray="4 5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+
+          {/* Solid line — data segments only, rendered on top of dashed guide */}
+          {dataPath.length > 0 && (
+            <Path
+              d={dataPath}
+              fill="none"
+              stroke={tint}
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+
+          {/* Dots */}
+          {dots.map((d, i) => {
+            if (!d.hasData) return null;
+            const dotColor = scoreTint(d.score, palette);
+            return (
+              <React.Fragment key={i}>
+                {d.today && (
+                  <Circle cx={d.cx} cy={d.cy} r={10} fill={tint} opacity={palette.isDark ? 0.18 : 0.12} />
+                )}
+                <Circle
+                  cx={d.cx}
+                  cy={d.cy}
+                  r={d.today ? 5.5 : 3.5}
+                  fill={d.today ? tint : palette.card}
+                  stroke={dotColor}
+                  strokeWidth={d.today ? 0 : 1.5}
+                />
+              </React.Fragment>
+            );
+          })}
+        </Svg>
+
+        {/* Score label above today's dot — rendered outside SVG for font support */}
+        {dots.map((d, i) =>
+          d.hasData && d.today ? (
+            <View
+              key={i}
+              pointerEvents="none"
+              style={{
+                position:   'absolute',
+                left:       d.cx - 18,
+                top:        d.cy - 22,
+                width:      36,
+                alignItems: 'center',
+              }}
+            >
+              <Text style={[ts.dotScore, { color: tint }]}>{d.score}</Text>
+            </View>
+          ) : null,
+        )}
+      </View>
+
+      {/* Day labels — slot-width Views so centers match SVG cx exactly */}
+      <View style={{ width: chartW, flexDirection: 'row', marginTop: 6 }}>
+        {last7.map((p, i) => {
+          const todayPt = isToday(p.date);
+          return (
+            <View key={i} style={{ width: slotW, alignItems: 'center' }}>
+              <Text style={[ts.dayLabel, { color: todayPt ? tint : palette.textFaint }, todayPt && ts.dayLabelToday]}>
+                {weekdayLetter(p.date)}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+const ts = StyleSheet.create({
+  wrap: {
+    marginHorizontal:  SCREEN_PAD,
+    borderRadius:      16,
+    borderWidth:       StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingTop:        14,
+    paddingBottom:     14,
+  },
+  header: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+    marginBottom:   6,
+  },
+  sectionLabel: {
+    fontSize:      10,
+    fontWeight:    '700',
+    letterSpacing: 1.4,
+  },
+  viewBtn: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           3,
+  },
+  viewText: {
+    fontSize:   12,
+    fontWeight: '700',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems:    'baseline',
+    flexWrap:      'wrap',
+  },
+  avgScore: {
+    fontSize:      20,
+    fontWeight:    '800',
+    letterSpacing: -0.5,
+    fontFamily:    'Syne_700Bold',
+  },
+  avgDays: {
+    fontSize:   13,
+    fontWeight: '500',
+  },
+  dotScore: {
+    fontSize:      10,
+    fontWeight:    '800',
+    letterSpacing: -0.3,
+  },
+  dayLabel: {
+    fontSize:   10,
+    fontWeight: '600',
+  },
+  dayLabelToday: {
+    fontWeight: '800',
+  },
+});
+
+// ── Copy helpers ──────────────────────────────────────────────────────────────
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const WDAYS  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
-const SCREEN_PAD   = 20;
-const SECTION_GAP  = 20;
-const GAUGE_MAX    = 272;
+function tintToRgb(hex: string): string {
+  const c = hex.replace('#', '');
+  if (c.length === 6) {
+    return `${parseInt(c.slice(0,2),16)},${parseInt(c.slice(2,4),16)},${parseInt(c.slice(4,6),16)}`;
+  }
+  return '128,128,128';
+}
+
 function formatDate(iso: string): string {
   const d = new Date(`${iso}T12:00:00`);
   return `${WDAYS[d.getDay()].slice(0,3).toUpperCase()} · ${MONTHS[d.getMonth()].toUpperCase()} ${d.getDate()}`;
 }
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function RecoveryScreen() {
@@ -147,10 +503,17 @@ export default function RecoveryScreen() {
   const hrvDiff = hrv != null && hrvBaseline != null ? Math.round(hrv - hrvBaseline) : null;
   const rhrDiff = rhr != null && restingHrBaseline != null ? Math.round(rhr - restingHrBaseline) : null;
 
-  const [partA, partB, partC] = insightParts(rec ?? null);
-  const planText = rec ? PLAN_COPY[rec] : null;
+  const sleepScr = display.sleepScore != null ? Math.round(display.sleepScore) : null;
 
-  const sleepScr  = display.sleepScore != null ? Math.round(display.sleepScore) : null;
+  // Delta = today score − yesterday score (last point before today in trend7d)
+  const scoreDelta: number | null = (() => {
+    if (score === null || trend7d.length < 2) return null;
+    const today7 = getLocalDateString();
+    const withoutToday = trend7d.filter((p) => p.date !== today7 && p.score > 0);
+    if (withoutToday.length === 0) return null;
+    const prev = withoutToday[withoutToday.length - 1];
+    return score - prev.score;
+  })();
 
   const isCalculating = (isLoading && !initialized) || healthIsLoading;
   const showDayContent = period === 'D' && !isCalculating && !hasInsufficientData && (score !== null || initialized);
@@ -226,18 +589,28 @@ export default function RecoveryScreen() {
         {/* ── D — Day view ────────────────────────────────────────── */}
         {showDayContent && (
           <View style={s.dayContent}>
+
+            {/* 1. Arc gauge with delta */}
             <View style={s.gaugeWrap}>
-              <RecoveryArcGauge score={score} gaugeLabel={gaugeLabel} tint={tint} size={gaugeSize} />
+              <LinearGradient
+                colors={[
+                  `rgba(${tintToRgb(tint)},${P.isDark ? 0.13 : 0.07})`,
+                  'transparent',
+                ]}
+                style={[s.gaugeGlow, { width: gaugeSize * 1.1, height: gaugeSize * 0.9 }]}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+              />
+              <RecoveryArcGauge
+                score={score}
+                gaugeLabel={gaugeLabel}
+                tint={tint}
+                size={gaugeSize}
+                delta={scoreDelta}
+              />
             </View>
 
-            <View style={s.insightWrap}>
-              <Text style={[s.insightText, { color: P.textDim }]}>
-                {partA}
-                <Text style={[s.insightBold, { color: P.text }]}>{partB}</Text>
-                {partC}
-              </Text>
-            </View>
-
+            {/* 2. Stat cards */}
             <RecoveryDayMetrics
               rhr={rhr}
               hrv={hrv}
@@ -245,9 +618,23 @@ export default function RecoveryScreen() {
               rhrDelta={rhrDiff}
               hrvDelta={hrvDiff}
               sleepScore={sleepScr}
+              strain={display.strainScore != null
+                ? parseFloat(((display.strainScore / 100) * 21).toFixed(1))
+                : null}
               palette={P}
             />
 
+            {/* 3. Mini 7-day trend inline */}
+            {trend7d.length > 0 && (
+              <MiniTrendSection
+                points={trend7d}
+                tint={tint}
+                palette={P}
+                onViewPress={() => setPeriod('W')}
+              />
+            )}
+
+            {/* 4. Metric rows (no progress bars) */}
             {factors.length > 0 && (
               <View style={s.factorsWrap}>
                 <View style={s.factorsHeader}>
@@ -256,12 +643,9 @@ export default function RecoveryScreen() {
                 </View>
                 <View style={[s.factorsCard, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
                   {factors.map((f, i) => (
-                    <FactorBar
+                    <MetricRow
                       key={f.pillar}
-                      label={f.label}
-                      score={f.ringScore ?? f.score}
-                      note={f.note}
-                      status={f.status}
+                      factor={f}
                       last={i === factors.length - 1}
                       palette={P}
                     />
@@ -270,23 +654,6 @@ export default function RecoveryScreen() {
               </View>
             )}
 
-            {planText && (
-              <TouchableOpacity
-                activeOpacity={0.82}
-                style={[s.cta, { backgroundColor: tint }]}
-              >
-                <View style={s.ctaLeft}>
-                  <View style={s.ctaIconWrap}>
-                    <Ionicons name="star" size={14} color="#fff" />
-                  </View>
-                  <View style={s.ctaCopy}>
-                    <Text style={s.ctaEyebrow}>TODAY&apos;S PLAN</Text>
-                    <Text style={s.ctaText} numberOfLines={1}>{planText}</Text>
-                  </View>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.75)" />
-              </TouchableOpacity>
-            )}
           </View>
         )}
 
@@ -398,19 +765,11 @@ const s = StyleSheet.create({
     alignItems: 'center',
     marginTop:  -4,
   },
-
-  insightWrap: {
-    paddingHorizontal: SCREEN_PAD + 8,
-  },
-  insightText: {
-    fontSize:   14,
-    fontWeight: '500',
-    lineHeight: 21,
-    textAlign:  'center',
-  },
-  insightBold: {
-    fontSize:   14,
-    fontWeight: '800',
+  gaugeGlow: {
+    position:     'absolute',
+    top:          0,
+    alignSelf:    'center',
+    borderRadius: 999,
   },
 
   factorsWrap: {
@@ -432,86 +791,4 @@ const s = StyleSheet.create({
     borderWidth:  StyleSheet.hairlineWidth,
     overflow:     'hidden',
   },
-  factorRow: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    paddingHorizontal: 14,
-    paddingVertical:   12,
-    gap:               12,
-  },
-  factorLeft:  { flex: 1, gap: 6 },
-  factorLabel: { fontSize: 13, fontWeight: '700' },
-  barTrack: {
-    height:       4,
-    borderRadius: 2,
-    overflow:     'hidden',
-  },
-  barFill: {
-    height:       '100%',
-    borderRadius: 2,
-  },
-  factorRight: {
-    alignItems: 'flex-end',
-    gap:        1,
-    minWidth:   48,
-  },
-  factorScore: {
-    fontFamily:    'Syne_700Bold',
-    fontSize:      18,
-    fontWeight:    '800',
-    letterSpacing: -0.5,
-  },
-  factorNote: {
-    fontSize:   10,
-    fontWeight: '600',
-    textAlign:  'right',
-  },
-  factorDivider: {
-    height:     StyleSheet.hairlineWidth,
-    marginLeft: 14,
-  },
-
-  cta: {
-    marginHorizontal:  SCREEN_PAD,
-    flexDirection:     'row',
-    alignItems:        'center',
-    justifyContent:    'space-between',
-    paddingHorizontal: 16,
-    paddingVertical:   14,
-    borderRadius:      16,
-    gap:               12,
-  },
-  ctaLeft: {
-    flex:          1,
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           12,
-    minWidth:      0,
-  },
-  ctaCopy: {
-    flex: 1,
-    gap:  2,
-    minWidth: 0,
-  },
-  ctaIconWrap: {
-    width:           30,
-    height:          30,
-    borderRadius:    9,
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    alignItems:      'center',
-    justifyContent:  'center',
-    flexShrink:      0,
-  },
-  ctaEyebrow: {
-    fontSize:      9,
-    fontWeight:    '800',
-    letterSpacing: 1.2,
-    color:         'rgba(255,255,255,0.68)',
-  },
-  ctaText: {
-    fontSize:   14,
-    fontWeight: '700',
-    color:      '#ffffff',
-  },
-
 });

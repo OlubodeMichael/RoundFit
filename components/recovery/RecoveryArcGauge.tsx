@@ -6,7 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import Svg, { Circle, Defs, Path, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, LinearGradient, Path, RadialGradient, Stop } from 'react-native-svg';
 
 import { usePalette } from '@/lib/log-theme';
 
@@ -33,13 +33,17 @@ export interface RecoveryArcGaugeProps {
   gaugeLabel: string;
   tint: string;
   size: number;
+  delta?: number | null;
 }
 
-export function RecoveryArcGauge({ score, gaugeLabel, tint, size }: RecoveryArcGaugeProps) {
+export function RecoveryArcGauge({ score, gaugeLabel, tint, size, delta }: RecoveryArcGaugeProps) {
   const P = usePalette();
   const progress = useRef(new Animated.Value(0)).current;
   const centerFade = useRef(new Animated.Value(0)).current;
   const glowPulse = useRef(new Animated.Value(0.85)).current;
+  // Tip ripple: scale and opacity for the expanding pulse ring
+  const tipRippleScale = useRef(new Animated.Value(1)).current;
+  const tipRippleOpacity = useRef(new Animated.Value(0)).current;
 
   const [filledSpan, setFilledSpan] = useState(0);
   const [displayScore, setDisplayScore] = useState(0);
@@ -51,10 +55,12 @@ export function RecoveryArcGauge({ score, gaugeLabel, tint, size }: RecoveryArcG
   const r = cx - SW / 2 - 2;
   const height = Math.round(size * 0.78);
 
-  const trackClr = P.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)';
-  const tipDeg = ARC_START + filledSpan;
-  const tip = degToXY(cx, cy, r, tipDeg);
-  const gradientId = 'recovery-arc-glow';
+  const trackClr  = P.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)';
+  const tipDeg    = ARC_START + filledSpan;
+  const tip       = degToXY(cx, cy, r, tipDeg);
+  const tipDotR   = SW / 2 + 3;
+  const gradientId     = 'recovery-arc-glow';
+  const arcGradientId  = 'recovery-arc-fill';
 
   const runAnimation = useCallback(() => {
     const target = score ?? 0;
@@ -95,6 +101,7 @@ export function RecoveryArcGauge({ score, gaugeLabel, tint, size }: RecoveryArcG
     return cleanup;
   }, [runAnimation]);
 
+  // Dark mode: subtle opacity glow pulse
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
@@ -116,6 +123,47 @@ export function RecoveryArcGauge({ score, gaugeLabel, tint, size }: RecoveryArcG
     return () => loop.stop();
   }, [glowPulse]);
 
+  // Light mode: expanding ripple ring at the arc tip
+  useEffect(() => {
+    if (P.isDark) return;
+
+    const ripple = Animated.loop(
+      Animated.sequence([
+        // pause before each ripple
+        Animated.delay(1800),
+        Animated.parallel([
+          Animated.timing(tipRippleScale, {
+            toValue:         2.8,
+            duration:        900,
+            easing:          Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.sequence([
+            Animated.timing(tipRippleOpacity, {
+              toValue:         0.65,
+              duration:        80,
+              useNativeDriver: true,
+            }),
+            Animated.timing(tipRippleOpacity, {
+              toValue:         0,
+              duration:        820,
+              easing:          Easing.out(Easing.quad),
+              useNativeDriver: true,
+            }),
+          ]),
+        ]),
+        // reset scale instantly
+        Animated.timing(tipRippleScale, {
+          toValue:         1,
+          duration:        0,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    ripple.start();
+    return () => ripple.stop();
+  }, [P.isDark, tipRippleScale, tipRippleOpacity]);
+
   const centerStyle = {
     opacity: centerFade,
     transform: [{
@@ -126,16 +174,24 @@ export function RecoveryArcGauge({ score, gaugeLabel, tint, size }: RecoveryArcG
     }],
   };
 
+  // Tip ripple: absolute positioned View that scales from the tip dot position
+  const rippleSize = tipDotR * 2;
+
   return (
     <View style={{ width: size, height, overflow: 'hidden' }}>
       <Animated.View style={{ opacity: glowPulse }}>
         <Svg width={size} height={size} style={styles.svg}>
           <Defs>
             <RadialGradient id={gradientId} cx="50%" cy="50%" r="50%">
-              <Stop offset="0%" stopColor={tint} stopOpacity={P.isDark ? 0.28 : 0.14} />
-              <Stop offset="70%" stopColor={tint} stopOpacity={P.isDark ? 0.07 : 0.04} />
+              <Stop offset="0%"   stopColor={tint} stopOpacity={P.isDark ? 0.28 : 0.14} />
+              <Stop offset="70%"  stopColor={tint} stopOpacity={P.isDark ? 0.07 : 0.04} />
               <Stop offset="100%" stopColor={tint} stopOpacity={0} />
             </RadialGradient>
+            <LinearGradient id={arcGradientId} x1="0%" y1="100%" x2="100%" y2="15%">
+              <Stop offset="0%"   stopColor={tint} stopOpacity={0.18} />
+              <Stop offset="45%"  stopColor={tint} stopOpacity={0.72} />
+              <Stop offset="100%" stopColor={tint} stopOpacity={1} />
+            </LinearGradient>
           </Defs>
           <Circle cx={cx} cy={cy} r={r * 0.8} fill={`url(#${gradientId})`} />
           <Path
@@ -148,17 +204,37 @@ export function RecoveryArcGauge({ score, gaugeLabel, tint, size }: RecoveryArcG
           {filledSpan > 0 && (
             <Path
               d={arcPath(cx, cy, r, ARC_START, filledSpan)}
-              stroke={tint}
+              stroke={`url(#${arcGradientId})`}
               strokeWidth={SW}
               strokeLinecap="round"
               fill="none"
             />
           )}
           {showTip && filledSpan > 0 && (
-            <Circle cx={tip.x} cy={tip.y} r={SW / 2 + 3} fill="#ffffff" />
+            <Circle cx={tip.x} cy={tip.y} r={tipDotR} fill="#ffffff" />
           )}
         </Svg>
       </Animated.View>
+
+      {/* Tip ripple — only visible on light theme, positioned at tip dot */}
+      {!P.isDark && showTip && filledSpan > 0 && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.tipRipple,
+            {
+              width:        rippleSize,
+              height:       rippleSize,
+              borderRadius: rippleSize / 2,
+              borderColor:  tint,
+              left:         tip.x - rippleSize / 2,
+              top:          tip.y - rippleSize / 2,
+              opacity:      tipRippleOpacity,
+              transform:    [{ scale: tipRippleScale }],
+            },
+          ]}
+        />
+      )}
 
       <Animated.View style={[StyleSheet.absoluteFill, styles.center, centerStyle]}>
         {gaugeLabel.length > 0 && (
@@ -167,7 +243,14 @@ export function RecoveryArcGauge({ score, gaugeLabel, tint, size }: RecoveryArcG
         <Text style={[styles.score, { color: P.text }]}>
           {score !== null ? displayScore : '—'}
         </Text>
-        <Text style={[styles.of, { color: P.textFaint }]}>out of 100</Text>
+        <View style={styles.scoreRow}>
+          <Text style={[styles.of, { color: P.textFaint }]}>recovery score</Text>
+          {delta != null && (
+            <Text style={[styles.delta, { color: delta >= 0 ? tint : P.calories }]}>
+              {delta >= 0 ? `▲${delta}` : `▼${Math.abs(delta)}`}
+            </Text>
+          )}
+        </View>
       </Animated.View>
     </View>
   );
@@ -178,6 +261,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     left: 0,
+  },
+  tipRipple: {
+    position:    'absolute',
+    borderWidth: 2,
   },
   center: {
     alignItems:     'center',
@@ -196,9 +283,19 @@ const styles = StyleSheet.create({
     letterSpacing: -2.5,
     lineHeight:    66,
   },
+  scoreRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           5,
+    marginTop:     1,
+  },
   of: {
     fontSize:   12,
     fontWeight: '600',
-    marginTop:  1,
+  },
+  delta: {
+    fontSize:   11,
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
 });
