@@ -12,6 +12,7 @@ import {
   invalidateUserDayCaches,
 } from '@/utils/daily-summary-cache'
 import { getLocalDateString } from '@/utils/date'
+import { registerTodayDataSyncListener, registerTodayTargetsListener } from '@/utils/today-sync'
 import { getLocalTargets, type LocalTargets } from '@/utils/local-targets'
 import { calculateMacros } from '@/utils/nutrition'
 
@@ -63,6 +64,9 @@ export function useDailyInsights(date?: string): UseDailyInsightsResult {
   const [error,        setError]        = useState<string | null>(null)
 
   const mountedRef = useRef(true)
+  const dataRef    = useRef(data)
+  dataRef.current  = data
+
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
@@ -146,6 +150,25 @@ export function useDailyInsights(date?: string): UseDailyInsightsResult {
     load()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetDate, user?.id])
+
+  useEffect(() => {
+    const today = getLocalDateString()
+    return registerTodayDataSyncListener(() => {
+      if (targetDate === today) void load({ force: true })
+    })
+  }, [targetDate, load])
+
+  useEffect(() => {
+    const today = getLocalDateString()
+    return registerTodayTargetsListener(async () => {
+      const current = dataRef.current
+      if (!current || targetDate !== today) return
+      const local = await getLocalTargets()
+      if (mountedRef.current) {
+        setData(applyDerivedTargets(current, local))
+      }
+    })
+  }, [targetDate, applyDerivedTargets])
 
   const refresh = useCallback(async () => {
     if (!user?.id) return

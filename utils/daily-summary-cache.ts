@@ -25,10 +25,12 @@ interface CacheEntry {
 
 const CACHE_VERSION = 'v1'
 const mem = new Map<string, CacheEntry>()
+const inflight = new Map<string, Promise<DailySummaryBundle | null>>()
 
-export const TTL_SUMMARY_CURRENT_DAY = 15 * 60 * 1000
+export const TTL_COLD_START_MS         = 2 * 60 * 60 * 1000  // today data: fresh for 2 h (mutations invalidate)
+export const TTL_SUMMARY_CURRENT_DAY  = TTL_COLD_START_MS
 export const TTL_SUMMARY_PAST_DAY     = 24 * 60 * 60 * 1000
-export const TTL_FOREGROUND_SKIP_MS    = 15 * 60 * 1000
+export const TTL_FOREGROUND_SKIP_MS   = 15 * 60 * 1000        // AppState foreground-return threshold only
 
 export function buildSummaryCacheKey(userId: string, date: string): string {
   return `daily-summary:${CACHE_VERSION}:${userId}:${date}`
@@ -139,14 +141,25 @@ export async function fetchDailySummaryBundle(
   if (!options?.force) {
     const cached = await getCachedSummary(key)
     if (cached && !cached.isStale) return cached.data
+    const pending = inflight.get(key)
+    if (pending) return pending
+  } else {
+    inflight.delete(key)
   }
 
-  const { ok, body } = await apiFetch(`/summary/daily/${date}`)
-  if (!ok) return null
+  const request = (async (): Promise<DailySummaryBundle | null> => {
+    const { ok, body } = await apiFetch(`/summary/daily/${date}`)
+    if (!ok) return null
 
-  const bundle = bundleFromApiBody(body as Record<string, unknown>)
-  if (!bundle) return null
+    const bundle = bundleFromApiBody(body as Record<string, unknown>)
+    if (!bundle) return null
 
-  await setCachedSummary(key, bundle, ttl)
-  return bundle
+    await setCachedSummary(key, bundle, ttl)
+    return bundle
+  })().finally(() => {
+    if (inflight.get(key) === request) inflight.delete(key)
+  })
+
+  inflight.set(key, request)
+  return request
 }

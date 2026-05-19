@@ -25,9 +25,9 @@ export function buildDayKey(userId: string, date: string): string {
 
 // ── TTL constants ──────────────────────────────────────────────────────────
 
-export const TTL_CURRENT_WEEK = 30 * 60 * 1000    // 30 min
+export const TTL_CURRENT_WEEK = 2 * 60 * 60 * 1000  // 2 h — mutations invalidate
 export const TTL_PAST_WEEK    = 24 * 60 * 60 * 1000 // 24 h
-export const TTL_CURRENT_DAY  = 15 * 60 * 1000    // 15 min
+export const TTL_CURRENT_DAY  = 2 * 60 * 60 * 1000  // 2 h — mutations invalidate
 export const TTL_PAST_DAY     = 24 * 60 * 60 * 1000 // 24 h
 
 // ── Read ───────────────────────────────────────────────────────────────────

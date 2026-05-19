@@ -8,7 +8,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useToast } from '@/components/ui/Toast';
 import { useProfile } from '@/hooks/use-profile';
+import { setLocalTargets } from '@/utils/local-targets';
+import { notifyTodayTargetsChanged } from '@/utils/today-sync';
 import { useTheme } from '@/hooks/use-theme';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -188,6 +191,7 @@ export default function TargetsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { profile, updateProfile } = useProfile();
+  const toast = useToast();
 
   const tdee = profile?.tdee ?? profile?.calorieBudget ?? 2000;
 
@@ -228,12 +232,17 @@ export default function TargetsScreen() {
     if (saving) return;
     setSaving(true);
     try {
-      await Promise.all([
-        updateProfile({ calorieBudget: calories, stepsTarget: steps }),
-        AsyncStorage.setItem(SLEEP_KEY, String(sleep)),
-        AsyncStorage.setItem(STEPS_KEY, String(steps)),
-      ]);
+      const saved = await updateProfile({ calorieBudget: calories, stepsTarget: steps });
+      if (!saved) {
+        toast.error('Could not save targets', 'Please try again.');
+        return;
+      }
+      await setLocalTargets(sleep, steps);
+      notifyTodayTargetsChanged();
+      toast.success('Targets saved', 'Your daily goals were updated.');
       router.back();
+    } catch {
+      toast.error('Could not save targets', 'Please try again.');
     } finally {
       setSaving(false);
     }

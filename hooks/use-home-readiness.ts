@@ -20,6 +20,7 @@ const EMPTY_DISPLAY: RecoveryDisplay = {
   factors:        [],
   tips:           [],
   trend7d:        [],
+  trend30d:       [],
 }
 
 /**
@@ -81,6 +82,7 @@ export function useHomeReadiness(): RecoveryDisplay {
       factors:        computed.factors,
       tips:           computed.tips,
       trend7d:        [],
+      trend30d:       [],
     }
   }, [
     status,

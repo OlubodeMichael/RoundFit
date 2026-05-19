@@ -22,6 +22,7 @@ import { useUnits } from '@/hooks/use-units';
 import { useSummary } from '@/hooks/use-summary';
 import { useWeight } from '@/hooks/use-weight';
 import { useProfile } from '@/hooks/use-profile';
+import { useStepsTarget } from '@/hooks/use-steps-target';
 import { getLocalDateString } from '@/utils/date';
 import { formatDistance } from '@/utils/units';
 import type { DistanceUnit } from '@/utils/units';
@@ -53,8 +54,6 @@ function wFill(pts: { x: number; y: number }[]): string {
   return d;
 }
 
-const STEPS_GOAL = 10_000;
-
 function buildWeekDates(todayStr: string): string[] {
   const d   = new Date(todayStr + 'T12:00:00');
   const dow = d.getDay(); // 0=Sun … 6=Sat
@@ -73,11 +72,12 @@ function StepsCard({ delay = 0 }: { delay?: number }) {
   const P = usePalette();
   const { today, isConnected } = useHealth();
   const { profileUnit } = useUnits();
+  const stepsGoal = useStepsTarget();
 
   const steps       = today?.steps ?? 0;
   const activeCals  = today?.active_calories ?? 0;
-  const pct         = Math.min(steps / STEPS_GOAL, 1);
-  const remaining   = Math.max(STEPS_GOAL - steps, 0);
+  const pct         = Math.min(steps / stepsGoal, 1);
+  const remaining   = Math.max(stepsGoal - steps, 0);
 
   const fillAnim = useRef(new Animated.Value(0)).current;
   const [displayedSteps, setDisplayedSteps] = useState(0);
@@ -115,7 +115,7 @@ function StepsCard({ delay = 0 }: { delay?: number }) {
           <Text style={[stepsStyles.eyebrow, { color: P.textFaint }]}>TODAY&apos;S STEPS</Text>
           <Text style={[stepsStyles.title, { color: P.text }]}>
             {displayedSteps.toLocaleString()}
-            <Text style={[stepsStyles.goal, { color: P.textFaint }]}> / {STEPS_GOAL.toLocaleString()}</Text>
+            <Text style={[stepsStyles.goal, { color: P.textFaint }]}> / {stepsGoal.toLocaleString()}</Text>
           </Text>
         </View>
         <View style={[stepsStyles.pctPill, { backgroundColor: pct >= 1 ? P.proteinSoft : P.waterSoft }]}>
@@ -222,8 +222,12 @@ export default function ProgressScreen() {
   // ── Goals (days under calorie budget out of 7) ───────────────────────────
   const goalsHit = useMemo(() => {
     if (!weekly?.days?.length) return 0;
-    return weekly.days.filter(d => d.calories_consumed > 0 && d.calories_consumed <= d.calorie_budget).length;
-  }, [weekly]);
+    const budget = profile?.calorieBudget ?? profile?.tdee;
+    return weekly.days.filter((d) => {
+      const goal = budget ?? d.calorie_budget;
+      return d.calories_consumed > 0 && d.calories_consumed <= goal;
+    }).length;
+  }, [weekly, profile?.calorieBudget, profile?.tdee]);
 
   // ── Consistency day strip — always 7 days (Mon → Sun) ───────────────────
   const consistencyDays = useMemo(() => {
@@ -236,7 +240,9 @@ export default function ProgressScreen() {
   }, [weekly, todayStr]);
 
   // ── Calories chart — always 7 days (Mon → Sun) ───────────────────────────
-  const calsGoal = weekly?.days.find(d => d.calorie_budget > 0)?.calorie_budget ?? 2000;
+  const calsGoal = profile?.calorieBudget ?? profile?.tdee
+    ?? weekly?.days.find(d => d.calorie_budget > 0)?.calorie_budget
+    ?? 2000;
   const calsWeek = useMemo(() => {
     const dayMap = new Map((weekly?.days ?? []).map(d => [d.date, d]));
     return buildWeekDates(todayStr).map(date => ({

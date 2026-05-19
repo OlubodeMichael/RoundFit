@@ -12,7 +12,14 @@ import {
   type HealthKitSummary,
 } from '@/utils/healthkit';
 import { getLocalDateString } from '@/utils/date';
-import { invalidateUserTodayCaches } from '@/utils/daily-summary-cache';
+import { syncTodayAfterMutation } from '@/utils/today-sync';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  setResourceCached,
+  ttlForDate,
+} from '@/utils/resource-cache';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
@@ -272,20 +279,31 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { todayRef.current = today; }, [today]);
 
   // ── Fetch today ──────────────────────────────────────────────────────────
-  const fetchByDate = useCallback(async (targetDate: string): Promise<HealthData | null> => {
-    const { ok, body } = await healthFetch(`/health/today?date=${targetDate}`);
-    if (ok && body.health_data) {
-      const parsed = fromApiData(body.health_data as Record<string, unknown>);
-      if (isHealthDataForDate(parsed, targetDate)) {
-        return parsed;
-      }
-      return null;
-    }
-    return null;
-  }, []);
+  const fetchByDate = useCallback(async (
+    targetDate: string,
+    force = false,
+  ): Promise<HealthData | null> => {
+    if (!user?.id) return null;
 
-  const fetchToday = useCallback(async (): Promise<boolean> => {
-    const parsed = await fetchByDate(getLocalDateString());
+    const key = buildResourceKey('health', user.id, targetDate);
+    return fetchWithResourceCache<HealthData | null>(
+      key,
+      ttlForDate(targetDate),
+      async () => {
+        const { ok, body } = await healthFetch(`/health/today?date=${targetDate}`);
+        if (ok && body.health_data) {
+          const parsed = fromApiData(body.health_data as Record<string, unknown>);
+          if (isHealthDataForDate(parsed, targetDate)) return parsed;
+        }
+        return null;
+      },
+      { force },
+    );
+  }, [user?.id]);
+
+  const fetchToday = useCallback(async (force = false): Promise<boolean> => {
+    const today = getLocalDateString();
+    const parsed = await fetchByDate(today, force);
     setToday(parsed);
     return parsed !== null;
   }, [fetchByDate]);
@@ -303,7 +321,15 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     const saved = fromApiData(body.health_data as Record<string, unknown>);
     if (applyTodayState) {
       setToday(saved);
-      if (user?.id) void invalidateUserTodayCaches(user.id);
+      if (user?.id) {
+        const date = saved.date ?? getLocalDateString();
+        void setResourceCached(
+          buildResourceKey('health', user.id, date),
+          saved,
+          ttlForDate(date),
+        );
+        void syncTodayAfterMutation(user.id);
+      }
     }
     return saved;
   }, [user?.id]);
@@ -402,12 +428,23 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     hasFetchedRef.current = true;
 
     let cancelled = false;
-    setIsLoading(true);
-    setToday(null);
 
     (async () => {
+      const today = getLocalDateString();
+      if (user?.id) {
+        const cached = await getResourceCached<HealthData>(
+          buildResourceKey('health', user.id, today),
+        );
+        if (cached && !cancelled) {
+          setToday(cached.data);
+          setIsLoading(false);
+        } else if (!cancelled) {
+          setIsLoading(true);
+        }
+      }
+
       try {
-        await fetchToday();
+        await fetchToday(false);
         if (!cancelled) await syncFromDevice(false);
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -433,17 +470,27 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   // ── Re-sync whenever the app returns to foreground ───────────────────────
   useEffect(() => {
     if (Platform.OS !== 'ios' || status !== 'authenticated') return;
-    const handleAppState = (nextState: AppStateStatus) => {
-      if (nextState === 'active') syncFromDevice(false);
+    const handleAppState = async (nextState: AppStateStatus) => {
+      if (nextState !== 'active' || !user?.id) return;
+
+      const today = getLocalDateString();
+      const cached = await getResourceCached<HealthData>(
+        buildResourceKey('health', user.id, today),
+      );
+      if (!cached || cached.isStale) {
+        await fetchToday(false);
+      }
+
+      void syncFromDevice(false);
     };
     const sub = AppState.addEventListener('change', handleAppState);
     return () => sub.remove();
-  }, [status, syncFromDevice]);
+  }, [status, user?.id, fetchToday, syncFromDevice]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
-    await fetchToday();
-    await syncFromDevice(false);
+    await fetchToday(true);
+    await syncFromDevice(true);
   }, [fetchToday, syncFromDevice]);
 
   return (

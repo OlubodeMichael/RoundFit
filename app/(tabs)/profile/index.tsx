@@ -1,18 +1,21 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Alert, Image, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DeleteAccountModal } from '@/components/profile/DeleteAccountModal';
+import { ExportDataModal } from '@/components/profile/ExportDataModal';
 import { UserAvatar } from '@/components/profile/UserAvatar';
 import { AppModal } from '@/components/ui/AppModal';
 import { useAuth } from '@/hooks/use-auth';
 import { useHealth } from '@/hooks/use-health';
 import { useProfile } from '@/hooks/use-profile';
+import { getLocalTargets } from '@/utils/local-targets';
+import { registerTodayTargetsListener } from '@/utils/today-sync';
 import { useTheme } from '@/hooks/use-theme';
 import { deleteAvatar, pickAndUploadAvatar } from '@/utils/avatar';
 import { usePostHog } from 'posthog-react-native';
@@ -63,8 +66,6 @@ const ACTIVITY_LABELS: Record<string, string> = {
 };
 
 const HEALTH_KEY = '@roundfit/health_connected';
-const SLEEP_KEY  = '@roundfit/sleep_target_hours';
-const STEPS_KEY  = '@roundfit/steps_target';
 const HEALTH_TYPES = [
   'HKQuantityTypeIdentifierStepCount',
   'HKQuantityTypeIdentifierActiveEnergyBurned',
@@ -89,22 +90,31 @@ export default function ProfileScreen() {
   const [sleepTarget,       setSleepTarget]       = useState(8);
   const [stepsTarget,       setStepsTarget]       = useState(10000);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+
+  const reloadLocalTargets = useCallback(async () => {
+    const local = await getLocalTargets();
+    if (local.sleep_target != null) setSleepTarget(local.sleep_target);
+    setStepsTarget(profile?.stepsTarget ?? local.steps_target ?? 10000);
+  }, [profile?.stepsTarget]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void reloadLocalTargets();
+    }, [reloadLocalTargets]),
+  );
 
   useEffect(() => {
-    (async () => {
-      const [sleepRaw, stepsRaw] = await Promise.all([
-        AsyncStorage.getItem(SLEEP_KEY),
-        AsyncStorage.getItem(STEPS_KEY),
-      ]);
-      if (sleepRaw !== null) setSleepTarget(parseFloat(sleepRaw));
-      if (stepsRaw !== null) setStepsTarget(parseInt(stepsRaw, 10));
-    })();
-  }, []);
+    return registerTodayTargetsListener(() => {
+      void reloadLocalTargets();
+    });
+  }, [reloadLocalTargets]);
 
   const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
   const { isConnected: healthConnected } = useHealth();
 
-  const calorieDisplay  = stats.dailyCalories ? `${stats.dailyCalories.toLocaleString()} kcal` : '—';
+  const calorieGoal     = profile?.calorieBudget ?? profile?.tdee ?? stats.dailyCalories;
+  const calorieDisplay  = calorieGoal != null ? `${calorieGoal.toLocaleString()} kcal` : '—';
   const proteinDisplay  = stats.proteinGrams ? `${stats.proteinGrams}g` : '—';
   const goalDisplay     = profile ? (GOAL_LABELS[profile.goal] ?? '—') : '—';
   const activityDisplay = profile ? (ACTIVITY_LABELS[profile.activityLevel] ?? '—') : '—';
@@ -381,7 +391,7 @@ export default function ProfileScreen() {
           icon="cloud-upload" iconBg="#38BDF8" iconFg="#FFF"
           label="Export Data"
           P={P}
-          onPress={() => {}}
+          onPress={() => setExportModalOpen(true)}
         />
         <Divider P={P} />
         <NavRow
@@ -416,6 +426,14 @@ export default function ProfileScreen() {
       </Section>
 
       <Text style={[s.version, { color: P.faint }]}>RoundFit v1.0.0</Text>
+
+      <ExportDataModal
+        visible={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        onExportStarted={() => posthog.capture('data_export_started')}
+        onExportCompleted={() => posthog.capture('data_export_completed')}
+        onExportFailed={(message) => posthog.capture('data_export_failed', { message })}
+      />
 
       <DeleteAccountModal
         visible={deleteModalOpen}

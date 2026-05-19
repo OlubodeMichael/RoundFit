@@ -5,11 +5,19 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
+import { syncTodayAfterMutation } from '@/utils/today-sync';
 import {
   hasCheckedInToday as storageHasCheckedInToday,
   markCheckedInToday,
   clearCheckinStorage,
 } from '@/utils/checkin-storage';
+import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  invalidateResourceCache,
+} from '@/utils/resource-cache';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
@@ -196,32 +204,49 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
   // Fetches today's check-in from the DB and derives shouldShowCheckin from
   // the server response — the single source of truth. Local storage is a
   // secondary cache so the modal doesn't flash before the network resolves.
-  const fetchToday = useCallback(async () => {
+  const applyCheckinToday = useCallback(async (checkin: CheckIn | null) => {
+    setToday(checkin);
+    if (!checkin) {
+      const localDone = await storageHasCheckedInToday();
+      setShouldShowCheckin(!localDone);
+      return;
+    }
+
+    const alreadyDone = checkin.completed || checkin.skipped;
+    if (alreadyDone) {
+      doneThisSession.current = true;
+      setShouldShowCheckin(false);
+      void markCheckedInToday();
+    } else {
+      setShouldShowCheckin(true);
+    }
+  }, []);
+
+  const fetchToday = useCallback(async (force = false) => {
     if (doneThisSession.current) {
       setShouldShowCheckin(false);
       return;
     }
 
-    const { ok, body } = await apiFetch('/checkin/today');
+    if (!user?.id) return;
 
-    if (ok && body.checkin) {
-      const checkin = fromApiCheckin(body.checkin as Record<string, unknown>);
-      setToday(checkin);
+    const today = getLocalDateString();
+    const key   = buildResourceKey('checkin-today', user.id, today);
+    const cached = await fetchWithResourceCache<CheckIn | null>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const { ok, body } = await apiFetch('/checkin/today');
+        if (ok && body.checkin) {
+          return fromApiCheckin(body.checkin as Record<string, unknown>);
+        }
+        return null;
+      },
+      { force },
+    );
 
-      const alreadyDone = checkin.completed || checkin.skipped;
-      if (alreadyDone) {
-        doneThisSession.current = true;
-        setShouldShowCheckin(false);
-        void markCheckedInToday();
-      } else {
-        setShouldShowCheckin(true);
-      }
-    } else {
-      // No check-in record for today — show the modal (unless local cache says done)
-      const localDone = await storageHasCheckedInToday();
-      setShouldShowCheckin(!localDone);
-    }
-  }, []);
+    await applyCheckinToday(cached);
+  }, [user?.id, applyCheckinToday]);
 
   const fetchHistory = useCallback(async () => {
     const { ok, body } = await apiFetch(`/checkin/history?limit=${DEFAULT_LIMIT}`);
@@ -251,23 +276,28 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
     }
 
     let cancelled = false;
-    setIsLoading(true);
-    setToday(null);
-    setHistory([]);
-    setStats(null);
-    setAppStatus(null);
 
     (async () => {
+      const today = getLocalDateString();
+      const key   = buildResourceKey('checkin-today', user!.id, today);
+      const cached = await getResourceCached<CheckIn | null>(key);
+      if (cached && !cancelled) {
+        await applyCheckinToday(cached.data);
+        setIsLoading(false);
+      } else if (!cancelled) {
+        setIsLoading(true);
+      }
+
       try {
-        lastFetchDateRef.current = getLocalDateString();
-        await fetchToday();
+        lastFetchDateRef.current = today;
+        await fetchToday(false);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, fetchToday, fetchHistory, fetchStats]);
+  }, [status, user?.id, fetchToday, fetchHistory, fetchStats, applyCheckinToday]);
 
   // ── Reset to today when app returns to foreground on a new day ─────────
   useEffect(() => {
@@ -319,9 +349,15 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
     doneThisSession.current = true;
     setShouldShowCheckin(false);
     void markCheckedInToday();
+    if (user?.id) {
+      await invalidateResourceCache(
+        buildResourceKey('checkin-today', user.id, dateStr),
+      );
+      void syncTodayAfterMutation(user.id);
+    }
 
     return { checkin, insight };
-  }, []);
+  }, [user?.id]);
 
   // ── Skip check-in ────────────────────────────────────────────────────────
   const skipCheckin = useCallback(async (date: string): Promise<CheckIn> => {
@@ -343,9 +379,15 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
     doneThisSession.current = true;
     setShouldShowCheckin(false);
     void markCheckedInToday();
+    if (user?.id) {
+      await invalidateResourceCache(
+        buildResourceKey('checkin-today', user.id, getLocalDateString()),
+      );
+      void syncTodayAfterMutation(user.id);
+    }
 
     return checkin;
-  }, []);
+  }, [user?.id]);
 
   // ── Fetch by date ────────────────────────────────────────────────────────
   const fetchByDate = useCallback(async (date: string): Promise<CheckIn | null> => {
@@ -356,13 +398,18 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
 
   // ── Refresh status ───────────────────────────────────────────────────────
   const refreshStatus = useCallback(async () => {
-    await fetchToday();
+    await fetchToday(true);
   }, [fetchToday]);
 
   // ── Full refresh ─────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
-    await Promise.all([fetchToday(), fetchHistory(), fetchStats()]);
-  }, [fetchToday, fetchHistory, fetchStats]);
+    if (user?.id) {
+      await invalidateResourceCache(
+        buildResourceKey('checkin-today', user.id, getLocalDateString()),
+      );
+    }
+    await Promise.all([fetchToday(true), fetchHistory(), fetchStats()]);
+  }, [fetchToday, fetchHistory, fetchStats, user?.id]);
 
   return (
     <CheckinContext.Provider value={{

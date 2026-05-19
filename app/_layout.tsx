@@ -22,6 +22,7 @@ import {
     useRouter,
     useSegments,
 } from "expo-router";
+import { routeForNotificationScreen } from "@/utils/notification-routes";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef } from "react";
 import { StyleSheet, View } from "react-native";
@@ -41,6 +42,7 @@ import { EngineProvider } from "@/context/engine-context";
 import { FoodProvider } from "@/context/food-context";
 import { HealthProvider } from "@/context/health-context";
 import { InsightsProvider } from "@/context/insights-context";
+import { NotificationInboxProvider } from "@/context/notification-inbox-context";
 import { ProfileProvider } from "@/context/profile-context";
 import { RecoveryProvider } from "@/context/recovery-context";
 import { SummaryProvider } from "@/context/summary-context";
@@ -52,14 +54,6 @@ import { useTheme } from "@/hooks/use-theme";
 
 export const unstable_settings = {
   initialRouteName: "auth",
-};
-
-const NOTIFICATION_ROUTES: Record<string, string> = {
-  morning:  "/(tabs)",
-  meal:     "/(tabs)/log/food",
-  workout:  "/(tabs)/log/workout",
-  sleep:    "/(tabs)/log/sleep",
-  summary:  "/(tabs)/insights",
 };
 
 function AppNavigator() {
@@ -84,8 +78,7 @@ function AppNavigator() {
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const screen = response.notification.request.content.data?.screen as string | undefined;
-      if (!screen) return;
-      const route = NOTIFICATION_ROUTES[screen];
+      const route = routeForNotificationScreen(screen);
       if (route) router.push(route as never);
     });
     return () => sub.remove();
@@ -136,6 +129,10 @@ function AppNavigator() {
           <Stack.Screen
             name="edit-profile"
             options={{ presentation: "modal" }}
+          />
+          <Stack.Screen
+            name="notifications"
+            options={{ animation: "slide_from_right" }}
           />
         </Stack>
         {showAuthSplash && (
@@ -188,7 +185,9 @@ export default function RootLayout() {
                               <RecoveryProvider>
                                 <EngineProvider>
                                   <InsightsProvider>
-                                    <AppNavigator />
+                                    <NotificationInboxProvider>
+                                      <AppNavigator />
+                                    </NotificationInboxProvider>
                                   </InsightsProvider>
                                 </EngineProvider>
                               </RecoveryProvider>

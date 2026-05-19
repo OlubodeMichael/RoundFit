@@ -10,7 +10,17 @@ import {
   type NormalizedDay,
   type WeeklyInsightSummary,
 } from '@/utils/insights-aggregator'
+import { buildResourceKey, fetchWithResourceCache } from '@/utils/resource-cache'
+import {
+  buildWeekKey,
+  getCached,
+  setCached,
+  invalidateWeek,
+  TTL_CURRENT_WEEK,
+  TTL_PAST_WEEK,
+} from '@/utils/insights-cache'
 import { getLocalTargets, type LocalTargets } from '@/utils/local-targets'
+import { registerTodayDataSyncListener, registerTodayTargetsListener } from '@/utils/today-sync'
 import { calculateMacros } from '@/utils/nutrition'
 
 const DEFAULT_CALORIE_BUDGET = 2000
@@ -39,14 +49,6 @@ function ensureValidTargets(t: InsightTargets, fallbackProtein: number): Insight
     protein_target: t.protein_target > 0 ? t.protein_target : fallbackProtein,
   }
 }
-import {
-  buildWeekKey,
-  getCached,
-  setCached,
-  invalidateWeek,
-  TTL_CURRENT_WEEK,
-  TTL_PAST_WEEK,
-} from '@/utils/insights-cache'
 
 interface UseWeeklyInsightsResult {
   data:         WeeklyInsightSummary | null
@@ -70,41 +72,59 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
 
   // Prevent stale async operations from updating state after unmount or week change
   const mountedRef = useRef(true)
+  const dataRef    = useRef(data)
+  dataRef.current  = data
+
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
 
   const fetchFromServer = useCallback(async (local: LocalTargets): Promise<WeeklyInsightSummary> => {
-    const [summaryRes, insightRes] = await Promise.all([
-      apiFetch(`/summary/weekly?weekStart=${week}`).then(r => ({ status: 'fulfilled' as const, value: r })).catch(e => ({ status: 'rejected' as const, reason: e })),
-      apiFetch(`/insights/weekly?weekStart=${week}`).then(r => ({ status: 'fulfilled' as const, value: r })).catch(e => ({ status: 'rejected' as const, reason: e })),
+    // Share the summary cache key with summary-context so concurrent fetches
+    // deduplicate via the resource-cache inflight map (no duplicate HTTP requests).
+    const summaryKey = buildResourceKey('summary-weekly-raw', user?.id ?? '', week)
+    const ttl = isCurrentWeek ? TTL_CURRENT_WEEK : TTL_PAST_WEEK
+
+    const [apiData, insightRes] = await Promise.all([
+      fetchWithResourceCache<Record<string, unknown>>(
+        summaryKey,
+        ttl,
+        async () => {
+          const r = await apiFetch(`/summary/weekly?weekStart=${week}`)
+          if (!r.ok) return null
+          return r.body as Record<string, unknown>
+        },
+      ),
+      apiFetch(`/insights/weekly?weekStart=${week}`)
+        .then(r => ({ status: 'fulfilled' as const, value: r }))
+        .catch(e => ({ status: 'rejected' as const, reason: e })),
     ])
 
-    if (summaryRes.status === 'rejected' || !summaryRes.value.ok) {
-      throw new Error('Failed to load weekly summary')
-    }
+    if (!apiData) throw new Error('Failed to load weekly summary')
 
     const insightMessage =
       insightRes.status === 'fulfilled' && insightRes.value.ok
         ? (insightRes.value.body as any)?.insight?.message ?? null
         : null
 
-    const apiData = summaryRes.value.body as Record<string, any>
     const snapshot = (apiData.targets_snapshot ?? {}) as Partial<InsightTargets>
     const fallbackProtein = deriveProteinTarget(user)
-    apiData.targets_snapshot = ensureValidTargets(
-      {
-        calorie_budget: snapshot.calorie_budget ?? DEFAULT_CALORIE_BUDGET,
-        protein_target: snapshot.protein_target ?? DEFAULT_PROTEIN_TARGET,
-        steps_target:   local.steps_target ?? snapshot.steps_target ?? user?.stepsTarget ?? 10000,
-        sleep_target:   local.sleep_target ?? snapshot.sleep_target ?? null,
-      },
-      fallbackProtein,
-    )
+    const apiDataWithTargets = {
+      ...apiData,
+      targets_snapshot: ensureValidTargets(
+        {
+          calorie_budget: snapshot.calorie_budget ?? DEFAULT_CALORIE_BUDGET,
+          protein_target: snapshot.protein_target ?? DEFAULT_PROTEIN_TARGET,
+          steps_target:   local.steps_target ?? snapshot.steps_target ?? user?.stepsTarget ?? 10000,
+          sleep_target:   local.sleep_target ?? snapshot.sleep_target ?? null,
+        },
+        fallbackProtein,
+      ),
+    }
 
-    return apiWeeklyToSummary(apiData, insightMessage)
-  }, [week, user])
+    return apiWeeklyToSummary(apiDataWithTargets, insightMessage)
+  }, [week, user, isCurrentWeek])
 
   // Always re-derive each day on cache reads so stale `score` / `met_*` values
   // baked in by older code paths self-heal under the current scoring rules.
@@ -161,7 +181,7 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
         setIsStale(false)
         setError(null)
       }
-    } catch (err) {
+    } catch {
       if (mountedRef.current && !data) {
         setError('Could not load weekly insights. Pull down to retry.')
       }
@@ -182,6 +202,29 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
     load()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [week, user?.id])
+
+  useEffect(() => {
+    if (!isCurrentWeek) return
+    return registerTodayDataSyncListener(() => {
+      if (!user?.id) return
+      void (async () => {
+        await invalidateWeek(user.id, week)
+        await load(true)
+      })()
+    })
+  }, [isCurrentWeek, user?.id, week, load])
+
+  useEffect(() => {
+    if (!isCurrentWeek) return
+    return registerTodayTargetsListener(async () => {
+      const current = dataRef.current
+      if (!current) return
+      const local = await getLocalTargets()
+      if (mountedRef.current) {
+        setData(applyDerivedTargets(current, local))
+      }
+    })
+  }, [isCurrentWeek, applyDerivedTargets])
 
   const refresh = useCallback(async () => {
     if (!user?.id) return

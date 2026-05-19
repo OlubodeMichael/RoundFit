@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppModal } from "@/components/ui/AppModal";
+import { useNotificationInbox } from "@/hooks/use-notification-inbox";
 import { useNotifications } from "@/hooks/use-notifications";
 import { useTheme } from "@/hooks/use-theme";
 import { openNotificationSettings } from "@/utils/notifications";
@@ -186,6 +187,7 @@ export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
+  const { unreadCount } = useNotificationInbox();
   const REMINDER_IDS = REMINDERS.map((r) => r.id);
   const {
     enabled,
@@ -332,6 +334,28 @@ export default function NotificationsScreen() {
             Choose your reminders and when to receive them.
           </Text>
         </View>
+
+        <TouchableOpacity
+          style={[
+            s.inboxLink,
+            { backgroundColor: P.card, borderColor: P.edge, marginHorizontal: 20, marginBottom: 16 },
+          ]}
+          onPress={() => router.push("/notifications")}
+          activeOpacity={0.72}
+        >
+          <View style={[s.inboxIcon, { backgroundColor: P.accent }]}>
+            <Ionicons name="mail-open-outline" size={18} color="#FFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[s.inboxTitle, { color: P.hi }]}>Notification inbox</Text>
+            <Text style={[s.inboxSub, { color: P.mid }]}>
+              {unreadCount > 0
+                ? `${unreadCount} unread`
+                : "View everything you have received"}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={P.faint} />
+        </TouchableOpacity>
 
         {/* ── Permission denied banner ── */}
         {permissionStatus === "denied" && (
@@ -828,4 +852,21 @@ const s = StyleSheet.create({
   periodText:  { fontSize: 11, fontWeight: "700", letterSpacing: 0.5 },
   confirmBtn:  { borderRadius: 14, paddingVertical: 15, alignItems: "center" },
   confirmText: { color: "#FFF", fontSize: 15, fontWeight: "700", letterSpacing: 0.2 },
+  inboxLink: {
+    flexDirection:     "row",
+    alignItems:        "center",
+    gap:               12,
+    padding:           14,
+    borderRadius:      14,
+    borderWidth:       1,
+  },
+  inboxIcon: {
+    width:           40,
+    height:          40,
+    borderRadius:    12,
+    alignItems:      "center",
+    justifyContent:  "center",
+  },
+  inboxTitle: { fontSize: 15, fontWeight: "700", letterSpacing: -0.2 },
+  inboxSub:   { fontSize: 12, marginTop: 2 },
 });

@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 
 const API_BASE    = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
+const API_KEY     = process.env.EXPO_PUBLIC_API_KEY ?? '';
 const TOKEN_KEY   = 'access_token';
 const REFRESH_KEY = 'refresh_token';
 const SUB_KEY     = 'token_sub';       // plain-string owner of the stored session
@@ -51,7 +52,10 @@ async function executeRefresh(): Promise<string | null> {
   try {
     res = await fetch(`${API_BASE}/auth/refresh`, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
+      },
       body:    JSON.stringify({ refresh_token: storedRefresh }),
     });
   } catch {
@@ -111,6 +115,7 @@ export async function apiFetch(
 
   const makeHeaders = (t: string | null): Record<string, string> => ({
     'Content-Type': 'application/json',
+    ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
     ...(options.headers as Record<string, string>),
     ...(t ? { Authorization: `Bearer ${t}` } : {}),
   });

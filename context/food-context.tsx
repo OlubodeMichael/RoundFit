@@ -6,8 +6,16 @@ import { useAuth } from '@/context/auth-context';
 import type { ManualMealInput } from '@/components/log/ManualMealInputModal';
 import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
-import { invalidateUserTodayCaches } from '@/utils/daily-summary-cache';
+import { syncTodayAfterMutation } from '@/utils/today-sync';
+import { applyTodayOptimistic } from '@/utils/today-optimistic';
 import { getCachedAnalysis, cacheAnalysis } from '@/utils/photo-cache';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  invalidateResourceCache,
+  ttlForDate,
+} from '@/utils/resource-cache';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -204,8 +212,8 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     return user.calorieBudget ?? user.tdee ?? DEFAULT_MEAL_GOAL;
   }, [user]);
 
-  const invalidateTodaySummary = useCallback(async () => {
-    if (user?.id) await invalidateUserTodayCaches(user.id);
+  const syncToday = useCallback(async () => {
+    await syncTodayAfterMutation(user?.id);
   }, [user?.id]);
 
   const totalCalories = useMemo(() => meals.reduce((sum, m) => sum + m.cals,              0), [meals]);
@@ -215,12 +223,30 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const remaining     = mealGoal - totalCalories;
 
   // ── Fetch logs for a given date ─────────────────────────────────────────
-  const fetchLogs = useCallback(async (date: string) => {
-    const { ok, body } = await apiFetch(`/food/logs?date=${encodeURIComponent(date)}`);
-    if (!ok) return;
-    const rows = foodLogRowsFromResponse(body);
-    setMeals(rows.map(fromApiLog));
-  }, []);
+  const fetchLogs = useCallback(async (date: string, force = false) => {
+    if (!user?.id) return;
+
+    const key = buildResourceKey('food-logs', user.id, date);
+    const rows = await fetchWithResourceCache<MealItem[]>(
+      key,
+      ttlForDate(date),
+      async () => {
+        const { ok, body } = await apiFetch(`/food/logs?date=${encodeURIComponent(date)}`);
+        if (!ok) return null;
+        return foodLogRowsFromResponse(body).map(fromApiLog);
+      },
+      { force },
+    );
+
+    if (rows) setMeals(rows);
+  }, [user?.id]);
+
+  const invalidateTodayFoodCache = useCallback(async () => {
+    if (!user?.id) return;
+    await invalidateResourceCache(
+      buildResourceKey('food-logs', user.id, todayDateString()),
+    );
+  }, [user?.id]);
 
   // ── Reset to today when app returns to foreground on a new day ──────────
   useEffect(() => {
@@ -257,11 +283,18 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     // switches too.
     const today = todayDateString();
     let cancelled = false;
-    setIsLoading(true);
-    setMeals([]);
     setActiveDate(today);
 
     (async () => {
+      const key = buildResourceKey('food-logs', user!.id, today);
+      const cached = await getResourceCached<MealItem[]>(key);
+      if (cached && !cancelled) {
+        setMeals(cached.data);
+        setIsLoading(false);
+      } else if (!cancelled) {
+        setIsLoading(true);
+      }
+
       try {
         await fetchLogs(today);
       } finally {
@@ -288,6 +321,12 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     };
 
     setMeals((prev) => [...prev, optimistic]);
+    applyTodayOptimistic({
+      caloriesConsumed: entry.calories,
+      proteinConsumed:  entry.protein,
+      carbsConsumed:    entry.carbs,
+      fatConsumed:      entry.fat,
+    });
 
     const { ok, body } = await apiFetch('/food/log', {
       method: 'POST',
@@ -305,14 +344,21 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     if (ok && body.data) {
       const saved = fromApiLog(body.data as Record<string, unknown>);
       setMeals((prev) => prev.map((m) => m.id === tempId ? saved : m));
-      void invalidateTodaySummary();
+      void invalidateTodayFoodCache();
+      void syncToday();
       return;
     }
 
     // rollback on failure
     setMeals((prev) => prev.filter((m) => m.id !== tempId));
+    applyTodayOptimistic({
+      caloriesConsumed: -entry.calories,
+      proteinConsumed:  -(entry.protein ?? 0),
+      carbsConsumed:    -(entry.carbs ?? 0),
+      fatConsumed:      -(entry.fat ?? 0),
+    });
     throw new Error('Failed to log meal');
-  }, [invalidateTodaySummary]);
+  }, [syncToday, invalidateTodayFoodCache]);
 
   // ── Preview via photo (analyze only, no DB save) ─────────────────────────
   const previewPhoto = useCallback(async (base64Image: string): Promise<PhotoPreview | null> => {
@@ -341,7 +387,13 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     const cached = await getCachedAnalysis(base64Image);
     if (cached) {
       setMeals((prev) => [...prev, cached]);
-      void invalidateTodaySummary();
+      applyTodayOptimistic({
+        caloriesConsumed: cached.cals,
+        proteinConsumed:  cached.protein ?? 0,
+        carbsConsumed:    cached.carbs ?? 0,
+        fatConsumed:      cached.fat ?? 0,
+      });
+      void syncToday();
       return cached;
     }
 
@@ -362,9 +414,16 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     }
     setMeals((prev) => [...prev, item]);
     cacheAnalysis(base64Image, item);
-    void invalidateTodaySummary();
+    applyTodayOptimistic({
+      caloriesConsumed: item.cals,
+      proteinConsumed:  item.protein ?? 0,
+      carbsConsumed:    item.carbs ?? 0,
+      fatConsumed:      item.fat ?? 0,
+    });
+    void invalidateTodayFoodCache();
+    void syncToday();
     return item;
-  }, [invalidateTodaySummary]);
+  }, [syncToday, invalidateTodayFoodCache]);
 
   // ── Log via barcode ──────────────────────────────────────────────────────
   const logBarcode = useCallback(async (barcode: string) => {
@@ -377,36 +436,70 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     }
     const saved = fromApiLog(body.data as Record<string, unknown>);
     setMeals((prev) => [...prev, saved]);
-    void invalidateTodaySummary();
-  }, [invalidateTodaySummary]);
+    applyTodayOptimistic({
+      caloriesConsumed: saved.cals,
+      proteinConsumed:  saved.protein ?? 0,
+      carbsConsumed:    saved.carbs ?? 0,
+      fatConsumed:      saved.fat ?? 0,
+    });
+    void invalidateTodayFoodCache();
+    void syncToday();
+  }, [syncToday, invalidateTodayFoodCache]);
 
   // ── Delete meal ──────────────────────────────────────────────────────────
   const deleteMeal = useCallback(async (id: string) => {
     const snapshot = meals;
+    const removed  = meals.find((m) => m.id === id);
     setMeals((prev) => prev.filter((m) => m.id !== id));
+
+    if (removed) {
+      applyTodayOptimistic({
+        caloriesConsumed: -removed.cals,
+        proteinConsumed:  -(removed.protein ?? 0),
+        carbsConsumed:    -(removed.carbs ?? 0),
+        fatConsumed:      -(removed.fat ?? 0),
+      });
+    }
 
     const { ok } = await apiFetch(`/food/log/${id}`, { method: 'DELETE' });
     if (!ok) {
-      setMeals(snapshot); // rollback
+      setMeals(snapshot);
+      if (removed) {
+        applyTodayOptimistic({
+          caloriesConsumed: removed.cals,
+          proteinConsumed:  removed.protein ?? 0,
+          carbsConsumed:    removed.carbs ?? 0,
+          fatConsumed:      removed.fat ?? 0,
+        });
+      }
       throw new Error('Failed to delete meal');
     }
-    void invalidateTodaySummary();
-  }, [meals, invalidateTodaySummary]);
+    void invalidateTodayFoodCache();
+    void syncToday();
+  }, [meals, syncToday, invalidateTodayFoodCache]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refreshLogs = useCallback(async (date?: string) => {
     const target = date ?? todayDateString();
     setActiveDate(target);
-    await fetchLogs(target);
+    await fetchLogs(target, true);
   }, [fetchLogs]);
 
   // ── Fetch for any date without touching context state ─────────────────────
   const fetchForDate = useCallback(async (date: string): Promise<MealItem[]> => {
-    const { ok, body } = await apiFetch(`/food/logs?date=${encodeURIComponent(date)}`);
-    if (!ok) return [];
-    const rows = foodLogRowsFromResponse(body);
-    return rows.map(fromApiLog);
-  }, []);
+    if (!user?.id) return [];
+    const key = buildResourceKey('food-logs', user.id, date);
+    const rows = await fetchWithResourceCache<MealItem[]>(
+      key,
+      ttlForDate(date),
+      async () => {
+        const { ok, body } = await apiFetch(`/food/logs?date=${encodeURIComponent(date)}`);
+        if (!ok) return null;
+        return foodLogRowsFromResponse(body).map(fromApiLog);
+      },
+    );
+    return rows ?? [];
+  }, [user?.id]);
 
   return (
     <FoodContext.Provider value={{

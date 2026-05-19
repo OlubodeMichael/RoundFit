@@ -36,7 +36,7 @@ export interface ProfileContextValue {
   stats: ProfileStats;
 
   /** Persists a partial profile update. Optimistic — rolls back on failure. */
-  updateProfile: (patch: Partial<Omit<UserProfile, 'id' | 'email' | 'createdAt'>>) => Promise<void>;
+  updateProfile: (patch: Partial<Omit<UserProfile, 'id' | 'email' | 'createdAt'>>) => Promise<boolean>;
 
   /** Re-fetches the latest profile from the server. */
   refreshProfile: () => Promise<void>;

@@ -5,7 +5,20 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
-import { invalidateUserTodayCaches } from '@/utils/daily-summary-cache';
+import { syncTodayAfterMutation } from '@/utils/today-sync';
+import { applyTodayOptimistic } from '@/utils/today-optimistic';
+import {
+  getCachedWorkouts,
+  invalidateWorkoutToday,
+  setCachedWorkouts,
+} from '@/utils/workout-date-cache';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  invalidateResourceCache,
+  ttlForDate,
+} from '@/utils/resource-cache';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -159,21 +172,49 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     [workouts],
   );
 
-  const invalidateTodaySummary = useCallback(async () => {
-    if (user?.id) await invalidateUserTodayCaches(user.id);
+  const syncToday = useCallback(async () => {
+    await syncTodayAfterMutation(user?.id);
+  }, [user?.id]);
+
+  const invalidateWorkoutCache = useCallback(async (date: string) => {
+    if (!user?.id) return;
+    invalidateWorkoutToday();
+    await invalidateResourceCache(buildResourceKey('workouts', user.id, date));
   }, [user?.id]);
 
   // ── Fetch workouts ──────────────────────────────────────────────────────
-  const fetchWorkouts = useCallback(async (date: string) => {
+  const fetchWorkouts = useCallback(async (date: string, force = false) => {
+    if (!user?.id) return;
+
+    const memCached = !force && getCachedWorkouts(date);
+    if (memCached) {
+      setWorkouts(memCached);
+      return;
+    }
+
     const isToday = date === todayDateString();
     const path    = isToday ? '/workouts/today' : `/workouts/${date}`;
-    const { ok, body } = await apiFetch(path);
-    if (!ok) return;
-    const rows = Array.isArray(body.workouts)
-      ? body.workouts as Record<string, unknown>[]
-      : [];
-    setWorkouts(rows.map(fromApiWorkout));
-  }, []);
+    const key     = buildResourceKey('workouts', user.id, date);
+
+    const parsed = await fetchWithResourceCache<Workout[]>(
+      key,
+      ttlForDate(date),
+      async () => {
+        const { ok, body } = await apiFetch(path);
+        if (!ok) return null;
+        const rows = Array.isArray(body.workouts)
+          ? body.workouts as Record<string, unknown>[]
+          : [];
+        return rows.map(fromApiWorkout);
+      },
+      { force },
+    );
+
+    if (parsed) {
+      setWorkouts(parsed);
+      setCachedWorkouts(date, parsed);
+    }
+  }, [user?.id]);
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -185,10 +226,18 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     }
 
     let cancelled = false;
-    setIsLoading(true);
-    setWorkouts([]);
 
     (async () => {
+      const key = buildResourceKey('workouts', user!.id, activeDate);
+      const cached = await getResourceCached<Workout[]>(key);
+      const memCached = getCachedWorkouts(activeDate);
+      if ((cached || memCached) && !cancelled) {
+        setWorkouts(cached?.data ?? memCached ?? []);
+        setIsLoading(false);
+      } else if (!cancelled) {
+        setIsLoading(true);
+      }
+
       try {
         await fetchWorkouts(activeDate);
       } finally {
@@ -227,9 +276,11 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     if (!ok) throw new Error((body.error as string) ?? 'Failed to log workout');
     const saved = fromApiWorkout(body.workout as Record<string, unknown>);
     setWorkouts((prev) => [saved, ...prev]);
-    void invalidateTodaySummary();
+    applyTodayOptimistic({ caloriesBurned: saved.calories_burned });
+    void invalidateWorkoutCache(todayDateString());
+    void syncToday();
     return saved;
-  }, [invalidateTodaySummary]);
+  }, [syncToday, invalidateWorkoutCache]);
 
   // ── Log sets ─────────────────────────────────────────────────────────────
   const logSets = useCallback(async (workoutId: string, sets: LogSetInput[]): Promise<WorkoutSet[]> => {
@@ -246,38 +297,69 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
         w.id === workoutId ? { ...w, sets: [...w.sets, ...saved] } : w,
       ),
     );
+    void syncToday();
     return saved;
-  }, []);
+  }, [syncToday]);
 
   // ── Delete workout ───────────────────────────────────────────────────────
   const deleteWorkout = useCallback(async (id: string) => {
     const snapshot = workouts;
+    const removed  = workouts.find((w) => w.id === id);
     setWorkouts((prev) => prev.filter((w) => w.id !== id));
+
+    if (removed) {
+      applyTodayOptimistic({ caloriesBurned: -removed.calories_burned });
+    }
 
     const { ok, body } = await apiFetch(`/workouts/${id}`, { method: 'DELETE' });
     if (!ok) {
       setWorkouts(snapshot);
+      if (removed) {
+        applyTodayOptimistic({ caloriesBurned: removed.calories_burned });
+      }
       throw new Error((body.error as string) ?? 'Failed to delete workout');
     }
-    void invalidateTodaySummary();
-  }, [workouts, invalidateTodaySummary]);
+    void invalidateWorkoutCache(todayDateString());
+    void syncToday();
+  }, [workouts, syncToday, invalidateWorkoutCache]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refreshWorkouts = useCallback(async (date?: string) => {
     const target = date ?? todayDateString();
     setActiveDate(target);
-    await fetchWorkouts(target);
+    await fetchWorkouts(target, true);
   }, [fetchWorkouts]);
 
   // ── Fetch for any date without touching context state ─────────────────────
   const fetchForDate = useCallback(async (date: string): Promise<Workout[]> => {
-    const isToday = date === todayDateString();
-    const path = isToday ? '/workouts/today' : `/workouts/${date}`;
-    const { ok, body } = await apiFetch(path);
-    if (!ok) return [];
-    const rows = Array.isArray(body.workouts) ? body.workouts as Record<string, unknown>[] : [];
-    return rows.map(fromApiWorkout);
-  }, []);
+    const memCached = getCachedWorkouts(date);
+    if (memCached) return memCached;
+
+    if (!user?.id) return [];
+
+    const today = todayDateString();
+    const path  = date === today ? '/workouts/today' : `/workouts/${date}`;
+    const key   = buildResourceKey('workouts', user.id, date);
+
+    const parsed = await fetchWithResourceCache<Workout[]>(
+      key,
+      ttlForDate(date),
+      async () => {
+        const { ok, body } = await apiFetch(path);
+        if (!ok) return null;
+        const rows = Array.isArray(body.workouts)
+          ? body.workouts as Record<string, unknown>[]
+          : [];
+        return rows.map(fromApiWorkout);
+      },
+    );
+
+    if (parsed) {
+      setCachedWorkouts(date, parsed);
+      return parsed;
+    }
+    return [];
+  }, [user?.id]);
 
   return (
     <WorkoutContext.Provider value={{

@@ -597,22 +597,19 @@ export function computeReadiness(input: ReadinessInput): ComputedReadiness | nul
   };
 }
 
-/** Build a 7-day trend from historical readiness rows or per-day computation. */
+/** Build an N-day trend from historical readiness rows or per-day computation. */
 export function buildReadinessTrend(
   serverHistory: ReadinessHistoryPoint[],
   computeForDate?: (date: string) => ComputedReadiness | null,
+  days = 7,
 ): ReadinessHistoryPoint[] {
-  const days = datesLastNDays(7);
+  const dayList = datesLastNDays(days);
   const byDate = new Map(serverHistory.map((p) => [p.date, p.score]));
 
-  return days.map((date) => {
+  return dayList.map((date) => {
     const fromServer = byDate.get(date);
     if (fromServer !== undefined) return { date, score: fromServer };
     const computed = computeForDate?.(date);
     return { date, score: computed?.score ?? 0 };
-  }).map((p, i, arr) => {
-    if (p.score > 0) return p;
-    const prev = arr.slice(0, i).filter((x) => x.score > 0).pop();
-    return { date: p.date, score: prev?.score ?? 0 };
   });
 }

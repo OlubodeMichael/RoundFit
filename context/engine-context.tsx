@@ -4,8 +4,16 @@ import React, {
 import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
-import { TTL_FOREGROUND_SKIP_MS } from '@/utils/daily-summary-cache';
+import { TTL_COLD_START_MS, TTL_FOREGROUND_SKIP_MS } from '@/utils/daily-summary-cache';
 import { apiFetch } from '@/utils/api';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  invalidateResourceCache,
+} from '@/utils/resource-cache';
+import { registerTodayDataSyncListener, registerTodayTargetsListener } from '@/utils/today-sync';
+import { registerTodayOptimisticListener, type TodayDataDelta } from '@/utils/today-optimistic';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -111,17 +119,43 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
   const lastForegroundFetchRef   = useRef(0);
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
-  const fetchDaily = useCallback(async () => {
-    const { ok, body } = await apiFetch('/engine/daily');
-    if (ok && body.data) setDaily(fromApiDaily(body.data as Record<string, unknown>));
-  }, []);
+  const fetchDaily = useCallback(async (force = false) => {
+    if (!user?.id) return;
 
-  const fetchPatterns = useCallback(async () => {
-    const { ok, body } = await apiFetch('/engine/patterns');
-    if (!ok) return;
-    const rows = Array.isArray(body.data) ? body.data as Record<string, unknown>[] : [];
-    setPatterns(rows.map(fromApiPattern));
-  }, []);
+    const today = getLocalDateString();
+    const key   = buildResourceKey('engine-daily', user.id, today);
+    const row = await fetchWithResourceCache<DailyEngine | null>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const { ok, body } = await apiFetch('/engine/daily');
+        if (!ok || !body.data) return null;
+        return fromApiDaily(body.data as Record<string, unknown>);
+      },
+      { force },
+    );
+
+    if (row) setDaily(row);
+  }, [user?.id]);
+
+  const fetchPatterns = useCallback(async (force = false) => {
+    if (!user?.id) return;
+    const today = getLocalDateString();
+    const key   = buildResourceKey('engine-patterns', user.id, today);
+    const rows = await fetchWithResourceCache<DetectedPattern[]>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const { ok, body } = await apiFetch('/engine/patterns');
+        if (!ok) return null;
+        return Array.isArray(body.data)
+          ? (body.data as Record<string, unknown>[]).map(fromApiPattern)
+          : [];
+      },
+      { force },
+    );
+    if (rows) setPatterns(rows);
+  }, [user?.id]);
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -134,15 +168,22 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
     }
 
     let cancelled = false;
-    setIsLoading(true);
-    setDaily(null);
-    setPatterns([]);
 
     (async () => {
+      const today = getLocalDateString();
+      const key   = buildResourceKey('engine-daily', user!.id, today);
+      const cached = await getResourceCached<DailyEngine>(key);
+      if (cached && !cancelled) {
+        setDaily(cached.data);
+        setIsLoading(false);
+      } else if (!cancelled) {
+        setIsLoading(true);
+      }
+
       try {
-        lastFetchDateRef.current = getLocalDateString();
+        lastFetchDateRef.current = today;
         lastForegroundFetchRef.current = Date.now();
-        await fetchDaily();
+        await Promise.all([fetchDaily(false), fetchPatterns(false)]);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -166,7 +207,7 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
         lastForegroundFetchRef.current = Date.now();
         if (dayRolled) setDaily(null);
         void Promise.all([
-          fetchDaily(),
+          fetchDaily(dayRolled),
           dayRolled ? fetchPatterns() : Promise.resolve(),
         ]);
       }
@@ -174,12 +215,50 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [fetchDaily, fetchPatterns]);
 
+  useEffect(() => {
+    return registerTodayDataSyncListener(async () => {
+      if (!user?.id) return;
+      await invalidateResourceCache(
+        buildResourceKey('engine-daily', user.id, getLocalDateString()),
+      );
+      await fetchDaily(true);
+    });
+  }, [fetchDaily, user?.id]);
+
+  useEffect(() => {
+    return registerTodayOptimisticListener((delta: TodayDataDelta) => {
+      setDaily((prev) => {
+        if (!prev) return prev;
+        const calories_consumed = prev.calories_consumed + (delta.caloriesConsumed ?? 0);
+        const calories_burned   = prev.calories_burned   + (delta.caloriesBurned ?? 0);
+        return {
+          ...prev,
+          calories_consumed,
+          calories_burned,
+          delta: calories_consumed - prev.calorie_budget,
+        };
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    return registerTodayTargetsListener(() => {
+      const budget = user?.calorieBudget ?? user?.tdee;
+      if (budget == null) return;
+      setDaily((prev) => {
+        if (!prev) return prev;
+        if (prev.calorie_budget === budget) return prev;
+        return { ...prev, calorie_budget: budget };
+      });
+    });
+  }, [user?.calorieBudget, user?.tdee]);
+
   // ── Public refresh handles ───────────────────────────────────────────────
-  const refreshDaily    = useCallback(() => fetchDaily(),    [fetchDaily]);
-  const refreshPatterns = useCallback(() => fetchPatterns(), [fetchPatterns]);
+  const refreshDaily    = useCallback(() => fetchDaily(true),        [fetchDaily]);
+  const refreshPatterns = useCallback(() => fetchPatterns(true), [fetchPatterns]);
 
   const refresh = useCallback(async () => {
-    await Promise.all([fetchDaily(), fetchPatterns()]);
+    await Promise.all([fetchDaily(true), fetchPatterns(true)]);
   }, [fetchDaily, fetchPatterns]);
 
   return (

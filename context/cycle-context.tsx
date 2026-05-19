@@ -3,6 +3,13 @@ import React, {
 } from 'react';
 import { useAuth } from '@/context/auth-context';
 import { apiFetch } from '@/utils/api';
+import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  invalidateResourceCache,
+} from '@/utils/resource-cache';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -33,6 +40,9 @@ export interface CurrentCycle {
 }
 
 export interface CycleContextValue {
+  /** False for male profiles — no cycle API calls are made. */
+  isEnabled: boolean;
+
   /** Current cycle phase + adjusted nutrition targets. Null until loaded. */
   current: CurrentCycle | null;
 
@@ -90,27 +100,57 @@ function fromApiCurrent(body: Record<string, unknown>): CurrentCycle {
 
 const CycleContext = createContext<CycleContextValue | null>(null);
 
+export function isCycleTrackingEnabled(
+  sex: string | undefined,
+): boolean {
+  return sex === 'female';
+}
+
 // ── Provider ───────────────────────────────────────────────────────────────
 
 export function CycleProvider({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
+  const isEnabled = isCycleTrackingEnabled(user?.sex);
 
   const [current,  setCurrent]  = useState<CurrentCycle | null>(null);
   const [history,  setHistory]  = useState<CycleLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
-  const fetchCurrent = useCallback(async () => {
-    const { ok, body } = await apiFetch('/cycle/current');
-    if (ok) setCurrent(fromApiCurrent(body));
-  }, []);
+  const fetchCycleBundle = useCallback(async (force = false) => {
+    if (!user?.id || !isCycleTrackingEnabled(user.sex)) return;
 
-  const fetchHistory = useCallback(async () => {
-    const { ok, body } = await apiFetch('/cycle/history');
-    if (!ok) return;
-    const rows = Array.isArray(body.cycles) ? body.cycles as Record<string, unknown>[] : [];
-    setHistory(rows.map(fromApiLog));
-  }, []);
+    const key = buildResourceKey('cycle', user.id);
+    const bundle = await fetchWithResourceCache<{
+      current: CurrentCycle | null;
+      history: CycleLog[];
+    } | null>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const [currentRes, historyRes] = await Promise.all([
+          apiFetch('/cycle/current'),
+          apiFetch('/cycle/history'),
+        ]);
+        const history = historyRes.ok
+          ? (Array.isArray(historyRes.body.cycles)
+            ? historyRes.body.cycles as Record<string, unknown>[]
+            : []
+          ).map(fromApiLog)
+          : [];
+        const current = currentRes.ok
+          ? fromApiCurrent(currentRes.body)
+          : null;
+        return { current, history };
+      },
+      { force },
+    );
+
+    if (bundle) {
+      setCurrent(bundle.current);
+      setHistory(bundle.history);
+    }
+  }, [user?.id, user?.sex]);
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -122,25 +162,48 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (!isEnabled) {
+      setCurrent(null);
+      setHistory([]);
+      setIsLoading(false);
+      return;
+    }
+
     let cancelled = false;
-    setIsLoading(true);
 
     (async () => {
+      const key = buildResourceKey('cycle', user!.id);
+      const cached = await getResourceCached<{
+        current: CurrentCycle | null;
+        history: CycleLog[];
+      }>(key);
+      if (cached && !cancelled) {
+        setCurrent(cached.data.current);
+        setHistory(cached.data.history);
+        setIsLoading(false);
+      } else if (!cancelled) {
+        setIsLoading(true);
+      }
+
       try {
-        await Promise.all([fetchCurrent(), fetchHistory()]);
+        await fetchCycleBundle(false);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, fetchCurrent, fetchHistory]);
+  }, [status, user?.id, user?.sex, isEnabled, fetchCycleBundle]);
 
   // ── Log period ───────────────────────────────────────────────────────────
   const logPeriod = useCallback(async (
     periodStartDate: string,
     cycleLength = 28,
   ): Promise<CycleLog> => {
+    if (!isCycleTrackingEnabled(user?.sex)) {
+      throw new Error('Cycle tracking is not enabled for this profile');
+    }
+
     const { ok, body } = await apiFetch('/cycle/log', {
       method: 'POST',
       body:   JSON.stringify({ period_start_date: periodStartDate, cycle_length: cycleLength }),
@@ -150,14 +213,20 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
     const saved = fromApiLog(body.cycle_log as Record<string, unknown>);
     setHistory((prev) => [saved, ...prev]);
 
-    // Refresh current phase since a new period changes the phase calculation
-    await fetchCurrent();
+    if (user?.id) {
+      await invalidateResourceCache(buildResourceKey('cycle', user.id));
+    }
+    await fetchCycleBundle(true);
 
     return saved;
-  }, [fetchCurrent]);
+  }, [fetchCycleBundle, user?.id, user?.sex]);
 
   // ── Update cycle length ──────────────────────────────────────────────────
   const updateCycleLength = useCallback(async (cycleLength: number) => {
+    if (!isCycleTrackingEnabled(user?.sex)) {
+      throw new Error('Cycle tracking is not enabled for this profile');
+    }
+
     const { ok } = await apiFetch('/cycle/length', {
       method: 'PATCH',
       body:   JSON.stringify({ cycle_length: cycleLength }),
@@ -166,17 +235,24 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
 
     // Reflect the new length in history entries optimistically
     setHistory((prev) => prev.map((c) => ({ ...c, cycle_length: cycleLength })));
-    await fetchCurrent();
-  }, [fetchCurrent]);
+    if (user?.id) {
+      await invalidateResourceCache(buildResourceKey('cycle', user.id));
+    }
+    await fetchCycleBundle(true);
+  }, [fetchCycleBundle, user?.id, user?.sex]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
-    await Promise.all([fetchCurrent(), fetchHistory()]);
-  }, [fetchCurrent, fetchHistory]);
+    if (!isCycleTrackingEnabled(user?.sex)) return;
+    if (user?.id) {
+      await invalidateResourceCache(buildResourceKey('cycle', user.id));
+    }
+    await fetchCycleBundle(true);
+  }, [fetchCycleBundle, user?.id, user?.sex]);
 
   return (
     <CycleContext.Provider value={{
-      current, history, isLoading,
+      isEnabled, current, history, isLoading,
       logPeriod, updateCycleLength, refresh,
     }}>
       {children}

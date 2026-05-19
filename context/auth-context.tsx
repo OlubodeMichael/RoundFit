@@ -6,6 +6,8 @@ import {
     proactiveRefreshIfNeeded,
     storeTokens,
 } from "@/utils/api";
+import { TTL_FOREGROUND_SKIP_MS } from "@/utils/daily-summary-cache";
+import { notifyTodayTargetsChanged } from "@/utils/today-sync";
 import Constants from "expo-constants";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as WebBrowser from "expo-web-browser";
@@ -116,7 +118,7 @@ interface AuthContextValue {
   /** Sends a partial profile update to the server. TDEE recalculates automatically. */
   updateProfile: (
     patch: Partial<Omit<UserProfile, "id" | "email" | "createdAt">>,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 
   /** Re-fetches the current user from GET /auth/me and updates local state. */
   refreshUser: () => Promise<void>;
@@ -236,6 +238,7 @@ function toApiBody(
     out.goal = toApiGoal(normaliseGoal(profile.goal));
   }
   if (profile.unit !== undefined) out.unit = profile.unit;
+  if (profile.calorieBudget !== undefined) out.calorie_budget = profile.calorieBudget;
   if (profile.stepsTarget !== undefined) out.steps_target = profile.stepsTarget;
   return out;
 }
@@ -347,8 +350,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Stable ref so updateProfile's rollback always sees the latest snapshot.
   const userRef = useRef<UserProfile | null>(null);
+  const statusRef = useRef(status);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const lastMeFetchAtRef = useRef(0);
+  const fetchMeInflightRef = useRef<Promise<UserProfile> | null>(null);
   userRef.current = user;
+  statusRef.current = status;
+
+  const loadUserFromServer = useCallback(
+    async (emailFallback = "", force = false): Promise<UserProfile> => {
+      if (
+        !force &&
+        userRef.current &&
+        lastMeFetchAtRef.current > 0 &&
+        Date.now() - lastMeFetchAtRef.current < TTL_FOREGROUND_SKIP_MS
+      ) {
+        return userRef.current;
+      }
+
+      if (fetchMeInflightRef.current) {
+        return fetchMeInflightRef.current;
+      }
+
+      const run = fetchMe(emailFallback)
+        .then((fresh) => {
+          lastMeFetchAtRef.current = Date.now();
+          return fresh;
+        })
+        .finally(() => {
+          fetchMeInflightRef.current = null;
+        });
+
+      fetchMeInflightRef.current = run;
+      return run;
+    },
+    [],
+  );
 
   const isAuth = status === "authenticated";
 
@@ -363,7 +400,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setStatus("unauthenticated");
           return;
         }
-        setUser(await fetchMe());
+        setUser(await loadUserFromServer("", true));
         setStatus("authenticated");
       } catch (err) {
         if (err instanceof Error && err.message === 'no_profile') {
@@ -373,17 +410,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setStatus("needs-profile");
         } else {
           await clearTokens();
+          lastMeFetchAtRef.current = 0;
           setStatus("unauthenticated");
         }
       }
     })();
-  }, []);
+  }, [loadUserFromServer]);
 
   // ── Proactive token refresh on foreground ─────────────────────────────────
-  // Every time the app comes back to the foreground we check whether the
-  // access token is about to expire (within 5 min) and refresh it before any
-  // API call goes out.  This keeps the Supabase session alive as long as the
-  // user opens the app at least once before the server-side inactivity window.
+  // Refresh the access token when needed; only re-fetch /auth/me if the last
+  // load is older than TTL_FOREGROUND_SKIP_MS (avoids duplicate calls on resume).
   useEffect(() => {
     const sub = AppState.addEventListener(
       "change",
@@ -392,18 +428,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         appStateRef.current = next;
 
         if (!prev.match(/inactive|background/) || next !== "active") return;
-        if (status !== "authenticated") return;
+        if (statusRef.current !== "authenticated") return;
 
         const stillValid = await proactiveRefreshIfNeeded();
         if (!stillValid) {
           setUser(null);
+          lastMeFetchAtRef.current = 0;
           setStatus("unauthenticated");
           return;
         }
 
-        // Re-fetch user profile silently so stale data doesn't linger
+        if (Date.now() - lastMeFetchAtRef.current < TTL_FOREGROUND_SKIP_MS) {
+          return;
+        }
+
         try {
-          setUser(await fetchMe(userRef.current?.email ?? ""));
+          setUser(
+            await loadUserFromServer(userRef.current?.email ?? "", false),
+          );
         } catch (err) {
           if (err instanceof Error && err.message === 'no_profile') {
             setOauthProfilePending(true);
@@ -414,7 +456,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
     );
     return () => sub.remove();
-  }, [status]);
+  }, [loadUserFromServer]);
 
   useEffect(() => {
     if (error === null) return;
@@ -458,7 +500,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         try {
-          setUser(await fetchMe(email));
+          setUser(await loadUserFromServer(email, true));
         } catch {
           // Token stored; profile fetch failed — session restore on next mount retries
         }
@@ -470,7 +512,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
       }
     },
-    [],
+    [loadUserFromServer],
   );
 
   // ── Sign in ──────────────────────────────────────────────────────────────
@@ -501,7 +543,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        setUser(await fetchMe(email));
+        setUser(await loadUserFromServer(email, true));
       } catch {
         // Token stored; profile fetch failed — session restore on next mount retries
       }
@@ -512,7 +554,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [loadUserFromServer]);
 
   // ── OAuth sign-in ─────────────────────────────────────────────────────────
   const signInWithOAuth = useCallback(async (provider: "google" | "apple") => {
@@ -593,7 +635,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        setUser(await fetchMe());
+        setUser(await loadUserFromServer("", true));
         setStatus("authenticated");
       } catch {
         // New OAuth user — Supabase account exists but no RoundFit profile yet
@@ -607,7 +649,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [loadUserFromServer]);
 
   // ── OAuth profile setup ───────────────────────────────────────────────────
   const setupOAuthProfile = useCallback(
@@ -640,7 +682,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         try {
-          setUser(await fetchMe());
+          setUser(await loadUserFromServer("", true));
         } catch (fetchErr) {
           console.error("[auth] fetchMe after oauth-setup failed:", fetchErr instanceof Error ? fetchErr.message : fetchErr);
         }
@@ -654,7 +696,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
       }
     },
-    [],
+    [loadUserFromServer],
   );
 
   // ── Sign out ─────────────────────────────────────────────────────────────
@@ -663,6 +705,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await clearTokens();
     setUser(null);
     setOauthProfilePending(false);
+    lastMeFetchAtRef.current = 0;
     setStatus("unauthenticated");
   }, []);
 
@@ -691,12 +734,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await clearTokens();
     setUser(null);
     setOauthProfilePending(false);
+    lastMeFetchAtRef.current = 0;
     setStatus("unauthenticated");
   }, []);
 
   // ── Update profile ───────────────────────────────────────────────────────
   const updateProfile = useCallback(
-    async (patch: Partial<Omit<UserProfile, "id" | "email" | "createdAt">>) => {
+    async (patch: Partial<Omit<UserProfile, "id" | "email" | "createdAt">>): Promise<boolean> => {
       const previous = userRef.current;
 
       // Optimistic update
@@ -719,7 +763,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(null);
             setStatus("unauthenticated");
           }
-          return;
+          return false;
         }
 
         if (body.profile) {
@@ -733,12 +777,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     email: prev.email,
                     id: prev.id,
                   }),
+                  ...patch,
                 }
               : prev,
           );
         }
+
+        const touchesDerivedTargets = Object.keys(patch).some((key) =>
+          ['calorieBudget', 'stepsTarget', 'goal', 'activityLevel', 'weightKg', 'heightCm', 'sex', 'age'].includes(key),
+        );
+        if (touchesDerivedTargets) notifyTodayTargetsChanged();
+        return true;
       } catch {
         setUser(previous); // rollback on network error
+        return false;
       }
     },
     [],
@@ -747,12 +799,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ── Refresh user ─────────────────────────────────────────────────────────
   const refreshUser = useCallback(async () => {
     try {
-      const fresh = await fetchMe(userRef.current?.email ?? "");
+      const fresh = await loadUserFromServer(userRef.current?.email ?? "", true);
       setUser(fresh);
     } catch {
       // silently ignore — stale data is better than a crash
     }
-  }, []);
+  }, [loadUserFromServer]);
 
   // ── Clear error ──────────────────────────────────────────────────────────
   const clearError = useCallback(() => setError(null), []);
