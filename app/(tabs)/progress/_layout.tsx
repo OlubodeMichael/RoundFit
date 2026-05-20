@@ -27,6 +27,7 @@ export default function ProgressLayout() {
         <Stack.Screen name="weight" />
         <Stack.Screen name="mirror" />
         <Stack.Screen name="recovery" />
+        <Stack.Screen name="stress" />
       </Stack>
     </>
   );

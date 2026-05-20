@@ -93,6 +93,11 @@ type HealthKitModule = any;
 
 export type SleepStage = 'awake' | 'rem' | 'core' | 'deep' | 'unspecified' | 'inBed';
 
+export interface HRVSample {
+  time: string; // ISO timestamp
+  hrv:  number; // ms SDNN
+}
+
 export interface SleepSegment {
   start: Date;
   end:   Date;
@@ -434,6 +439,35 @@ export async function readHealthKitForDate(
 ): Promise<HealthKitSummary> {
   const { from, to } = dayWindowForDate(dateStr);
   return readDailyHealthKit(hk, from, to);
+}
+
+/**
+ * Reads all HRV (SDNN) samples within a time window, ascending.
+ * Used to build the 24-hour stress curve on the Stress screen.
+ */
+export async function readIntradayHRVSamples(
+  hk:   HealthKitModule,
+  from: Date,
+  to:   Date,
+): Promise<HRVSample[]> {
+  const opts = {
+    limit:     2000,
+    ascending: true,
+    filter: { date: { startDate: from, endDate: to } },
+  };
+  try {
+    const raw: QuantitySampleLike[] = await hk
+      .queryQuantitySamples('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', opts)
+      .catch(() => []);
+    return raw
+      .filter((s) => typeof s.quantity === 'number' && s.quantity > 0)
+      .map((s) => ({
+        time: (s.startDate instanceof Date ? s.startDate : new Date(s.startDate as string)).toISOString(),
+        hrv:  Math.round(s.quantity * 10) / 10,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 /**

@@ -54,6 +54,7 @@ export interface HealthData {
   time_in_bed_hours:     number | null;
   bedtime_iso:           string | null;
   wakeup_iso:            string | null;
+  stress_score:          number | null;
   source:                HealthSource;
   recorded_at:           string;
   date?:                 string;
@@ -174,6 +175,7 @@ function applyKitSummary(current: HealthData | null, s: HealthKitSummary, date: 
     time_in_bed_hours:     s.time_in_bed_hours,
     bedtime_iso:           s.bedtime_iso,
     wakeup_iso:            s.wakeup_iso,
+    stress_score:          current?.stress_score ?? null,
     source:                'healthkit',
     recorded_at:           current?.recorded_at ?? new Date().toISOString(),
     date,
@@ -246,6 +248,7 @@ function fromApiData(row: Record<string, unknown>): HealthData {
     time_in_bed_hours:     num(row.time_in_bed_hours),
     bedtime_iso:           typeof row.bedtime_iso === 'string' ? row.bedtime_iso : null,
     wakeup_iso:            typeof row.wakeup_iso  === 'string' ? row.wakeup_iso  : null,
+    stress_score:          num(row.stress_score),
     source:                (row.source as HealthSource) ?? 'healthkit',
     recorded_at:           typeof row.recorded_at === 'string' ? row.recorded_at : new Date().toISOString(),
     date:                  typeof row.date === 'string' ? row.date : undefined,
