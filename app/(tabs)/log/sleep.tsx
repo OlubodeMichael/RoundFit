@@ -399,6 +399,7 @@ function SleepLogScreen() {
       await logRecovery({
         sleep_hours:      sleepH > 0 ? sleepH : undefined,
         sleep_quality:    apiQuality,
+        sleep_score:      qualityScore ?? undefined,
         deep_sleep_hours: deepSleepH,
         rem_sleep_hours:  hkSleep?.rem_sleep_hours ?? undefined,
         notes:            notes.trim() || undefined,
@@ -411,6 +412,7 @@ function SleepLogScreen() {
           source,
           date:             isToday ? undefined : activeDate,
           sleep_hours:      sleepH,
+          sleep_quality:    apiQuality,
           deep_sleep_hours: deepSleepH,
           rem_sleep_hours:  hkSleep?.rem_sleep_hours ?? undefined,
           bedtime_iso:      hkSleep?.bedtime_iso ?? clockToIso(bedtime, activeDate, 'bedtime') ?? undefined,

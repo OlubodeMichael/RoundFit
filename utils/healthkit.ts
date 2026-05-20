@@ -13,6 +13,7 @@ const QUANTITY_READ_IDS = [
   'HKQuantityTypeIdentifierActiveEnergyBurned',
   'HKQuantityTypeIdentifierBasalEnergyBurned',
   'HKQuantityTypeIdentifierDistanceWalkingRunning',
+  'HKQuantityTypeIdentifierHeartRate',
   'HKQuantityTypeIdentifierRestingHeartRate',
   'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
   'HKQuantityTypeIdentifierVO2Max',
@@ -24,6 +25,7 @@ const QUANTITY_READ_IDS = [
 const CATEGORY_READ_IDS = [
   'HKCategoryTypeIdentifierSleepAnalysis',
   'HKCategoryTypeIdentifierMindfulSession',
+  'HKCategoryTypeIdentifierAppleStandHour',
 ] as const;
 
 const WORKOUT_READ_IDS = ['HKWorkoutTypeIdentifier'] as const;
@@ -44,6 +46,8 @@ export interface HealthKitSummary {
   total_calories_burned: number;
   distance:              number;
   distance_unit:         string;
+  avg_heart_rate:        number | null;
+  max_heart_rate:        number | null;
   resting_heart_rate:    number | null;
   hrv:                   number | null;
   sleep_hours:           number;
@@ -54,9 +58,9 @@ export interface HealthKitSummary {
   bedtime_iso:           string | null;
   wakeup_iso:            string | null;
   active_minutes:        number;
+  stand_hours:           number;
   vo2_max:               number | null;
   mindfulness_minutes:   number;
-  weight_kg:             number | null;
 }
 
 interface DeviceLike {
@@ -286,6 +290,21 @@ export async function readDailyHealthKit(
   const c = (id: string) => hk.queryCategorySamples(id, opts).catch(() => []);
   const stat = (id: string) => queryCumulativeStat(hk, id, from, to);
 
+  // Stand hours: query a 2-day window (yesterday + today) so HealthKit knows
+  // the date range and returns all stand-hour slots for those days.
+  // ascending:false means today's records come first (most recent).
+  // We still filter to exactly today in JS so the count is always correct.
+  const standOpts = {
+    limit:     48,
+    ascending: false,
+    filter: {
+      date: {
+        startDate: new Date(from.getFullYear(), from.getMonth(), from.getDate() - 1, 0, 0, 0, 0),
+        endDate:   new Date(from.getFullYear(), from.getMonth(), from.getDate(),     23, 59, 59, 999),
+      },
+    },
+  };
+
   // Sleep spans midnight — query from 5pm the previous day to noon today so
   // sessions that start before midnight (e.g. 11pm) are not filtered out.
   const sleepWindowStart = new Date(from.getFullYear(), from.getMonth(), from.getDate() - 1, 17, 0, 0, 0);
@@ -303,30 +322,70 @@ export async function readDailyHealthKit(
 
   const [
     stepsCount, activeCount, basalCount, distanceStat, exerciseCount,
-    restingHR, hrv, vo2Max, bodyMass,
-    sleep, mindful,
+    heartRateSamples, restingHR, hrv, vo2Max,
+    sleep, mindful, standHourSamples,
   ] = await Promise.all([
     stat('HKQuantityTypeIdentifierStepCount'),
     stat('HKQuantityTypeIdentifierActiveEnergyBurned'),
     stat('HKQuantityTypeIdentifierBasalEnergyBurned'),
     queryDistanceStat(hk, from, to),
     stat('HKQuantityTypeIdentifierAppleExerciseTime'),
+    q('HKQuantityTypeIdentifierHeartRate'),
     q('HKQuantityTypeIdentifierRestingHeartRate'),
     q('HKQuantityTypeIdentifierHeartRateVariabilitySDNN'),
     q('HKQuantityTypeIdentifierVO2Max'),
-    q('HKQuantityTypeIdentifierBodyMass'),
     hk.queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', sleepOpts).catch(() => []),
     c('HKCategoryTypeIdentifierMindfulSession'),
+    hk.queryCategorySamples('HKCategoryTypeIdentifierAppleStandHour', standOpts).catch(() => []),
   ]);
 
+  logHealthKitRawSamples('HeartRate', heartRateSamples);
   logHealthKitRawSamples('RestingHeartRate', restingHR);
   logHealthKitRawSamples('HeartRateVariabilitySDNN', hrv);
   logHealthKitRawSamples('VO2Max', vo2Max);
-  logHealthKitRawSamples('BodyMass', bodyMass);
+  console.log('[HealthKit] StandHour raw values:', (standHourSamples as CategorySampleLike[]).slice(0, 10).map((s) => ({
+    value: s.value,
+    start: s.startDate instanceof Date ? s.startDate.toISOString() : s.startDate,
+  })));
+  logHealthKitRawSamples('StandHour', standHourSamples);
   logHealthKitRawSamples('SleepAnalysis', sleep);
   logHealthKitRawSamples('MindfulSession', mindful);
 
   const sleepSummary = summariseSleep(sleep, sleepWindowStart, sleepWindowEnd);
+
+  // Avg and max HR from raw intraday samples
+  const hrValues = (heartRateSamples as QuantitySampleLike[])
+    .map((s) => s.quantity)
+    .filter((v): v is number => typeof v === 'number' && v > 0);
+  const avgHR = hrValues.length > 0
+    ? Math.round(hrValues.reduce((a, b) => a + b, 0) / hrValues.length)
+    : null;
+  const maxHR = hrValues.length > 0 ? Math.round(Math.max(...hrValues)) : null;
+
+  // Stand hours — filter to today in JS (library filter.date is unreliable for
+  // category types) then count samples where the user stood during that hour.
+  const todayStart = from.getTime();  // midnight of the target day
+  const todayEnd   = new Date(from.getFullYear(), from.getMonth(), from.getDate(), 23, 59, 59, 999).getTime();
+
+  const standHours = (standHourSamples as CategorySampleLike[])
+    .filter((s) => {
+      // Keep only samples whose startDate falls within today
+      const sDate = s.startDate instanceof Date ? s.startDate : new Date(s.startDate as string);
+      if (Number.isNaN(sDate.getTime())) return false;
+      if (sDate.getTime() < todayStart || sDate.getTime() > todayEnd) return false;
+
+      // Count as "stood" — library returns 1 (numeric), 'stood', or full enum string
+      const v = s.value;
+      if (v === null || v === undefined) return false;
+      if (typeof v === 'boolean')  return v;
+      if (typeof v === 'number')   return v !== 0;
+      if (typeof v === 'string') {
+        const lc = v.toLowerCase();
+        return !lc.includes('idle') && lc !== '0' && lc !== 'false';
+      }
+      return false;
+    })
+    .length;
 
   const summary: HealthKitSummary = {
     steps:                 stepsCount,
@@ -335,6 +394,8 @@ export async function readDailyHealthKit(
     total_calories_burned: activeCount + basalCount,
     distance:              distanceStat.value,
     distance_unit:         distanceStat.unit,
+    avg_heart_rate:        avgHR,
+    max_heart_rate:        maxHR,
     resting_heart_rate:    roundOrNull(latest(restingHR)),
     hrv:                   tenthsOrNull(latest(hrv)),
     sleep_hours:           sleepSummary.sleep_hours,
@@ -345,9 +406,9 @@ export async function readDailyHealthKit(
     bedtime_iso:           sleepSummary.bedtime_iso,
     wakeup_iso:            sleepSummary.wakeup_iso,
     active_minutes:        exerciseCount,
+    stand_hours:           standHours,
     vo2_max:               tenthsOrNull(latest(vo2Max)),
     mindfulness_minutes:   round(sumCategoryDurationHoursWithinWindow(mindful, from, to) * 60),
-    weight_kg:             tenthsOrNull(latest(bodyMass)),
   };
 
   console.log('[HealthKit] readDailyHealthKit summary (interval above):', JSON.stringify(summary, null, 2));

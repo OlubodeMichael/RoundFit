@@ -592,8 +592,9 @@ export function computeReadiness(input: ReadinessInput): ComputedReadiness | nul
     pillars,
     factors,
     tips,
-    sleep_score: sleepScore,
-    strain_score: computeStrainScore(input.workouts_7d),
+    sleep_score:    sleepScore,
+    strain_score:   computeStrainScore(input.workouts_7d),
+    soreness_level: input.soreness.soreness_level,
   };
 }
 

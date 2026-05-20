@@ -1917,7 +1917,7 @@ export default function HomeScreen() {
               onPress={() => setPickerOpen(true)}
             />
           )}
-          {isToday && <ReadinessWidget delay={260} mode="home" />}
+          {isToday && <ReadinessWidget delay={260} />}
           {isToday && (
             <InsightCard P={P} delay={320} onPress={handleInsightPress} />
           )}

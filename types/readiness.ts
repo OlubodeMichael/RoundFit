@@ -118,6 +118,7 @@ export interface ComputedReadiness {
   tips: ReadinessTip[];
   sleep_score: number | null;
   strain_score: number | null;
+  soreness_level: number | null;
 }
 
 export interface ReadinessHistoryPoint {

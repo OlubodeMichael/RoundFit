@@ -465,6 +465,7 @@ export default function RecoveryScreen() {
   const {
     display,
     today,
+    computed,
     isLoading,
     initialized,
     hasInsufficientData,
@@ -503,7 +504,8 @@ export default function RecoveryScreen() {
   const hrvDiff = hrv != null && hrvBaseline != null ? Math.round(hrv - hrvBaseline) : null;
   const rhrDiff = rhr != null && restingHrBaseline != null ? Math.round(rhr - restingHrBaseline) : null;
 
-  const sleepScr = display.sleepScore != null ? Math.round(display.sleepScore) : null;
+  const sleepScr    = display.sleepScore != null ? Math.round(display.sleepScore) : null;
+  const sorenessLvl = computed?.soreness_level ?? today?.soreness_level ?? null;
 
   // Delta = today score − yesterday score (last point before today in trend7d)
   const scoreDelta: number | null = (() => {
@@ -621,6 +623,7 @@ export default function RecoveryScreen() {
               strain={display.strainScore != null
                 ? parseFloat(((display.strainScore / 100) * 21).toFixed(1))
                 : null}
+              sorenessLevel={sorenessLvl}
               palette={P}
             />
 

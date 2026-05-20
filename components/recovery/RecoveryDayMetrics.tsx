@@ -5,14 +5,15 @@ import type { TrendPalette } from '@/components/recovery/recovery-trend-utils';
 const H_PAD = 20;
 
 export interface RecoveryDayMetricsProps {
-  rhr:        number | null;
-  hrv:        number | null;
-  sleepHours: number | null;
-  rhrDelta:   number | null;
-  hrvDelta:   number | null;
-  sleepScore: number | null;
-  strain:     number | null;
-  palette:    TrendPalette;
+  rhr:           number | null;
+  hrv:           number | null;
+  sleepHours:    number | null;
+  rhrDelta:      number | null;
+  hrvDelta:      number | null;
+  sleepScore:    number | null;
+  strain:        number | null;
+  sorenessLevel: number | null;
+  palette:       TrendPalette;
 }
 
 interface StatCardProps {
@@ -78,80 +79,114 @@ function strainZone(s: number): { tag: string; sub: string } {
   return              { tag: 'REC',  sub: 'Recovery'      };
 }
 
+function sorenessZone(s: number): { tag: string; sub: string } {
+  if (s >= 9) return { tag: 'MAX',  sub: 'Severe soreness'   };
+  if (s >= 7) return { tag: 'HIGH', sub: 'High soreness'     };
+  if (s >= 4) return { tag: 'MOD',  sub: 'Moderate soreness' };
+  return              { tag: 'LOW',  sub: 'Low soreness'      };
+}
+
 export function RecoveryDayMetrics({
-  rhr, hrv, sleepHours, rhrDelta, hrvDelta, sleepScore, strain, palette,
+  rhr, hrv, sleepHours, rhrDelta, hrvDelta, sleepScore, strain, sorenessLevel, palette,
 }: RecoveryDayMetricsProps) {
   // ── SLEEP ────────────────────────────────────────────────────────────────────
-  const sleepColor    = sleepScore != null
+  const sleepColor  = sleepScore != null
     ? (sleepScore >= 70 ? palette.protein : sleepScore >= 40 ? palette.carbs : palette.calories)
     : palette.textFaint;
-  const sleepVal      = sleepHours != null ? fmtSleep(sleepHours) : '—';
-  const sleepUnit     = sleepHours != null ? 'hrs' : '';
-  const sleepTag      = sleepScore != null ? String(Math.round(sleepScore)) : '—';
-  const sleepSub      = sleepScore != null
+  const sleepVal    = sleepHours != null ? fmtSleep(sleepHours) : '—';
+  const sleepUnit   = sleepHours != null ? 'hrs' : '';
+  const sleepTag    = sleepScore != null ? String(Math.round(sleepScore)) : '—';
+  const sleepSub    = sleepScore != null
     ? (sleepScore >= 70 ? 'Good quality' : sleepScore >= 40 ? 'Fair quality' : 'Poor quality')
     : 'No data';
 
   // ── HRV ──────────────────────────────────────────────────────────────────────
-  const hrvColor      = hrv != null
+  const hrvColor    = hrv != null
     ? (hrv >= 50 ? palette.protein : hrv >= 30 ? palette.carbs : palette.calories)
     : palette.textFaint;
-  const rhrVal        = rhr != null ? String(Math.round(rhr)) : '—';
-  const hrvTag        = hrv != null ? `${Math.round(hrv)} ms` : '—';
-  const hrvSub        = hrvDelta != null
+  const rhrVal      = rhr != null ? String(Math.round(rhr)) : '—';
+  const hrvTag      = hrv != null ? `${Math.round(hrv)} ms` : '—';
+  const hrvSub      = hrvDelta != null
     ? fmtDelta(hrvDelta, 'ms')
     : (rhrDelta != null ? fmtDelta(rhrDelta, 'bpm') : 'No baseline');
-  const hrvSubColor   = hrvDelta != null
+  const hrvSubColor = hrvDelta != null
     ? (hrvDelta >= 0 ? palette.protein : palette.calories)
     : (rhrDelta != null ? (rhrDelta <= 0 ? palette.protein : palette.calories) : palette.textFaint);
 
   // ── STRAIN ───────────────────────────────────────────────────────────────────
-  const strainColor   = strain != null
+  const strainColor = strain != null
     ? (strain < 10 ? palette.protein : strain < 14 ? palette.carbs : palette.calories)
     : palette.textFaint;
-  const strainVal     = strain != null ? strain.toFixed(1) : '—';
-  const strainUnit    = strain != null ? '/ 21' : '';
+  const strainVal   = strain != null ? strain.toFixed(1) : '—';
+  const strainUnit  = strain != null ? '/ 21' : '';
   const { tag: strainTag, sub: strainSub } = strain != null
     ? strainZone(strain)
     : { tag: '—', sub: 'No workout' };
 
+  // ── SORENESS ─────────────────────────────────────────────────────────────────
+  const sorenessColor = sorenessLevel != null
+    ? (sorenessLevel <= 3 ? palette.protein : sorenessLevel <= 6 ? palette.carbs : palette.calories)
+    : palette.textFaint;
+  const sorenessVal   = sorenessLevel != null ? String(sorenessLevel) : '—';
+  const sorenessUnit  = sorenessLevel != null ? '/ 10' : '';
+  const { tag: sorenessTag, sub: sorenessSub } = sorenessLevel != null
+    ? sorenessZone(sorenessLevel)
+    : { tag: '—', sub: 'No workout data' };
+
   return (
-    <View style={[styles.row, { paddingHorizontal: H_PAD }]}>
-      <StatCard
-        label="SLEEP"
-        value={sleepVal}
-        valueUnit={sleepUnit}
-        tag={sleepTag}
-        tagColor={sleepColor}
-        sub={sleepSub}
-        subColor={sleepColor}
-        palette={palette}
-      />
-      <StatCard
-        label="HRV"
-        value={rhrVal}
-        valueUnit="bpm"
-        tag={hrvTag}
-        tagColor={hrvColor}
-        sub={hrvSub}
-        subColor={hrvSubColor}
-        palette={palette}
-      />
-      <StatCard
-        label="STRAIN"
-        value={strainVal}
-        valueUnit={strainUnit}
-        tag={strainTag}
-        tagColor={strainColor}
-        sub={strainSub}
-        subColor={strainColor}
-        palette={palette}
-      />
+    <View style={[styles.grid, { paddingHorizontal: H_PAD }]}>
+      <View style={styles.row}>
+        <StatCard
+          label="SLEEP"
+          value={sleepVal}
+          valueUnit={sleepUnit}
+          tag={sleepTag}
+          tagColor={sleepColor}
+          sub={sleepSub}
+          subColor={sleepColor}
+          palette={palette}
+        />
+        <StatCard
+          label="HRV"
+          value={rhrVal}
+          valueUnit="bpm"
+          tag={hrvTag}
+          tagColor={hrvColor}
+          sub={hrvSub}
+          subColor={hrvSubColor}
+          palette={palette}
+        />
+      </View>
+      <View style={styles.row}>
+        <StatCard
+          label="STRAIN"
+          value={strainVal}
+          valueUnit={strainUnit}
+          tag={strainTag}
+          tagColor={strainColor}
+          sub={strainSub}
+          subColor={strainColor}
+          palette={palette}
+        />
+        <StatCard
+          label="SORENESS"
+          value={sorenessVal}
+          valueUnit={sorenessUnit}
+          tag={sorenessTag}
+          tagColor={sorenessColor}
+          sub={sorenessSub}
+          subColor={sorenessColor}
+          palette={palette}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  grid: {
+    gap: 10,
+  },
   row: {
     flexDirection: 'row',
     gap:           10,

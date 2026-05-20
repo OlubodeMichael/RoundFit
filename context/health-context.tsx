@@ -3,7 +3,7 @@ import React, {
 } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import { useAuth } from '@/context/auth-context';
-import { apiFetch } from '@/utils/api';
+import { apiFetch, proactiveRefreshIfNeeded } from '@/utils/api';
 import {
   ensureHealthKitAuthorized,
   getHealthKitModule,
@@ -43,15 +43,17 @@ export interface HealthData {
   hrv:                   number | null;
   vo2_max:               number | null;
   active_minutes:        number | null;
+  stand_hours:           number | null;
+  exercise_minutes:      number | null;
   mindfulness_minutes:   number | null;
   sleep_hours:           number | null;
+  sleep_quality:         string | null;
   deep_sleep_hours:      number | null;
   rem_sleep_hours:       number | null;
   sleep_efficiency:      number | null;
   time_in_bed_hours:     number | null;
   bedtime_iso:           string | null;
   wakeup_iso:            string | null;
-  weight_kg:             number | null;
   source:                HealthSource;
   recorded_at:           string;
   date?:                 string;
@@ -76,11 +78,15 @@ export interface SyncHealthInput {
   sleep_hours?:           number;
   deep_sleep_hours?:      number;
   rem_sleep_hours?:       number;
+  sleep_quality?:         string;
   sleep_efficiency?:      number;
   time_in_bed_hours?:     number;
   bedtime_iso?:           string;
   wakeup_iso?:            string;
-  weight_kg?:             number;
+  stand_hours?:           number;
+  exercise_minutes?:      number;
+  avg_heart_rate?:        number;
+  max_heart_rate?:        number;
 }
 
 export interface HealthContextValue {
@@ -137,8 +143,8 @@ function isEmptySummary(s: HealthKitSummary): boolean {
       && s.vo2_max === null
       && s.sleep_hours === 0
       && s.active_minutes === 0
-      && s.mindfulness_minutes === 0
-      && s.weight_kg === null;
+      && s.stand_hours === 0
+      && s.mindfulness_minutes === 0;
 }
 
 /** Merges fresh device data into a HealthData shape for optimistic UI updates. */
@@ -151,21 +157,23 @@ function applyKitSummary(current: HealthData | null, s: HealthKitSummary, date: 
     steps:                 s.steps,
     distance:              s.distance,
     distance_unit:         s.distance_unit,
-    avg_heart_rate:        current?.avg_heart_rate ?? null,
-    max_heart_rate:        current?.max_heart_rate ?? null,
+    avg_heart_rate:        s.avg_heart_rate ?? current?.avg_heart_rate ?? null,
+    max_heart_rate:        s.max_heart_rate ?? current?.max_heart_rate ?? null,
     resting_heart_rate:    s.resting_heart_rate,
     hrv:                   s.hrv,
     vo2_max:               s.vo2_max,
     active_minutes:        s.active_minutes,
+    stand_hours:           s.stand_hours,
+    exercise_minutes:      s.active_minutes,
     mindfulness_minutes:   s.mindfulness_minutes,
     sleep_hours:           s.sleep_hours,
+    sleep_quality:         current?.sleep_quality ?? null,
     deep_sleep_hours:      s.deep_sleep_hours,
     rem_sleep_hours:       s.rem_sleep_hours,
     sleep_efficiency:      s.sleep_efficiency,
     time_in_bed_hours:     s.time_in_bed_hours,
     bedtime_iso:           s.bedtime_iso,
     wakeup_iso:            s.wakeup_iso,
-    weight_kg:             s.weight_kg,
     source:                'healthkit',
     recorded_at:           current?.recorded_at ?? new Date().toISOString(),
     date,
@@ -184,6 +192,8 @@ function toSyncInput(s: HealthKitSummary): SyncHealthInput {
     total_calories_burned: s.total_calories_burned,
     distance:              s.distance,
     active_minutes:        s.active_minutes,
+    exercise_minutes:      s.active_minutes,
+    stand_hours:           s.stand_hours,
     mindfulness_minutes:   s.mindfulness_minutes,
     sleep_hours:           s.sleep_hours,
     deep_sleep_hours:      s.deep_sleep_hours,
@@ -194,7 +204,8 @@ function toSyncInput(s: HealthKitSummary): SyncHealthInput {
   if (s.hrv                !== null) input.hrv                = s.hrv;
   if (s.vo2_max            !== null) input.vo2_max            = s.vo2_max;
   if (s.sleep_efficiency   !== null) input.sleep_efficiency   = s.sleep_efficiency;
-  if (s.weight_kg          !== null) input.weight_kg          = s.weight_kg;
+  if (s.avg_heart_rate     !== null) input.avg_heart_rate     = s.avg_heart_rate;
+  if (s.max_heart_rate     !== null) input.max_heart_rate     = s.max_heart_rate;
   if (s.bedtime_iso        !== null) input.bedtime_iso        = s.bedtime_iso;
   if (s.wakeup_iso         !== null) input.wakeup_iso         = s.wakeup_iso;
   return input;
@@ -224,15 +235,17 @@ function fromApiData(row: Record<string, unknown>): HealthData {
     hrv:                   num(row.hrv),
     vo2_max:               num(row.vo2_max),
     active_minutes:        num(row.active_minutes),
+    stand_hours:           num(row.stand_hours),
+    exercise_minutes:      num(row.exercise_minutes),
     mindfulness_minutes:   num(row.mindfulness_minutes),
     sleep_hours:           num(row.sleep_hours),
+    sleep_quality:         typeof row.sleep_quality === 'string' ? row.sleep_quality : null,
     deep_sleep_hours:      num(row.deep_sleep_hours),
     rem_sleep_hours:       num(row.rem_sleep_hours),
     sleep_efficiency:      num(row.sleep_efficiency),
     time_in_bed_hours:     num(row.time_in_bed_hours),
     bedtime_iso:           typeof row.bedtime_iso === 'string' ? row.bedtime_iso : null,
     wakeup_iso:            typeof row.wakeup_iso  === 'string' ? row.wakeup_iso  : null,
-    weight_kg:             num(row.weight_kg),
     source:                (row.source as HealthSource) ?? 'healthkit',
     recorded_at:           typeof row.recorded_at === 'string' ? row.recorded_at : new Date().toISOString(),
     date:                  typeof row.date === 'string' ? row.date : undefined,
@@ -344,6 +357,12 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     if (!hk) return;
 
     try {
+      // Ensure the access token is fresh before making any API calls.
+      // syncFromDevice fires on startup and foreground-resume — the stored
+      // token may have expired while the app was in the background.
+      const sessionValid = await proactiveRefreshIfNeeded();
+      if (!sessionValid) return;
+
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       const lastSync     = await AsyncStorage.getItem('@roundfit/last_health_sync');

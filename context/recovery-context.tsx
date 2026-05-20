@@ -245,7 +245,8 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
   const fetchReadinessHistory = useCallback(async (force = false) => {
     if (!user?.id) return;
     const today = getLocalDateString();
-    const key = buildResourceKey('recovery-history', user.id, today);
+    // Key is month-scoped so past-day scores stay cached across day rollovers.
+    const key = buildResourceKey('recovery-history', user.id, today.slice(0, 7));
     const result = await fetchWithResourceCache<ReadinessHistoryPoint[]>(
       key,
       TTL_BASELINES,
@@ -331,7 +332,7 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
           buildResourceKey('recovery-readiness', uid, today),
         ),
         getResourceCached<ReadinessHistoryPoint[]>(
-          buildResourceKey('recovery-history', uid, today),
+          buildResourceKey('recovery-history', uid, today.slice(0, 7)),
         ),
         getResourceCached<{ hrv: number | null; hr: number | null }>(
           buildResourceKey('health-baselines', uid, today),
@@ -372,6 +373,15 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
       setHistoryScores([]);
     }
   }, [status, user?.id]);
+
+  // Auto-load on mount so home screen widget has fresh data without
+  // requiring a Progress tab visit first.
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    if (initialized) return;
+    void refresh();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
@@ -500,15 +510,30 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
 
     if (user?.id) {
       const today = getLocalDateString();
-      void setResourceCached(buildResourceKey('recovery-today', user.id, today), saved, TTL_COLD_START_MS);
-      void Promise.all([
-        invalidateResourceCache(buildResourceKey('recovery-readiness', user.id, today)),
-        invalidateResourceCache(buildResourceKey('recovery-history', user.id, today)),
-      ]);
+      const uid   = user.id;
+      void setResourceCached(buildResourceKey('recovery-today', uid, today), saved, TTL_COLD_START_MS);
+      // Always bust the readiness score so the next fetch gets the freshest value.
+      void invalidateResourceCache(buildResourceKey('recovery-readiness', uid, today));
     }
 
     if (data.readiness) {
-      setReadiness(fromApiReadiness(data.readiness as Record<string, unknown>));
+      const newReadiness = fromApiReadiness(data.readiness as Record<string, unknown>);
+      setReadiness(newReadiness);
+
+      // Merge today's score into the cached month history so the calendar
+      // reflects it immediately without a full re-fetch.
+      if (user?.id) {
+        const today    = getLocalDateString();
+        const histKey  = buildResourceKey('recovery-history', user.id, today.slice(0, 7));
+        const cached   = await getResourceCached<ReadinessHistoryPoint[]>(histKey);
+        const existing = cached?.data ?? [];
+        const merged   = [
+          ...existing.filter((p) => p.date !== today),
+          { date: today, score: newReadiness.score },
+        ];
+        void setResourceCached(histKey, merged, TTL_BASELINES);
+        setHistoryScores(merged);
+      }
     }
 
     if (user?.id) void syncTodayAfterMutation(user.id);
