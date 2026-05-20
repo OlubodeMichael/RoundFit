@@ -8,6 +8,7 @@ import type { ReadinessFactor } from '@/types/readiness';
 import { useHomeReadiness } from '@/hooks/use-home-readiness';
 import { useRecovery } from '@/hooks/use-recovery';
 import { useHealth } from '@/context/health-context';
+import { scoreTint, scoreSoft } from '@/components/recovery/recovery-trend-utils';
 
 const G   = 88;
 const GC  = G / 2;
@@ -108,8 +109,9 @@ export function ReadinessWidget({ delay = 0, mode = 'passive' }: ReadinessWidget
   const score = display.score;
   if (score === null) return null;
 
-  const GREEN = P.protein;
-  const GREEN_GLOW = P.isDark ? 'rgba(52,211,153,0.18)' : 'rgba(16,185,129,0.12)';
+  const ringColor = scoreTint(score, P);
+  const ringGlow  = scoreSoft(score, P);
+
   const TRACK_CLR = P.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.07)';
 
   const sleepFactor = display.factors.find((f) => f.pillar === 'sleep');
@@ -159,7 +161,7 @@ export function ReadinessWidget({ delay = 0, mode = 'passive' }: ReadinessWidget
             width: 120,
             height: 120,
             borderRadius: 60,
-            backgroundColor: GREEN_GLOW,
+            backgroundColor: ringGlow,
           }}
         />
 
@@ -168,10 +170,10 @@ export function ReadinessWidget({ delay = 0, mode = 'passive' }: ReadinessWidget
             <Svg width={G} height={G} style={{ position: 'absolute', top: 0 }}>
               <Path d={trackD} fill="none" stroke={TRACK_CLR} strokeWidth={GSW} strokeLinecap="round" />
               {fillD != null && (
-                <Path d={fillD} fill="none" stroke={GREEN} strokeWidth={GSW} strokeLinecap="round" />
+                <Path d={fillD} fill="none" stroke={ringColor} strokeWidth={GSW} strokeLinecap="round" />
               )}
               {tipPt != null && (
-                <Circle cx={tipPt.x} cy={tipPt.y} r={GSW / 2} fill={GREEN} />
+                <Circle cx={tipPt.x} cy={tipPt.y} r={GSW / 2} fill={ringColor} />
               )}
             </Svg>
             <View style={s.gaugeCenter}>
@@ -183,8 +185,8 @@ export function ReadinessWidget({ delay = 0, mode = 'passive' }: ReadinessWidget
           <View style={s.copy}>
             <View style={s.labelRow}>
               <View style={s.liveRow}>
-                <View style={[s.liveDot, { backgroundColor: GREEN }]} />
-                <Text style={[s.liveText, { color: GREEN }]}>READINESS · LIVE</Text>
+                <View style={[s.liveDot, { backgroundColor: ringColor }]} />
+                <Text style={[s.liveText, { color: ringColor }]}>READINESS · LIVE</Text>
               </View>
               <Ionicons name="chevron-forward" size={14} color={P.textFaint} />
             </View>
@@ -202,7 +204,7 @@ export function ReadinessWidget({ delay = 0, mode = 'passive' }: ReadinessWidget
             label="SLEEP"
             value={sleepLbl}
             badge={sleepScr != null ? String(sleepScr) : null}
-            badgeColor={GREEN}
+            badgeColor={ringColor}
             textColor={P.text}
             faintColor={P.textFaint}
           />
