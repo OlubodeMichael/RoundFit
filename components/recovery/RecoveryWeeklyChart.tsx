@@ -6,6 +6,7 @@ import type { ReadinessHistoryPoint } from '@/types/readiness';
 import type { TrendPalette } from '@/components/recovery/recovery-trend-utils';
 import {
   computeTrendStats,
+  dayOfMonth,
   isToday,
   scoreTint,
   weekdayLetter,
@@ -141,6 +142,9 @@ export function RecoveryWeeklyChart({ points, tint, width, palette }: RecoveryWe
               ]}>
                 {weekdayLetter(p.date)}
               </Text>
+              <Text style={[styles.dateNum, { color: today ? tint : palette.textFaint }]}>
+                {dayOfMonth(p.date)}
+              </Text>
             </View>
           );
         })}
@@ -169,5 +173,9 @@ const styles = StyleSheet.create({
   },
   dayToday: {
     fontWeight: '800',
+  },
+  dateNum: {
+    fontSize:   9,
+    fontWeight: '500',
   },
 });

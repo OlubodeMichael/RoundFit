@@ -310,6 +310,13 @@ export async function readDailyHealthKit(
     },
   };
 
+  // RHR is computed progressively by Apple Watch and may not appear until mid-day.
+  // Look back 3 days so early-morning syncs fall back to yesterday's value.
+  const rhrOpts = queryOptionsForInterval(
+    new Date(from.getFullYear(), from.getMonth(), from.getDate() - 2, 0, 0, 0, 0),
+    to,
+  );
+
   // Sleep spans midnight — query from 5pm the previous day to noon today so
   // sessions that start before midnight (e.g. 11pm) are not filtered out.
   const sleepWindowStart = new Date(from.getFullYear(), from.getMonth(), from.getDate() - 1, 17, 0, 0, 0);
@@ -336,7 +343,7 @@ export async function readDailyHealthKit(
     queryDistanceStat(hk, from, to),
     stat('HKQuantityTypeIdentifierAppleExerciseTime'),
     q('HKQuantityTypeIdentifierHeartRate'),
-    q('HKQuantityTypeIdentifierRestingHeartRate'),
+    hk.queryQuantitySamples('HKQuantityTypeIdentifierRestingHeartRate', rhrOpts).catch(() => []),
     q('HKQuantityTypeIdentifierHeartRateVariabilitySDNN'),
     q('HKQuantityTypeIdentifierVO2Max'),
     hk.queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', sleepOpts).catch(() => []),

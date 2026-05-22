@@ -247,6 +247,18 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     const today = getLocalDateString();
     // Key is month-scoped so past-day scores stay cached across day rollovers.
     const key = buildResourceKey('recovery-history', user.id, today.slice(0, 7));
+
+    // If the cached result is missing yesterday's score, force a fresh fetch so the
+    // backend backfill logic can compute and return it.
+    if (!force) {
+      const cached = await getResourceCached<ReadinessHistoryPoint[]>(key);
+      if (cached?.data) {
+        const yesterday = addLocalCalendarDays(today, -1);
+        const hasYesterday = cached.data.some((p) => p.date === yesterday && p.score > 0);
+        if (!hasYesterday) force = true;
+      }
+    }
+
     const result = await fetchWithResourceCache<ReadinessHistoryPoint[]>(
       key,
       TTL_BASELINES,
@@ -446,13 +458,13 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     calorieBudget,
   ]);
 
-  /** Merge live computed score for today when API history has not persisted yet. */
+  /** Always stamp today's live computed score into a trend array so the calendar matches the ring. */
   const patchToday = useCallback((trend: ReadinessHistoryPoint[]): ReadinessHistoryPoint[] => {
     const todayDate = getLocalDateString();
     if (!computed) return trend;
-    const hasToday = trend.some((p) => p.date === todayDate && p.score > 0);
-    if (hasToday) return trend;
-    return trend.map((p) => (p.date === todayDate ? { ...p, score: computed.score } : p));
+    // Always override today — DB-persisted value may lag behind live computation.
+    const without = trend.filter((p) => p.date !== todayDate);
+    return [...without, { date: todayDate, score: computed.score }];
   }, [computed]);
 
   const trend7d = useMemo(

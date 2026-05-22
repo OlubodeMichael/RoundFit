@@ -27,6 +27,7 @@ import { getLocalDateString } from '@/utils/date';
 import type { ReadinessHistoryPoint, ReadinessFactor } from '@/types/readiness';
 import {
   computeTrendStats,
+  dayOfMonth,
   weekdayLetter,
   isToday,
   scoreTint,
@@ -364,9 +365,12 @@ function MiniTrendSection({ points, tint, palette, onViewPress }: {
         {last7.map((p, i) => {
           const todayPt = isToday(p.date);
           return (
-            <View key={i} style={{ width: slotW, alignItems: 'center' }}>
+            <View key={i} style={{ width: slotW, alignItems: 'center', gap: 1 }}>
               <Text style={[ts.dayLabel, { color: todayPt ? tint : palette.textFaint }, todayPt && ts.dayLabelToday]}>
                 {weekdayLetter(p.date)}
+              </Text>
+              <Text style={[ts.dayDate, { color: todayPt ? tint : palette.textFaint }]}>
+                {dayOfMonth(p.date)}
               </Text>
             </View>
           );
@@ -431,6 +435,10 @@ const ts = StyleSheet.create({
   },
   dayLabelToday: {
     fontWeight: '800',
+  },
+  dayDate: {
+    fontSize:   9,
+    fontWeight: '500',
   },
 });
 
