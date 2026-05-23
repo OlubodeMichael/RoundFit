@@ -9,6 +9,7 @@ module.exports = {
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
     ios: {
+      buildNumber: "10",
       supportsTablet: true,
       infoPlist: {
         NSHealthShareUsageDescription:
