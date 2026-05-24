@@ -2,7 +2,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { useCheckin } from '@/context/checkin-context';
 import { useCycle } from '@/context/cycle-context';
 import { useHealth } from '@/context/health-context';
@@ -373,7 +373,7 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id]);
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setToday(null);
       setReadiness(null);
       setIsLoading(false);

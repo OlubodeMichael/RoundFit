@@ -20,7 +20,7 @@ const C = {
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { signInWithOAuth, isLoading } = useAuth();
+  const { signInWithOAuth, isLoading, error, clearError } = useAuth();
 
   const fade  = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(20)).current;
@@ -58,13 +58,24 @@ export default function LoginScreen() {
           Start your{'\n'}
           <Text style={s.headlineAccent}>round.</Text>
         </Text>
-        <Text style={s.sub}>Pick how you'd like to sign in. Takes about 30 seconds.</Text>
+        <Text style={s.sub}>{"Pick how you'd like to sign in. Takes about 30 seconds."}</Text>
       </Animated.View>
 
       <View style={{ flex: 1 }} />
 
       {/* Auth options */}
       <Animated.View style={[s.buttons, { opacity: btnsFade, transform: [{ translateY: btnsY }] }]}>
+
+        {error && (
+          <TouchableOpacity style={s.errorBanner} onPress={clearError} activeOpacity={0.8}>
+            <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
+            <Text style={s.errorText}>
+              {error === 'OAUTH_FAILED'
+                ? 'Sign in with Google or Apple failed. Please try again.'
+                : 'Something went wrong. Please try again.'}
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* Apple */}
         <TouchableOpacity
@@ -181,6 +192,25 @@ const s = StyleSheet.create({
   },
 
   buttons: { gap: 12 },
+
+  errorBanner: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               8,
+    backgroundColor:   'rgba(239,68,68,0.08)',
+    borderWidth:       1,
+    borderColor:       'rgba(239,68,68,0.25)',
+    borderRadius:      12,
+    paddingVertical:   12,
+    paddingHorizontal: 14,
+    marginBottom:      4,
+  },
+  errorText: {
+    flex:       1,
+    fontSize:   13,
+    lineHeight: 18,
+    color:      '#EF4444',
+  },
 
   appleBtn: {
     flexDirection:   'row',

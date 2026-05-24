@@ -2,7 +2,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
 import { syncTodayAfterMutation } from '@/utils/today-sync';
@@ -219,7 +219,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setWorkouts([]);
       setIsLoading(false);
       return;
@@ -228,7 +228,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     (async () => {
-      const key = buildResourceKey('workouts', user!.id, activeDate);
+      const key = buildResourceKey('workouts', user.id, activeDate);
       const cached = await getResourceCached<Workout[]>(key);
       const memCached = getCachedWorkouts(activeDate);
       if ((cached || memCached) && !cancelled) {

@@ -2,7 +2,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import type { ManualMealInput } from '@/components/log/ManualMealInputModal';
 import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
@@ -272,7 +272,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     if (status === 'loading') return;
 
     // No session → make sure we never show another user's data.
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setMeals([]);
       setIsLoading(false);
       return;
@@ -286,7 +286,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     setActiveDate(today);
 
     (async () => {
-      const key = buildResourceKey('food-logs', user!.id, today);
+      const key = buildResourceKey('food-logs', user.id, today);
       const cached = await getResourceCached<MealItem[]>(key);
       if (cached && !cancelled) {
         setMeals(cached.data);

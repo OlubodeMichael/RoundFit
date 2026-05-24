@@ -2,7 +2,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { apiFetch, proactiveRefreshIfNeeded } from '@/utils/api';
 import {
   ensureHealthKitAuthorized,
@@ -438,7 +438,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setToday(null);
       setIsLoading(false);
       hasFetchedRef.current = false;

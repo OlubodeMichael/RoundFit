@@ -7,9 +7,16 @@ import {
     storeTokens,
 } from "@/utils/api";
 import { TTL_FOREGROUND_SKIP_MS } from "@/utils/daily-summary-cache";
+import {
+  getIosBundleIdentifier,
+  isAppleAudienceError,
+  OAUTH_REDIRECT_URL,
+  parseOAuthCallbackUrl,
+} from "@/utils/oauth";
 import { notifyTodayTargetsChanged } from "@/utils/today-sync";
-import Constants from "expo-constants";
 import * as AppleAuthentication from "expo-apple-authentication";
+import Constants from "expo-constants";
+import * as Crypto from "expo-crypto";
 import * as WebBrowser from "expo-web-browser";
 import React, {
     createContext,
@@ -84,11 +91,20 @@ export type AuthStatus =
   | "unauthenticated"
   | "needs-profile";
 
+/** True when auth is settled and a user profile is loaded (safe for user-scoped fetches). */
+export function hasActiveUserSession(
+  status: AuthStatus,
+  user: UserProfile | null,
+): user is UserProfile {
+  return status === "authenticated" && typeof user?.id === "string" && user.id.length > 0;
+}
+
 export type AuthError =
   | "EMAIL_IN_USE"
   | "INVALID_CREDENTIALS"
   | "WEAK_PASSWORD"
   | "INVALID_EMAIL"
+  | "OAUTH_FAILED"
   | "UNKNOWN";
 
 interface AuthContextValue {
@@ -563,18 +579,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       if (provider === "apple") {
-        // ── Native Apple Sign In ──────────────────────────────────────────
+        if (Platform.OS !== "ios") {
+          setError("OAUTH_FAILED");
+          return;
+        }
+
+        const isAvailable = await AppleAuthentication.isAvailableAsync();
+        if (!isAvailable) {
+          console.error("[auth] Sign in with Apple is not available on this device");
+          setError("OAUTH_FAILED");
+          return;
+        }
+
+        const rawNonce = Crypto.randomUUID();
+        const hashedNonce = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          rawNonce,
+        );
+
         const credential = await AppleAuthentication.signInAsync({
           requestedScopes: [
             AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
             AppleAuthentication.AppleAuthenticationScope.EMAIL,
           ],
+          nonce: hashedNonce,
         });
 
         const { identityToken } = credential;
         if (!identityToken) {
           console.error("[auth] Apple credential missing identityToken");
-          setError("UNKNOWN");
+          setError("OAUTH_FAILED");
           return;
         }
 
@@ -582,11 +616,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await supabase.auth.signInWithIdToken({
             provider: "apple",
             token: identityToken,
+            nonce: rawNonce,
           });
 
         if (idTokenError || !data.session) {
-          console.error("[auth] signInWithIdToken failed:", idTokenError?.message ?? "no session returned");
-          setError("UNKNOWN");
+          const msg = idTokenError?.message ?? "no session returned";
+          if (isAppleAudienceError(msg)) {
+            const bundleId = getIosBundleIdentifier() ?? "unknown";
+            console.error(
+              "[auth] Apple Client ID mismatch. Add these to Supabase → Auth → Apple → Client IDs:",
+              `host.exp.Exponent,com.michaelolu.roundfit (current build: ${bundleId})`,
+            );
+          } else {
+            console.error("[auth] signInWithIdToken failed:", msg);
+          }
+          setError("OAUTH_FAILED");
           return;
         }
 
@@ -596,7 +640,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
       } else {
         // ── Google — browser OAuth flow ───────────────────────────────────
-        const redirectTo = "roundfit://auth/callback";
+        const redirectTo = OAUTH_REDIRECT_URL;
 
         const { data, error: oauthError } = await supabase.auth.signInWithOAuth(
           {
@@ -607,7 +651,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (oauthError || !data.url) {
           console.error("[auth] Google OAuth init failed:", oauthError?.message ?? "no URL");
-          setError("UNKNOWN");
+          setError("OAUTH_FAILED");
           return;
         }
 
@@ -616,22 +660,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           redirectTo,
         );
 
+        if (result.type === "cancel" || result.type === "dismiss") {
+          return;
+        }
+
         if (result.type !== "success") {
+          console.error("[auth] Google OAuth browser result:", result.type);
+          setError("OAUTH_FAILED");
           return;
         }
 
-        const fragment = result.url.split("#")[1];
-        const params = fragment ? new URLSearchParams(fragment) : null;
-        const access_token = params?.get("access_token");
-        const refresh_token = params?.get("refresh_token");
-
-        if (!access_token || !refresh_token) {
-          console.error("[auth] Google callback missing tokens, fragment:", fragment?.substring(0, 100));
-          setError("UNKNOWN");
+        const callback = parseOAuthCallbackUrl(result.url);
+        if (callback.error) {
+          console.error(
+            "[auth] Google OAuth error:",
+            callback.error,
+            callback.errorDescription ?? "",
+          );
+          setError("OAUTH_FAILED");
           return;
         }
 
-        await storeTokens(access_token, refresh_token);
+        if (!callback.accessToken || !callback.refreshToken) {
+          console.error("[auth] Google callback missing tokens:", result.url.substring(0, 120));
+          setError("OAUTH_FAILED");
+          return;
+        }
+
+        await storeTokens(callback.accessToken, callback.refreshToken);
       }
 
       try {
@@ -645,7 +701,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (err: unknown) {
       if ((err as { code?: string })?.code === "ERR_CANCELED") return;
       console.error("[auth] OAuth error:", err instanceof Error ? err.message : err);
-      setError("UNKNOWN");
+      setError("OAUTH_FAILED");
     } finally {
       setIsLoading(false);
     }

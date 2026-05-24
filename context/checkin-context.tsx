@@ -2,7 +2,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
 import { syncTodayAfterMutation } from '@/utils/today-sync';
@@ -263,7 +263,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setToday(null);
       setHistory([]);
       setStats(null);
@@ -279,7 +279,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       const today = getLocalDateString();
-      const key   = buildResourceKey('checkin-today', user!.id, today);
+      const key   = buildResourceKey('checkin-today', user.id, today);
       const cached = await getResourceCached<CheckIn | null>(key);
       if (cached && !cancelled) {
         await applyCheckinToday(cached.data);

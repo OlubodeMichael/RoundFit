@@ -2,7 +2,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
 import {
   buildSummaryCacheKey,
@@ -202,7 +202,7 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setDaily(null);
       setWeekly(null);
       setIsLoading(false);
@@ -212,8 +212,6 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
     }
 
     let cancelled = false;
-
-    if (!user?.id) return;
 
     (async () => {
       const today     = todayDateString();
@@ -243,7 +241,7 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, loadTodayDaily, fetchWeekly]);
+  }, [status, user, loadTodayDaily, fetchWeekly]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {

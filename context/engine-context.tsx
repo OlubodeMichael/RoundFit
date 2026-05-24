@@ -2,7 +2,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
 import { TTL_COLD_START_MS, TTL_FOREGROUND_SKIP_MS } from '@/utils/daily-summary-cache';
 import { apiFetch } from '@/utils/api';
@@ -160,7 +160,7 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setDaily(null);
       setPatterns([]);
       setIsLoading(false);
@@ -171,7 +171,7 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       const today = getLocalDateString();
-      const key   = buildResourceKey('engine-daily', user!.id, today);
+      const key   = buildResourceKey('engine-daily', user.id, today);
       const cached = await getResourceCached<DailyEngine>(key);
       if (cached && !cancelled) {
         setDaily(cached.data);

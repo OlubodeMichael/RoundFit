@@ -1,7 +1,7 @@
 import React, {
   createContext, useCallback, useContext, useEffect, useState,
 } from 'react';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { apiFetch } from '@/utils/api';
 import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
 import {
@@ -155,7 +155,7 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setCurrent(null);
       setHistory([]);
       setIsLoading(false);
@@ -172,7 +172,7 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     (async () => {
-      const key = buildResourceKey('cycle', user!.id);
+      const key = buildResourceKey('cycle', user.id);
       const cached = await getResourceCached<{
         current: CurrentCycle | null;
         history: CycleLog[];

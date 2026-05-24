@@ -1,7 +1,7 @@
 import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useState,
 } from 'react';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { apiFetch } from '@/utils/api';
 import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
 import {
@@ -90,7 +90,7 @@ export function WeightProvider({ children }: { children: React.ReactNode }) {
 
   // Reset state on logout only — data is fetched lazily when progress tab is first visited.
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setEntries([]);
       setIsLoading(false);
       setInitialized(false);

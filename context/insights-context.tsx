@@ -1,7 +1,7 @@
 import React, {
   createContext, useCallback, useContext, useEffect, useState,
 } from 'react';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { apiFetch } from '@/utils/api';
 import { registerTodayDataSyncListener } from '@/utils/today-sync';
 import { getLocalDateString } from '@/utils/date';
@@ -159,7 +159,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setTodayInsight(null);
       setClaudeInsight(null);
       setHistory([]);
@@ -173,7 +173,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       const today = getLocalDateString();
-      const key   = buildResourceKey('insights-today', user!.id, today);
+      const key   = buildResourceKey('insights-today', user.id, today);
       const cached = await getResourceCached<{
         insight: Insight | null;
         pendingSleepSync: boolean;

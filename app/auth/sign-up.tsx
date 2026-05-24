@@ -23,6 +23,7 @@ const ERROR_LABELS: Record<AuthError, string> = {
   INVALID_CREDENTIALS: 'Invalid email or password.',
   WEAK_PASSWORD:       'Password must be at least 6 characters.',
   INVALID_EMAIL:       'Please enter a valid email address.',
+  OAUTH_FAILED:        'Sign in with Google or Apple failed. Please try again.',
   UNKNOWN:             'Something went wrong. Please try again.',
 };
 
