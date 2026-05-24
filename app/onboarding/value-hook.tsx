@@ -78,7 +78,7 @@ export default function ValueHookScreen() {
 
       <Animated.View style={[s.bottom, { opacity: btnFade }]}>
         <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={() => router.push('/onboarding/age-sex')}>
-          <Text style={s.ctaText}>Let's build your plan  →</Text>
+          <Text style={s.ctaText}>{"Let's build your plan  →"}</Text>
         </TouchableOpacity>
       </Animated.View>
     </View>
@@ -106,7 +106,7 @@ const s = StyleSheet.create({
   },
   cardText:  { flex: 1, gap: 4 },
   cardLabel: { fontSize: 15, fontWeight: '700' },
-  cardSub:   { fontSize: 13, lineHeight: 18 },
+  cardSub:   { fontSize: 16, lineHeight: 22 },
 
   bottom: { paddingTop: 16 },
   cta:    {

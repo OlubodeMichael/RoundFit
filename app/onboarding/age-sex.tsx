@@ -42,82 +42,82 @@ export default function AgeSexScreen() {
         <ProgressBar step={3} total={9} backHref="/onboarding/value-hook" isDark={false} />
       </View>
 
-      <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>
-        <Text style={[s.headline, { color: hi }]}>About you.</Text>
+      <View style={{ flex: 1 }}>
+        <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>
+          <Text style={[s.headline, { color: hi }]}>About you.</Text>
 
-        {/* ── Age ── */}
-        <View style={s.section}>
-          <Text style={[s.sectionLabel, { color: mid }]}>Age</Text>
-          <View style={s.ageStepper}>
-            <TouchableOpacity
-              style={[s.stepBtn, { borderColor: lo }]}
-              onPress={() => changeAge(-1)}
-              activeOpacity={0.7}
-            >
-              <Text style={[s.stepBtnText, { color: hi }]}>−</Text>
-            </TouchableOpacity>
+          {/* ── Age ── */}
+          <View style={s.section}>
+            <Text style={[s.sectionLabel, { color: mid }]}>Age</Text>
+            <View style={s.ageStepper}>
+              <TouchableOpacity
+                style={[s.stepBtn, { borderColor: lo }]}
+                onPress={() => changeAge(-1)}
+                activeOpacity={0.7}
+              >
+                <Text style={[s.stepBtnText, { color: hi }]}>−</Text>
+              </TouchableOpacity>
 
-            <View style={s.ageDisplay}>
-              <Text style={[s.ageNum, { color: hi }]}>{age}</Text>
-              <Text style={[s.ageUnit, { color: mid }]}>years old</Text>
+              <View style={s.ageDisplay}>
+                <Text style={[s.ageNum, { color: hi }]}>{age}</Text>
+                <Text style={[s.ageUnit, { color: mid }]}>years old</Text>
+              </View>
+
+              <TouchableOpacity
+                style={[s.stepBtn, { borderColor: lo }]}
+                onPress={() => changeAge(1)}
+                activeOpacity={0.7}
+              >
+                <Text style={[s.stepBtnText, { color: hi }]}>+</Text>
+              </TouchableOpacity>
             </View>
-
-            <TouchableOpacity
-              style={[s.stepBtn, { borderColor: lo }]}
-              onPress={() => changeAge(1)}
-              activeOpacity={0.7}
-            >
-              <Text style={[s.stepBtnText, { color: hi }]}>+</Text>
-            </TouchableOpacity>
           </View>
-        </View>
 
-        {/* ── Sex ── */}
-        <View style={s.section}>
-          <Text style={[s.sectionLabel, { color: mid }]}>Biological Sex</Text>
-          <View style={s.sexRow}>
-            {SEX_OPTIONS.map(opt => {
-              const active = sex === opt.value;
-              return (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={[s.sexCard, active && s.sexCardActive]}
-                  onPress={() => setSex(opt.value)}
-                  activeOpacity={0.82}
-                >
-                  {/* Checkmark badge */}
-                  {active && (
-                    <View style={s.checkBadge}>
-                      <Ionicons name="checkmark" size={11} color="#FFF" />
+          {/* ── Sex ── */}
+          <View style={s.section}>
+            <Text style={[s.sectionLabel, { color: mid }]}>Biological Sex</Text>
+            <View style={s.sexRow}>
+              {SEX_OPTIONS.map(opt => {
+                const active = sex === opt.value;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[s.sexCard, active && s.sexCardActive]}
+                    onPress={() => setSex(opt.value)}
+                    activeOpacity={0.82}
+                  >
+                    {/* Checkmark badge */}
+                    {active && (
+                      <View style={s.checkBadge}>
+                        <Ionicons name="checkmark" size={11} color="#FFF" />
+                      </View>
+                    )}
+
+                    {/* Icon circle */}
+                    <View style={[s.iconCircle, active ? s.iconCircleActive : s.iconCircleInactive]}>
+                      <Ionicons
+                        name={opt.icon as any}
+                        size={22}
+                        color={active ? '#FFFFFF' : '#F97316'}
+                      />
                     </View>
-                  )}
 
-                  {/* Icon circle */}
-                  <View style={[s.iconCircle, active ? s.iconCircleActive : s.iconCircleInactive]}>
-                    <Ionicons
-                      name={opt.icon as any}
-                      size={22}
-                      color={active ? '#FFFFFF' : '#F97316'}
-                    />
-                  </View>
+                    {/* Label */}
+                    <Text style={[s.sexCardLabel, active && s.sexCardLabelActive]}>
+                      {opt.label}
+                    </Text>
 
-                  {/* Label */}
-                  <Text style={[s.sexCardLabel, active && s.sexCardLabelActive]}>
-                    {opt.label}
-                  </Text>
-
-                  {/* BMR subtitle */}
-                  <Text style={[s.sexCardSub, active && s.sexCardSubActive]}>
-                    {opt.bmr}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+                    {/* BMR subtitle */}
+                    <Text style={[s.sexCardSub, active && s.sexCardSubActive]}>
+                      {opt.bmr}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
-        </View>
-      </Animated.View>
-
-      <View style={{ flex: 1 }} />
+        </Animated.View>
+      </View>
 
       <TouchableOpacity
         style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
@@ -209,7 +209,7 @@ const s = StyleSheet.create({
   },
 
   sexCardSub: {
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '500',
     color: '#AAAAAA',
     letterSpacing: 0.1,

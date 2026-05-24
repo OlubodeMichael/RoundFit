@@ -58,6 +58,7 @@ export default function GoalScreen() {
         <ProgressBar step={5} total={9} backHref={{ pathname: '/onboarding/height-weight', params }} isDark={false} />
       </View>
 
+      <View style={{ flex: 1 }}>
       <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
         <Text style={[s.headline, { color: hi }]}>Your main{'\n'}goal.</Text>
       </Animated.View>
@@ -98,8 +99,7 @@ export default function GoalScreen() {
           );
         })}
       </View>
-
-      <View style={{ flex: 1 }} />
+      </View>
 
       <TouchableOpacity
         style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
@@ -159,15 +159,15 @@ const s = StyleSheet.create({
   iconWrapActive:   { backgroundColor: '#2A2A2A' },
   iconWrapInactive: { backgroundColor: 'rgba(249,115,22,0.12)' },
 
-  cardLabel: { fontSize: 15, fontWeight: '800', letterSpacing: -0.3, color: '#111111' },
+  cardLabel: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3, color: '#111111' },
   cardLabelActive: { color: '#FFFFFF' },
 
-  cardDesc: { fontSize: 12, lineHeight: 17, fontWeight: '400', color: '#888888' },
+  cardDesc: { fontSize: 16, lineHeight: 23, fontWeight: '400', color: '#888888' },
   cardDescActive: { color: '#888888' },
 
   cardMeta: {
-    fontSize: 11, fontWeight: '500', color: '#BBBBBB',
-    lineHeight: 15, marginTop: 4,
+    fontSize: 15, fontWeight: '500', color: '#BBBBBB',
+    lineHeight: 20, marginTop: 4,
   },
   cardMetaActive: { color: '#F97316' },
 

@@ -61,44 +61,44 @@ export default function NameScreen() {
           />
         </View>
 
-        <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>
-          <Text style={[s.headline, { color: hi }]}>
-            {"What's your\nname?"}
-          </Text>
-          <Text style={[s.sub, { color: mid }]}>
-            {"We'll personalize everything for you."}
-          </Text>
+        <View style={{ flex: 1 }}>
+          <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>
+            <Text style={[s.headline, { color: hi }]}>
+              {"What's your\nname?"}
+            </Text>
+            <Text style={[s.sub, { color: mid }]}>
+              {"We'll personalize everything for you."}
+            </Text>
 
-          {/* Input with animated underline */}
-          <View style={s.inputWrap}>
-            <TextInput
-              ref={inputRef}
-              style={[s.input, { color: hi }]}
-              value={name}
-              onChangeText={setName}
-              placeholder="Your first name"
-              placeholderTextColor={lo}
-              autoCapitalize="words"
-              returnKeyType="done"
-              onFocus={() => setFocus(true)}
-              onBlur={() => setFocus(false)}
-              onSubmitEditing={() => canContinue && router.push({ pathname: '/onboarding/health-connect', params: { ...params, name: name.trim() } })}
-            />
-            {/* Underline */}
-            <View style={[s.underlineTrack, { backgroundColor: lo }]}>
-              <Animated.View style={[s.underlineFill, {
-                width: underline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-              }]} />
+            {/* Input with animated underline */}
+            <View style={s.inputWrap}>
+              <TextInput
+                ref={inputRef}
+                style={[s.input, { color: hi }]}
+                value={name}
+                onChangeText={setName}
+                placeholder="Your first name"
+                placeholderTextColor={lo}
+                autoCapitalize="words"
+                returnKeyType="done"
+                onFocus={() => setFocus(true)}
+                onBlur={() => setFocus(false)}
+                onSubmitEditing={() => canContinue && router.push({ pathname: '/onboarding/health-connect', params: { ...params, name: name.trim() } })}
+              />
+              {/* Underline */}
+              <View style={[s.underlineTrack, { backgroundColor: lo }]}>
+                <Animated.View style={[s.underlineFill, {
+                  width: underline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                }]} />
+              </View>
             </View>
-          </View>
 
-          {/* Preview greeting */}
-          <Animated.Text style={[s.preview, { color: mid, opacity: previewFade }]}>
-            Hey, {name.trim()} 
-          </Animated.Text>
-        </Animated.View>
-
-        <View style={{ flex: 1 }} />
+            {/* Preview greeting */}
+            <Animated.Text style={[s.preview, { color: mid, opacity: previewFade }]}>
+              Hey, {name.trim()}
+            </Animated.Text>
+          </Animated.View>
+        </View>
 
         <TouchableOpacity
           style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}

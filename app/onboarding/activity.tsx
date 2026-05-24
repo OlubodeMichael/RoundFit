@@ -48,6 +48,7 @@ export default function ActivityScreen() {
         <ProgressBar step={6} total={9} backHref={{ pathname: '/onboarding/goal', params }} isDark={false} />
       </View>
 
+      <View style={{ flex: 1 }}>
       <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
         <Text style={[s.headline, { color: hi }]}>Your{'\n'}activity.</Text>
         <Text style={s.subheadline}>Outside of structured workouts, on a typical week.</Text>
@@ -98,7 +99,7 @@ export default function ActivityScreen() {
         })}
       </View>
 
-      <View style={{ flex: 1 }} />
+      </View>
 
       <TouchableOpacity
         style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
@@ -119,7 +120,7 @@ const s = StyleSheet.create({
   root:        { flex: 1, paddingHorizontal: 28 },
   progress:    { marginBottom: 8 },
   headline:    { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 8 },
-  subheadline: { fontSize: 14, fontWeight: '400', lineHeight: 20, marginBottom: 28, color: '#888888' },
+  subheadline: { fontSize: 17, fontWeight: '400', lineHeight: 24, marginBottom: 28, color: '#888888' },
 
   list: { gap: 0 },
   row:  {
@@ -134,12 +135,12 @@ const s = StyleSheet.create({
 
   rowText:     { flex: 1, gap: 4 },
   rowLabelRow: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap' },
-  rowLabel:    { fontSize: 15, fontWeight: '700' },
-  rowMultiplier: { fontSize: 12, fontWeight: '500' },
-  rowSub:      { fontSize: 12, lineHeight: 17, color: '#888888' },
+  rowLabel:    { fontSize: 19, fontWeight: '700' },
+  rowMultiplier: { fontSize: 15, fontWeight: '500' },
+  rowSub:      { fontSize: 16, lineHeight: 23, color: '#888888' },
 
   rowRight: { alignItems: 'flex-end', gap: 6 },
-  rowKcal:  { fontSize: 11, fontWeight: '600', textAlign: 'right', fontVariant: ['tabular-nums'] },
+  rowKcal:  { fontSize: 15, fontWeight: '600', textAlign: 'right', fontVariant: ['tabular-nums'] },
 
   checkCircle: {
     width: 24, height: 24, borderRadius: 12, borderWidth: 1.5,

@@ -6,7 +6,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
+import Svg, { Path, Line, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -189,7 +189,7 @@ export default function RevealScreen() {
   return (
     <View style={[s.root, { paddingTop: insets.top + 16 }]}>
       <ScrollView
-        contentContainerStyle={[s.scroll, { paddingBottom: insets.bottom + 28 }]}
+        contentContainerStyle={[s.scroll, { paddingBottom: 16 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* ── Status row ───────────────────────────────────── */}
@@ -202,7 +202,7 @@ export default function RevealScreen() {
         </Animated.View>
 
         {/* ── Greeting ─────────────────────────────────────── */}
-        <Animated.View style={{ opacity: headFade, transform: [{ translateY: headY }], marginBottom: 4 }}>
+        <Animated.View style={{ opacity: headFade, transform: [{ translateY: headY }], marginBottom: 10 }}>
           <Text style={s.greeting}>
             Hi, {name}.{'  '}
             <Text style={s.greetingSub}>Your daily target</Text>
@@ -239,7 +239,7 @@ export default function RevealScreen() {
                 </Text>
               )}
             </View>
-            <View style={{ marginTop: 10 }}>
+            <View style={{ marginTop: 14 }}>
               <ProjectionChart points={projPoints} width={chartW} shouldAnimate={chartReady} />
             </View>
             <View style={s.projFooter}>
@@ -283,21 +283,19 @@ export default function RevealScreen() {
 
         </Animated.View>
 
-        <View style={{ height: 24 }} />
-
-        {/* ── Continue to account creation ─────────────────── */}
-        <Animated.View style={[s.bottom, { opacity: bottomFade, transform: [{ translateY: bottomY }] }]}>
-          <TouchableOpacity
-            style={s.cta}
-            activeOpacity={0.84}
-            onPress={() => router.push({ pathname: '/auth/sign-up-options', params })}
-          >
-            <Text style={s.ctaText}>Continue</Text>
-            <Ionicons name="arrow-forward" size={16} color="#FFF" />
-          </TouchableOpacity>
-        </Animated.View>
-
       </ScrollView>
+
+      {/* ── Continue to account creation ─────────────────── */}
+      <Animated.View style={[s.bottom, { opacity: bottomFade, transform: [{ translateY: bottomY }], paddingBottom: insets.bottom + 20 }]}>
+        <TouchableOpacity
+          style={s.cta}
+          activeOpacity={0.84}
+          onPress={() => router.push({ pathname: '/auth/sign-up-options', params })}
+        >
+          <Text style={s.ctaText}>Continue</Text>
+          <Ionicons name="arrow-forward" size={16} color="#FFF" />
+        </TouchableOpacity>
+      </Animated.View>
     </View>
   );
 }
@@ -306,8 +304,8 @@ export default function RevealScreen() {
 function ProjectionChart({
   points, width, shouldAnimate,
 }: { points: number[]; width: number; shouldAnimate: boolean }) {
-  const H   = 80;
-  const pad = 6;
+  const H   = 130;
+  const pad = 8;
   const min = Math.min(...points);
   const max = Math.max(...points);
   const range = max - min;
@@ -353,6 +351,10 @@ function ProjectionChart({
     );
   }, [shouldAnimate]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const axisX  = xs[0];
+  const axisY  = H - pad;
+  const rightX = xs[n];
+
   return (
     <Svg width={width} height={H}>
       <Defs>
@@ -361,6 +363,21 @@ function ProjectionChart({
           <Stop offset="1" stopColor={ORANGE} stopOpacity="0" />
         </SvgGradient>
       </Defs>
+
+      {/* Horizontal grid lines */}
+      <Line x1={0} y1={pad + (axisY - pad) * 0.33} x2={rightX} y2={pad + (axisY - pad) * 0.33}
+        stroke="#111" strokeOpacity="0.10" strokeWidth={1} strokeDasharray="4 5" />
+      <Line x1={0} y1={pad + (axisY - pad) * 0.66} x2={rightX} y2={pad + (axisY - pad) * 0.66}
+        stroke="#111" strokeOpacity="0.10" strokeWidth={1} strokeDasharray="4 5" />
+
+      {/* Y axis */}
+      <Line x1={0} y1={0} x2={0} y2={axisY}
+        stroke="#111" strokeOpacity="0.18" strokeWidth={1} />
+
+      {/* X axis */}
+      <Line x1={0} y1={axisY} x2={rightX} y2={axisY}
+        stroke="#111" strokeOpacity="0.18" strokeWidth={1} />
+
       <AnimatedPath d={area} fill="url(#areaFill)" fillOpacity={fillOpacity} />
       <AnimatedPath
         d={line}
@@ -397,7 +414,7 @@ const s = StyleSheet.create({
     flexDirection:  'row',
     alignItems:     'center',
     justifyContent: 'space-between',
-    marginBottom:   20,
+    marginBottom:   28,
   },
   readyBadge: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   readyDot:   { width: 7, height: 7, borderRadius: 3.5, backgroundColor: ORANGE },
@@ -405,11 +422,11 @@ const s = StyleSheet.create({
   daysText:   { fontSize: 12, fontWeight: '700', color: DIM, letterSpacing: 0.1 },
 
   // Greeting
-  greeting:    { fontSize: 15, fontWeight: '800', color: INK, letterSpacing: -0.2 },
-  greetingSub: { fontSize: 15, fontWeight: '500', color: DIM },
+  greeting:    { fontSize: 19, fontWeight: '800', color: INK, letterSpacing: -0.3 },
+  greetingSub: { fontSize: 19, fontWeight: '500', color: DIM },
 
   // Hero
-  heroBlock: { marginBottom: 14, gap: 2 },
+  heroBlock: { marginBottom: 20, gap: 4 },
   calNumber: {
     fontSize:      80,
     lineHeight:    80,
@@ -421,18 +438,18 @@ const s = StyleSheet.create({
   calLabel: { fontSize: 13, fontWeight: '700', letterSpacing: 0.3, color: ORANGE },
 
   // Pills
-  pillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
+  pillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 28 },
   pill:     { backgroundColor: '#ECEAE6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
   pillText: { fontSize: 12, fontWeight: '700', color: INK, letterSpacing: 0.1 },
 
   // Cards container
-  cards: { gap: 12 },
+  cards: { gap: 16 },
 
   // Card
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 20,
+    padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
@@ -444,20 +461,20 @@ const s = StyleSheet.create({
 
   // Projection
   projDelta:  { fontSize: 12, fontWeight: '700', letterSpacing: -0.1 },
-  projFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
+  projFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
   projLabel:  { fontSize: 11, fontWeight: '600', color: DIM, letterSpacing: 0.1 },
 
   // Macro split
   macroBar: {
     flexDirection: 'row',
-    height:        7,
+    height:        8,
     borderRadius:  4,
     overflow:      'hidden',
-    marginTop:     12,
+    marginTop:     16,
     gap:           2,
   },
-  macroGrid:   { flexDirection: 'row', marginTop: 16, gap: 4 },
-  macroDotRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 },
+  macroGrid:   { flexDirection: 'row', marginTop: 20, gap: 4 },
+  macroDotRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 6 },
   macroDot:    { width: 7, height: 7, borderRadius: 3.5 },
   macroName:   { fontSize: 10, fontWeight: '700', color: DIM, letterSpacing: 0.3 },
   macroGrams:  {
@@ -471,12 +488,12 @@ const s = StyleSheet.create({
   macroMeta:  { fontSize: 10, fontWeight: '500', color: DIM, letterSpacing: 0.1, marginTop: 2 },
 
   // Stats row
-  statsRow: { flexDirection: 'row', gap: 10 },
+  statsRow: { flexDirection: 'row', gap: 12 },
   statCard: {
     flex:            1,
     backgroundColor: '#FFFFFF',
-    borderRadius:    16,
-    padding:         14,
+    borderRadius:    18,
+    padding:         16,
     gap:             3,
     shadowColor:     '#000',
     shadowOffset:    { width: 0, height: 2 },
@@ -496,7 +513,7 @@ const s = StyleSheet.create({
   statSub: { fontSize: 10, fontWeight: '600', letterSpacing: 0.1 },
 
   // Bottom
-  bottom: { gap: 12 },
+  bottom: { gap: 12, paddingHorizontal: 20 },
   cta: {
     flexDirection:   'row',
     alignItems:      'center',

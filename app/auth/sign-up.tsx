@@ -249,7 +249,7 @@ const s = StyleSheet.create({
   errorText: { flex: 1, fontSize: 13, color: '#EF4444', fontWeight: '500' },
   bottom: { gap: 14 },
   cta: {
-    backgroundColor: '#F97316', borderRadius: 14, paddingVertical: 18, alignItems: 'center',
+    backgroundColor: '#111111', borderRadius: 14, paddingVertical: 18, alignItems: 'center',
   },
   ctaText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
   loadingOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 },

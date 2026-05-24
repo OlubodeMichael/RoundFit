@@ -77,6 +77,7 @@ export default function UnitsScreen() {
         />
       </View>
 
+      <View style={{ flex: 1 }}>
       <Animated.View style={{ opacity: fade, transform: [{ translateY: slideY }] }}>
         <Text style={s.headline}>Your unit.</Text>
       </Animated.View>
@@ -145,8 +146,7 @@ export default function UnitsScreen() {
           You can switch any time in <Text style={s.noteBold}>Profile {'→'} Preferences</Text>.
         </Text>
       </Animated.View>
-
-      <View style={{ flex: 1 }} />
+      </View>
 
       <TouchableOpacity
         style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
@@ -222,7 +222,7 @@ const s = StyleSheet.create({
   youAreActive: { color: '#555555' },
 
   statRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  statKey:       { fontSize: 12, fontWeight: '400', color: '#AAAAAA' },
+  statKey:       { fontSize: 15, fontWeight: '400', color: '#AAAAAA' },
   statKeyActive: { color: '#666666' },
   statVal:       { fontSize: 18, fontWeight: '800', letterSpacing: -0.5, color: '#111111', fontVariant: ['tabular-nums'] },
   statValActive: { color: '#FFFFFF' },

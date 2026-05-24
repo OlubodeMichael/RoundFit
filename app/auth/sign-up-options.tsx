@@ -13,6 +13,7 @@ const INK    = '#111110';
 const DIM    = '#8C8880';
 const ORANGE = '#F97316';
 
+// ── Screen ────────────────────────────────────────────────────────────────
 export default function SignUpOptionsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -46,20 +47,20 @@ export default function SignUpOptionsScreen() {
         <Ionicons name="chevron-back" size={20} color={INK} />
       </TouchableOpacity>
 
-      <Animated.View style={[s.headBlock, { opacity: fade, transform: [{ translateY: slideY }] }]}>
-        <View style={s.badge}>
-          <View style={s.badgeDot} />
-          <Text style={s.badgeText}>One last step</Text>
-        </View>
-        <Text style={s.headline}>
-          Create your{'\n'}account, <Text style={{ color: ORANGE }}>{name}.</Text>
-        </Text>
-        <Text style={s.sub}>
-          Choose how you would like to sign up. Your plan will be saved automatically.
-        </Text>
-      </Animated.View>
-
-      <View style={{ flex: 1 }} />
+      <View style={{ flex: 1 }}>
+        <Animated.View style={[s.headBlock, { opacity: fade, transform: [{ translateY: slideY }] }]}>
+          <View style={s.badge}>
+            <View style={s.badgeDot} />
+            <Text style={s.badgeText}>One last step</Text>
+          </View>
+          <Text style={s.headline}>
+            Create your{'\n'}account, <Text style={{ color: ORANGE }}>{name}.</Text>
+          </Text>
+          <Text style={s.sub}>
+            Choose how you would like to sign up. Your plan will be saved automatically.
+          </Text>
+        </Animated.View>
+      </View>
 
       <OnboardingSignupAuth params={params} animateIn showLoginLink />
 
@@ -83,11 +84,7 @@ const s = StyleSheet.create({
     marginBottom:    24,
   },
   headBlock: { gap: 12 },
-  badge: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           7,
-  },
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   badgeDot: {
     width:           7,
     height:          7,

@@ -9,7 +9,7 @@ import {
   Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GoogleLogo } from '@/components/ui/GoogleLogo';
 import {
@@ -65,6 +65,7 @@ export function OnboardingSignupAuth({
   const profile = useMemo(() => buildOnboardingProfile(params), [params]);
   const canFinish = hasOnboardingParams(params);
   const finishingRef = useRef(false);
+  const [settingUpProfile, setSettingUpProfile] = useState(false);
 
   const btnsFade = useRef(new Animated.Value(animateIn ? 0 : 1)).current;
   const btnsY = useRef(new Animated.Value(animateIn ? 16 : 0)).current;
@@ -100,17 +101,24 @@ export function OnboardingSignupAuth({
     const run = async () => {
       if (finishingRef.current) return;
       finishingRef.current = true;
+      setSettingUpProfile(true);
       try {
-        await setupOAuthProfile(profile);
-      } finally {
+        const ok = await setupOAuthProfile(profile);
+        if (!ok) {
+          finishingRef.current = false;
+          setSettingUpProfile(false);
+        }
+        // on success: keep loading visible until navigation unmounts this component
+      } catch {
         finishingRef.current = false;
+        setSettingUpProfile(false);
       }
     };
 
     void run();
   }, [oauthProfilePending, canFinish, profile, setupOAuthProfile]);
 
-  const showLoading = isLoading || (oauthProfilePending && canFinish);
+  const showLoading = isLoading || settingUpProfile;
 
   return (
     <View>

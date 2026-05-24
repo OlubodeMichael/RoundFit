@@ -172,14 +172,14 @@ export default function HealthConnectScreen() {
       </Animated.View>
 
       {/* ── Headline + body ─────────────────────────────────────────────────── */}
-      <Animated.View style={[s.textBlock, { opacity: textFade, transform: [{ translateY: textY }] }]}>
-        <Text style={s.headline}>Sync with{'\n'}Apple Health</Text>
-        <Text style={s.body}>
-          Pull your activity, sleep and heart data into RoundFit, so your plan adapts daily without manual logging.
-        </Text>
-      </Animated.View>
-
-      <View style={{ flex: 1 }} />
+      <View style={{ flex: 1 }}>
+        <Animated.View style={[s.textBlock, { opacity: textFade, transform: [{ translateY: textY }] }]}>
+          <Text style={s.headline}>Sync with{'\n'}Apple Health</Text>
+          <Text style={s.body}>
+            Pull your activity, sleep and heart data into RoundFit, so your plan adapts daily without manual logging.
+          </Text>
+        </Animated.View>
+      </View>
 
       {/* ── CTAs ────────────────────────────────────────────────────────────── */}
       <Animated.View style={[s.ctaBlock, { opacity: bottomFade }]}>
