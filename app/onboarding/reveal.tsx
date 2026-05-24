@@ -1,10 +1,14 @@
 import {
   View, Text, StyleSheet, TouchableOpacity, Animated, Easing,
+  ScrollView, useWindowDimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
+
+const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 import { calculateNutritionPlan } from '@/utils/nutrition';
 import {
@@ -18,10 +22,15 @@ import type { UserGoal, UserProfile } from '@/context/auth-context';
 const BG     = '#F9F8F6';
 const INK    = '#111110';
 const DIM    = '#8C8880';
-const RULE   = '#E6E2DA';
 const ORANGE = '#F97316';
 
-// ── Copy ───────────────────────────────────────────────────────────────────
+const MACRO_COLORS = {
+  protein: '#22C55E',
+  carbs:   '#FACC15',
+  fat:     '#A78BFA',
+};
+
+// ── Labels ─────────────────────────────────────────────────────────────────
 const GOAL_LABEL: Record<UserGoal, string> = {
   lose_weight:  'Lose weight',
   build_muscle: 'Build muscle',
@@ -36,6 +45,34 @@ const ACTIVITY_LABEL: Record<UserProfile['activityLevel'], string> = {
   very_active:       'Very active',
 };
 
+const ACTIVITY_MULT: Record<UserProfile['activityLevel'], string> = {
+  sedentary:         '×1.20',
+  lightly_active:    '×1.38',
+  moderately_active: '×1.55',
+  very_active:       '×1.73',
+};
+
+const WEEKLY_DELTA: Record<UserGoal, number> = {
+  lose_weight:  -0.45,
+  build_muscle:  0.25,
+  boost_energy:  0,
+  maintain:      0,
+};
+
+const PROJ_UNIT: Record<UserGoal, string> = {
+  lose_weight:  'kg fat',
+  build_muscle: 'kg lean',
+  boost_energy: 'balanced',
+  maintain:     'balanced',
+};
+
+function computeReadyDays(goal: UserGoal, weightKg: number): number {
+  const rate = Math.abs(WEEKLY_DELTA[goal]);
+  if (rate === 0) return 30;
+  const target = goal === 'lose_weight' ? weightKg * 0.03 : 1.5;
+  return Math.round((target / rate) * 7);
+}
+
 // ── Screen ─────────────────────────────────────────────────────────────────
 export default function RevealScreen() {
   const router = useRouter();
@@ -44,7 +81,8 @@ export default function RevealScreen() {
     height: string; weight: string;
     goal: string; activity: string; unit: string;
   }>();
-  const insets = useSafeAreaInsets();
+  const insets          = useSafeAreaInsets();
+  const { width: scrW } = useWindowDimensions();
 
   const canonicalGoal     = useMemo(() => mapOnboardingGoal(params.goal),         [params.goal]);
   const canonicalActivity = useMemo(() => mapOnboardingActivity(params.activity), [params.activity]);
@@ -58,19 +96,47 @@ export default function RevealScreen() {
     goal:          canonicalGoal,
   }), [params.sex, params.age, params.height, params.weight, canonicalActivity, canonicalGoal]);
 
-  const macros = useMemo(() => [
-    { key: 'protein', label: 'Protein', grams: plan.macros.proteinG },
-    { key: 'carbs',   label: 'Carbs',   grams: plan.macros.carbsG   },
-    { key: 'fat',     label: 'Fat',     grams: plan.macros.fatG     },
-  ], [plan]);
-
-  const [displayCals, setDisplayCals] = useState(0);
-
+  const weightKg     = Number(params.weight) || 70;
   const name         = params.name?.trim() || 'You';
   const goalLabel    = GOAL_LABEL[canonicalGoal];
-  const activityText = ACTIVITY_LABEL[canonicalActivity];
+  const actLabel     = ACTIVITY_LABEL[canonicalActivity];
+  const readyDays    = computeReadyDays(canonicalGoal, weightKg);
+  const caloricDelta = plan.calorieBudget - plan.tdee;
 
-  // ── Animated values ──────────────────────────────────────────────────────
+  // Macros with percentage + kcal
+  const macroData = useMemo(() => {
+    const p   = plan.macros;
+    const tot = plan.calorieBudget;
+    return [
+      { key: 'protein', label: 'Protein', grams: p.proteinG, kcal: p.proteinKcal, pct: Math.round(p.proteinKcal / tot * 100), color: MACRO_COLORS.protein },
+      { key: 'carbs',   label: 'Carbs',   grams: p.carbsG,   kcal: p.carbsKcal,   pct: Math.round(p.carbsKcal   / tot * 100), color: MACRO_COLORS.carbs   },
+      { key: 'fat',     label: 'Fat',     grams: p.fatG,     kcal: p.fatKcal,     pct: Math.round(p.fatKcal     / tot * 100), color: MACRO_COLORS.fat     },
+    ];
+  }, [plan]);
+
+  // 12-week projection
+  const weeklyDelta = WEEKLY_DELTA[canonicalGoal];
+  const projPoints  = useMemo(() => {
+    const total = 12 * weeklyDelta;
+    return Array.from({ length: 13 }, (_, i) => {
+      const t = i / 12;
+      // ease-out power curve: fast early progress that gradually plateaus
+      const curved = Math.pow(t, 0.65);
+      return weightKg + curved * total;
+    });
+  }, [weightKg, weeklyDelta]);
+  const projEnd   = projPoints[12];
+  const projDelta = projEnd - weightKg;
+  const projColor = projDelta < 0 ? '#EF4444' : '#22C55E';
+  const projSign  = projDelta >= 0 ? '+' : '-';
+
+  // Chart width = screen - horizontal padding (20×2) - card padding (16×2)
+  const chartW = scrW - 72;
+
+  const [displayCals, setDisplayCals] = useState(0);
+  const [chartReady, setChartReady]   = useState(false);
+
+  // ── Animations ────────────────────────────────────────────────────────
   const topFade    = useRef(new Animated.Value(0)).current;
   const headFade   = useRef(new Animated.Value(0)).current;
   const headY      = useRef(new Animated.Value(8)).current;
@@ -83,15 +149,12 @@ export default function RevealScreen() {
 
   useEffect(() => {
     const E = Easing.out(Easing.cubic);
-
     Animated.timing(topFade, { toValue: 1, duration: 400, useNativeDriver: true }).start();
 
-    const t1 = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(headFade, { toValue: 1, duration: 500, useNativeDriver: true }),
-        Animated.timing(headY,    { toValue: 0, duration: 420, easing: E, useNativeDriver: true }),
-      ]).start();
-    }, 160);
+    const t1 = setTimeout(() => Animated.parallel([
+      Animated.timing(headFade, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.timing(headY,    { toValue: 0, duration: 420, easing: E, useNativeDriver: true }),
+    ]).start(), 160);
 
     const t2 = setTimeout(() => {
       Animated.parallel([
@@ -107,12 +170,10 @@ export default function RevealScreen() {
         setDisplayCals(cur);
         if (cur >= target) {
           clearInterval(iv);
-
           setTimeout(() => Animated.parallel([
             Animated.timing(bodyFade, { toValue: 1, duration: 440, useNativeDriver: true }),
             Animated.timing(bodyY,    { toValue: 0, duration: 380, easing: E, useNativeDriver: true }),
-          ]).start(), 120);
-
+          ]).start(() => setChartReady(true)), 120);
           setTimeout(() => Animated.parallel([
             Animated.timing(bottomFade, { toValue: 1, duration: 420, useNativeDriver: true }),
             Animated.timing(bottomY,    { toValue: 0, duration: 360, easing: E, useNativeDriver: true }),
@@ -126,310 +187,324 @@ export default function RevealScreen() {
   }, [plan.calorieBudget]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <View style={[s.root, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24 }]}>
-
-      {/* ── Top status ───────────────────────────────────────────── */}
-      <Animated.View style={[s.topRow, { opacity: topFade }]}>
-        <View style={s.readyBadge}>
-          <View style={s.readyDot} />
-          <Text style={s.readyText}>Plan ready</Text>
-        </View>
-        <Text style={s.stepText}>1 of 1</Text>
-      </Animated.View>
-
-      {/* ── Heading ──────────────────────────────────────────────── */}
-      <Animated.View style={[s.headBlock, { opacity: headFade, transform: [{ translateY: headY }] }]}>
-        <Text style={s.headSub}>Your daily target</Text>
-        <Text style={s.headName}>{name}.</Text>
-      </Animated.View>
-
-      {/* ── Hero number ──────────────────────────────────────────── */}
-      <Animated.View style={[s.heroBlock, { opacity: heroFade, transform: [{ translateY: heroY }] }]}>
-        <Text style={s.calNumber} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
-          {displayCals.toLocaleString()}
-        </Text>
-        <Text style={s.calLabel}>kcal / day</Text>
-      </Animated.View>
-
-      {/* ── Body: macros + stats ─────────────────────────────────── */}
-      <Animated.View style={[s.body, { opacity: bodyFade, transform: [{ translateY: bodyY }] }]}>
-
-        {/* Macro rows */}
-        <View style={s.rule} />
-        {macros.map((m, i) => (
-          <View key={m.key}>
-            <View style={s.macroRow}>
-              <Text style={s.macroLabel}>{m.label}</Text>
-              <Text style={s.macroGrams}>{m.grams}<Text style={s.macroUnit}>g</Text></Text>
-            </View>
-            {i < macros.length - 1 && <View style={s.hairline} />}
+    <View style={[s.root, { paddingTop: insets.top + 16 }]}>
+      <ScrollView
+        contentContainerStyle={[s.scroll, { paddingBottom: insets.bottom + 28 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── Status row ───────────────────────────────────── */}
+        <Animated.View style={[s.topRow, { opacity: topFade }]}>
+          <View style={s.readyBadge}>
+            <View style={s.readyDot} />
+            <Text style={s.readyText}>Plan ready</Text>
           </View>
-        ))}
-        <View style={s.rule} />
+          <Text style={s.daysText}>Ready in {readyDays} days</Text>
+        </Animated.View>
 
-        {/* BMR · TDEE · TARGET */}
-        <View style={s.statsRow}>
-          <StatItem label="BMR"    value={plan.bmr} />
-          <View style={s.statDot} />
-          <StatItem label="TDEE"   value={plan.tdee} />
-          <View style={s.statDot} />
-          <StatItem label="Target" value={plan.calorieBudget} accent />
-        </View>
+        {/* ── Greeting ─────────────────────────────────────── */}
+        <Animated.View style={{ opacity: headFade, transform: [{ translateY: headY }], marginBottom: 4 }}>
+          <Text style={s.greeting}>
+            Hi, {name}.{'  '}
+            <Text style={s.greetingSub}>Your daily target</Text>
+          </Text>
+        </Animated.View>
 
-      </Animated.View>
+        {/* ── Hero number ──────────────────────────────────── */}
+        <Animated.View style={[s.heroBlock, { opacity: heroFade, transform: [{ translateY: heroY }] }]}>
+          <Text style={s.calNumber} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+            {displayCals.toLocaleString()}
+          </Text>
+          <Text style={s.calLabel}>kcal / day</Text>
+        </Animated.View>
 
-      <View style={{ flex: 1 }} />
-
-      {/* ── Bottom ───────────────────────────────────────────────── */}
-      <Animated.View style={[s.bottom, { opacity: bottomFade, transform: [{ translateY: bottomY }] }]}>
-
-        {/* Profile summary */}
-        <View style={s.summaryRow}>
-          {[name, goalLabel, activityText].map((t, i) => (
-            <View key={`${t}-${i}`} style={s.summaryItem}>
-              {i > 0 && <View style={s.summaryDot} />}
-              <Text style={s.summaryText} numberOfLines={1}>{t}</Text>
+        {/* ── Profile pills ────────────────────────────────── */}
+        <Animated.View style={[s.pillsRow, { opacity: heroFade }]}>
+          {[name, goalLabel, actLabel].map((t) => (
+            <View key={t} style={s.pill}>
+              <Text style={s.pillText}>{t}</Text>
             </View>
           ))}
-        </View>
+        </Animated.View>
 
-        <TouchableOpacity
-          style={s.cta}
-          activeOpacity={0.84}
-          onPress={() => router.push({ pathname: '/auth/sign-up', params })}
-        >
-          <Text style={s.ctaText}>Create my account</Text>
-          <Ionicons name="arrow-forward" size={16} color="#FFF" />
-        </TouchableOpacity>
+        {/* ── Cards ────────────────────────────────────────── */}
+        <Animated.View style={[s.cards, { opacity: bodyFade, transform: [{ translateY: bodyY }] }]}>
 
-        <TouchableOpacity style={s.loginRow} activeOpacity={0.6} onPress={() => router.replace('/auth/login' as any)}>
-          <Text style={s.loginText}>
-            Already have an account?{'  '}
-            <Text style={s.loginAccent}>Log in</Text>
-          </Text>
-        </TouchableOpacity>
+          {/* 12-week projection */}
+          <View style={s.card}>
+            <View style={s.cardHeaderRow}>
+              <Text style={s.cardLabel}>12-WEEK PROJECTION</Text>
+              {projDelta !== 0 && (
+                <Text style={[s.projDelta, { color: projColor }]}>
+                  {projSign}{Math.abs(projDelta).toFixed(1)} {PROJ_UNIT[canonicalGoal]}
+                </Text>
+              )}
+            </View>
+            <View style={{ marginTop: 10 }}>
+              <ProjectionChart points={projPoints} width={chartW} shouldAnimate={chartReady} />
+            </View>
+            <View style={s.projFooter}>
+              <Text style={s.projLabel}>Now · {weightKg.toFixed(0)} kg</Text>
+              <Text style={s.projLabel}>Wk 12 · {projEnd.toFixed(1)} kg</Text>
+            </View>
+          </View>
 
-      </Animated.View>
+          {/* Macro split */}
+          <View style={s.card}>
+            <Text style={s.cardLabel}>MACRO SPLIT</Text>
+            <View style={s.macroBar}>
+              {macroData.map(m => (
+                <View key={m.key} style={{ flex: m.pct, backgroundColor: m.color }} />
+              ))}
+            </View>
+            <View style={s.macroGrid}>
+              {macroData.map(m => (
+                <View key={m.key} style={{ flex: 1 }}>
+                  <View style={s.macroDotRow}>
+                    <View style={[s.macroDot, { backgroundColor: m.color }]} />
+                    <Text style={s.macroName}>{m.label}</Text>
+                  </View>
+                  <Text style={s.macroGrams}>
+                    {m.grams}<Text style={s.macroGUnit}>g</Text>
+                  </Text>
+                  <Text style={s.macroMeta}>
+                    {m.pct}% · {m.kcal.toLocaleString()} kcal
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* BMR · TDEE · TARGET */}
+          <View style={s.statsRow}>
+            <StatCard label="BMR"    value={plan.bmr}           sub="at rest"                                        />
+            <StatCard label="TDEE"   value={plan.tdee}          sub={ACTIVITY_MULT[canonicalActivity]}               />
+            <StatCard label="TARGET" value={plan.calorieBudget} sub={`${caloricDelta >= 0 ? '+' : ''}${caloricDelta}`} dark />
+          </View>
+
+        </Animated.View>
+
+        <View style={{ height: 24 }} />
+
+        {/* ── Continue to account creation ─────────────────── */}
+        <Animated.View style={[s.bottom, { opacity: bottomFade, transform: [{ translateY: bottomY }] }]}>
+          <TouchableOpacity
+            style={s.cta}
+            activeOpacity={0.84}
+            onPress={() => router.push({ pathname: '/auth/sign-up-options', params })}
+          >
+            <Text style={s.ctaText}>Continue</Text>
+            <Ionicons name="arrow-forward" size={16} color="#FFF" />
+          </TouchableOpacity>
+        </Animated.View>
+
+      </ScrollView>
     </View>
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────
-function StatItem({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
+// ── Projection sparkline ───────────────────────────────────────────────────
+function ProjectionChart({
+  points, width, shouldAnimate,
+}: { points: number[]; width: number; shouldAnimate: boolean }) {
+  const H   = 80;
+  const pad = 6;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = max - min;
+  const n = points.length - 1;
+
+  const xs = points.map((_, i) => pad + (i / n) * (width - pad * 2));
+  const ys = points.map(p =>
+    range < 0.1
+      ? H * 0.42
+      : H - pad - ((p - min) / range) * (H - pad * 2),
+  );
+
+  // Catmull-Rom → cubic bezier for a smooth curve through all points
+  let line = `M ${xs[0].toFixed(1)} ${ys[0].toFixed(1)}`;
+  for (let i = 0; i < n; i++) {
+    const x0 = xs[Math.max(i - 1, 0)]; const y0 = ys[Math.max(i - 1, 0)];
+    const x1 = xs[i];                  const y1 = ys[i];
+    const x2 = xs[i + 1];             const y2 = ys[i + 1];
+    const x3 = xs[Math.min(i + 2, n)]; const y3 = ys[Math.min(i + 2, n)];
+    const cp1x = x1 + (x2 - x0) / 6;  const cp1y = y1 + (y2 - y0) / 6;
+    const cp2x = x2 - (x3 - x1) / 6;  const cp2y = y2 - (y3 - y1) / 6;
+    line += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+  }
+  const area = `${line} L ${xs[n].toFixed(1)} ${H} L ${xs[0].toFixed(1)} ${H} Z`;
+
+  const PATH_LEN    = width * 2; // upper bound on actual path length
+  const dashOffset  = useRef(new Animated.Value(PATH_LEN)).current;
+  const fillOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!shouldAnimate) return;
+    dashOffset.setValue(PATH_LEN);
+    fillOpacity.setValue(0);
+    Animated.timing(dashOffset, {
+      toValue:         0,
+      duration:        2600,
+      easing:          Easing.inOut(Easing.quad),
+      useNativeDriver: false,
+    }).start(() =>
+      Animated.timing(fillOpacity, {
+        toValue: 1, duration: 700, useNativeDriver: false,
+      }).start(),
+    );
+  }, [shouldAnimate]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <View style={s.statItem}>
-      <Text style={s.statLabel}>{label}</Text>
-      <Text style={[s.statValue, accent && { color: ORANGE }]}>
-        {value.toLocaleString()}
-      </Text>
+    <Svg width={width} height={H}>
+      <Defs>
+        <SvgGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor={ORANGE} stopOpacity="0.22" />
+          <Stop offset="1" stopColor={ORANGE} stopOpacity="0" />
+        </SvgGradient>
+      </Defs>
+      <AnimatedPath d={area} fill="url(#areaFill)" fillOpacity={fillOpacity} />
+      <AnimatedPath
+        d={line}
+        stroke={ORANGE}
+        strokeWidth={2.5}
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeDasharray={`${PATH_LEN}`}
+        strokeDashoffset={dashOffset}
+      />
+    </Svg>
+  );
+}
+
+// ── Stat card ──────────────────────────────────────────────────────────────
+function StatCard({ label, value, sub, dark }: { label: string; value: number; sub: string; dark?: boolean }) {
+  return (
+    <View style={[s.statCard, dark && s.statCardDark]}>
+      <Text style={[s.statLabel, dark && { color: 'rgba(255,255,255,0.5)' }]}>{label}</Text>
+      <Text style={[s.statValue, dark && { color: '#FFF' }]}>{value.toLocaleString()}</Text>
+      <Text style={[s.statSub,  { color: dark ? ORANGE : DIM }]}>{sub}</Text>
     </View>
   );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: BG,
-    paddingHorizontal: 28,
-  },
+  root:   { flex: 1, backgroundColor: BG },
+  scroll: { paddingHorizontal: 20 },
 
   // Top row
   topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection:  'row',
+    alignItems:     'center',
     justifyContent: 'space-between',
-    marginBottom: 44,
+    marginBottom:   20,
   },
-  readyBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-  },
-  readyDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: ORANGE,
-  },
-  readyText: {
-    fontFamily: 'Syne_700Bold',
-    fontSize: 13,
-    color: INK,
-    letterSpacing: 0.1,
-  },
-  stepText: {
-    fontFamily: 'Syne_700Bold',
-    fontSize: 12,
-    color: DIM,
-    letterSpacing: 0.2,
-  },
+  readyBadge: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  readyDot:   { width: 7, height: 7, borderRadius: 3.5, backgroundColor: ORANGE },
+  readyText:  { fontSize: 13, fontWeight: '700', color: INK, letterSpacing: 0.1 },
+  daysText:   { fontSize: 12, fontWeight: '700', color: DIM, letterSpacing: 0.1 },
 
-  // Heading
-  headBlock: {
-    marginBottom: 20,
-    gap: 2,
-  },
-  headSub: {
-    fontFamily: 'Syne_700Bold',
-    fontSize: 13,
-    color: DIM,
-    letterSpacing: 0.2,
-  },
-  headName: {
-    fontFamily: 'Syne_800ExtraBold',
-    fontSize: 32,
-    letterSpacing: -0.8,
-    color: INK,
-    lineHeight: 38,
-  },
+  // Greeting
+  greeting:    { fontSize: 15, fontWeight: '800', color: INK, letterSpacing: -0.2 },
+  greetingSub: { fontSize: 15, fontWeight: '500', color: DIM },
 
   // Hero
-  heroBlock: {
-    marginBottom: 40,
-    gap: 4,
-  },
+  heroBlock: { marginBottom: 14, gap: 2 },
   calNumber: {
-    fontFamily: 'Syne_800ExtraBold',
-    fontSize: 80,
-    lineHeight: 80,
+    fontSize:      80,
+    lineHeight:    80,
     letterSpacing: -4,
-    color: INK,
-    fontVariant: ['tabular-nums'],
+    fontWeight:    '900',
+    color:         INK,
+    fontVariant:   ['tabular-nums'],
   },
-  calLabel: {
-    fontFamily: 'Syne_700Bold',
-    fontSize: 13,
-    letterSpacing: 0.3,
-    color: ORANGE,
-  },
+  calLabel: { fontSize: 13, fontWeight: '700', letterSpacing: 0.3, color: ORANGE },
 
-  // Body
-  body: {
-    gap: 0,
+  // Pills
+  pillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
+  pill:     { backgroundColor: '#ECEAE6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
+  pillText: { fontSize: 12, fontWeight: '700', color: INK, letterSpacing: 0.1 },
+
+  // Cards container
+  cards: { gap: 12 },
+
+  // Card
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  rule: {
-    height: 1,
-    backgroundColor: RULE,
-  },
-  hairline: {
-    height: 1,
-    backgroundColor: '#EFECEA',
-    marginLeft: 0,
-  },
-  macroRow: {
+  cardHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  cardLabel:     { fontSize: 10, fontWeight: '800', letterSpacing: 1.4, color: DIM },
+
+  // Projection
+  projDelta:  { fontSize: 12, fontWeight: '700', letterSpacing: -0.1 },
+  projFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
+  projLabel:  { fontSize: 11, fontWeight: '600', color: DIM, letterSpacing: 0.1 },
+
+  // Macro split
+  macroBar: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    paddingVertical: 15,
+    height:        7,
+    borderRadius:  4,
+    overflow:      'hidden',
+    marginTop:     12,
+    gap:           2,
   },
-  macroLabel: {
-    fontFamily: 'Syne_700Bold',
-    fontSize: 15,
-    color: INK,
-    letterSpacing: 0.1,
+  macroGrid:   { flexDirection: 'row', marginTop: 16, gap: 4 },
+  macroDotRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 },
+  macroDot:    { width: 7, height: 7, borderRadius: 3.5 },
+  macroName:   { fontSize: 10, fontWeight: '700', color: DIM, letterSpacing: 0.3 },
+  macroGrams:  {
+    fontSize:      18,
+    fontWeight:    '800',
+    color:         INK,
+    letterSpacing: -0.5,
+    fontVariant:   ['tabular-nums'],
   },
-  macroGrams: {
-    fontFamily: 'Syne_800ExtraBold',
-    fontSize: 16,
-    color: INK,
-    letterSpacing: -0.3,
-    fontVariant: ['tabular-nums'],
-  },
-  macroUnit: {
-    fontFamily: 'Syne_700Bold',
-    fontSize: 12,
-    color: DIM,
-  },
+  macroGUnit: { fontSize: 12, fontWeight: '600', color: DIM },
+  macroMeta:  { fontSize: 10, fontWeight: '500', color: DIM, letterSpacing: 0.1, marginTop: 2 },
 
   // Stats row
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 20,
-    gap: 0,
+  statsRow: { flexDirection: 'row', gap: 10 },
+  statCard: {
+    flex:            1,
+    backgroundColor: '#FFFFFF',
+    borderRadius:    16,
+    padding:         14,
+    gap:             3,
+    shadowColor:     '#000',
+    shadowOffset:    { width: 0, height: 2 },
+    shadowOpacity:   0.06,
+    shadowRadius:    8,
+    elevation:       2,
   },
-  statItem: {
-    flex: 1,
-    gap: 3,
-  },
-  statLabel: {
-    fontFamily: 'Syne_700Bold',
-    fontSize: 10,
-    letterSpacing: 0.4,
-    color: DIM,
-  },
+  statCardDark: { backgroundColor: INK },
+  statLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 1.2, color: DIM },
   statValue: {
-    fontFamily: 'Syne_800ExtraBold',
-    fontSize: 15,
-    letterSpacing: -0.4,
-    color: INK,
-    fontVariant: ['tabular-nums'],
+    fontSize:      20,
+    fontWeight:    '800',
+    letterSpacing: -0.8,
+    color:         INK,
+    fontVariant:   ['tabular-nums'],
   },
-  statDot: {
-    width: 1,
-    height: 28,
-    backgroundColor: RULE,
-    marginHorizontal: 16,
-  },
+  statSub: { fontSize: 10, fontWeight: '600', letterSpacing: 0.1 },
 
   // Bottom
-  bottom: {
-    gap: 14,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    marginBottom: 2,
-  },
-  summaryItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  summaryDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: RULE,
-    marginHorizontal: 8,
-  },
-  summaryText: {
-    fontFamily: 'Syne_700Bold',
-    fontSize: 12,
-    color: DIM,
-    letterSpacing: 0.1,
-  },
-
-  // CTA
+  bottom: { gap: 12 },
   cta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
+    flexDirection:   'row',
+    alignItems:      'center',
+    justifyContent:  'center',
+    gap:             10,
     backgroundColor: INK,
-    borderRadius: 14,
-    paddingVertical: 18,
+    borderRadius:    18,
+    paddingVertical: 19,
   },
-  ctaText: {
-    fontFamily: 'Syne_700Bold',
-    color: '#FFF',
-    fontSize: 16,
-    letterSpacing: 0.1,
-  },
-
-  // Login
-  loginRow: {
-    alignItems: 'center',
-    paddingVertical: 2,
-  },
-  loginText: {
-    fontFamily: 'Syne_700Bold',
-    fontSize: 13,
-    color: DIM,
-  },
-  loginAccent: {
-    color: ORANGE,
-    fontFamily: 'Syne_700Bold',
-  },
+  ctaText:    { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.2 },
 });

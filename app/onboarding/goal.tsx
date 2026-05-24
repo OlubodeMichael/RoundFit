@@ -8,11 +8,11 @@ import { usePostHog } from 'posthog-react-native';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
-const GOALS: { id: string; icon: IoniconsName; label: string; desc: string }[] = [
-  { id: 'lose',     icon: 'flame-outline',   label: 'Lose weight',    desc: 'Burn fat, feel lighter' },
-  { id: 'muscle',   icon: 'barbell-outline', label: 'Build muscle',   desc: 'Get stronger, tone up' },
-  { id: 'energy',   icon: 'flash-outline',   label: 'Boost energy',   desc: 'Feel more alive daily' },
-  { id: 'maintain', icon: 'scale-outline',   label: 'Maintain',       desc: 'Stay right where I am' },
+const GOALS: { id: string; icon: IoniconsName; label: string; desc: string; meta: string }[] = [
+  { id: 'lose',     icon: 'flame-outline',      label: 'Lose weight',  desc: 'Burn fat, feel lighter',   meta: '-500 kcal/day · 0.45 kg/wk' },
+  { id: 'muscle',   icon: 'barbell-outline',    label: 'Build muscle', desc: 'Get stronger, tone up',    meta: '+300 kcal/day · 0.25 kg/wk' },
+  { id: 'energy',   icon: 'flash-outline',      label: 'Boost energy', desc: 'Feel more alive daily',    meta: 'Maintenance · macro optimised' },
+  { id: 'maintain', icon: 'swap-horizontal',    label: 'Maintain',     desc: 'Stay right where I am',    meta: 'TDEE balanced · no deficit' },
 ];
 
 export default function GoalScreen() {
@@ -22,11 +22,9 @@ export default function GoalScreen() {
   const [selected, setSelected] = useState<string | null>(null);
   const posthog = usePostHog();
 
-  const bg   = '#FAFAF8';
-  const hi   = '#111111';
-  const mid  = '#888';
-  const lo   = '#E8E3DC';
-  const surf = '#FFFFFF';
+  const bg  = '#FAFAF8';
+  const hi  = '#111111';
+  const mid = '#888';
 
   const fade  = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;
@@ -57,7 +55,7 @@ export default function GoalScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={5} total={9} onBack={() => router.back()} isDark={false} />
+        <ProgressBar step={5} total={9} backHref={{ pathname: '/onboarding/height-weight', params }} isDark={false} />
       </View>
 
       <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
@@ -73,20 +71,28 @@ export default function GoalScreen() {
               style={[{ opacity: cardFades[i], transform: [{ translateY: cardYs[i] }] }, s.cardWrapper]}
             >
               <TouchableOpacity
-                style={[s.card, {
-                  backgroundColor: active ? 'rgba(249,115,22,0.08)' : surf,
-                  borderColor: active ? '#F97316' : lo,
-                  borderLeftWidth: active ? 4 : 1,
-                  borderWidth: 1,
-                }]}
+                style={[s.card, active && s.cardActive]}
                 onPress={() => setSelected(g.id)}
-                activeOpacity={0.8}
+                activeOpacity={0.82}
               >
-                <View style={[s.iconWrap, { backgroundColor: active ? 'rgba(249,115,22,0.12)' : ('#F2EFE9') }]}>
-                  <Ionicons name={g.icon} size={22} color={active ? '#F97316' : mid} />
+                {/* Checkmark badge */}
+                {active && (
+                  <View style={s.checkBadge}>
+                    <Ionicons name="checkmark" size={11} color="#FFF" />
+                  </View>
+                )}
+
+                {/* Icon */}
+                <View style={[s.iconWrap, active ? s.iconWrapActive : s.iconWrapInactive]}>
+                  <Ionicons name={g.icon} size={22} color="#F97316" />
                 </View>
-                <Text style={[s.cardLabel, { color: active ? '#F97316' : hi }]}>{g.label}</Text>
-                <Text style={[s.cardDesc, { color: mid }]}>{g.desc}</Text>
+
+                {/* Label + desc */}
+                <Text style={[s.cardLabel, active && s.cardLabelActive]}>{g.label}</Text>
+                <Text style={[s.cardDesc,  active && s.cardDescActive]}>{g.desc}</Text>
+
+                {/* Meta stat */}
+                <Text style={[s.cardMeta, active && s.cardMetaActive]}>{g.meta}</Text>
               </TouchableOpacity>
             </Animated.View>
           );
@@ -115,25 +121,59 @@ const s = StyleSheet.create({
   progress: { marginBottom: 8 },
   headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 32 },
 
-  grid:        { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  grid:        { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   cardWrapper: { width: '47%' },
-  card:        {
-    borderRadius: 16, padding: 18,
-    gap: 10, minHeight: 140,
+
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#EBEBEB',
+    gap: 8,
+    minHeight: 160,
     overflow: 'hidden',
   },
-  iconWrap:  {
-    width: 44, height: 44, borderRadius: 22,
-    alignItems: 'center', justifyContent: 'center',
+  cardActive: {
+    backgroundColor: '#111111',
+    borderColor: '#111111',
   },
-  cardLabel: { fontSize: 15, fontWeight: '800', letterSpacing: -0.3 },
-  cardDesc:  { fontSize: 12, lineHeight: 17, fontWeight: '400' },
 
-  cta:    {
-    backgroundColor: '#F97316', borderRadius: 14,
+  checkBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#F97316',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  iconWrap: {
+    width: 48, height: 48, borderRadius: 24,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 2,
+  },
+  iconWrapActive:   { backgroundColor: '#2A2A2A' },
+  iconWrapInactive: { backgroundColor: 'rgba(249,115,22,0.12)' },
+
+  cardLabel: { fontSize: 15, fontWeight: '800', letterSpacing: -0.3, color: '#111111' },
+  cardLabelActive: { color: '#FFFFFF' },
+
+  cardDesc: { fontSize: 12, lineHeight: 17, fontWeight: '400', color: '#888888' },
+  cardDescActive: { color: '#888888' },
+
+  cardMeta: {
+    fontSize: 11, fontWeight: '500', color: '#BBBBBB',
+    lineHeight: 15, marginTop: 4,
+  },
+  cardMetaActive: { color: '#F97316' },
+
+  cta: {
+    backgroundColor: '#111111', borderRadius: 16,
     paddingVertical: 18, alignItems: 'center',
-    shadowColor: '#F97316', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35, shadowRadius: 12, elevation: 8,
   },
   ctaText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
 });

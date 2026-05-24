@@ -44,7 +44,7 @@ export default function LoginScreen() {
       <View style={s.bgBlob} pointerEvents="none" />
 
       {/* Back */}
-      <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
+      <TouchableOpacity style={s.backBtn} onPress={() => router.replace('/auth')} activeOpacity={0.7}>
         <Ionicons name="chevron-back" size={20} color={C.text} />
       </TouchableOpacity>
 

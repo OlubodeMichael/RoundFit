@@ -139,7 +139,7 @@ export default function AuthLandingScreen() {
         <TouchableOpacity
           style={s.loginBtn}
           activeOpacity={0.7}
-          onPress={() => router.push('/auth/login')}
+          onPress={() => router.push('/auth/auth-options')}
         >
           <Text style={s.loginText}>
             Have an account?{'  '}

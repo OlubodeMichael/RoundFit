@@ -93,7 +93,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     question: 'What do the cycle phases mean?',
-    answer:   'Your menstrual cycle has four phases: Menstrual (period days — rest and gentle movement), Follicular (energy starts rising — great for new goals), Ovulation (peak strength and energy), and Luteal (wind down and prioritise recovery). RoundFit tracks these to give you phase-aware tips.',
+    answer:   'Your menstrual cycle has four phases: Menstrual (period days: rest and gentle movement), Follicular (energy starts rising, great for new goals), Ovulation (peak strength and energy), and Luteal (wind down and prioritise recovery). RoundFit tracks these to give you phase-aware tips.',
   },
 ];
 

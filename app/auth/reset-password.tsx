@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
+import { safeBack } from '@/utils/navigation';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
 
@@ -94,7 +95,7 @@ export default function ResetPasswordScreen() {
   if (!access_token) {
     return (
       <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 28 }]}>
-        <TouchableOpacity style={s.backBtn} onPress={() => router.replace('/auth/login')} activeOpacity={0.7}>
+        <TouchableOpacity style={s.backBtn} onPress={() => router.replace('/auth/auth-options')} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={22} color={hi} />
         </TouchableOpacity>
         <View style={s.centeredWrap}>
@@ -131,7 +132,7 @@ export default function ResetPasswordScreen() {
           <TouchableOpacity
             style={[s.cta, { marginTop: 8 }]}
             activeOpacity={0.85}
-            onPress={() => router.replace('/auth/login')}
+            onPress={() => router.replace('/auth/auth-options')}
           >
             <Text style={s.ctaText}>Log in  →</Text>
           </TouchableOpacity>
@@ -150,13 +151,13 @@ export default function ResetPasswordScreen() {
       >
         <View style={[s.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 28 }]}>
 
-          <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
+          <TouchableOpacity style={s.backBtn} onPress={() => safeBack(router, '/auth/forgot-password')} activeOpacity={0.7}>
             <Ionicons name="chevron-back" size={22} color={hi} />
           </TouchableOpacity>
 
           <Animated.View style={[s.headBlock, { opacity: fade, transform: [{ translateY: slideY }] }]}>
             <Text style={[s.headline, { color: hi }]}>Set new{'\n'}password.</Text>
-            <Text style={[s.sub, { color: mid }]}>Choose a strong password — at least 8 characters.</Text>
+            <Text style={[s.sub, { color: mid }]}>Choose a strong password, at least 8 characters.</Text>
           </Animated.View>
 
           <Animated.View style={[s.form, { opacity: fade }]}>

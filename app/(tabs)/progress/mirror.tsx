@@ -19,7 +19,7 @@ import {
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 // ─── Dummy data ─────────────────────────────────────────────────────────────
-const DATE_RANGE   = 'Mar 19 — Apr 18';
+const DATE_RANGE   = 'Mar 19 - Apr 18';
 const OPTIMAL_SLEEP   = { hours: 7, minutes: 25, note: 'Bedtime 10:40 PM, wake 6:05 AM' };
 const OPTIMAL_PROTEIN = { grams: 142, note: 'Around 1.7g per kg bodyweight' };
 
@@ -54,7 +54,7 @@ const IMPROVEMENTS = [
 const BIGGEST_IMPROVEMENT = IMPROVEMENTS[3]; // streak
 
 const AI_SYNTHESIS =
-  'Your body responds best to a consistent 7:30 AM wake. When you protect that, everything else compounds — energy lifts, protein lands naturally, and your training days get easier.';
+  'Your body responds best to a consistent 7:30 AM wake. When you protect that, everything else compounds: energy lifts, protein lands naturally, and your training days get easier.';
 
 export default function MirrorScreen() {
   const P      = usePalette();
@@ -97,7 +97,7 @@ export default function MirrorScreen() {
             <Text style={[styles.quoteMark, { color: P.fat }]}>{"\u201C"}</Text>
             <Text style={[styles.quoteBody, { color: P.text }]}>{AI_SYNTHESIS}</Text>
             <Text style={[styles.quoteAttrib, { color: P.textFaint }]}>
-              — RoundFit Intelligence Score · 30 days of logs, check-ins & wearables
+              RoundFit Intelligence Score · 30 days of logs, check-ins & wearables
             </Text>
           </AnimatedCard>
 

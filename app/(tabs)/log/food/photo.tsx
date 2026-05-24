@@ -63,7 +63,7 @@ export default function PhotoAnalysisScreen() {
               <Step
                 n={1}
                 title="Snap your meal"
-                body="Plate, bowl, or food on the table — one item or many."
+                body="Plate, bowl, or food on the table, one item or many."
                 P={P}
               />
               <Step

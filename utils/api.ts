@@ -158,6 +158,20 @@ export async function apiFetch(
 
 // ── Token helpers (used by AuthProvider) ──────────────────────────────────
 
+/**
+ * Returns true if the stored access token belongs to an OAuth provider
+ * (Google, Apple, etc.) rather than email/password.
+ * Reads app_metadata.provider from the JWT payload — Supabase always sets this.
+ */
+export async function isStoredTokenOAuth(): Promise<boolean> {
+  const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
+  if (!token) return false;
+  const payload = decodeJwtPayload(token);
+  const meta = payload?.app_metadata as Record<string, unknown> | undefined;
+  const provider = typeof meta?.provider === 'string' ? meta.provider : 'email';
+  return provider !== 'email';
+}
+
 export async function storeTokens(accessToken: string, refreshToken: string): Promise<void> {
   const sub = tokenSub(accessToken);
   await Promise.all([

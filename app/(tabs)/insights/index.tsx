@@ -624,7 +624,7 @@ function EmptyInsightCard({ delay, onPress }: { delay: number; onPress?: () => v
         <View style={{ flex: 1 }}>
           <Text style={[s.emptyTitle, { color: P.text }]}>No insight yet today</Text>
           <Text style={[s.emptyBody, { color: P.textFaint }]}>
-            Keep logging — insights appear once you have data to analyse.
+            Keep logging; insights appear once you have data to analyse.
           </Text>
         </View>
       </View>

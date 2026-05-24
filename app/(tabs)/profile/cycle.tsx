@@ -29,7 +29,7 @@ function useAcc() {
 // ─── Phase config ─────────────────────────────────────────────────────────────
 const PHASE_META: Record<string, { label: string; icon: IoniconName; color: string; tip: string }> = {
   menstrual:  { label: 'Menstrual',  icon: 'water',      color: '#F43F5E', tip: 'Rest and gentle movement today.' },
-  follicular: { label: 'Follicular', icon: 'leaf',       color: '#F97316', tip: 'Energy rising — good time for new goals.' },
+  follicular: { label: 'Follicular', icon: 'leaf',       color: '#F97316', tip: 'Energy rising, good time for new goals.' },
   ovulation:  { label: 'Ovulation',  icon: 'sunny',      color: '#EAB308', tip: 'Peak strength and energy window.' },
   luteal:     { label: 'Luteal',     icon: 'moon',       color: '#8B5CF6', tip: 'Wind down and prioritise recovery.' },
 };

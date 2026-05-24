@@ -347,7 +347,7 @@ export default function TargetsScreen() {
           />
 
           <Text style={[s.footer, { color: P.mid }]}>
-            Targets are personal goals — they guide your progress, not hard limits.
+            Targets are personal goals; they guide your progress, not hard limits.
           </Text>
         </ScrollView>
       </View>

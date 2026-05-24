@@ -7,14 +7,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
+import { hasActiveUserSession } from '@/context/auth-context';
 import { useAuth } from '@/hooks/use-auth';
+import { safeBack } from '@/utils/navigation';
 import { usePostHog } from 'posthog-react-native';
 
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
-  const { signIn, signInWithOAuth, isLoading, error, clearError, isAuth } = useAuth();
+  const { signIn, signInWithOAuth, isLoading, error, clearError, status, user } = useAuth();
   const posthog = usePostHog();
 
   const [email, setEmail]       = useState('');
@@ -52,10 +54,9 @@ export default function LoginScreen() {
     }).start();
   }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Navigate once auth succeeds
   useEffect(() => {
-    if (isAuth) router.replace('/(tabs)');
-  }, [isAuth]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (hasActiveUserSession(status, user)) router.replace('/(tabs)');
+  }, [status, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const canSubmit = email.trim().length > 4 && password.length >= 6 && !isLoading;
 
@@ -76,7 +77,7 @@ export default function LoginScreen() {
         <View style={[s.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 28 }]}>
 
           {/* Back */}
-          <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
+          <TouchableOpacity style={s.backBtn} onPress={() => safeBack(router, '/auth/auth-options')} activeOpacity={0.7}>
             <Ionicons name="chevron-back" size={22} color={hi} />
           </TouchableOpacity>
 

@@ -3,6 +3,7 @@ import type { DeleteAccountInput } from "@/types/account-deletion";
 import {
     apiFetch,
     clearTokens,
+    isStoredTokenOAuth,
     proactiveRefreshIfNeeded,
     storeTokens,
 } from "@/utils/api";
@@ -158,7 +159,7 @@ interface AuthContextValue {
       UserProfile,
       "id" | "email" | "createdAt" | "tdee" | "calorieBudget"
     >,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 
   /** Permanently deletes the account and all its data. */
   deleteAccount: (input: DeleteAccountInput) => Promise<void>;
@@ -351,6 +352,16 @@ async function fetchMe(emailFallback = ""): Promise<UserProfile> {
   });
 }
 
+/** Profile row returned by POST /auth/oauth-setup (`{ data: { profile } }`). */
+function profileFromOAuthSetupBody(
+  body: Record<string, unknown>,
+): UserProfile | null {
+  const data = (body.data ?? body) as Record<string, unknown>;
+  const profileRow = data.profile;
+  if (!profileRow || typeof profileRow !== "object") return null;
+  return fromApiProfile(profileRow as Record<string, unknown>);
+}
+
 // ── Context ────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -420,9 +431,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setStatus("authenticated");
       } catch (err) {
         if (err instanceof Error && err.message === 'no_profile') {
-          // Valid tokens but no RoundFit profile yet (OAuth user mid-onboarding).
-          // Keep tokens and route to profile setup instead of logging out.
-          setOauthProfilePending(true);
+          // Valid tokens but no RoundFit profile yet — route to onboarding to create one.
+          // Only set oauthProfilePending for OAuth providers; email users go through
+          // the full sign-up form instead of the "Complete setup" shortcut.
+          const isOAuth = await isStoredTokenOAuth();
+          setOauthProfilePending(isOAuth);
           setStatus("needs-profile");
         } else {
           await clearTokens();
@@ -463,9 +476,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await loadUserFromServer(userRef.current?.email ?? "", false),
           );
         } catch (err) {
-          if (err instanceof Error && err.message === 'no_profile') {
-            setOauthProfilePending(true);
-            setStatus("needs-profile");
+          if (err instanceof Error && err.message === "no_profile") {
+            try {
+              setUser(
+                await loadUserFromServer(userRef.current?.email ?? "", true),
+              );
+            } catch (retryErr) {
+              if (
+                retryErr instanceof Error &&
+                retryErr.message === "no_profile"
+              ) {
+                const isOAuth = await isStoredTokenOAuth();
+                setOauthProfilePending(isOAuth);
+                setStatus("needs-profile");
+              }
+            }
           }
           // other errors: network hiccup — keep existing profile data
         }
@@ -509,19 +534,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (
-          typeof body.access_token === "string" &&
-          typeof body.refresh_token === "string"
+          typeof body.access_token !== "string" ||
+          typeof body.refresh_token !== "string"
         ) {
-          await storeTokens(body.access_token, body.refresh_token);
+          // Account may have been created but the server couldn't issue a session.
+          // Surface the error so the user knows to log in manually.
+          setError("UNKNOWN");
+          return;
         }
+
+        await storeTokens(body.access_token, body.refresh_token);
 
         try {
           setUser(await loadUserFromServer(email, true));
-        } catch {
-          // Token stored; profile fetch failed — session restore on next mount retries
+          setStatus("authenticated");
+        } catch (err) {
+          if (err instanceof Error && err.message === 'no_profile') {
+            // Tokens valid but profile missing — send them through onboarding to create one
+            setOauthProfilePending(true);
+            setStatus("needs-profile");
+          } else {
+            // Transient network/server error — profile was created server-side, retry on next mount
+            setStatus("authenticated");
+          }
         }
-
-        setStatus("authenticated");
       } catch {
         setError("UNKNOWN");
       } finally {
@@ -560,11 +596,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         setUser(await loadUserFromServer(email, true));
-      } catch {
-        // Token stored; profile fetch failed — session restore on next mount retries
+        setStatus("authenticated");
+      } catch (err) {
+        if (err instanceof Error && err.message === 'no_profile') {
+          // Tokens valid but profile missing — send them through onboarding to create one
+          setOauthProfilePending(true);
+          setStatus("needs-profile");
+        } else {
+          // Transient network/server error — tokens are valid, retry on next mount
+          setStatus("authenticated");
+        }
       }
-
-      setStatus("authenticated");
     } catch {
       setError("UNKNOWN");
     } finally {
@@ -692,11 +734,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         setUser(await loadUserFromServer("", true));
+        setOauthProfilePending(false);
         setStatus("authenticated");
-      } catch {
-        // New OAuth user — Supabase account exists but no RoundFit profile yet
-        setOauthProfilePending(true);
-        setStatus("needs-profile");
+      } catch (err) {
+        if (err instanceof Error && err.message === "no_profile") {
+          setOauthProfilePending(true);
+          setStatus("needs-profile");
+        } else {
+          console.error(
+            "[auth] OAuth fetchMe failed:",
+            err instanceof Error ? err.message : err,
+          );
+          setError("UNKNOWN");
+        }
       }
     } catch (err: unknown) {
       if ((err as { code?: string })?.code === "ERR_CANCELED") return;
@@ -714,11 +764,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         UserProfile,
         "id" | "email" | "createdAt" | "tdee" | "calorieBudget"
       >,
-    ) => {
+    ): Promise<boolean> => {
       setError(null);
       setIsLoading(true);
 
       try {
+        const sessionOk = await proactiveRefreshIfNeeded(0);
+        if (!sessionOk) {
+          setError("UNKNOWN");
+          return false;
+        }
+
         const apiBody = toApiBody(profile);
         console.log("[auth] oauth-setup request body:", JSON.stringify(apiBody));
 
@@ -734,20 +790,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!ok) {
           console.error("[auth] oauth-setup failed:", s, JSON.stringify(body));
           setError(parseApiError(s, body));
-          return;
+          return false;
         }
 
-        try {
-          setUser(await loadUserFromServer("", true));
-        } catch (fetchErr) {
-          console.error("[auth] fetchMe after oauth-setup failed:", fetchErr instanceof Error ? fetchErr.message : fetchErr);
+        let nextUser = profileFromOAuthSetupBody(body);
+        if (!nextUser) {
+          try {
+            nextUser = await loadUserFromServer("", true);
+          } catch (fetchErr) {
+            console.error(
+              "[auth] fetchMe after oauth-setup failed:",
+              fetchErr instanceof Error ? fetchErr.message : fetchErr,
+            );
+            setError("UNKNOWN");
+            return false;
+          }
         }
 
+        setUser(nextUser);
         setOauthProfilePending(false);
         setStatus("authenticated");
+        return true;
       } catch (err) {
         console.error("[auth] oauth-setup exception:", err instanceof Error ? err.message : err);
         setError("UNKNOWN");
+        return false;
       } finally {
         setIsLoading(false);
       }

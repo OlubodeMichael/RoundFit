@@ -48,7 +48,7 @@ export default function ValueHookScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={2} total={9} onBack={() => router.back()} isDark={false} />
+        <ProgressBar step={2} total={9} backHref="/auth" isDark={false} />
       </View>
 
       <Animated.View style={[s.headBlock, { opacity: headerFade, transform: [{ translateY: headerY }] }]}>
@@ -110,10 +110,8 @@ const s = StyleSheet.create({
 
   bottom: { paddingTop: 16 },
   cta:    {
-    backgroundColor: '#F97316', borderRadius: 14,
+    backgroundColor: '#111111', borderRadius: 14,
     paddingVertical: 18, alignItems: 'center',
-    shadowColor: '#F97316', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35, shadowRadius: 12, elevation: 8,
   },
   ctaText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
 });

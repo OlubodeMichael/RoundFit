@@ -91,13 +91,22 @@ function AppNavigator() {
     const top = segments[0];
     const inPublicOnboarding = top === "auth" || top === "onboarding";
 
-    if (status === "needs-profile" && !inPublicOnboarding) {
-      router.replace("/onboarding/goal");
+    // Suppress redirect while finishing OAuth onboarding (reveal → sign-up-options → sign-up).
+    const authScreen = segments[1];
+    const inProfileSetup =
+      top === "onboarding" ||
+      authScreen === "sign-up" ||
+      authScreen === "sign-up-options";
+    if (status === "needs-profile" && !inProfileSetup) {
+      router.replace("/onboarding/value-hook");
       return;
     }
 
-    if (status === "authenticated" && top === "auth") {
-      const passwordScreen = segments[1] === "forgot-password" || segments[1] === "reset-password" || segments[1] === "change-password";
+    const passwordScreen =
+      authScreen === "forgot-password" ||
+      authScreen === "reset-password" ||
+      authScreen === "change-password";
+    if (status === "authenticated" && (top === "auth" || top === "onboarding")) {
       if (!passwordScreen) {
         router.replace("/(tabs)");
         return;
@@ -124,7 +133,7 @@ function AppNavigator() {
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
           <Stack.Screen name="auth" />
           <Stack.Screen name="onboarding" />
-          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="(tabs)" options={{ gestureEnabled: status !== "authenticated" }} />
           <Stack.Screen name="modal" options={{ presentation: "modal" }} />
           <Stack.Screen
             name="edit-profile"

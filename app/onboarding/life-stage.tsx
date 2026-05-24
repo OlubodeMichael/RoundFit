@@ -43,7 +43,7 @@ export default function LifeStageScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={9} total={12} onBack={() => router.back()} isDark={false} />
+        <ProgressBar step={9} total={12} backHref={{ pathname: '/onboarding/cycle-phase', params }} isDark={false} />
       </View>
 
       <Animated.View style={{ opacity: fade, transform: [{ translateY: slideY }] }}>

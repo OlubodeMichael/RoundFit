@@ -6,10 +6,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 
 const LEVELS = [
-  { id: 'sedentary', num: '01', label: 'Sedentary',        sub: 'Desk job, little or no exercise' },
-  { id: 'light',     num: '02', label: 'Lightly Active',   sub: '1–3 light workouts per week' },
-  { id: 'moderate',  num: '03', label: 'Moderately Active', sub: '3–5 workouts per week' },
-  { id: 'very',      num: '04', label: 'Very Active',      sub: '6–7 workouts or physical job' },
+  { id: 'sedentary', num: '01', label: 'Sedentary',         multiplier: '× 1.20',  sub: 'Desk job, little exercise',      kcal: '+0 kcal'   },
+  { id: 'light',     num: '02', label: 'Lightly active',    multiplier: '× 1.375', sub: '1–3 light workouts / week',      kcal: '+260 kcal' },
+  { id: 'moderate',  num: '03', label: 'Moderately active', multiplier: '× 1.55',  sub: '3–5 workouts / week',            kcal: '+520 kcal' },
+  { id: 'very',      num: '04', label: 'Very active',       multiplier: '× 1.725', sub: '6–7 workouts or physical job',   kcal: '+820 kcal' },
 ];
 
 export default function ActivityScreen() {
@@ -18,10 +18,9 @@ export default function ActivityScreen() {
   const insets = useSafeAreaInsets();
   const [selected, setSelected] = useState<string | null>(null);
 
-  const bg   = '#FAFAF8';
-  const hi   = '#111111';
-  const mid  = '#888';
-  const lo   = '#E8E3DC';
+  const bg = '#FAFAF8';
+  const hi = '#111111';
+  const lo = '#E8E3DC';
 
   const fade  = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;
@@ -46,11 +45,12 @@ export default function ActivityScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={6} total={9} onBack={() => router.back()} isDark={false} />
+        <ProgressBar step={6} total={9} backHref={{ pathname: '/onboarding/goal', params }} isDark={false} />
       </View>
 
       <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
         <Text style={[s.headline, { color: hi }]}>Your{'\n'}activity.</Text>
+        <Text style={s.subheadline}>Outside of structured workouts, on a typical week.</Text>
       </Animated.View>
 
       <View style={s.list}>
@@ -63,28 +63,36 @@ export default function ActivityScreen() {
               style={[{ opacity: rowFades[i], transform: [{ translateY: rowYs[i] }] }]}
             >
               <TouchableOpacity
-                style={[s.row, {
-                  borderLeftColor: active ? '#F97316' : 'transparent',
-                  backgroundColor: active ? 'rgba(249,115,22,0.05)' : 'transparent',
-                }]}
+                style={s.row}
                 onPress={() => setSelected(lvl.id)}
                 activeOpacity={0.75}
               >
-                <Text style={[s.rowNum, { color: active ? 'rgba(249,115,22,0.5)' : ('#DDD') }]}>
+                {/* Number */}
+                <Text style={[s.rowNum, { color: active ? '#F97316' : '#DDDDDD' }]}>
                   {lvl.num}
                 </Text>
+
+                {/* Label + sub */}
                 <View style={s.rowText}>
-                  <Text style={[s.rowLabel, { color: active ? '#F97316' : hi }]}>{lvl.label}</Text>
-                  <Text style={[s.rowSub, { color: mid }]}>{lvl.sub}</Text>
+                  <View style={s.rowLabelRow}>
+                    <Text style={[s.rowLabel, { color: active ? '#F97316' : hi }]}>{lvl.label}</Text>
+                    <Text style={[s.rowMultiplier, { color: active ? '#F97316' : '#BBBBBB' }]}> {lvl.multiplier}</Text>
+                  </View>
+                  <Text style={s.rowSub}>{lvl.sub}</Text>
                 </View>
-                <View style={[s.checkCircle, {
-                  borderColor: active ? '#F97316' : lo,
-                  backgroundColor: active ? '#F97316' : 'transparent',
-                }]}>
-                  {active && <Ionicons name="checkmark" size={13} color="#FFF" />}
+
+                {/* Kcal + circle */}
+                <View style={s.rowRight}>
+                  <Text style={[s.rowKcal, { color: active ? '#F97316' : '#BBBBBB' }]}>{lvl.kcal}</Text>
+                  <View style={[s.checkCircle, {
+                    borderColor: active ? '#F97316' : lo,
+                    backgroundColor: active ? '#F97316' : 'transparent',
+                  }]}>
+                    {active && <Ionicons name="checkmark" size={12} color="#FFF" />}
+                  </View>
                 </View>
               </TouchableOpacity>
-              {!isLast && <View style={[s.divider, { backgroundColor: lo }]} />}
+              {!isLast && <View style={s.divider} />}
             </Animated.View>
           );
         })}
@@ -108,32 +116,41 @@ export default function ActivityScreen() {
 }
 
 const s = StyleSheet.create({
-  root:     { flex: 1, paddingHorizontal: 28 },
-  progress: { marginBottom: 8 },
-  headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 32 },
+  root:        { flex: 1, paddingHorizontal: 28 },
+  progress:    { marginBottom: 8 },
+  headline:    { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 8 },
+  subheadline: { fontSize: 14, fontWeight: '400', lineHeight: 20, marginBottom: 28, color: '#888888' },
 
   list: { gap: 0 },
   row:  {
     flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 20, paddingHorizontal: 4,
-    borderLeftWidth: 3, gap: 16,
-    paddingLeft: 16,
+    paddingVertical: 20, gap: 12,
   },
-  rowNum:   { fontSize: 22, fontWeight: '900', letterSpacing: -1, minWidth: 32, fontVariant: ['tabular-nums'] },
-  rowText:  { flex: 1, gap: 3 },
-  rowLabel: { fontSize: 16, fontWeight: '700' },
-  rowSub:   { fontSize: 13, lineHeight: 18 },
+
+  rowNum: {
+    fontSize: 28, fontWeight: '900', letterSpacing: -1,
+    minWidth: 36, fontVariant: ['tabular-nums'],
+  },
+
+  rowText:     { flex: 1, gap: 4 },
+  rowLabelRow: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap' },
+  rowLabel:    { fontSize: 15, fontWeight: '700' },
+  rowMultiplier: { fontSize: 12, fontWeight: '500' },
+  rowSub:      { fontSize: 12, lineHeight: 17, color: '#888888' },
+
+  rowRight: { alignItems: 'flex-end', gap: 6 },
+  rowKcal:  { fontSize: 11, fontWeight: '600', textAlign: 'right', fontVariant: ['tabular-nums'] },
+
   checkCircle: {
-    width: 26, height: 26, borderRadius: 13, borderWidth: 1.5,
+    width: 24, height: 24, borderRadius: 12, borderWidth: 1.5,
     alignItems: 'center', justifyContent: 'center',
   },
-  divider: { height: 1, marginLeft: 52 },
 
-  cta:    {
-    backgroundColor: '#F97316', borderRadius: 14,
+  divider: { height: 1, backgroundColor: '#E8E3DC' },
+
+  cta: {
+    backgroundColor: '#111111', borderRadius: 16,
     paddingVertical: 18, alignItems: 'center',
-    shadowColor: '#F97316', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35, shadowRadius: 12, elevation: 8,
   },
   ctaText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
 });

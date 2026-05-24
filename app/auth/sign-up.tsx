@@ -1,22 +1,21 @@
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
   KeyboardAvoidingView, Platform, ScrollView, Animated, Easing,
+  ActivityIndicator, Modal,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { GoogleLogo } from '@/components/ui/GoogleLogo';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/hooks/use-auth';
 import { usePostHog } from 'posthog-react-native';
-import type { UserProfile, AuthError } from '@/context/auth-context';
 import {
-  mapOnboardingActivity,
-  mapOnboardingGoal,
-  mapOnboardingSex,
-  mapOnboardingUnit,
-} from '@/utils/onboarding-mapping';
+  hasActiveUserSession,
+  type AuthError,
+} from '@/context/auth-context';
+import { buildOnboardingProfile } from '@/utils/onboarding-profile';
+import { safeBack } from '@/utils/navigation';
 
 const ERROR_LABELS: Record<AuthError, string> = {
   EMAIL_IN_USE:        'An account with this email already exists.',
@@ -27,8 +26,6 @@ const ERROR_LABELS: Record<AuthError, string> = {
   UNKNOWN:             'Something went wrong. Please try again.',
 };
 
-// ── Screen ──────────────────────────────────────────────────────────────────
-
 export default function SignUpScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -38,7 +35,7 @@ export default function SignUpScreen() {
     goal: string; activity: string; unit: string;
   }>();
   const { isDark } = useTheme();
-  const { signUp, signInWithOAuth, setupOAuthProfile, oauthProfilePending, isLoading, isAuth, error, clearError } = useAuth();
+  const { signUp, oauthProfilePending, isLoading, status, user, error, clearError } = useAuth();
   const posthog = usePostHog();
 
   const [email, setEmail]       = useState('');
@@ -56,6 +53,12 @@ export default function SignUpScreen() {
 
   const fade   = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;
+
+  useEffect(() => {
+    if (oauthProfilePending) {
+      router.replace({ pathname: '/onboarding/reveal', params });
+    }
+  }, [oauthProfilePending, params, router]);
 
   useEffect(() => {
     Animated.parallel([
@@ -76,56 +79,19 @@ export default function SignUpScreen() {
     }).start();
   }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Navigate once authenticated
   useEffect(() => {
-    if (isAuth) router.replace('/(tabs)');
-  }, [isAuth]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (hasActiveUserSession(status, user)) router.replace('/(tabs)');
+  }, [status, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canSubmit = oauthProfilePending
-    ? !isLoading
-    : email.trim().length > 4 && password.length >= 6 && !isLoading;
+  const canSubmit = email.trim().length > 4 && password.length >= 6 && !isLoading;
   const firstName = params.name || 'there';
-
-  function buildProfile(): Omit<UserProfile, 'id' | 'email' | 'createdAt' | 'tdee' | 'calorieBudget'> {
-    return {
-      name:          params.name   ?? '',
-      age:           params.age    ? Number(params.age)    : 0,
-      sex:           mapOnboardingSex(params.sex),
-      heightCm:      params.height ? Number(params.height) : 0,
-      weightKg:      params.weight ? Number(params.weight) : 0,
-      goal:          mapOnboardingGoal(params.goal),
-      activityLevel: mapOnboardingActivity(params.activity),
-      unit:          mapOnboardingUnit(params.unit),
-    };
-  }
 
   async function handleSignUp() {
     if (!canSubmit) return;
     clearError();
 
-    const profile = buildProfile();
-
-    if (oauthProfilePending) {
-      try {
-        await setupOAuthProfile(profile);
-        posthog.capture('user_signed_up', {
-          method: 'oauth',
-          goal: params.goal ?? null,
-          activity: params.activity ?? null,
-          sex: params.sex ?? null,
-        });
-      } catch (err) {
-        const e = err instanceof Error ? err : new Error(String(err));
-        posthog.capture('$exception', {
-          $exception_list: [{ type: e.name, value: e.message, stacktrace: { type: 'raw', frames: e.stack ?? '' } }],
-          $exception_source: 'oauth_setup',
-        });
-      }
-      return;
-    }
-
     try {
-      await signUp(email.trim(), password, profile);
+      await signUp(email.trim(), password, buildOnboardingProfile(params));
       posthog.identify(email.trim(), {
         $set: { email: email.trim(), name: params.name ?? '', goal: params.goal ?? '' },
         $set_once: { sign_up_date: new Date().toISOString() },
@@ -155,103 +121,87 @@ export default function SignUpScreen() {
       >
         <View style={[s.root, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 28 }]}>
 
-          {/* Orange accent bar */}
-          <View style={s.accentBar} />
+          <TouchableOpacity
+            style={s.backBtn}
+            onPress={() => safeBack(router, { pathname: '/onboarding/reveal', params })}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="chevron-back" size={20} color={hi} />
+          </TouchableOpacity>
 
-          {/* Heading */}
           <Animated.View style={[s.headBlock, { opacity: fade, transform: [{ translateY: slideY }] }]}>
             <Text style={[s.headline, { color: hi }]}>
-              Almost there,{'\n'}
+              Create your account,{'\n'}
               <Text style={{ color: '#F97316' }}>{firstName}</Text>
-              {' 🎉'}
             </Text>
             <Text style={[s.sub, { color: mid }]}>
-              Create your account to save your plan and start tracking.
+              Enter your email and password — we will save your plan automatically.
             </Text>
           </Animated.View>
 
-          {/* Form — hidden for OAuth users who don't need email/password */}
-          {!oauthProfilePending && (
-            <Animated.View style={[s.form, { opacity: fade }]}>
+          <Animated.View style={[s.form, { opacity: fade }]}>
+            {error && (
+              <TouchableOpacity style={s.errorBanner} onPress={clearError} activeOpacity={0.8}>
+                <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
+                <Text style={s.errorText}>{ERROR_LABELS[error]}</Text>
+              </TouchableOpacity>
+            )}
 
-              {/* Error banner */}
-              {error && (
-                <TouchableOpacity style={s.errorBanner} onPress={clearError} activeOpacity={0.8}>
-                  <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
-                  <Text style={s.errorText}>{ERROR_LABELS[error]}</Text>
+            <View style={s.fieldWrap}>
+              <Text style={[s.fieldLabel, { color: mid }]}>Email</Text>
+              <View style={s.fieldInner}>
+                <TextInput
+                  style={[s.fieldInput, { color: hi }]}
+                  value={email}
+                  onChangeText={t => { setEmail(t); if (error) clearError(); }}
+                  placeholder="you@example.com"
+                  placeholderTextColor={lo}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onFocus={() => setFocused('email')}
+                  onBlur={() => setFocused(null)}
+                />
+              </View>
+              <View style={[s.underlineTrack, { backgroundColor: lo }]}>
+                <Animated.View style={[s.underlineFill, {
+                  width: emailUnderline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                }]} />
+              </View>
+            </View>
+
+            <View style={s.fieldWrap}>
+              <Text style={[s.fieldLabel, { color: mid }]}>Password</Text>
+              <View style={s.fieldInner}>
+                <TextInput
+                  style={[s.fieldInput, { color: hi }]}
+                  value={password}
+                  onChangeText={t => { setPassword(t); if (error) clearError(); }}
+                  placeholder="Min. 6 characters"
+                  placeholderTextColor={lo}
+                  secureTextEntry={!showPass}
+                  autoCapitalize="none"
+                  onFocus={() => setFocused('password')}
+                  onBlur={() => setFocused(null)}
+                  onSubmitEditing={canSubmit ? handleSignUp : undefined}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPass(v => !v)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={mid} />
                 </TouchableOpacity>
-              )}
-
-              {/* Email */}
-              <View style={s.fieldWrap}>
-                <Text style={[s.fieldLabel, { color: mid }]}>Email</Text>
-                <View style={s.fieldInner}>
-                  <TextInput
-                    style={[s.fieldInput, { color: hi }]}
-                    value={email}
-                    onChangeText={t => { setEmail(t); if (error) clearError(); }}
-                    placeholder="you@example.com"
-                    placeholderTextColor={lo}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    onFocus={() => setFocused('email')}
-                    onBlur={() => setFocused(null)}
-                  />
-                </View>
-                <View style={[s.underlineTrack, { backgroundColor: lo }]}>
-                  <Animated.View style={[s.underlineFill, {
-                    width: emailUnderline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                  }]} />
-                </View>
               </View>
-
-              {/* Password */}
-              <View style={s.fieldWrap}>
-                <Text style={[s.fieldLabel, { color: mid }]}>Password</Text>
-                <View style={s.fieldInner}>
-                  <TextInput
-                    style={[s.fieldInput, { color: hi }]}
-                    value={password}
-                    onChangeText={t => { setPassword(t); if (error) clearError(); }}
-                    placeholder="Min. 6 characters"
-                    placeholderTextColor={lo}
-                    secureTextEntry={!showPass}
-                    autoCapitalize="none"
-                    onFocus={() => setFocused('password')}
-                    onBlur={() => setFocused(null)}
-                  />
-                  <TouchableOpacity
-                    onPress={() => setShowPass(v => !v)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={mid} />
-                  </TouchableOpacity>
-                </View>
-                <View style={[s.underlineTrack, { backgroundColor: lo }]}>
-                  <Animated.View style={[s.underlineFill, {
-                    width: passwordUnderline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                  }]} />
-                </View>
-                {password.length > 0 && password.length < 6 && (
-                  <Text style={s.hint}>At least 6 characters required</Text>
-                )}
+              <View style={[s.underlineTrack, { backgroundColor: lo }]}>
+                <Animated.View style={[s.underlineFill, {
+                  width: passwordUnderline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                }]} />
               </View>
-
-            </Animated.View>
-          )}
-
-          {/* OAuth error banner (shown outside the form block) */}
-          {oauthProfilePending && error && (
-            <TouchableOpacity style={s.errorBanner} onPress={clearError} activeOpacity={0.8}>
-              <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
-              <Text style={s.errorText}>{ERROR_LABELS[error]}</Text>
-            </TouchableOpacity>
-          )}
+            </View>
+          </Animated.View>
 
           <View style={{ flex: 1 }} />
 
-          {/* CTA */}
           <Animated.View style={[s.bottom, { opacity: fade }]}>
             <TouchableOpacity
               style={[s.cta, { opacity: canSubmit ? 1 : 0.35 }]}
@@ -260,116 +210,48 @@ export default function SignUpScreen() {
               onPress={handleSignUp}
             >
               <Text style={s.ctaText}>
-                {isLoading
-                  ? (oauthProfilePending ? 'Setting up…' : 'Creating account…')
-                  : (oauthProfilePending ? 'Complete setup  →' : 'Create account  →')}
-              </Text>
-            </TouchableOpacity>
-
-            {/* OAuth social buttons — hidden when completing an OAuth profile setup */}
-            {!oauthProfilePending && (
-              <>
-                {/* Divider */}
-                <View style={s.dividerRow}>
-                  <View style={[s.dividerLine, { backgroundColor: lo }]} />
-                  <Text style={[s.dividerText, { color: mid }]}>or</Text>
-                  <View style={[s.dividerLine, { backgroundColor: lo }]} />
-                </View>
-
-                {/* Apple */}
-                <TouchableOpacity
-                  style={[s.socialBtn, { backgroundColor: isDark ? '#1C1C1E' : '#000', borderColor: isDark ? '#2A2A32' : '#000', opacity: isLoading ? 0.5 : 1 }]}
-                  activeOpacity={0.8}
-                  disabled={isLoading}
-                  onPress={() => signInWithOAuth('apple')}
-                >
-                  <Ionicons name="logo-apple" size={20} color="#FFF" />
-                  <Text style={[s.socialBtnText, { color: '#FFF' }]}>Continue with Apple</Text>
-                </TouchableOpacity>
-
-                {/* Google */}
-                <TouchableOpacity
-                  style={[s.socialBtn, { backgroundColor: isDark ? '#1C1C1E' : '#FFF', borderColor: isDark ? '#2A2A32' : '#E5E5E5', opacity: isLoading ? 0.5 : 1 }]}
-                  activeOpacity={0.8}
-                  disabled={isLoading}
-                  onPress={() => signInWithOAuth('google')}
-                >
-                  <GoogleLogo size={18} />
-                  <Text style={[s.socialBtnText, { color: hi }]}>Continue with Google</Text>
-                </TouchableOpacity>
-              </>
-            )}
-
-            <Text style={[s.legal, { color: mid }]}>
-              By continuing you agree to our{' '}
-              <Text style={{ color: '#F97316', fontWeight: '600' }}>Terms</Text>
-              {' & '}
-              <Text style={{ color: '#F97316', fontWeight: '600' }}>Privacy Policy</Text>
-            </Text>
-
-            <TouchableOpacity onPress={() => router.push('/auth/login')} activeOpacity={0.7}>
-              <Text style={[s.switchLink, { color: mid }]}>
-                Already have an account?{'  '}
-                <Text style={{ color: '#F97316', fontWeight: '700' }}>Log in</Text>
+                {isLoading ? 'Creating account…' : 'Create account  →'}
               </Text>
             </TouchableOpacity>
           </Animated.View>
 
         </View>
       </ScrollView>
+
+      <Modal visible={isLoading} transparent animationType="fade">
+        <View style={[s.loadingOverlay, { backgroundColor: isDark ? 'rgba(10,11,15,0.94)' : 'rgba(250,250,248,0.94)' }]}>
+          <ActivityIndicator size="large" color="#F97316" />
+          <Text style={[s.loadingText, { color: hi }]}>Creating your account…</Text>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
 
 const s = StyleSheet.create({
-  root:      { flex: 1, paddingHorizontal: 28, gap: 36 },
-  accentBar: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#F97316' },
-
+  root:    { flex: 1, paddingHorizontal: 28, gap: 32 },
+  backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginLeft: -4 },
   headBlock: { gap: 10 },
-  headline:  { fontSize: 38, fontWeight: '900', letterSpacing: -1.5, lineHeight: 44 },
+  headline:  { fontSize: 36, fontWeight: '900', letterSpacing: -1.5, lineHeight: 42 },
   sub:       { fontSize: 15, fontWeight: '400', lineHeight: 22 },
-
-  form:      { gap: 32 },
-  fieldWrap: { gap: 4 },
-  fieldLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 },
+  form:      { gap: 28 },
+  fieldWrap: { gap: 0 },
   fieldInner: { flexDirection: 'row', alignItems: 'center', paddingBottom: 8 },
+  fieldLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 },
   fieldInput: { flex: 1, fontSize: 20, fontWeight: '600', letterSpacing: -0.3 },
-
   underlineTrack: { height: 1.5, overflow: 'hidden' },
   underlineFill:  { height: 1.5, backgroundColor: '#F97316' },
-  hint:           { fontSize: 12, color: '#EF4444', marginTop: 4 },
-
   errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(239,68,68,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.25)',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(239,68,68,0.07)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.2)',
+    borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14,
   },
   errorText: { flex: 1, fontSize: 13, color: '#EF4444', fontWeight: '500' },
-
-  bottom:    { gap: 14 },
-  cta:    {
-    backgroundColor: '#F97316', borderRadius: 14,
-    paddingVertical: 18, alignItems: 'center',
-    shadowColor: '#F97316', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35, shadowRadius: 12, elevation: 8,
+  bottom: { gap: 14 },
+  cta: {
+    backgroundColor: '#F97316', borderRadius: 14, paddingVertical: 18, alignItems: 'center',
   },
-  ctaText:    { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
-  legal:      { fontSize: 12, textAlign: 'center', lineHeight: 18 },
-  switchLink: { fontSize: 13, textAlign: 'center' },
-
-  dividerRow:  { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  dividerLine: { flex: 1, height: 1 },
-  dividerText: { fontSize: 12, fontWeight: '600', letterSpacing: 0.5 },
-
-  socialBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
-    borderRadius: 14, borderWidth: 1, paddingVertical: 16,
-  },
-  socialBtnText: { fontSize: 15, fontWeight: '700', letterSpacing: -0.1 },
+  ctaText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+  loadingOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 },
+  loadingText: { fontSize: 15, fontWeight: '600' },
 });

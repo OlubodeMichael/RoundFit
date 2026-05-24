@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
+import { safeBack } from '@/utils/navigation';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
 
@@ -79,7 +80,7 @@ export default function ForgotPasswordScreen() {
   if (sent) {
     return (
       <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 28 }]}>
-        <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
+        <TouchableOpacity style={s.backBtn} onPress={() => safeBack(router, '/auth/email-login')} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={22} color={hi} />
         </TouchableOpacity>
 
@@ -95,7 +96,7 @@ export default function ForgotPasswordScreen() {
           <TouchableOpacity
             style={[s.cta, { marginTop: 8 }]}
             activeOpacity={0.85}
-            onPress={() => router.back()}
+            onPress={() => safeBack(router, '/auth/email-login')}
           >
             <Text style={s.ctaText}>Back to login  →</Text>
           </TouchableOpacity>
@@ -114,7 +115,7 @@ export default function ForgotPasswordScreen() {
       >
         <View style={[s.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 28 }]}>
 
-          <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
+          <TouchableOpacity style={s.backBtn} onPress={() => safeBack(router, '/auth/email-login')} activeOpacity={0.7}>
             <Ionicons name="chevron-back" size={22} color={hi} />
           </TouchableOpacity>
 

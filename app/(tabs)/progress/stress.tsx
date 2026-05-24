@@ -472,7 +472,7 @@ export default function StressScreen() {
                 <Ionicons name="pulse-outline" size={22} color={P.textFaint} />
                 <Text style={[ss.emptyText, { color: P.textFaint }]}>
                   {stressPoints.length === 1
-                    ? 'One reading so far — check back later'
+                    ? 'One reading so far, check back later'
                     : 'No HRV readings yet today'}
                 </Text>
               </View>

@@ -40,7 +40,7 @@ export default function CycleLengthScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={7} total={12} onBack={() => router.back()} isDark={false} />
+        <ProgressBar step={7} total={12} backHref={{ pathname: '/onboarding/activity', params }} isDark={false} />
       </View>
 
       <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>

@@ -206,7 +206,7 @@ export default function WeightLogScreen() {
                 <View style={[styles.deltaPill, { backgroundColor: P.sunken }]}>
                   <Ionicons name="add-circle-outline" size={13} color={P.textFaint} />
                   <Text style={[styles.deltaText, { color: P.textFaint }]}>
-                    First entry — establishing your baseline
+                    First entry, establishing your baseline
                   </Text>
                 </View>
               )}
@@ -268,7 +268,7 @@ export default function WeightLogScreen() {
         <View style={{ marginTop: 12 }}>
           <AnimatedCard delay={200} padding={14}>
             <Tip icon="time-outline" tint={acc}>
-              Weigh at the same time daily — morning, after restroom, before food or water gives the most consistent reading.
+              Weigh at the same time daily: morning, after restroom, before food or water gives the most consistent reading.
             </Tip>
           </AnimatedCard>
         </View>

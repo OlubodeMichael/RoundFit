@@ -17,6 +17,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
 import { apiFetch } from '@/utils/api';
 import { useToast } from '@/components/ui/Toast';
+import { safeBack } from '@/utils/navigation';
 
 // ── Validation ─────────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ export default function ChangePasswordScreen() {
           <Text style={[s.sub, { color: mid, textAlign: 'center' }]}>
             Your password has been changed successfully.
           </Text>
-          <TouchableOpacity style={[s.cta, { marginTop: 8 }]} activeOpacity={0.85} onPress={() => router.back()}>
+          <TouchableOpacity style={[s.cta, { marginTop: 8 }]} activeOpacity={0.85} onPress={() => safeBack(router, '/(tabs)/profile')}>
             <Text style={s.ctaText}>Done</Text>
           </TouchableOpacity>
         </View>
@@ -144,7 +145,7 @@ export default function ChangePasswordScreen() {
       >
         <View style={[s.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 28 }]}>
 
-          <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
+          <TouchableOpacity style={s.backBtn} onPress={() => safeBack(router, '/(tabs)/profile')} activeOpacity={0.7}>
             <Ionicons name="chevron-back" size={22} color={hi} />
           </TouchableOpacity>
 
