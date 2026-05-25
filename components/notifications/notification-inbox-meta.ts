@@ -15,6 +15,7 @@ export const NOTIFICATION_INBOX_META: Record<NotificationScreenKey, Notification
   workout:  { icon: 'barbell-outline',     iconBg: '#34D399' },
   sleep:    { icon: 'moon-outline',        iconBg: '#818CF8' },
   summary:  { icon: 'stats-chart-outline', iconBg: '#60A5FA' },
+  water:    { icon: 'water-outline',         iconBg: '#0EA5E9' },
 };
 
 export const DEFAULT_NOTIFICATION_META: NotificationMeta = {

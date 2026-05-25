@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  Modal, Pressable, View, Text, TouchableWithoutFeedback,
-  Animated, StyleSheet, PanResponder, Dimensions, Easing,
+  KeyboardAvoidingView, Modal, Platform, Pressable, View, Text,
+  TouchableWithoutFeedback, Animated, StyleSheet, PanResponder,
+  Dimensions, Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/use-theme';
@@ -35,6 +36,8 @@ export interface AppModalProps {
   openAnimation?: 'spring' | 'ease';
   /** Where users can start swipe-to-dismiss gesture. */
   dismissGestureArea?: 'handle' | 'sheet';
+  /** Shifts the sheet when the software keyboard is visible. */
+  keyboardAvoiding?: boolean;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -47,6 +50,7 @@ export function AppModal({
   sheetHeight = 0.55,
   openAnimation = 'ease',
   dismissGestureArea = 'handle',
+  keyboardAvoiding = false,
 }: AppModalProps) {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
@@ -149,6 +153,14 @@ export function AppModal({
   const lo   = isDark ? '#2A2A32' : '#EBEBEB';
   const mid  = isDark ? '#707078' : '#BBBBBB';
 
+  const OverlayRoot = keyboardAvoiding ? KeyboardAvoidingView : View;
+  const overlayRootProps = keyboardAvoiding
+    ? {
+        style: s.overlay,
+        behavior: Platform.OS === 'ios' ? 'padding' as const : 'height' as const,
+      }
+    : { style: s.overlay };
+
   return (
     <Modal
       transparent
@@ -157,7 +169,7 @@ export function AppModal({
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <View style={s.overlay}>
+      <OverlayRoot {...overlayRootProps}>
 
         {/* Backdrop */}
         <TouchableWithoutFeedback onPress={onClose}>
@@ -198,12 +210,14 @@ export function AppModal({
           ) : null}
 
           {/* ── Content ── */}
-          <ModalScrollContext.Provider value={{ onScroll: (y) => { sheetScrollY.current = y; } }}>
-            {children}
-          </ModalScrollContext.Provider>
+          <View style={s.content}>
+            <ModalScrollContext.Provider value={{ onScroll: (y) => { sheetScrollY.current = y; } }}>
+              {children}
+            </ModalScrollContext.Provider>
+          </View>
         </Animated.View>
 
-      </View>
+      </OverlayRoot>
     </Modal>
   );
 }
@@ -273,5 +287,9 @@ const s = StyleSheet.create({
   closeBtnText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+
+  content: {
+    flex: 1,
   },
 });

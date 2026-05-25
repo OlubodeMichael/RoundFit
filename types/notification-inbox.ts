@@ -3,7 +3,8 @@ export type NotificationScreenKey =
   | 'meal'
   | 'workout'
   | 'sleep'
-  | 'summary';
+  | 'summary'
+  | 'water';
 
 export interface InboxNotification {
   id: string;

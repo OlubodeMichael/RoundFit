@@ -51,6 +51,7 @@ module.exports = {
       favicon: "./assets/images/favicon.png",
     },
     plugins: [
+      "@react-native-community/datetimepicker",
       "expo-router",
       "expo-apple-authentication",
       [

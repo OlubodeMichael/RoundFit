@@ -256,9 +256,9 @@ export function ManualMealInputModal({
       </ScrollView>
 
       {/* ── Footer ─────────────────────────────────────────────── */}
-      <View style={[s.footer, { borderTopColor: P.hair, backgroundColor: P.bg }]}>
+      <View style={[s.footer, { borderTopColor: P.hair }]}>
         <TouchableOpacity
-          style={[s.cancelBtn, { backgroundColor: P.sunken }]}
+          style={[s.cancelBtn, { borderColor: P.cardEdge }]}
           onPress={onClose}
           activeOpacity={0.8}
         >
@@ -486,6 +486,7 @@ const s = StyleSheet.create({
     flex:            1,
     height:          52,
     borderRadius:    14,
+    borderWidth:     StyleSheet.hairlineWidth,
     alignItems:      'center',
     justifyContent:  'center',
   },

@@ -308,7 +308,7 @@ export function CheckinModal({ visible, onClose }: Props) {
                       <Animated.View style={[
                         s.sleepCell,
                         active
-                          ? { backgroundColor: isDark ? '#FFFFFF' : '#1C1C1E', borderWidth: 0 }
+                          ? { backgroundColor: O, borderWidth: 0 }
                           : { backgroundColor: P.sunken, borderColor: P.cardEdge, borderWidth: StyleSheet.hairlineWidth },
                         { transform: [{ scale: sleepScales[idx] }] },
                       ]}>
@@ -316,7 +316,7 @@ export function CheckinModal({ visible, onClose }: Props) {
                       </Animated.View>
                       <Text style={[
                         s.sleepCellLabel,
-                        { color: active ? (isDark ? '#FFFFFF' : '#1C1C1E') : P.textFaint },
+                        { color: active ? O : P.textFaint },
                       ]}>
                         {opt.label}
                       </Text>

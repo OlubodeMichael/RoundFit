@@ -5,15 +5,15 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
-
 import { useAuth } from '@/hooks/use-auth';
 import type { InboxNotification } from '@/types/notification-inbox';
 import {
   appendInboxNotification,
   clearInboxNotifications,
+  inboxDedupeId,
   inboxItemFromRequest,
   loadInboxNotifications,
   markAllInboxRead,
@@ -41,6 +41,7 @@ export function NotificationInboxProvider({
   const { status } = useAuth();
   const [items, setItems] = useState<InboxNotification[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  const recordedIdsRef = useRef<Set<string>>(new Set());
 
   const unreadCount = useMemo(
     () => items.filter((item) => !item.read).length,
@@ -49,7 +50,11 @@ export function NotificationInboxProvider({
 
   const recordFromRequest = useCallback(
     async (request: Notifications.NotificationRequest) => {
+      const dedupeId = inboxDedupeId(request);
+      if (recordedIdsRef.current.has(dedupeId)) return;
+
       const item = inboxItemFromRequest(request);
+      recordedIdsRef.current.add(dedupeId);
       const next = await appendInboxNotification(item);
       setItems(next);
     },
@@ -67,6 +72,7 @@ export function NotificationInboxProvider({
     void (async () => {
       const stored = await loadInboxNotifications();
       if (cancelled) return;
+      recordedIdsRef.current = new Set(stored.map((row) => row.id));
       setItems(stored);
       setHydrated(true);
     })();
@@ -91,23 +97,16 @@ export function NotificationInboxProvider({
       },
     );
 
+    void (async () => {
+      const response = await Notifications.getLastNotificationResponseAsync();
+      if (!response) return;
+      await recordFromRequest(response.notification.request);
+    })();
+
     return () => {
       receivedSub.remove();
       responseSub.remove();
     };
-  }, [status, recordFromRequest]);
-
-  useEffect(() => {
-    if (status !== 'authenticated') return;
-
-    const sub = AppState.addEventListener('change', async (next: AppStateStatus) => {
-      if (next !== 'active') return;
-      const response = await Notifications.getLastNotificationResponseAsync();
-      if (!response) return;
-      await recordFromRequest(response.notification.request);
-    });
-
-    return () => sub.remove();
   }, [status, recordFromRequest]);
 
   const markRead = useCallback(async (id: string) => {
@@ -122,6 +121,7 @@ export function NotificationInboxProvider({
 
   const clearAll = useCallback(async () => {
     await clearInboxNotifications();
+    recordedIdsRef.current = new Set();
     setItems([]);
   }, []);
 

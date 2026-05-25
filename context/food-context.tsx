@@ -39,6 +39,15 @@ export interface PhotoPreview {
   fat:     number;
 }
 
+export interface BarcodePreview {
+  name:     string;
+  cals:     number;
+  protein:  number;
+  carbs:    number;
+  fat:      number;
+  imageUrl?: string;
+}
+
 export interface FoodContextValue {
   /** All meals logged for the active date. */
   meals: MealItem[];
@@ -72,6 +81,9 @@ export interface FoodContextValue {
 
   /** Analyzes a base64 photo via AI — returns nutrition preview WITHOUT saving. */
   previewPhoto: (base64Image: string) => Promise<PhotoPreview | null>;
+
+  /** Looks up a barcode — returns nutrition preview WITHOUT saving. */
+  previewBarcode: (barcode: string) => Promise<BarcodePreview | null>;
 
   /** Analyzes a base64 photo via AI, saves the result, and returns the MealItem. */
   analyzePhoto: (base64Image: string) => Promise<MealItem | null>;
@@ -127,6 +139,15 @@ function prettifyMealLabel(raw: string): string {
     .join(' ');
 }
 
+function toApiNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
 function fromApiLog(row: Record<string, unknown>): MealItem {
   const raw = row.logged_at ?? row.created_at;
   const loggedAt = typeof raw === 'string' && raw ? new Date(raw) : null;
@@ -165,10 +186,10 @@ function fromApiLog(row: Record<string, unknown>): MealItem {
     id:       String(row.id ?? ''),
     meal,
     name,
-    cals:     typeof row.calories === 'number' ? row.calories : 0,
-    protein:  typeof row.protein  === 'number' ? row.protein  : undefined,
-    carbs:    typeof row.carbs    === 'number' ? row.carbs    : undefined,
-    fat:      typeof row.fat      === 'number' ? row.fat      : undefined,
+    cals:     toApiNumber(row.calories) ?? 0,
+    protein:  toApiNumber(row.protein),
+    carbs:    toApiNumber(row.carbs),
+    fat:      toApiNumber(row.fat),
     time,
     imageUrl: typeof row.image_url === 'string' ? row.image_url : undefined,
   };
@@ -360,6 +381,16 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     throw new Error('Failed to log meal');
   }, [syncToday, invalidateTodayFoodCache]);
 
+  function previewFromApiRow(row: Record<string, unknown>): PhotoPreview {
+    return {
+      name:    String(row.meal_name ?? ''),
+      cals:    toApiNumber(row.calories) ?? 0,
+      protein: toApiNumber(row.protein) ?? 0,
+      carbs:   toApiNumber(row.carbs) ?? 0,
+      fat:     toApiNumber(row.fat) ?? 0,
+    };
+  }
+
   // ── Preview via photo (analyze only, no DB save) ─────────────────────────
   const previewPhoto = useCallback(async (base64Image: string): Promise<PhotoPreview | null> => {
     const { ok, body } = await apiFetch('/food/photo/preview', {
@@ -372,13 +403,21 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     }
     const d = body.data as Record<string, unknown>;
     if (!d) return null;
-    return {
-      name:    String(d.meal_name ?? ''),
-      cals:    typeof d.calories === 'number' ? d.calories : 0,
-      protein: typeof d.protein  === 'number' ? d.protein  : 0,
-      carbs:   typeof d.carbs    === 'number' ? d.carbs    : 0,
-      fat:     typeof d.fat      === 'number' ? d.fat      : 0,
-    };
+    return previewFromApiRow(d);
+  }, []);
+
+  // ── Preview via barcode (lookup only, no DB save) ────────────────────────
+  const previewBarcode = useCallback(async (barcode: string): Promise<BarcodePreview | null> => {
+    const { ok, body } = await apiFetch('/food/barcode/preview', {
+      method: 'POST',
+      body:   JSON.stringify({ barcode }),
+    });
+    if (!ok) return null;
+    const d = body.data as Record<string, unknown>;
+    if (!d) return null;
+    const base = previewFromApiRow(d);
+    const imageUrl = typeof d.image_url === 'string' ? d.image_url : undefined;
+    return { ...base, imageUrl };
   }, []);
 
   // ── Analyze via photo ────────────────────────────────────────────────────
@@ -505,7 +544,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     <FoodContext.Provider value={{
       meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
       remaining, activeDate, isLoading,
-      addMeal, previewPhoto, analyzePhoto, logBarcode, deleteMeal, refreshLogs, fetchForDate,
+      addMeal, previewPhoto, previewBarcode, analyzePhoto, logBarcode, deleteMeal, refreshLogs, fetchForDate,
     }}>
       {children}
     </FoodContext.Provider>

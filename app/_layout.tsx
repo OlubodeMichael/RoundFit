@@ -47,6 +47,7 @@ import { ProfileProvider } from "@/context/profile-context";
 import { RecoveryProvider } from "@/context/recovery-context";
 import { SummaryProvider } from "@/context/summary-context";
 import { ThemeProvider } from "@/context/theme-context";
+import { WaterProvider } from "@/context/water-context";
 import { WeightProvider } from "@/context/weight-context";
 import { WorkoutProvider } from "@/context/workout-context";
 import { useAuth } from "@/hooks/use-auth";
@@ -188,6 +189,7 @@ export default function RootLayout() {
                   <WorkoutProvider>
                     <CycleProvider>
                       <WeightProvider>
+                        <WaterProvider>
                         <HealthProvider>
                           <CheckinProvider>
                             <SummaryProvider>
@@ -203,6 +205,7 @@ export default function RootLayout() {
                             </SummaryProvider>
                           </CheckinProvider>
                         </HealthProvider>
+                        </WaterProvider>
                       </WeightProvider>
                     </CycleProvider>
                   </WorkoutProvider>

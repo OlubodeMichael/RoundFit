@@ -15,6 +15,7 @@ import { AnimatedCard, usePalette, useScreenPadding } from '@/lib/log-theme';
 import { SectionCard } from '@/components/log/SectionCard';
 import { useToast } from '@/components/ui/Toast';
 import { useWeight } from '@/hooks/use-weight';
+import { useWater } from '@/hooks/use-water';
 import { useProfile } from '@/hooks/use-profile';
 import { useUnits } from '@/hooks/use-units';
 import { useHealth } from '@/hooks/use-health';
@@ -46,6 +47,7 @@ export default function DailyLogScreen() {
   const { meals, mealGoal, totalCalories, refreshLogs, activeDate } = useFood();
   const { workouts, totalCaloriesBurned: workoutCalsBurned } = useWorkouts();
   const { latest } = useWeight();
+  const { totalMl, goalMl, refresh: refreshWater } = useWater();
   const { profile } = useProfile();
   const { weightUnit, toDisplayWeight } = useUnits();
   const health   = useHealth();
@@ -66,7 +68,7 @@ export default function DailyLogScreen() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    try { await refreshLogs(); }
+    try { await Promise.all([refreshLogs(), refreshWater()]); }
     catch { toast.error('Could not refresh', 'Please try again.'); }
     finally { setRefreshing(false); }
   };
@@ -106,6 +108,13 @@ export default function DailyLogScreen() {
       value:  latestWeight === null ? '—' : latestWeight.toFixed(1),
       unit:   weightUnit,
       accent: P.weight,
+    },
+    {
+      key:    'water',
+      emoji:  '💧',
+      value:  totalMl > 0 ? String(totalMl) : '0',
+      unit:   'ml',
+      accent: P.water,
     },
   ];
 
@@ -264,6 +273,24 @@ export default function DailyLogScreen() {
                 : 'Latest recorded · tap to update'
             }
             onPress={() => router.push('/(tabs)/log/weight')}
+          />
+
+          <SectionCard
+            delay={340}
+            accent={P.water}
+            accentSoft={P.waterSoft}
+            emoji="💧"
+            title="Water"
+            eyebrow="HYDRATION"
+            valueBig={totalMl > 0 ? String(totalMl) : 'Log'}
+            valueSmall="ml"
+            caption={
+              totalMl === 0
+                ? 'Not logged · tap to add'
+                : `${Math.round((totalMl / Math.max(goalMl, 1)) * 100)}% of daily goal`
+            }
+            progress={totalMl > 0 ? Math.min(totalMl / Math.max(goalMl, 1), 1) : undefined}
+            onPress={() => router.push('/(tabs)/log/water')}
           />
         </View>
       </ScrollView>

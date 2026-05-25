@@ -13,6 +13,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,7 +21,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
 import { useRouter } from 'expo-router';
-import { useFood, type MealItem } from '@/hooks/use-food';
+import { useFood, type BarcodePreview, type MealItem } from '@/hooks/use-food';
+import { BarcodeScanPreview } from '@/components/log/BarcodeScanPreview';
+import { AppModal } from '@/components/ui/AppModal';
 import { ManualMealInputModal, type MealLabel, type ManualMealInput } from '@/components/log/ManualMealInputModal';
 import { PhotoAnalysisModal } from '@/components/log/PhotoAnalysisModal';
 import { persistCameraPhoto, prunePhotoCache } from '@/utils/photo-cache';
@@ -33,6 +36,7 @@ type CameraRefLike = {
   takePictureAsync: (opts?: { quality?: number; skipProcessing?: boolean; base64?: boolean }) => Promise<{ uri?: string; base64?: string }>;
 };
 type BarcodeResult = { type: string; data: string };
+type PendingBarcode = { code: string; preview: BarcodePreview };
 
 const EXPO_CAMERA_NATIVE = 'ExpoCamera';
 const FOOD_BARCODE_TYPES = ['ean13', 'ean8', 'upc_a', 'upc_e', 'qr', 'code128', 'code39'];
@@ -122,7 +126,7 @@ export default function FoodLogScreen() {
   const router  = useRouter();
   const {
     meals, mealGoal, totalCalories, remaining,
-    addMeal, logBarcode, deleteMeal, refreshLogs, activeDate,
+    addMeal, previewBarcode, logBarcode, deleteMeal, refreshLogs, activeDate,
   } = useFood();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
@@ -184,7 +188,10 @@ export default function FoodLogScreen() {
   const [manualVisible, setManualVisible] = useState(false);
   const [manualPreset, setManualPreset]   = useState<MealLabel | undefined>(undefined);
   const [pendingPhoto, setPendingPhoto]   = useState<{ uri: string; base64: string } | null>(null);
-  const [barcodeLoading, setBarcodeLoading] = useState(false);
+  const [barcodeAdding, setBarcodeAdding] = useState(false);
+  const [pendingBarcode, setPendingBarcode] = useState<PendingBarcode | null>(null);
+  const [scanLookupLoading, setScanLookupLoading] = useState(false);
+  const [scanLookupError, setScanLookupError] = useState<string | null>(null);
   const [flash, setFlash] = useState<'off' | 'on' | 'auto'>('off');
 
   useEffect(() => {
@@ -259,8 +266,11 @@ export default function FoodLogScreen() {
   const openScan = async () => {
     const ok = await ensureCameraPermission();
     if (!ok) return;
+    setPendingBarcode(null);
     scanLock.current = false;
     setScanned(null);
+    setScanLookupError(null);
+    setScanLookupLoading(false);
     setCameraMode('scan');
     setTimeout(startScanLine, 300);
   };
@@ -273,8 +283,41 @@ export default function FoodLogScreen() {
   const resetScan = () => {
     scanLock.current = false;
     setScanned(null);
+    setScanLookupError(null);
+    setScanLookupLoading(false);
     startScanLine();
   };
+
+  useEffect(() => {
+    if (!scanned || cameraMode !== 'scan') return;
+
+    let cancelled = false;
+    setScanLookupError(null);
+    setScanLookupLoading(true);
+
+    void previewBarcode(scanned.data)
+      .then((preview) => {
+        if (cancelled) return;
+        setScanLookupLoading(false);
+        if (!preview) {
+          setScanLookupError('Product not found in database.');
+          return;
+        }
+        setPendingBarcode({ code: scanned.data, preview });
+        stopScanLine();
+        setScanned(null);
+        scanLock.current = false;
+        setCameraMode(null);
+        setFlash('off');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setScanLookupLoading(false);
+        setScanLookupError('Could not look up this product.');
+      });
+
+    return () => { cancelled = true; };
+  }, [scanned, cameraMode, previewBarcode]);
   const capturePhoto = async () => {
     try {
       const photo = await cameraRef.current?.takePictureAsync({ quality: 0.8, skipProcessing: true, base64: true });
@@ -290,9 +333,34 @@ export default function FoodLogScreen() {
   const closeCamera = () => {
     stopScanLine();
     setScanned(null);
+    setScanLookupError(null);
+    setScanLookupLoading(false);
     scanLock.current = false;
     setCameraMode(null);
     setFlash('off');
+  };
+
+  const closeBarcodeConfirm = () => {
+    setPendingBarcode(null);
+  };
+
+  const handleBarcodeAdd = async () => {
+    if (!pendingBarcode) return;
+    setBarcodeAdding(true);
+    try {
+      await logBarcode(pendingBarcode.code);
+      setPendingBarcode(null);
+      toast.success('Food logged', pendingBarcode.preview.name);
+    } catch {
+      toast.error('Lookup failed', 'Could not add this product.');
+    } finally {
+      setBarcodeAdding(false);
+    }
+  };
+
+  const handleBarcodeScanAgain = () => {
+    setPendingBarcode(null);
+    void openScan();
   };
   const cycleFlash = () => setFlash((f) => f === 'off' ? 'on' : f === 'on' ? 'auto' : 'off');
   const scanLineY = scanLineAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 220] });
@@ -527,37 +595,21 @@ export default function FoodLogScreen() {
           {cameraMode === 'scan' && (
             <View style={[cameraStyles.scanBottom, { paddingBottom: insets.bottom + 24 }]}>
               {scanned ? (
-                <>
-                  <View style={cameraStyles.resultCard}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={cameraStyles.resultType}>{scanned.type.toUpperCase()}</Text>
-                      <Text style={cameraStyles.resultCode} numberOfLines={1}>{scanned.data}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={[cameraStyles.addBtn, barcodeLoading && { opacity: 0.6 }]}
-                      disabled={barcodeLoading}
-                      onPress={async () => {
-                        if (!scanned) return;
-                        setBarcodeLoading(true);
-                        try {
-                          await logBarcode(scanned.data);
-                          closeCamera();
-                          toast.success('Food logged', 'Added from barcode');
-                        } catch {
-                          toast.error('Lookup failed', 'Could not find this product.');
-                        } finally {
-                          setBarcodeLoading(false);
-                        }
-                      }}
-                    >
-                      <Ionicons name={barcodeLoading ? 'hourglass-outline' : 'add'} size={18} color="#FFF" />
-                      <Text style={cameraStyles.addBtnText}>{barcodeLoading ? 'Looking up…' : 'Add food'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <TouchableOpacity style={cameraStyles.againBtn} onPress={resetScan}>
-                    <Text style={cameraStyles.againText}>Scan again</Text>
-                  </TouchableOpacity>
-                </>
+                <View style={cameraStyles.lookupCard}>
+                  {scanLookupLoading ? (
+                    <>
+                      <ActivityIndicator color="#FF7849" />
+                      <Text style={cameraStyles.lookupText}>Looking up product…</Text>
+                    </>
+                  ) : scanLookupError ? (
+                    <>
+                      <Text style={cameraStyles.lookupError}>{scanLookupError}</Text>
+                      <TouchableOpacity style={cameraStyles.againBtn} onPress={resetScan}>
+                        <Text style={cameraStyles.againText}>Scan again</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : null}
+                </View>
               ) : (
                 <View style={cameraStyles.hint}>
                   <Ionicons name="barcode-outline" size={18} color="rgba(255,255,255,0.7)" />
@@ -586,6 +638,28 @@ export default function FoodLogScreen() {
           onRetry={() => { void openPhoto(); }}
         />
       )}
+
+      <AppModal
+        visible={pendingBarcode != null}
+        onClose={closeBarcodeConfirm}
+        sheetHeight={0.42}
+      >
+        <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8 }}>
+          <Text style={[styles.barcodeSheetEyebrow, { color: P.calories }]}>BARCODE</Text>
+          <Text style={[styles.barcodeSheetTitle, { color: P.text }]}>Add to log?</Text>
+          {pendingBarcode && (
+            <BarcodeScanPreview
+              variant="sheet"
+              preview={pendingBarcode.preview}
+              loading={false}
+              error={null}
+              adding={barcodeAdding}
+              onAdd={handleBarcodeAdd}
+              onScanAgain={handleBarcodeScanAgain}
+            />
+          )}
+        </View>
+      </AppModal>
 
       {/* ── EDIT MODAL ───────────────────────────────────────── */}
       {editItem && (
@@ -1106,6 +1180,20 @@ const styles = StyleSheet.create({
   emptyCtaText: {
     color: '#fff', fontSize: 13, fontWeight: '800', letterSpacing: 0.1,
   },
+
+  barcodeSheetEyebrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+    marginBottom: 4,
+  },
+  barcodeSheetTitle: {
+    fontFamily: 'Syne_700Bold',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    marginBottom: 16,
+  },
 });
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -1167,16 +1255,26 @@ const cameraStyles = StyleSheet.create({
   hint:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12 },
   hintText:   { color: 'rgba(255,255,255,0.75)', fontSize: 14, fontWeight: '500' },
 
-  resultCard: {
-    flexDirection: 'row', alignItems: 'center',
+  lookupCard: {
+    alignItems: 'center',
+    gap: 10,
     backgroundColor: 'rgba(15,15,15,0.92)',
-    borderRadius: 16, padding: 16, gap: 14,
-    borderWidth: 1, borderColor: 'rgba(255,120,73,0.4)',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,120,73,0.35)',
   },
-  resultType: { fontSize: 10, fontWeight: '700', color: '#FF7849', letterSpacing: 1, marginBottom: 3 },
-  resultCode: { fontSize: 15, fontWeight: '700', color: '#FFF' },
-  addBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FF7849', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12 },
-  addBtnText: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  lookupText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  lookupError: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   againBtn:   { alignItems: 'center', paddingVertical: 6 },
   againText:  { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600' },
 });

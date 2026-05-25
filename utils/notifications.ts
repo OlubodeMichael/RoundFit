@@ -33,6 +33,10 @@ const REMINDER_CONTENT: Record<string, { title: string; body: string }> = {
     title: 'Day recap 📊',
     body:  'Check your daily progress before wrapping up.',
   },
+  water: {
+    title: 'Stay hydrated 💧',
+    body:  'Time for a glass of water — log it in RoundFit.',
+  },
 };
 
 const MEAL_CONTENT: Record<number, { title: string; body: string }> = {
@@ -92,6 +96,19 @@ function to24h(hour: number, period: 'AM' | 'PM'): number {
 
 // ── Schedule / Cancel ──────────────────────────────────────────────────────
 
+async function cancelOrphanRemindersForScreen(screen: string, keepId: string): Promise<void> {
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  await Promise.all(
+    scheduled
+      .filter((req) => {
+        if (req.identifier === keepId) return false;
+        const data = req.content.data as Record<string, unknown> | undefined;
+        return data?.screen === screen;
+      })
+      .map((req) => Notifications.cancelScheduledNotificationAsync(req.identifier)),
+  );
+}
+
 export async function scheduleReminder(
   id:     string,
   hour:   number,
@@ -102,6 +119,7 @@ export async function scheduleReminder(
   if (!content) return;
 
   await cancelReminder(id);
+  await cancelOrphanRemindersForScreen(id, id);
 
   await Notifications.scheduleNotificationAsync({
     identifier: id,

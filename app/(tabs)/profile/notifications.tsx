@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppModal } from "@/components/ui/AppModal";
+import { PICKER_H, WheelTimePicker } from "@/components/ui/WheelTimePicker";
 import { useNotificationInbox } from "@/hooks/use-notification-inbox";
 import { useNotifications } from "@/hooks/use-notifications";
 import { useTheme } from "@/hooks/use-theme";
@@ -124,6 +125,16 @@ const REMINDERS: Reminder[] = [
     hour:   8,
     minute: 0,
     period: "PM",
+  },
+  {
+    id:     "water",
+    label:  "Water Reminder",
+    sub:    "Stay hydrated with a daily nudge to hit your water intake goal.",
+    icon:   "water-outline",
+    iconBg: "#0EA5E9",
+    hour:   9,
+    minute: 0,
+    period: "AM",
   },
 ];
 
@@ -418,53 +429,17 @@ export default function NotificationsScreen() {
         visible={pickerTarget !== null}
         onClose={() => setPickerTarget(null)}
         title={pickerTitle}
-        sheetHeight={0.46}
+        sheetHeight={0.56}
       >
         <View style={s.sheetBody}>
-          {/* Large time display */}
-          <View style={[s.timeDisplay, { backgroundColor: P.sunken, borderColor: P.edge }]}>
-            <Text style={[s.timeBig, { color: P.hi }]}>
-              {String(draft.hour).padStart(2, "0")}
-              <Text style={{ color: P.faint }}>:</Text>
-              {String(draft.minute).padStart(2, "0")}
-            </Text>
-            <Text style={[s.timePeriod, { color: P.accent }]}>{draft.period}</Text>
-          </View>
-
-          {/* Drum controls */}
-          <View style={s.controls}>
-            <DrumControl
-              label="HOUR"
-              value={String(draft.hour).padStart(2, "0")}
-              onDec={() => setDraft((d) => ({ ...d, hour: ((d.hour - 2 + 12) % 12) + 1 }))}
-              onInc={() => setDraft((d) => ({ ...d, hour: (d.hour % 12) + 1 }))}
-              P={P}
+          <View style={s.wheelWrap}>
+            <WheelTimePicker
+              key={pickerTarget ? `${pickerTarget.id}-${pickerTarget.mealIndex ?? 0}` : "none"}
+              value={draft}
+              onChange={setDraft}
+              isDark={P.isDark}
+              accentColor={P.accent}
             />
-            <Text style={[s.drumColon, { color: P.faint }]}>:</Text>
-            <DrumControl
-              label="MIN"
-              value={String(draft.minute).padStart(2, "0")}
-              onDec={() => setDraft((d) => ({ ...d, minute: (Math.round(d.minute / 5) * 5 - 5 + 60) % 60 }))}
-              onInc={() => setDraft((d) => ({ ...d, minute: (Math.round(d.minute / 5) * 5 + 5) % 60 }))}
-              P={P}
-            />
-            <View style={s.drumCol}>
-              <Text style={[s.drumLabel, { color: P.mid }]}>PERIOD</Text>
-              <View style={[s.periodWrap, { borderColor: P.edge, backgroundColor: P.sunken }]}>
-                {(["AM", "PM"] as const).map((p) => (
-                  <TouchableOpacity
-                    key={p}
-                    onPress={() => setDraft((d) => ({ ...d, period: p }))}
-                    activeOpacity={0.7}
-                    style={[s.periodBtn, draft.period === p && { backgroundColor: P.accent }]}
-                  >
-                    <Text style={[s.periodText, { color: draft.period === p ? "#FFF" : P.mid }]}>
-                      {p}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
           </View>
 
           <TouchableOpacity
@@ -620,42 +595,6 @@ function MealCard({
   );
 }
 
-// ── DrumControl ────────────────────────────────────────────────────────────
-
-function DrumControl({
-  label, value, onDec, onInc, P,
-}: {
-  label:  string;
-  value:  string;
-  onDec:  () => void;
-  onInc:  () => void;
-  P:      P;
-}) {
-  return (
-    <View style={s.drumCol}>
-      <Text style={[s.drumLabel, { color: P.mid }]}>{label}</Text>
-      <View style={s.drumRow}>
-        <TouchableOpacity
-          onPress={onDec}
-          style={[s.drumBtn, { backgroundColor: P.sunken, borderColor: P.edge }]}
-          activeOpacity={0.6}
-          hitSlop={8}
-        >
-          <Text style={[s.drumBtnText, { color: P.mid }]}>-</Text>
-        </TouchableOpacity>
-        <Text style={[s.drumVal, { color: P.hi }]}>{value}</Text>
-        <TouchableOpacity
-          onPress={onInc}
-          style={[s.drumBtn, { backgroundColor: P.sunken, borderColor: P.edge }]}
-          activeOpacity={0.6}
-          hitSlop={8}
-        >
-          <Text style={[s.drumBtnText, { color: P.mid }]}>+</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 
@@ -784,73 +723,14 @@ const s = StyleSheet.create({
   noteText: { flex: 1, fontSize: 12, lineHeight: 17 },
 
   // Sheet
-  sheetBody: { paddingHorizontal: 24, paddingTop: 8, gap: 24 },
-  timeDisplay: {
-    flexDirection:  "row",
-    alignItems:     "baseline",
-    justifyContent: "center",
-    gap:            10,
-    borderRadius:   16,
-    borderWidth:    1,
-    paddingVertical: 18,
-  },
-  timeBig: {
-    fontFamily:          "Syne_700Bold",
-    fontSize:            52,
-    letterSpacing:       -2,
-    includeFontPadding:  false,
-  },
-  timePeriod: {
-    fontFamily:    "Syne_700Bold",
-    fontSize:      20,
-    letterSpacing: -0.5,
-    marginBottom:  4,
-  },
-  controls: {
-    flexDirection:  "row",
-    alignItems:     "center",
-    justifyContent: "center",
-    gap:            16,
-  },
-  drumCol:   { alignItems: "center", gap: 8 },
-  drumLabel: { fontSize: 9, fontWeight: "700", letterSpacing: 1.4 },
-  drumRow:   { flexDirection: "row", alignItems: "center", gap: 10 },
-  drumBtn: {
-    width:          36,
-    height:         36,
-    borderRadius:   10,
-    borderWidth:    1,
+  sheetBody:   { paddingHorizontal: 20, paddingTop: 8, gap: 20 },
+  wheelWrap: {
+    width:          "100%",
+    height:         PICKER_H,
     alignItems:     "center",
     justifyContent: "center",
   },
-  drumBtnText: { fontSize: 18, fontWeight: "700", lineHeight: 20 },
-  drumVal: {
-    fontFamily:         "Syne_700Bold",
-    fontSize:           24,
-    letterSpacing:      -0.5,
-    minWidth:           36,
-    textAlign:          "center",
-    includeFontPadding: false,
-  },
-  drumColon: {
-    fontFamily:         "Syne_700Bold",
-    fontSize:           24,
-    marginBottom:       22,
-    includeFontPadding: false,
-  },
-  periodWrap: {
-    borderRadius:  10,
-    borderWidth:   1,
-    overflow:      "hidden",
-    flexDirection: "column",
-  },
-  periodBtn: {
-    paddingHorizontal: 14,
-    paddingVertical:   8,
-    alignItems:        "center",
-  },
-  periodText:  { fontSize: 11, fontWeight: "700", letterSpacing: 0.5 },
-  confirmBtn:  { borderRadius: 14, paddingVertical: 15, alignItems: "center" },
+  confirmBtn:  { borderRadius: 14, paddingVertical: 16, alignItems: "center" },
   confirmText: { color: "#FFF", fontSize: 15, fontWeight: "700", letterSpacing: 0.2 },
   inboxLink: {
     flexDirection:     "row",
