@@ -5,18 +5,13 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
-import { syncTodayAfterMutation } from '@/utils/today-sync';
+import { notifyTodayDataChanged } from '@/utils/today-sync';
 import { applyTodayOptimistic } from '@/utils/today-optimistic';
-import {
-  getCachedWorkouts,
-  invalidateWorkoutToday,
-  setCachedWorkouts,
-} from '@/utils/workout-date-cache';
+import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
 import {
   buildResourceKey,
   fetchWithResourceCache,
   getResourceCached,
-  invalidateResourceCache,
   ttlForDate,
 } from '@/utils/resource-cache';
 
@@ -110,7 +105,7 @@ export interface WorkoutContextValue {
   logSets:             (workoutId: string, sets: LogSetInput[]) => Promise<WorkoutSet[]>;
   deleteWorkout:       (id: string) => Promise<void>;
   refreshWorkouts:     (date?: string) => Promise<void>;
-  fetchForDate:        (date: string) => Promise<Workout[]>;
+  fetchForDate:        (date: string, force?: boolean) => Promise<Workout[]>;
 }
 
 
@@ -166,6 +161,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [isLoading,  setIsLoading]  = useState(true);
   const [activeDate, setActiveDate] = useState(todayDateString);
   const appStateRef = useRef(AppState.currentState);
+  const lastForegroundFetchRef = useRef(0);
 
   const totalCaloriesBurned = useMemo(
     () => workouts.reduce((sum, w) => sum + w.calories_burned, 0),
@@ -173,24 +169,12 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   );
 
   const syncToday = useCallback(async () => {
-    await syncTodayAfterMutation(user?.id);
-  }, [user?.id]);
-
-  const invalidateWorkoutCache = useCallback(async (date: string) => {
-    if (!user?.id) return;
-    invalidateWorkoutToday();
-    await invalidateResourceCache(buildResourceKey('workouts', user.id, date));
+    await notifyTodayDataChanged(user?.id, 'workout');
   }, [user?.id]);
 
   // ── Fetch workouts ──────────────────────────────────────────────────────
   const fetchWorkouts = useCallback(async (date: string, force = false) => {
     if (!user?.id) return;
-
-    const memCached = !force && getCachedWorkouts(date);
-    if (memCached) {
-      setWorkouts(memCached);
-      return;
-    }
 
     const isToday = date === todayDateString();
     const path    = isToday ? '/workouts/today' : `/workouts/${date}`;
@@ -210,10 +194,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       { force },
     );
 
-    if (parsed) {
-      setWorkouts(parsed);
-      setCachedWorkouts(date, parsed);
-    }
+    if (parsed) setWorkouts(parsed);
   }, [user?.id]);
 
   useEffect(() => {
@@ -230,9 +211,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       const key = buildResourceKey('workouts', user.id, activeDate);
       const cached = await getResourceCached<Workout[]>(key);
-      const memCached = getCachedWorkouts(activeDate);
-      if ((cached || memCached) && !cancelled) {
-        setWorkouts(cached?.data ?? memCached ?? []);
+      if (cached && !cancelled) {
+        setWorkouts(cached.data);
         setIsLoading(false);
       } else if (!cancelled) {
         setIsLoading(true);
@@ -248,24 +228,30 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [status, user?.id, activeDate, fetchWorkouts]);
 
-  // ── Reset to today when app returns to foreground on a new day ─────────
+  // ── Foreground: roll date or refresh stale today workouts ───────────────
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       const prev = appStateRef.current;
       appStateRef.current = next;
-      if (prev.match(/inactive|background/) && next === 'active') {
-        const today = todayDateString();
-        setActiveDate((cur) => {
-          if (cur !== today) {
-            void fetchWorkouts(today);
-            return today;
-          }
-          return cur;
-        });
+      if (!prev.match(/inactive|background/) || next !== 'active') return;
+
+      const today = todayDateString();
+      const dayRolled = activeDate !== today;
+      if (
+        !shouldRefetchOnForeground({
+          lastFetchAt: lastForegroundFetchRef.current,
+          dayRolled,
+        })
+      ) {
+        return;
       }
+
+      lastForegroundFetchRef.current = Date.now();
+      setActiveDate((cur) => (cur !== today ? today : cur));
+      void fetchWorkouts(today, dayRolled);
     });
     return () => sub.remove();
-  }, [fetchWorkouts]);
+  }, [activeDate, fetchWorkouts]);
 
   // ── Log workout ──────────────────────────────────────────────────────────
   const logWorkout = useCallback(async (input: LogWorkoutInput): Promise<Workout> => {
@@ -277,10 +263,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     const saved = fromApiWorkout(body.workout as Record<string, unknown>);
     setWorkouts((prev) => [saved, ...prev]);
     applyTodayOptimistic({ caloriesBurned: saved.calories_burned });
-    void invalidateWorkoutCache(todayDateString());
     void syncToday();
     return saved;
-  }, [syncToday, invalidateWorkoutCache]);
+  }, [syncToday]);
 
   // ── Log sets ─────────────────────────────────────────────────────────────
   const logSets = useCallback(async (workoutId: string, sets: LogSetInput[]): Promise<WorkoutSet[]> => {
@@ -319,9 +304,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       }
       throw new Error((body.error as string) ?? 'Failed to delete workout');
     }
-    void invalidateWorkoutCache(todayDateString());
     void syncToday();
-  }, [workouts, syncToday, invalidateWorkoutCache]);
+  }, [workouts, syncToday]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refreshWorkouts = useCallback(async (date?: string) => {
@@ -331,10 +315,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   }, [fetchWorkouts]);
 
   // ── Fetch for any date without touching context state ─────────────────────
-  const fetchForDate = useCallback(async (date: string): Promise<Workout[]> => {
-    const memCached = getCachedWorkouts(date);
-    if (memCached) return memCached;
-
+  const fetchForDate = useCallback(async (date: string, force = false): Promise<Workout[]> => {
     if (!user?.id) return [];
 
     const today = todayDateString();
@@ -352,13 +333,10 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
           : [];
         return rows.map(fromApiWorkout);
       },
+      { force },
     );
 
-    if (parsed) {
-      setCachedWorkouts(date, parsed);
-      return parsed;
-    }
-    return [];
+    return parsed ?? [];
   }, [user?.id]);
 
   return (

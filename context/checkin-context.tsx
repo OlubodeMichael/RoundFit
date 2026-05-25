@@ -5,7 +5,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
-import { syncTodayAfterMutation } from '@/utils/today-sync';
+import { notifyTodayDataChanged } from '@/utils/today-sync';
 import {
   hasCheckedInToday as storageHasCheckedInToday,
   markCheckedInToday,
@@ -353,7 +353,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
       await invalidateResourceCache(
         buildResourceKey('checkin-today', user.id, dateStr),
       );
-      void syncTodayAfterMutation(user.id);
+      void notifyTodayDataChanged(user.id, 'checkin');
     }
 
     return { checkin, insight };
@@ -383,7 +383,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
       await invalidateResourceCache(
         buildResourceKey('checkin-today', user.id, getLocalDateString()),
       );
-      void syncTodayAfterMutation(user.id);
+      void notifyTodayDataChanged(user.id, 'checkin');
     }
 
     return checkin;

@@ -1,5 +1,5 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useMemo, useState, Fragment } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import {
   Platform, Pressable, ScrollView, StyleSheet, Text,
   TouchableOpacity, View,
@@ -105,15 +105,26 @@ export default function WaterLogScreen() {
 
   const acc = P.water;
 
+  const dateKey = localDateKey(selectedDate);
+  const dateKeyRef = useRef(dateKey);
+  dateKeyRef.current = dateKey;
+
+  // Re-entering the screen (same date) — cache-first, no force.
   useFocusEffect(
-    useCallback(() => { void refresh(localDateKey(selectedDate)); }, [refresh, selectedDate]),
+    useCallback(() => {
+      void refresh(dateKeyRef.current, { force: false });
+    }, [refresh]),
   );
+
+  // Date strip changed while this screen is open.
+  useEffect(() => {
+    void refresh(dateKey, { force: false });
+  }, [dateKey, refresh]);
 
   const navigate = (dir: -1 | 1) => {
     const next = offsetDate(selectedDate, dir);
     if (next > new Date()) return;
     setSelectedDate(next);
-    void refresh(localDateKey(next));
   };
 
   // Derived values

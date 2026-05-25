@@ -4,7 +4,9 @@ import React, {
 import { AppState, type AppStateStatus } from 'react-native';
 import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { getLocalDateString } from '@/utils/date';
-import { TTL_COLD_START_MS, TTL_FOREGROUND_SKIP_MS } from '@/utils/daily-summary-cache';
+import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
+import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
+import { shouldRefetchEngineAfterMutation } from '@/utils/cache-invalidation';
 import { apiFetch } from '@/utils/api';
 import {
   buildResourceKey,
@@ -180,13 +182,7 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(true);
       }
 
-      try {
-        lastFetchDateRef.current = today;
-        lastForegroundFetchRef.current = Date.now();
-        await Promise.all([fetchDaily(false), fetchPatterns(false)]);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
+      if (!cancelled) setIsLoading(false);
     })();
 
     return () => { cancelled = true; };
@@ -200,8 +196,14 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
       if (prev.match(/inactive|background/) && next === 'active') {
         const today = getLocalDateString();
         const dayRolled = lastFetchDateRef.current !== today;
-        const stale = Date.now() - lastForegroundFetchRef.current > TTL_FOREGROUND_SKIP_MS;
-        if (!dayRolled && !stale) return;
+        if (
+          !shouldRefetchOnForeground({
+            lastFetchAt: lastForegroundFetchRef.current,
+            dayRolled,
+          })
+        ) {
+          return;
+        }
 
         lastFetchDateRef.current = today;
         lastForegroundFetchRef.current = Date.now();
@@ -216,8 +218,8 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
   }, [fetchDaily, fetchPatterns]);
 
   useEffect(() => {
-    return registerTodayDataSyncListener(async () => {
-      if (!user?.id) return;
+    return registerTodayDataSyncListener(async ({ domain }) => {
+      if (!user?.id || !shouldRefetchEngineAfterMutation(domain)) return;
       await invalidateResourceCache(
         buildResourceKey('engine-daily', user.id, getLocalDateString()),
       );

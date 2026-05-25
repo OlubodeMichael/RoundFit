@@ -9,7 +9,6 @@ import {
   fetchDailySummaryBundle,
   getCachedSummary,
   TTL_COLD_START_MS,
-  TTL_FOREGROUND_SKIP_MS,
 } from '@/utils/daily-summary-cache';
 import {
   buildResourceKey,
@@ -17,11 +16,13 @@ import {
   getResourceCached,
 } from '@/utils/resource-cache';
 import { getWeekStart } from '@/utils/insights-aggregator';
+import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
 import {
   registerTodayDataSyncListener,
   registerTodayTargetsListener,
-  syncTodayAfterMutation,
+  notifyTodayDataChanged,
 } from '@/utils/today-sync';
+import { shouldRefetchSummaryAfterMutation } from '@/utils/cache-invalidation';
 import {
   registerTodayOptimisticListener,
   type TodayDataDelta,
@@ -252,9 +253,14 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
 
       const today = todayDateString();
       const dayRolled = lastFetchDateRef.current !== today;
-      const stale = Date.now() - lastForegroundFetchRef.current > TTL_FOREGROUND_SKIP_MS;
-
-      if (!dayRolled && !stale) return;
+      if (
+        !shouldRefetchOnForeground({
+          lastFetchAt: lastForegroundFetchRef.current,
+          dayRolled,
+        })
+      ) {
+        return;
+      }
 
       lastFetchDateRef.current = today;
       lastForegroundFetchRef.current = Date.now();
@@ -267,10 +273,12 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
   }, [status, user?.id, loadTodayDaily, fetchWeekly]);
 
   useEffect(() => {
-    return registerTodayDataSyncListener(async () => {
-      if (!user?.id) return;
+    return registerTodayDataSyncListener(async ({ domain }) => {
+      if (!user?.id || !shouldRefetchSummaryAfterMutation(domain)) return;
       await loadTodayDaily(true);
-      await fetchWeekly(true);
+      if (domain === 'full') {
+        await fetchWeekly(true);
+      }
     });
   }, [user?.id, loadTodayDaily, fetchWeekly]);
 
@@ -391,14 +399,14 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Failed to update water intake');
     }
 
-    if (user?.id) void syncTodayAfterMutation(user.id);
+    if (user?.id) void notifyTodayDataChanged(user.id, 'water');
   }, [daily?.water_glasses, user?.id, applyOptimisticDelta]);
 
   const refresh = useCallback(async () => {
     if (!user?.id) return;
     lastForegroundFetchRef.current = Date.now();
-    await syncTodayAfterMutation(user.id);
-  }, [user?.id]);
+    await Promise.all([loadTodayDaily(true), fetchWeekly(true)]);
+  }, [user?.id, loadTodayDaily, fetchWeekly]);
 
   return (
     <SummaryContext.Provider value={{

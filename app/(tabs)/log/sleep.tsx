@@ -34,7 +34,6 @@ import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
 import { usePostHog } from 'posthog-react-native';
 import { ForceDarkScope } from '@/context/theme-context';
-import { apiFetch } from '@/utils/api';
 import {
   getHealthKitModule,
   readSleepSegmentsForNight,
@@ -209,8 +208,6 @@ function SleepLogScreen() {
     setActiveDate(next);
   };
 
-  // ── Per-date caches (keyed by ISO date string, screen-lifetime) ───────────
-  const healthCache   = useRef<Map<string, HealthData | null>>(new Map());
   const segmentCache  = useRef<Map<string, SleepSegment[]>>(new Map());
 
   // ── Per-date health data ───────────────────────────────────────────────────
@@ -225,32 +222,21 @@ function SleepLogScreen() {
   useEffect(() => {
     if (isToday) {
       setDateHealthData(null);
-      return;
-    }
-    // Serve from cache immediately — no loading flash
-    if (healthCache.current.has(activeDate)) {
-      setDateHealthData(healthCache.current.get(activeDate) ?? null);
       setLoadingDate(false);
       return;
     }
     let cancelled = false;
     setLoadingDate(true);
-    apiFetch(`/health/today?date=${activeDate}`)
-      .then(({ ok, body }) => {
-        if (cancelled) return;
-        const data = ok && body.health_data ? (body.health_data as HealthData) : null;
-        healthCache.current.set(activeDate, data);
-        setDateHealthData(data);
+    health.fetchForDate(activeDate, false)
+      .then((data) => {
+        if (!cancelled) setDateHealthData(data);
       })
       .catch(() => {
-        if (!cancelled) {
-          healthCache.current.set(activeDate, null);
-          setDateHealthData(null);
-        }
+        if (!cancelled) setDateHealthData(null);
       })
       .finally(() => { if (!cancelled) setLoadingDate(false); });
     return () => { cancelled = true; };
-  }, [activeDate, isToday]);
+  }, [activeDate, isToday, health.fetchForDate]);
 
   // ── Form state ─────────────────────────────────────────────────────────────
   const [fromHealthKit, setFromHealthKit] = useState(false);

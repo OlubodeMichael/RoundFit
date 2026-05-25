@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useMemo, useState } from 'react';
 import {
   RefreshControl,
   ScrollView,
@@ -47,13 +48,19 @@ export default function DailyLogScreen() {
   const { meals, mealGoal, totalCalories, refreshLogs, activeDate } = useFood();
   const { workouts, totalCaloriesBurned: workoutCalsBurned } = useWorkouts();
   const { latest } = useWeight();
-  const { totalMl, goalMl, refresh: refreshWater } = useWater();
+  const { totalMl, goalMl, refresh: refreshWater, ensureLoaded } = useWater();
   const { profile } = useProfile();
   const { weightUnit, toDisplayWeight } = useUnits();
   const health   = useHealth();
   const recovery = useRecovery();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      void ensureLoaded();
+    }, [ensureLoaded]),
+  );
 
   // Sleep — prefer HealthKit (objective), fall back to recovery log
   const sleepHours   = health.today?.sleep_hours ?? recovery.today?.sleep_hours ?? null;
@@ -68,7 +75,12 @@ export default function DailyLogScreen() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    try { await Promise.all([refreshLogs(), refreshWater()]); }
+    try {
+      await Promise.all([
+        refreshLogs(),
+        refreshWater(undefined, { force: true }),
+      ]);
+    }
     catch { toast.error('Could not refresh', 'Please try again.'); }
     finally { setRefreshing(false); }
   };

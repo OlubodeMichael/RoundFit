@@ -1,6 +1,14 @@
 import { invalidateUserTodayCaches } from '@/utils/daily-summary-cache'
+import type { MutationDomain } from '@/utils/cache-invalidation'
+import { invalidateAfterMutation } from '@/utils/cache-invalidation'
 
-type Listener = () => void | Promise<void>
+export type { MutationDomain }
+
+export interface TodayDataChangedContext {
+  domain: MutationDomain
+}
+
+type Listener = (ctx: TodayDataChangedContext) => void | Promise<void>
 
 /** Server-backed day data changed (meals, workouts, health, water, etc.). */
 const dataListeners = new Set<Listener>()
@@ -26,10 +34,14 @@ export function registerTodaySyncListener(listener: Listener): () => void {
 }
 
 /**
- * After logging food/workouts/health/etc.: invalidate caches and refetch
- * aggregated day endpoints.
+ * Invalidate caches and notify listeners after a domain mutation.
+ * Listeners should check `ctx.domain` before refetching heavy endpoints.
  */
-export async function syncTodayAfterMutation(userId: string | null | undefined): Promise<void> {
+export async function notifyTodayDataChanged(
+  userId: string | null | undefined,
+  domain: MutationDomain,
+  date?: string,
+): Promise<void> {
   if (!userId) return
 
   if (dataSyncInFlight) {
@@ -37,10 +49,12 @@ export async function syncTodayAfterMutation(userId: string | null | undefined):
     return
   }
 
+  const ctx: TodayDataChangedContext = { domain }
+
   dataSyncInFlight = (async () => {
-    await invalidateUserTodayCaches(userId)
+    await invalidateAfterMutation({ userId, date, domain })
     await Promise.all(
-      Array.from(dataListeners).map((listener) => Promise.resolve(listener())),
+      Array.from(dataListeners).map((listener) => Promise.resolve(listener(ctx))),
     )
   })().finally(() => {
     dataSyncInFlight = null
@@ -50,11 +64,36 @@ export async function syncTodayAfterMutation(userId: string | null | undefined):
 }
 
 /**
+ * After logging food/workouts/health/etc.: invalidate caches and refetch
+ * aggregated day endpoints (narrow refetch via listener domain checks).
+ */
+export async function syncTodayAfterMutation(
+  userId: string | null | undefined,
+  domain: MutationDomain = 'food',
+  date?: string,
+): Promise<void> {
+  await notifyTodayDataChanged(userId, domain, date)
+}
+
+/** Full invalidation + listener fan-out (pull-to-refresh, explicit refresh). */
+export async function syncTodayFullRefresh(
+  userId: string | null | undefined,
+): Promise<void> {
+  await notifyTodayDataChanged(userId, 'full')
+}
+
+/** @deprecated Prefer invalidateAfterMutation — kept for direct summary+insights day drop */
+export async function invalidateTodaySummaryCaches(userId: string): Promise<void> {
+  await invalidateUserTodayCaches(userId)
+}
+
+/**
  * After profile/target edits: refresh derived scores from existing data only.
  * Does not call GET /summary, /engine, or /insights.
  */
 export function notifyTodayTargetsChanged(): void {
+  const ctx: TodayDataChangedContext = { domain: 'profile-targets' }
   targetsListeners.forEach((listener) => {
-    void Promise.resolve(listener())
+    void Promise.resolve(listener(ctx))
   })
 }

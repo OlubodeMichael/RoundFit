@@ -826,6 +826,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
     await clearTokens();
+    const { clearUserCachesOnLogout } = await import('@/utils/clear-user-caches');
+    await clearUserCachesOnLogout();
     setUser(null);
     setOauthProfilePending(false);
     lastMeFetchAtRef.current = 0;
@@ -855,6 +857,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(msg);
     }
     await clearTokens();
+    const { clearUserCachesOnLogout } = await import('@/utils/clear-user-caches');
+    await clearUserCachesOnLogout();
     setUser(null);
     setOauthProfilePending(false);
     lastMeFetchAtRef.current = 0;

@@ -14,6 +14,7 @@ import { useCycle } from "@/context/cycle-context";
 import { useFood } from "@/context/food-context";
 import type { Workout } from "@/context/workout-context";
 import { useWorkouts } from "@/context/workout-context";
+import { useDayLogs } from "@/hooks/use-day-logs";
 import { useHealth } from "@/hooks/use-health";
 import { useProfile } from "@/hooks/use-profile";
 import { useNotificationInbox } from "@/hooks/use-notification-inbox";
@@ -27,7 +28,6 @@ import { distanceUnitLabel, distanceValue } from "@/utils/units";
 import { WaterQuickAdd } from "@/components/log/WaterQuickAdd";
 import { useWater } from "@/hooks/use-water";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -1589,18 +1589,15 @@ const hydS = StyleSheet.create({
   fill:  { height: "100%", borderRadius: 3 },
 });
 
+function offsetDateString(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return getLocalDateString(d);
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // Screen
 // ───────────────────────────────────────────────────────────────────────────────
-const CACHE_TTL_MS = 5 * 60 * 1000;
-const STORAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const CACHE_KEY_PREFIX = "@roundfit/day_cache/";
-
-type DayCacheEntry = {
-  meals: import("@/context/food-context").MealItem[];
-  workouts: Workout[];
-  fetchedAt: number;
-};
 
 export default function HomeScreen() {
   const P = usePalette();
@@ -1608,145 +1605,34 @@ export default function HomeScreen() {
   const router = useRouter();
   const { profile, avatarUrl, avatarLetter, firstName, refreshProfile } =
     useProfile();
-  const {
-    meals: todayMeals,
-    mealGoal,
-    refreshLogs,
-    fetchForDate: fetchMealsForDate,
-  } = useFood();
+  const { mealGoal, refreshLogs, fetchForDate: fetchMealsForDate } = useFood();
   const { today: healthToday, refresh: refreshHealth } = useHealth();
   const { refresh: refreshSummary } = useSummary();
   const toast = useToast();
   const { unreadCount } = useNotificationInbox();
 
-  const {
-    workouts: todayWorkouts,
-    refreshWorkouts,
-    fetchForDate: fetchWorkoutsForDate,
-  } = useWorkouts();
+  const { refreshWorkouts, fetchForDate: fetchWorkoutsForDate } = useWorkouts();
 
   const [date, setDate] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
-
-  // ── Per-day cache ──────────────────────────────────────────────────────────
-  // Cache is a mutable ref (Map). Reading it synchronously during render gives
-  // instant results on cache hits — no React state round-trip needed.
-  // `cacheVersion` bumps when new data lands so React re-renders to pick it up.
-  // Fetch functions are stored in refs so they never appear in the effect dep
-  // array — the effect must ONLY re-run when the selected date changes.
-  const dayCache = useRef<Map<string, DayCacheEntry>>(new Map());
-  const [cacheVersion, setCacheVersion] = useState(0);
-  const fetchMealsRef = useRef(fetchMealsForDate);
-  const fetchWorkoutsRef = useRef(fetchWorkoutsForDate);
-  fetchMealsRef.current = fetchMealsForDate;
-  fetchWorkoutsRef.current = fetchWorkoutsForDate;
 
   const todayStr = useMemo(() => getLocalDateString(), []);
   const dateStr = useMemo(() => getLocalDateString(date), [date]);
   const isToday = dateStr === todayStr;
 
-  // L1 memory → L2 AsyncStorage → L3 network.
-  // Only re-runs when the selected date changes.
+  const { meals, workouts, refresh: refreshDayLogs } = useDayLogs(dateStr);
+
+  // Prefetch adjacent days (resource cache, no force).
   useEffect(() => {
-    if (isToday) return;
-
-    // L1: in-memory
-    const hit = dayCache.current.get(dateStr);
-    if (hit && Date.now() - hit.fetchedAt < CACHE_TTL_MS) return;
-
-    let cancelled = false;
-
-    (async () => {
-      // L2: AsyncStorage
-      try {
-        const raw = await AsyncStorage.getItem(CACHE_KEY_PREFIX + dateStr);
-        if (raw && !cancelled) {
-          const parsed = JSON.parse(raw) as DayCacheEntry;
-          if (Date.now() - parsed.fetchedAt < STORAGE_TTL_MS) {
-            dayCache.current.set(dateStr, parsed);
-            setCacheVersion((v) => v + 1);
-            return;
-          }
-        }
-      } catch {}
-
-      if (cancelled) return;
-
-      // L3: Network
-      const [histMeals, histWorkouts] = await Promise.all([
-        fetchMealsRef.current(dateStr),
-        fetchWorkoutsRef.current(dateStr),
-      ]);
-      if (cancelled) return;
-      const entry: DayCacheEntry = {
-        meals: histMeals,
-        workouts: histWorkouts,
-        fetchedAt: Date.now(),
-      };
-      dayCache.current.set(dateStr, entry);
-      setCacheVersion((v) => v + 1);
-      AsyncStorage.setItem(
-        CACHE_KEY_PREFIX + dateStr,
-        JSON.stringify(entry),
-      ).catch(() => {});
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [dateStr, isToday]); // intentionally excludes fetch fns — they live in refs
-
-  // Sliding-window eviction: when the day rolls over, evict the day that fell
-  // off the strip (7 days ago) and write the previous today into AsyncStorage.
-  useEffect(() => {
-    const ref = { current: AppState.currentState };
-    const sub = AppState.addEventListener("change", (next) => {
-      const prev = ref.current;
-      ref.current = next;
-      if (!prev.match(/inactive|background/) || next !== "active") return;
-      const newToday = getLocalDateString();
-      if (newToday === todayStr) return; // same day, nothing to do
-
-      // Evict the day that just fell off the left edge of the strip
-      const evict = new Date();
-      evict.setDate(evict.getDate() - 7);
-      const evictKey = getLocalDateString(evict);
-      dayCache.current.delete(evictKey);
-      AsyncStorage.removeItem(CACHE_KEY_PREFIX + evictKey).catch(() => {});
-
-      // Cache yesterday (todayStr = the previous today, now a past day)
-      void (async () => {
-        try {
-          const [meals, workouts] = await Promise.all([
-            fetchMealsRef.current(todayStr),
-            fetchWorkoutsRef.current(todayStr),
-          ]);
-          const entry: DayCacheEntry = {
-            meals,
-            workouts,
-            fetchedAt: Date.now(),
-          };
-          dayCache.current.set(todayStr, entry);
-          await AsyncStorage.setItem(
-            CACHE_KEY_PREFIX + todayStr,
-            JSON.stringify(entry),
-          );
-        } catch {}
-      })();
-    });
-    return () => sub.remove();
-  }, [todayStr]);
-
-  // Synchronous cache read — instant on cache hit, empty while fetching
-  const cachedEntry = !isToday ? dayCache.current.get(dateStr) : undefined;
-  const validEntry =
-    cachedEntry && Date.now() - cachedEntry.fetchedAt < STORAGE_TTL_MS
-      ? cachedEntry
-      : null;
-
-  // Derived display values — live context for today, cache for past days
-  const meals = isToday ? todayMeals : (validEntry?.meals ?? []);
-  const workouts = isToday ? todayWorkouts : (validEntry?.workouts ?? []);
+    const prev = offsetDateString(dateStr, -1);
+    const next = offsetDateString(dateStr, 1);
+    void fetchMealsForDate(prev);
+    void fetchWorkoutsForDate(prev);
+    if (next <= todayStr) {
+      void fetchMealsForDate(next);
+      void fetchWorkoutsForDate(next);
+    }
+  }, [dateStr, todayStr, fetchMealsForDate, fetchWorkoutsForDate]);
   const totalCalories = useMemo(
     () => meals.reduce((s, m) => s + m.cals, 0),
     [meals],
@@ -1857,25 +1743,7 @@ export default function HomeScreen() {
           refreshSummary(),
         ]);
       } else {
-        dayCache.current.delete(dateStr);
-        await AsyncStorage.removeItem(CACHE_KEY_PREFIX + dateStr).catch(
-          () => {},
-        );
-        const [histMeals, histWorkouts] = await Promise.all([
-          fetchMealsForDate(dateStr),
-          fetchWorkoutsForDate(dateStr),
-        ]);
-        const entry: DayCacheEntry = {
-          meals: histMeals,
-          workouts: histWorkouts,
-          fetchedAt: Date.now(),
-        };
-        dayCache.current.set(dateStr, entry);
-        AsyncStorage.setItem(
-          CACHE_KEY_PREFIX + dateStr,
-          JSON.stringify(entry),
-        ).catch(() => {});
-        setCacheVersion((v) => v + 1);
+        await refreshDayLogs();
       }
     } catch {
       toast.error("Could not refresh", "Please try again.");

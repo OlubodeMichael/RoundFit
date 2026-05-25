@@ -8,10 +8,13 @@ import {
   type InsightTargets,
 } from '@/utils/insights-aggregator'
 import {
+  buildSummaryCacheKey,
   fetchDailySummaryBundle,
+  getCachedSummary,
   invalidateUserDayCaches,
 } from '@/utils/daily-summary-cache'
 import { getLocalDateString } from '@/utils/date'
+import { shouldRefetchDailyInsightsAfterMutation } from '@/utils/cache-invalidation'
 import { registerTodayDataSyncListener, registerTodayTargetsListener } from '@/utils/today-sync'
 import { getLocalTargets, type LocalTargets } from '@/utils/local-targets'
 import { calculateMacros } from '@/utils/nutrition'
@@ -120,6 +123,21 @@ export function useDailyInsights(date?: string): UseDailyInsightsResult {
     if (!user?.id) return
 
     const local = await getLocalTargets()
+    const cacheKey = buildSummaryCacheKey(user.id, targetDate)
+
+    if (!options?.force) {
+      const cached = await getCachedSummary(cacheKey)
+      if (cached && mountedRef.current) {
+        const fromCache = await bundleToInsight(local, false)
+        if (fromCache) {
+          setData(applyDerivedTargets(fromCache, local))
+          setIsLoading(false)
+          setError(null)
+          if (!cached.isStale) return
+          setIsStale(true)
+        }
+      }
+    }
 
     try {
       const fresh = await bundleToInsight(local, options?.force)
@@ -153,8 +171,10 @@ export function useDailyInsights(date?: string): UseDailyInsightsResult {
 
   useEffect(() => {
     const today = getLocalDateString()
-    return registerTodayDataSyncListener(() => {
-      if (targetDate === today) void load({ force: true })
+    return registerTodayDataSyncListener(({ domain }) => {
+      if (targetDate === today && shouldRefetchDailyInsightsAfterMutation(domain)) {
+        void load({ force: true })
+      }
     })
   }, [targetDate, load])
 

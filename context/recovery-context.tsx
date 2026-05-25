@@ -20,7 +20,7 @@ import {
 } from '@/utils/readiness';
 import { apiFetch } from '@/utils/api';
 import { fetchDailySummaryBundle, TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
-import { syncTodayAfterMutation } from '@/utils/today-sync';
+import { notifyTodayDataChanged } from '@/utils/today-sync';
 import {
   buildResourceKey,
   fetchWithResourceCache,
@@ -386,15 +386,6 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     }
   }, [status, user?.id]);
 
-  // Auto-load on mount so home screen widget has fresh data without
-  // requiring a Progress tab visit first.
-  useEffect(() => {
-    if (status !== 'authenticated') return;
-    if (initialized) return;
-    void refresh();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
-
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       const prev = appStateRef.current;
@@ -548,7 +539,7 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    if (user?.id) void syncTodayAfterMutation(user.id);
+    if (user?.id) void notifyTodayDataChanged(user.id, 'recovery');
 
     return saved;
   }, [user?.id]);

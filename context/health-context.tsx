@@ -12,7 +12,7 @@ import {
   type HealthKitSummary,
 } from '@/utils/healthkit';
 import { getLocalDateString } from '@/utils/date';
-import { syncTodayAfterMutation } from '@/utils/today-sync';
+import { notifyTodayDataChanged } from '@/utils/today-sync';
 import {
   buildResourceKey,
   fetchWithResourceCache,
@@ -108,6 +108,9 @@ export interface HealthContextValue {
 
   /** Re-fetches today's health data from the server. */
   refresh: () => Promise<void>;
+
+  /** Fetches health for any date via shared resource cache. */
+  fetchForDate: (date: string, force?: boolean) => Promise<HealthData | null>;
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────
@@ -344,7 +347,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
           saved,
           ttlForDate(date),
         );
-        void syncTodayAfterMutation(user.id);
+        void notifyTodayDataChanged(user.id, 'health');
       }
     }
     return saved;
@@ -515,8 +518,15 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     await syncFromDevice(true);
   }, [fetchToday, syncFromDevice]);
 
+  const fetchForDate = useCallback(
+    (date: string, force = false) => fetchByDate(date, force),
+    [fetchByDate],
+  );
+
   return (
-    <HealthContext.Provider value={{ today, isLoading, isConnected, syncHealth, syncFromDevice, refresh }}>
+    <HealthContext.Provider value={{
+      today, isLoading, isConnected, syncHealth, syncFromDevice, refresh, fetchForDate,
+    }}>
       {children}
     </HealthContext.Provider>
   );

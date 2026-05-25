@@ -4,7 +4,9 @@ import type { DailySummary } from '@/context/summary-context'
 import { apiFetch } from '@/utils/api'
 import type { InsightTargets } from '@/utils/insights-aggregator'
 import { getLocalDateString } from '@/utils/date'
-import { invalidateDay } from '@/utils/insights-cache'
+import { buildWeekKey, invalidate as invalidateInsightsKey, invalidateDay } from '@/utils/insights-cache'
+import { buildResourceKey, invalidateResourceCache } from '@/utils/resource-cache'
+import { getWeekStart } from '@/utils/insights-aggregator'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -116,11 +118,14 @@ export async function invalidateSummaryCache(key: string): Promise<void> {
   } catch { /* storage unavailable */ }
 }
 
-/** Drop unified summary + insights day cache for one date. */
+/** Drop unified summary + insights day/week caches for one date. */
 export async function invalidateUserDayCaches(userId: string, date: string): Promise<void> {
+  const weekStart = getWeekStart(new Date(`${date}T12:00:00`))
   await Promise.all([
     invalidateSummaryCache(buildSummaryCacheKey(userId, date)),
     invalidateDay(userId, date),
+    invalidateInsightsKey(buildWeekKey(userId, weekStart)),
+    invalidateResourceCache(buildResourceKey('summary-weekly', userId, weekStart)),
   ])
 }
 

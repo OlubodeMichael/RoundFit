@@ -71,6 +71,34 @@ export async function invalidateResourceCache(key: string): Promise<void> {
   } catch { /* storage unavailable */ }
 }
 
+export async function invalidateKeys(keys: string[]): Promise<void> {
+  await Promise.all(keys.map((key) => invalidateResourceCache(key)))
+}
+
+/** Remove all resource-cache keys whose storage key starts with `prefix`. */
+export async function invalidateByPrefix(prefix: string): Promise<void> {
+  for (const key of [...mem.keys()]) {
+    if (key.startsWith(prefix)) {
+      mem.delete(key)
+      inflight.delete(key)
+    }
+  }
+
+  try {
+    const allKeys = await AsyncStorage.getAllKeys()
+    const matching = allKeys.filter((k) => k.startsWith(prefix))
+    if (matching.length > 0) {
+      await AsyncStorage.multiRemove(matching)
+    }
+  } catch { /* storage unavailable */ }
+}
+
+export interface FetchWithResourceCacheOptions {
+  force?: boolean
+  /** Return stale data immediately and refresh in the background. */
+  allowStale?: boolean
+}
+
 /**
  * Cache-first fetch: returns fresh cache when valid, otherwise runs fetcher once
  * (deduped per key) and stores the result.
@@ -79,11 +107,32 @@ export async function fetchWithResourceCache<T>(
   key: string,
   ttlMs: number,
   fetcher: () => Promise<T | null>,
-  options?: { force?: boolean },
+  options?: FetchWithResourceCacheOptions,
 ): Promise<T | null> {
-  if (!options?.force) {
+  const force = options?.force ?? false
+  const allowStale = options?.allowStale ?? false
+
+  if (!force) {
     const cached = await getResourceCached<T>(key)
-    if (cached && !cached.isStale) return cached.data
+    if (cached) {
+      if (!cached.isStale) return cached.data
+
+      if (allowStale) {
+        const pending = inflight.get(key) as Promise<T | null> | undefined
+        if (!pending) {
+          const refresh = fetcher()
+            .then(async (data) => {
+              if (data !== null) await setResourceCached(key, data, ttlMs)
+              return data
+            })
+            .finally(() => {
+              if (inflight.get(key) === refresh) inflight.delete(key)
+            })
+          inflight.set(key, refresh)
+        }
+        return cached.data
+      }
+    }
 
     const pending = inflight.get(key) as Promise<T | null> | undefined
     if (pending) return pending
@@ -103,3 +152,6 @@ export async function fetchWithResourceCache<T>(
   inflight.set(key, request)
   return request
 }
+
+/** Alias for fetchWithResourceCache. */
+export const fetchWithCache = fetchWithResourceCache

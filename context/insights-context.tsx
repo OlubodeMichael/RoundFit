@@ -1,9 +1,12 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useState,
+  createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
 import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { apiFetch } from '@/utils/api';
-import { registerTodayDataSyncListener } from '@/utils/today-sync';
+import {
+  registerTodayDataSyncListener,
+} from '@/utils/today-sync';
+import { shouldRefetchInsightsTodayAfterMutation } from '@/utils/cache-invalidation';
 import { getLocalDateString } from '@/utils/date';
 import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
 import {
@@ -66,6 +69,9 @@ export interface InsightsContextValue {
 
   /** Re-fetches today's insight and history. */
   refresh: () => Promise<void>;
+
+  /** Loads insights when the Insights tab is first opened. */
+  ensureLoaded: () => Promise<void>;
 }
 
 
@@ -97,6 +103,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
   const [isLoading,        setIsLoading]        = useState(true);
   const [claudeLimitReached, setClaudeLimitReached] = useState(false);
   const [pendingSleepSync, setPendingSleepSync] = useState(false);
+  const bootedRef = useRef(false);
 
   const applyTodayPayload = useCallback((payload: {
     insight: Insight | null;
@@ -156,6 +163,18 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
     if (rows) setHistory(rows);
   }, [user?.id]);
 
+  const ensureLoaded = useCallback(async () => {
+    if (!hasActiveUserSession(status, user)) return;
+    if (bootedRef.current) return;
+    bootedRef.current = true;
+    setIsLoading(true);
+    try {
+      await Promise.all([fetchToday(false), fetchHistory(false)]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [status, user?.id, fetchToday, fetchHistory]);
+
   useEffect(() => {
     if (status === 'loading') return;
 
@@ -166,6 +185,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
       setClaudeLimitReached(false);
       setPendingSleepSync(false);
       setIsLoading(false);
+      bootedRef.current = false;
       return;
     }
 
@@ -181,32 +201,21 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
       if (cached && !cancelled) {
         applyTodayPayload(cached.data);
         setIsLoading(false);
-      } else if (!cancelled) {
-        setIsLoading(true);
-        setTodayInsight(null);
-        setClaudeInsight(null);
-        setHistory([]);
-        setClaudeLimitReached(false);
-        setPendingSleepSync(false);
-      }
-
-      try {
-        await Promise.all([fetchToday(false), fetchHistory(false)]);
-      } finally {
-        if (!cancelled) setIsLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, fetchToday, fetchHistory, applyTodayPayload]);
+  }, [status, user?.id, applyTodayPayload]);
 
   useEffect(() => {
-    return registerTodayDataSyncListener(async () => {
-      if (!user?.id) return;
+    return registerTodayDataSyncListener(async ({ domain }) => {
+      if (!user?.id || !shouldRefetchInsightsTodayAfterMutation(domain)) return;
       await invalidateResourceCache(
         buildResourceKey('insights-today', user.id, getLocalDateString()),
       );
-      await fetchToday(true);
+      if (bootedRef.current) {
+        await fetchToday(true);
+      }
     });
   }, [fetchToday, user?.id]);
 
@@ -271,7 +280,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
     <InsightsContext.Provider value={{
       todayInsight, claudeInsight, history, isLoading, claudeLimitReached,
       pendingSleepSync,
-      fetchClaudeInsight, dismissInsight, refresh, submitManualSleep,
+      fetchClaudeInsight, dismissInsight, refresh, submitManualSleep, ensureLoaded,
     }}>
       {children}
     </InsightsContext.Provider>

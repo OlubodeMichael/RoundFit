@@ -83,7 +83,7 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
   const fetchFromServer = useCallback(async (local: LocalTargets): Promise<WeeklyInsightSummary> => {
     // Share the summary cache key with summary-context so concurrent fetches
     // deduplicate via the resource-cache inflight map (no duplicate HTTP requests).
-    const summaryKey = buildResourceKey('summary-weekly-raw', user?.id ?? '', week)
+    const summaryKey = buildResourceKey('summary-weekly', user?.id ?? '', week)
     const ttl = isCurrentWeek ? TTL_CURRENT_WEEK : TTL_PAST_WEEK
 
     const [apiData, insightRes] = await Promise.all([
@@ -205,12 +205,14 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
 
   useEffect(() => {
     if (!isCurrentWeek) return
-    return registerTodayDataSyncListener(() => {
+    return registerTodayDataSyncListener(({ domain }) => {
       if (!user?.id) return
-      void (async () => {
-        await invalidateWeek(user.id, week)
-        await load(true)
-      })()
+      void invalidateWeek(user.id, week)
+      if (domain === 'full') {
+        void load(true)
+      } else if (mountedRef.current) {
+        setIsStale(true)
+      }
     })
   }, [isCurrentWeek, user?.id, week, load])
 
