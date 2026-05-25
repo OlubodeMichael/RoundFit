@@ -32,7 +32,6 @@ import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Animated,
-    AppState,
     Easing,
     Platform,
     Pressable,
@@ -1655,8 +1654,7 @@ export default function HomeScreen() {
   );
   const remaining = mealGoal - totalCalories;
   const [isStatusModalVisible, setIsStatusModalVisible] = useState(false);
-  const [statusModalKind, setStatusModalKind] =
-    useState<InsightStatusModalKind>("ready");
+  const [statusModalKind] = useState<InsightStatusModalKind>("ready");
 
   // Macro targets from the same nutrition plan used on the reveal screen
   const nutritionPlan = useMemo(() => {

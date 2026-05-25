@@ -95,6 +95,8 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { goalMlRef.current = goalMl; }, [goalMl]);
 
   const totalMl = entries.reduce((s, e) => s + e.amount_ml, 0);
+  const sessionActive = hasActiveUserSession(status, user);
+  const userId = user?.id;
 
   const fetchWaterFromNetwork = useCallback(async (
     date: string,
@@ -153,20 +155,19 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id, fetchWaterFromNetwork]);
 
   useEffect(() => {
-    if (!hasActiveUserSession(status, user)) {
-      setEntries([]);
-      setGoalMl(DEFAULT_GOAL_ML);
-      setIsLoading(false);
-      loadInFlightRef.current.clear();
-    }
-  }, [status, user?.id]);
+    if (sessionActive) return;
+    setEntries([]);
+    setGoalMl(DEFAULT_GOAL_ML);
+    setIsLoading(false);
+    loadInFlightRef.current.clear();
+  }, [sessionActive]);
 
   useEffect(() => {
-    if (!hasActiveUserSession(status, user)) return;
+    if (!sessionActive || !userId) return;
 
     let cancelled = false;
     (async () => {
-      const key = buildResourceKey('water', user!.id, todayString());
+      const key = buildResourceKey('water', userId, todayString());
       const cached = await getResourceCached<WaterDayData>(key);
       if (cached && !cancelled) {
         applyDayToState(setEntries, setGoalMl, cached.data);
@@ -174,7 +175,7 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id]);
+  }, [sessionActive, userId]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
