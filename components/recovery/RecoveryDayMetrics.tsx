@@ -1,6 +1,10 @@
 import { Platform, StyleSheet, Text, View } from 'react-native';
 
-import type { TrendPalette } from '@/components/recovery/recovery-trend-utils';
+import {
+  READINESS_BAND_COLORS,
+  scoreTint,
+  type TrendPalette,
+} from '@/components/recovery/recovery-trend-utils';
 
 const H_PAD = 20;
 
@@ -90,9 +94,7 @@ export function RecoveryDayMetrics({
   rhr, hrv, sleepHours, rhrDelta, hrvDelta, sleepScore, strain, sorenessLevel, palette,
 }: RecoveryDayMetricsProps) {
   // ── SLEEP ────────────────────────────────────────────────────────────────────
-  const sleepColor  = sleepScore != null
-    ? (sleepScore >= 70 ? palette.protein : sleepScore >= 40 ? palette.carbs : palette.calories)
-    : palette.textFaint;
+  const sleepColor  = sleepScore != null ? scoreTint(sleepScore, palette) : palette.textFaint;
   const sleepVal    = sleepHours != null ? fmtSleep(sleepHours) : '—';
   const sleepUnit   = sleepHours != null ? 'hrs' : '';
   const sleepTag    = sleepScore != null ? String(Math.round(sleepScore)) : '—';
@@ -102,7 +104,7 @@ export function RecoveryDayMetrics({
 
   // ── HRV ──────────────────────────────────────────────────────────────────────
   const hrvColor    = hrv != null
-    ? (hrv >= 50 ? palette.protein : hrv >= 30 ? palette.carbs : palette.calories)
+    ? scoreTint(hrv >= 50 ? 75 : hrv >= 30 ? 50 : 20, palette)
     : palette.textFaint;
   const rhrVal      = rhr != null ? String(Math.round(rhr)) : '—';
   const hrvTag      = hrv != null ? `${Math.round(hrv)} ms` : '—';
@@ -110,12 +112,14 @@ export function RecoveryDayMetrics({
     ? fmtDelta(hrvDelta, 'ms')
     : (rhrDelta != null ? fmtDelta(rhrDelta, 'bpm') : 'No baseline');
   const hrvSubColor = hrvDelta != null
-    ? (hrvDelta >= 0 ? palette.protein : palette.calories)
-    : (rhrDelta != null ? (rhrDelta <= 0 ? palette.protein : palette.calories) : palette.textFaint);
+    ? (hrvDelta >= 0 ? READINESS_BAND_COLORS.high : READINESS_BAND_COLORS.low)
+    : (rhrDelta != null
+      ? (rhrDelta <= 0 ? READINESS_BAND_COLORS.high : READINESS_BAND_COLORS.low)
+      : palette.textFaint);
 
   // ── STRAIN ───────────────────────────────────────────────────────────────────
   const strainColor = strain != null
-    ? (strain < 10 ? palette.protein : strain < 14 ? palette.carbs : palette.calories)
+    ? scoreTint(strain < 10 ? 75 : strain < 14 ? 50 : 20, palette)
     : palette.textFaint;
   const strainVal   = strain != null ? strain.toFixed(1) : '—';
   const strainUnit  = strain != null ? '/ 21' : '';
@@ -125,7 +129,7 @@ export function RecoveryDayMetrics({
 
   // ── SORENESS ─────────────────────────────────────────────────────────────────
   const sorenessColor = sorenessLevel != null
-    ? (sorenessLevel <= 3 ? palette.protein : sorenessLevel <= 6 ? palette.carbs : palette.calories)
+    ? scoreTint(sorenessLevel <= 3 ? 75 : sorenessLevel <= 6 ? 50 : 20, palette)
     : palette.textFaint;
   const sorenessVal   = sorenessLevel != null ? String(sorenessLevel) : '—';
   const sorenessUnit  = sorenessLevel != null ? '/ 10' : '';

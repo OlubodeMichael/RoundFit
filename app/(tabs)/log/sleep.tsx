@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps } from 'react';
 import {
+  ActivityIndicator,
   Platform,
   Pressable,
   ScrollView,
@@ -254,21 +255,33 @@ function SleepLogScreen() {
   const [notesExpanded,       setNotesExpanded]       = useState(false);
 
   // ── Sleep stage segments (for hypnogram chart) ─────────────────────────────
-  const [sleepSegments, setSleepSegments] = useState<SleepSegment[]>([]);
+  const [sleepSegments,   setSleepSegments]   = useState<SleepSegment[]>([]);
+  const [segmentsLoading, setSegmentsLoading] = useState(false);
 
   useEffect(() => {
-    // Serve from cache immediately
-    if (segmentCache.current.has(activeDate)) {
-      setSleepSegments(segmentCache.current.get(activeDate) ?? []);
+    // Clear stale segments from a previous date immediately
+    setSleepSegments([]);
+
+    // Only serve non-empty results from cache — empty results are not cached so
+    // we always retry (handles transient HealthKit permission/timing failures)
+    const cached = segmentCache.current.get(activeDate);
+    if (cached && cached.length > 0) {
+      setSleepSegments(cached);
       return;
     }
-    let cancelled = false;
+
     const hk = getHealthKitModule();
     if (!hk) return;
+
+    setSegmentsLoading(true);
+    let cancelled = false;
     readSleepSegmentsForNight(hk, activeDate).then((segs) => {
       if (!cancelled) {
-        segmentCache.current.set(activeDate, segs);
+        if (segs.length > 0) {
+          segmentCache.current.set(activeDate, segs);
+        }
         setSleepSegments(segs);
+        setSegmentsLoading(false);
       }
     });
     return () => { cancelled = true; };
@@ -535,45 +548,53 @@ function SleepLogScreen() {
         )}
 
         {/* ── Sleep Stages ─────────────────────────────────────────────────── */}
-        {fromHealthKit && hasSegments && (
+        {fromHealthKit && (segmentsLoading || hasSegments) && (
           <View style={{ paddingHorizontal: 20, marginBottom: 14 }}>
             <View style={sleepStyles.sectionHeader}>
               <Text style={[sleepStyles.sectionLabel, { color: P.textFaint }]}>SLEEP STAGES</Text>
-              {fullCycles > 0 && (
+              {!segmentsLoading && fullCycles > 0 && (
                 <Text style={[sleepStyles.sectionSub, { color: P.textFaint }]}>
                   {fullCycles} full {fullCycles === 1 ? 'cycle' : 'cycles'}
                 </Text>
               )}
             </View>
             <AnimatedCard delay={90} padding={16}>
-              <SleepHypnogram
-                segments={sleepSegments}
-                windowStart={hkSleep?.bedtime_iso ? new Date(hkSleep.bedtime_iso) : undefined}
-                windowEnd={hkSleep?.wakeup_iso   ? new Date(hkSleep.wakeup_iso)   : undefined}
-              />
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
-                {stageSummary.map((st) =>
-                  st.ms > 0 ? (
-                    <View
-                      key={st.label}
-                      style={[sleepStyles.stagePill, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-                        <View style={[sleepStyles.stageDot, { backgroundColor: st.color }]} />
-                        <Text style={{ color: P.textFaint, fontSize: 8, fontWeight: '800', letterSpacing: 0.8 }}>
-                          {st.label}
+              {segmentsLoading && !hasSegments ? (
+                <View style={{ height: 160, alignItems: 'center', justifyContent: 'center' }}>
+                  <ActivityIndicator color={P.sleep} />
+                </View>
+              ) : (
+                <SleepHypnogram
+                  segments={sleepSegments}
+                  windowStart={hkSleep?.bedtime_iso ? new Date(hkSleep.bedtime_iso) : undefined}
+                  windowEnd={hkSleep?.wakeup_iso   ? new Date(hkSleep.wakeup_iso)   : undefined}
+                />
+              )}
+              {hasSegments && (
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                  {stageSummary.map((st) =>
+                    st.ms > 0 ? (
+                      <View
+                        key={st.label}
+                        style={[sleepStyles.stagePill, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                          <View style={[sleepStyles.stageDot, { backgroundColor: st.color }]} />
+                          <Text style={{ color: P.textFaint, fontSize: 8, fontWeight: '800', letterSpacing: 0.8 }}>
+                            {st.label}
+                          </Text>
+                        </View>
+                        <Text style={{ color: P.text, fontSize: 13, fontWeight: '800', letterSpacing: -0.3 }}>
+                          {formatStageTime(st.ms)}
+                        </Text>
+                        <Text style={{ color: P.textFaint, fontSize: 10, fontWeight: '600', marginTop: 1 }}>
+                          {st.pct}%
                         </Text>
                       </View>
-                      <Text style={{ color: P.text, fontSize: 13, fontWeight: '800', letterSpacing: -0.3 }}>
-                        {formatStageTime(st.ms)}
-                      </Text>
-                      <Text style={{ color: P.textFaint, fontSize: 10, fontWeight: '600', marginTop: 1 }}>
-                        {st.pct}%
-                      </Text>
-                    </View>
-                  ) : null,
-                )}
-              </View>
+                    ) : null,
+                  )}
+                </View>
+              )}
             </AnimatedCard>
           </View>
         )}

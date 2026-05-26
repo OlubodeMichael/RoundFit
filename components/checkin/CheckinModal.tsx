@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Pressable, Switch,
-  Animated, Easing, ActivityIndicator, Platform,
+  Animated, Easing, ActivityIndicator, Platform, ScrollView,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -9,7 +9,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppModal } from '@/components/ui/AppModal';
 import { useCheckin } from '@/hooks/use-checkin';
 import type { EnergyLevel, CheckinInsight } from '@/hooks/use-checkin';
-import { useProfile } from '@/hooks/use-profile';
 import { usePalette } from '@/lib/log-theme';
 import { useTheme } from '@/hooks/use-theme';
 import { getLocalDateString } from '@/utils/date';
@@ -132,7 +131,7 @@ function InsightReveal({ insight, onDone }: { insight: CheckinInsight; onDone: (
 
       <Animated.View style={{ opacity: bodyAnim, transform: [{ translateY: bodyY }], alignSelf: 'stretch', marginTop: 20 }}>
         <Text style={[s.successTitle, { color: P.text }]}>All set for today</Text>
-        <Text style={[s.successSub, { color: P.textFaint, marginTop: 6 }]}>Here's your morning insight</Text>
+        <Text style={[s.successSub, { color: P.textFaint, marginTop: 6 }]}>{"Here's your morning insight"}</Text>
 
         <View style={[s.insightCard, { backgroundColor: P.card, borderColor: P.cardEdge, marginTop: 18 }]}>
           <View pointerEvents="none" style={[s.insightGlow, { backgroundColor: '#FF784922' }]} />
@@ -147,7 +146,7 @@ function InsightReveal({ insight, onDone }: { insight: CheckinInsight; onDone: (
           onPress={onDone}
           style={({ pressed }) => [s.submitBtn, { backgroundColor: '#34D399', marginTop: 14, opacity: pressed ? 0.85 : 1 }]}
         >
-          <Text style={s.submitText}>Let's crush it</Text>
+          <Text style={s.submitText}>{"Let's crush it"}</Text>
           <Ionicons name="arrow-forward" size={16} color="#fff" />
         </Pressable>
       </Animated.View>
@@ -165,7 +164,6 @@ interface Props {
 export function CheckinModal({ visible, onClose }: Props) {
   const P              = usePalette();
   const { isDark }     = useTheme();
-  const { firstName }  = useProfile();
   const { submitMorningCheckin, skipCheckin } = useCheckin();
 
   const [sleepQuality,   setSleepQuality]   = useState<number | null>(null);
@@ -271,124 +269,137 @@ export function CheckinModal({ visible, onClose }: Props) {
               onPress={onClose}
               style={({ pressed }) => [s.submitBtn, { backgroundColor: '#34D399', marginTop: 28, opacity: pressed ? 0.85 : 1 }]}
             >
-              <Text style={s.submitText}>Let's go</Text>
+              <Text style={s.submitText}>{"Let's go"}</Text>
               <Ionicons name="arrow-forward" size={16} color="#fff" />
             </Pressable>
           </View>
         ) : (
-          <>
-            {/* ── Header ─────────────────────────────────── */}
-            <Animated.View style={[s.header, fadeUp(anim0)]}>
-              <View style={[s.badge, { backgroundColor: P.caloriesSoft }]}>
-                <Ionicons name={greetingIcon()} size={11} color={P.calories} />
-                <Text style={[s.badgeText, { color: P.calories }]}>{greetingBadgeLabel()}</Text>
-              </View>
-              <Text style={[s.titleLine1, { color: P.text }]}>How's your</Text>
-              <Text style={[s.titleLine2, { color: P.textDim }]}>{getDayName()} starting?</Text>
-              <Text style={[s.titleDate, { color: P.textFaint }]}>{todayLong()}</Text>
-            </Animated.View>
-
-            {/* ── Sleep quality ───────────────────────────── */}
-            <Animated.View style={fadeUp(anim1)}>
-              <View style={s.sectionRow}>
-                <Text style={[s.sectionLabel, { color: P.textFaint }]}>HOW DID YOU SLEEP?</Text>
-                {selectedSleepLabel && (
-                  <Text style={[s.sectionValue, { color: P.text }]}>{selectedSleepLabel}</Text>
-                )}
-              </View>
-              <View style={s.sleepRow}>
-                {SLEEP_OPTIONS.map((opt, idx) => {
-                  const active = sleepQuality === opt.value;
-                  return (
-                    <Pressable
-                      key={opt.value}
-                      onPress={() => handleSleepSelect(opt.value)}
-                      style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1, alignItems: 'center', flex: 1 })}
-                    >
-                      <Animated.View style={[
-                        s.sleepCell,
-                        active
-                          ? { backgroundColor: O, borderWidth: 0 }
-                          : { backgroundColor: P.sunken, borderColor: P.cardEdge, borderWidth: StyleSheet.hairlineWidth },
-                        { transform: [{ scale: sleepScales[idx] }] },
-                      ]}>
-                        <SleepCircle fill={opt.fill} active={active} />
-                      </Animated.View>
-                      <Text style={[
-                        s.sleepCellLabel,
-                        { color: active ? O : P.textFaint },
-                      ]}>
-                        {opt.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </Animated.View>
-
-            {/* ── Energy level ────────────────────────────── */}
-            <Animated.View style={[{ marginTop: 18 }, fadeUp(anim2)]}>
-              <View style={s.sectionRow}>
-                <Text style={[s.sectionLabel, { color: P.textFaint }]}>ENERGY LEVEL</Text>
-                {selectedEnergyLabel && (
-                  <Text style={[s.sectionValue, { color: O }]}>{selectedEnergyLabel}</Text>
-                )}
-              </View>
-              <View style={s.energyRow}>
-                {ENERGY_OPTIONS.map((opt) => {
-                  const active = energyLevel === opt.value;
-                  return (
-                    <Pressable
-                      key={opt.value}
-                      onPress={() => handleEnergySelect(opt.value)}
-                      style={({ pressed }) => [
-                        s.energyCell,
-                        active
-                          ? { backgroundColor: O, borderWidth: 0 }
-                          : { backgroundColor: P.sunken, borderColor: P.cardEdge, borderWidth: StyleSheet.hairlineWidth },
-                        { opacity: pressed ? 0.8 : 1 },
-                      ]}
-                    >
-                      <BarIcon bars={opt.bars} active={active} />
-                      <Text style={[s.energyCellLabel, { color: active ? '#fff' : P.textDim }]}>
-                        {opt.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </Animated.View>
-
-            {/* ── Planned workout ─────────────────────────── */}
-            <Animated.View style={[{ marginTop: 12 }, fadeUp(anim3)]}>
-              <Pressable
-                onPress={handleWorkoutToggle}
-                style={({ pressed }) => [
-                  s.workoutRow,
-                  { backgroundColor: P.sunken, borderColor: P.cardEdge, opacity: pressed ? 0.85 : 1 },
-                ]}
-              >
-                <View style={[s.workoutIconBox, { backgroundColor: P.card }]}>
-                  <Ionicons name="barbell-outline" size={16} color={plannedWorkout ? O : P.textFaint} />
+          <View style={s.form}>
+            <ScrollView
+              style={s.scroll}
+              contentContainerStyle={s.scrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* ── Header ─────────────────────────────────── */}
+              <Animated.View style={[s.header, fadeUp(anim0)]}>
+                <View style={[s.badge, { backgroundColor: P.caloriesSoft }]}>
+                  <Ionicons name={greetingIcon()} size={11} color={P.calories} />
+                  <Text style={[s.badgeText, { color: P.calories }]}>{greetingBadgeLabel()}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.workoutLabel, { color: P.text }]}>Planning a workout today</Text>
-                  <Text style={[s.workoutSub, { color: P.textFaint }]}>
-                    {plannedWorkout ? "We'll save a slot for it" : 'Tap to plan ahead'}
-                  </Text>
-                </View>
-                <Switch
-                  value={plannedWorkout}
-                  onValueChange={handleWorkoutToggle}
-                  trackColor={{ false: isDark ? '#3A3A3C' : '#E5E5EA', true: O }}
-                  thumbColor="#FFFFFF"
-                  ios_backgroundColor={isDark ? '#3A3A3C' : '#E5E5EA'}
-                />
-              </Pressable>
-            </Animated.View>
+                <Text style={[s.titleLine1, { color: P.text }]}>{"How's your"}</Text>
+                <Text style={[s.titleLine2, { color: P.textDim }]}>{getDayName()} starting?</Text>
+                <Text style={[s.titleDate, { color: P.textFaint }]}>{todayLong()}</Text>
+              </Animated.View>
 
-            {/* ── Submit ──────────────────────────────────── */}
-            <Animated.View style={[{ marginTop: 18 }, fadeUp(anim4)]}>
+              {/* ── Sleep quality ───────────────────────────── */}
+              <Animated.View style={fadeUp(anim1)}>
+                <View style={s.sectionRow}>
+                  <Text style={[s.sectionLabel, { color: P.textFaint }]}>HOW DID YOU SLEEP?</Text>
+                  {selectedSleepLabel && (
+                    <Text style={[s.sectionValue, { color: P.text }]}>{selectedSleepLabel}</Text>
+                  )}
+                </View>
+                <View style={s.sleepRow}>
+                  {SLEEP_OPTIONS.map((opt, idx) => {
+                    const active = sleepQuality === opt.value;
+                    return (
+                      <Pressable
+                        key={opt.value}
+                        onPress={() => handleSleepSelect(opt.value)}
+                        style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1, alignItems: 'center', flex: 1 })}
+                      >
+                        <Animated.View style={[
+                          s.sleepCell,
+                          active
+                            ? { backgroundColor: O, borderWidth: 0 }
+                            : { backgroundColor: P.sunken, borderColor: P.cardEdge, borderWidth: StyleSheet.hairlineWidth },
+                          { transform: [{ scale: sleepScales[idx] }] },
+                        ]}>
+                          <SleepCircle fill={opt.fill} active={active} />
+                        </Animated.View>
+                        <Text style={[
+                          s.sleepCellLabel,
+                          { color: active ? O : P.textFaint },
+                        ]}>
+                          {opt.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Animated.View>
+
+              {/* ── Energy level ────────────────────────────── */}
+              <Animated.View style={[{ marginTop: 18 }, fadeUp(anim2)]}>
+                <View style={s.sectionRow}>
+                  <Text style={[s.sectionLabel, { color: P.textFaint }]}>ENERGY LEVEL</Text>
+                  {selectedEnergyLabel && (
+                    <Text style={[s.sectionValue, { color: O }]}>{selectedEnergyLabel}</Text>
+                  )}
+                </View>
+                <View style={s.energyRow}>
+                  {ENERGY_OPTIONS.map((opt) => {
+                    const active = energyLevel === opt.value;
+                    return (
+                      <Pressable
+                        key={opt.value}
+                        onPress={() => handleEnergySelect(opt.value)}
+                        style={({ pressed }) => [
+                          s.energyCell,
+                          active
+                            ? { backgroundColor: O, borderWidth: 0 }
+                            : { backgroundColor: P.sunken, borderColor: P.cardEdge, borderWidth: StyleSheet.hairlineWidth },
+                          { opacity: pressed ? 0.8 : 1 },
+                        ]}
+                      >
+                        <BarIcon bars={opt.bars} active={active} />
+                        <Text style={[s.energyCellLabel, { color: active ? '#fff' : P.textDim }]}>
+                          {opt.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Animated.View>
+
+              {/* ── Planned workout ─────────────────────────── */}
+              <Animated.View style={[{ marginTop: 12 }, fadeUp(anim3)]}>
+                <Pressable
+                  onPress={handleWorkoutToggle}
+                  style={({ pressed }) => [
+                    s.workoutRow,
+                    { backgroundColor: P.sunken, borderColor: P.cardEdge, opacity: pressed ? 0.85 : 1 },
+                  ]}
+                >
+                  <View style={[s.workoutIconBox, { backgroundColor: P.card }]}>
+                    <Ionicons name="barbell-outline" size={16} color={plannedWorkout ? O : P.textFaint} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.workoutLabel, { color: P.text }]}>Planning a workout today</Text>
+                    <Text style={[s.workoutSub, { color: P.textFaint }]}>
+                      {plannedWorkout ? "We'll save a slot for it" : 'Tap to plan ahead'}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={plannedWorkout}
+                    onValueChange={handleWorkoutToggle}
+                    trackColor={{ false: isDark ? '#3A3A3C' : '#E5E5EA', true: O }}
+                    thumbColor="#FFFFFF"
+                    ios_backgroundColor={isDark ? '#3A3A3C' : '#E5E5EA'}
+                  />
+                </Pressable>
+              </Animated.View>
+            </ScrollView>
+
+            {/* ── Submit (fixed footer) ───────────────────── */}
+            <Animated.View
+              style={[
+                s.footer,
+                fadeUp(anim4),
+                { borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' },
+              ]}
+            >
               <Pressable
                 onPress={canSubmit ? handleSubmit : undefined}
                 style={({ pressed }) => [
@@ -424,7 +435,7 @@ export function CheckinModal({ visible, onClose }: Props) {
                 <Text style={[s.skipText, { color: P.textFaint }]}>Skip for now</Text>
               </Pressable>
             </Animated.View>
-          </>
+          </View>
         )}
       </View>
     </AppModal>
@@ -435,9 +446,23 @@ export function CheckinModal({ visible, onClose }: Props) {
 
 const s = StyleSheet.create({
   body: {
+    flex:              1,
     paddingHorizontal: 22,
     paddingTop:        4,
-    paddingBottom:     8,
+  },
+  form: {
+    flex: 1,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 12,
+  },
+  footer: {
+    paddingTop:     12,
+    paddingBottom:  4,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
 
   // Header

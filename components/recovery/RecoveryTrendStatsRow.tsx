@@ -1,7 +1,11 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import type { TrendPalette, TrendStats } from '@/components/recovery/recovery-trend-utils';
-import { formatMomentum } from '@/components/recovery/recovery-trend-utils';
+import {
+  READINESS_BAND_COLORS,
+  formatMomentum,
+  type TrendPalette,
+  type TrendStats,
+} from '@/components/recovery/recovery-trend-utils';
 
 export interface RecoveryTrendStatsRowProps {
   stats: TrendStats;
@@ -43,14 +47,16 @@ export function RecoveryTrendStatsRow({ stats, palette }: RecoveryTrendStatsRowP
       <StatCell
         label="BEST"
         value={stats.high != null ? String(stats.high) : '—'}
-        accent={stats.high != null ? palette.protein : undefined}
+        accent={stats.high != null ? READINESS_BAND_COLORS.high : undefined}
         palette={palette}
       />
       <StatCell
         label="TREND"
         value={momentum ?? '—'}
         hint={stats.loggedDays >= 4 ? '2nd half vs 1st' : 'need more days'}
-        accent={momentum != null ? (momentumGood ? palette.protein : palette.calories) : undefined}
+        accent={momentum != null
+          ? (momentumGood ? READINESS_BAND_COLORS.high : READINESS_BAND_COLORS.low)
+          : undefined}
         palette={palette}
       />
     </View>

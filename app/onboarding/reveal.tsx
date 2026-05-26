@@ -1,3 +1,15 @@
+import { calculateNutritionPlan } from '@/utils/nutrition';
+import {
+  mapOnboardingActivity,
+  mapOnboardingGoal,
+  mapOnboardingSex,
+} from '@/utils/onboarding-mapping';
+import { hasActiveUserSession, type UserGoal, type UserProfile } from '@/context/auth-context';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  buildOnboardingProfile,
+  hasOnboardingParams,
+} from '@/utils/onboarding-profile';
 import {
   View, Text, StyleSheet, TouchableOpacity, Animated, Easing,
   ScrollView, useWindowDimensions,
@@ -9,14 +21,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import Svg, { Path, Line, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
-
-import { calculateNutritionPlan } from '@/utils/nutrition';
-import {
-  mapOnboardingActivity,
-  mapOnboardingGoal,
-  mapOnboardingSex,
-} from '@/utils/onboarding-mapping';
-import type { UserGoal, UserProfile } from '@/context/auth-context';
 
 // ── Palette ────────────────────────────────────────────────────────────────
 const BG     = '#F9F8F6';
@@ -83,6 +87,20 @@ export default function RevealScreen() {
   }>();
   const insets          = useSafeAreaInsets();
   const { width: scrW } = useWindowDimensions();
+  const {
+    oauthProfilePending,
+    setupOAuthProfile,
+    isLoading,
+    status,
+    user,
+  } = useAuth();
+  const [savingPlan, setSavingPlan] = useState(false);
+
+  useEffect(() => {
+    if (hasActiveUserSession(status, user)) {
+      router.replace('/(tabs)');
+    }
+  }, [status, user, router]);
 
   const canonicalGoal     = useMemo(() => mapOnboardingGoal(params.goal),         [params.goal]);
   const canonicalActivity = useMemo(() => mapOnboardingActivity(params.activity), [params.activity]);
@@ -98,6 +116,21 @@ export default function RevealScreen() {
 
   const weightKg     = Number(params.weight) || 70;
   const name         = params.name?.trim() || 'You';
+  const canFinishOAuth = hasOnboardingParams(params);
+  const oauthProfile = useMemo(() => buildOnboardingProfile(params), [params]);
+
+  async function handleContinue() {
+    if (oauthProfilePending && canFinishOAuth) {
+      setSavingPlan(true);
+      try {
+        const ok = await setupOAuthProfile(oauthProfile);
+        if (ok) return;
+      } finally {
+        setSavingPlan(false);
+      }
+    }
+    router.push({ pathname: '/auth/sign-up-options', params });
+  }
   const goalLabel    = GOAL_LABEL[canonicalGoal];
   const actLabel     = ACTIVITY_LABEL[canonicalActivity];
   const readyDays    = computeReadyDays(canonicalGoal, weightKg);
@@ -288,11 +321,18 @@ export default function RevealScreen() {
       {/* ── Continue to account creation ─────────────────── */}
       <Animated.View style={[s.bottom, { opacity: bottomFade, transform: [{ translateY: bottomY }], paddingBottom: insets.bottom + 20 }]}>
         <TouchableOpacity
-          style={s.cta}
+          style={[s.cta, { opacity: savingPlan || isLoading ? 0.6 : 1 }]}
           activeOpacity={0.84}
-          onPress={() => router.push({ pathname: '/auth/sign-up-options', params })}
+          disabled={savingPlan || isLoading}
+          onPress={() => void handleContinue()}
         >
-          <Text style={s.ctaText}>Continue</Text>
+          <Text style={s.ctaText}>
+            {savingPlan
+              ? 'Saving your plan…'
+              : oauthProfilePending && canFinishOAuth
+                ? 'Save plan & continue'
+                : 'Continue'}
+          </Text>
           <Ionicons name="arrow-forward" size={16} color="#FFF" />
         </TouchableOpacity>
       </Animated.View>
@@ -351,7 +391,6 @@ function ProjectionChart({
     );
   }, [shouldAnimate]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const axisX  = xs[0];
   const axisY  = H - pad;
   const rightX = xs[n];
 

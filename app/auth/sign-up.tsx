@@ -56,7 +56,7 @@ export default function SignUpScreen() {
 
   useEffect(() => {
     if (oauthProfilePending) {
-      router.replace({ pathname: '/onboarding/reveal', params });
+      router.replace({ pathname: '/auth/sign-up-options', params });
     }
   }, [oauthProfilePending, params, router]);
 

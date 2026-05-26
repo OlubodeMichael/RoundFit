@@ -22,6 +22,7 @@ export default function HeightWeightScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string }>();
   const insets = useSafeAreaInsets();
+  const total  = params.sex === 'female' ? 12 : 9;
 
   // Internal values always stored in metric
   const [weightKg, setWeightKg] = useState(70);
@@ -64,7 +65,7 @@ export default function HeightWeightScreen() {
   return (
     <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 20 }]}>
       <View style={s.progress}>
-        <ProgressBar step={4} total={9} backHref="/onboarding/age-sex" isDark={false} />
+        <ProgressBar step={4} total={total} backHref="/onboarding/age-sex" isDark={false} />
       </View>
 
       <Text style={s.headline}>Height &{'\n'}weight.</Text>

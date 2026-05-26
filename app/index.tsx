@@ -7,5 +7,6 @@ export default function Index() {
 
   if (status === 'loading') return null;
   if (status === 'authenticated') return <Redirect href="/(tabs)" />;
+  // needs-profile and unauthenticated both land on auth (partial OAuth session).
   return <Redirect href="/auth" />;
 }

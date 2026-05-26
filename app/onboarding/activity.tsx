@@ -16,6 +16,7 @@ export default function ActivityScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string; height: string; weight: string; goal: string }>();
   const insets = useSafeAreaInsets();
+  const total  = params.sex === 'female' ? 12 : 9;
   const [selected, setSelected] = useState<string | null>(null);
 
   const bg = '#FAFAF8';
@@ -45,7 +46,7 @@ export default function ActivityScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={6} total={9} backHref={{ pathname: '/onboarding/goal', params }} isDark={false} />
+        <ProgressBar step={6} total={total} backHref={{ pathname: '/onboarding/goal', params }} isDark={false} />
       </View>
 
       <View style={{ flex: 1 }}>

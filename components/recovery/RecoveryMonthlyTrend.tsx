@@ -12,6 +12,7 @@ import {
   computeTrendStats,
   currentMonthTitle,
   isToday,
+  READINESS_BAND_COLORS,
   scoreSoft,
   scoreTint,
 } from '@/components/recovery/recovery-trend-utils';
@@ -177,9 +178,9 @@ export function RecoveryMonthlyTrend({
         </View>
 
         <View style={[styles.legend, { borderTopColor: palette.hair }]}>
-          <LegendSwatch label="Low" color={palette.calories} palette={palette} />
-          <LegendSwatch label="Fair" color={palette.carbs} palette={palette} />
-          <LegendSwatch label="Optimal" color={palette.protein} palette={palette} />
+          <LegendSwatch label="Low" color={READINESS_BAND_COLORS.low} palette={palette} />
+          <LegendSwatch label="Fair" color={READINESS_BAND_COLORS.mid} palette={palette} />
+          <LegendSwatch label="Optimal" color={READINESS_BAND_COLORS.high} palette={palette} />
           <LegendSwatch label="No data" color={palette.sunken} palette={palette} isEmpty />
         </View>
       </View>

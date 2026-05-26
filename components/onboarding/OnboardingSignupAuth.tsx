@@ -95,30 +95,33 @@ export function OnboardingSignupAuth({
     }
   }, [status, user, router]);
 
-  useEffect(() => {
-    if (!oauthProfilePending || !canFinish) return;
-
-    const run = async () => {
-      if (finishingRef.current) return;
-      finishingRef.current = true;
-      setSettingUpProfile(true);
-      try {
-        const ok = await setupOAuthProfile(profile);
-        if (!ok) {
-          finishingRef.current = false;
-          setSettingUpProfile(false);
-        }
-        // on success: keep loading visible until navigation unmounts this component
-      } catch {
+  const finishOAuthSetup = async () => {
+    if (!canFinish) {
+      router.replace('/onboarding/complete-profile');
+      return;
+    }
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    setSettingUpProfile(true);
+    try {
+      const ok = await setupOAuthProfile(profile);
+      if (!ok) {
         finishingRef.current = false;
         setSettingUpProfile(false);
       }
-    };
+    } catch {
+      finishingRef.current = false;
+      setSettingUpProfile(false);
+    }
+  };
 
-    void run();
-  }, [oauthProfilePending, canFinish, profile, setupOAuthProfile]);
+  useEffect(() => {
+    if (!oauthProfilePending || !canFinish) return;
+    void finishOAuthSetup();
+  }, [oauthProfilePending, canFinish]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showLoading = isLoading || settingUpProfile;
+  const awaitingOAuthSave = oauthProfilePending && canFinish;
 
   return (
     <View>
@@ -132,25 +135,52 @@ export function OnboardingSignupAuth({
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
-          style={[s.appleBtn, { opacity: showLoading ? 0.55 : 1 }]}
-          activeOpacity={0.84}
-          disabled={showLoading}
-          onPress={() => signInWithOAuth('apple')}
-        >
-          <Ionicons name="logo-apple" size={20} color="#FFF" />
-          <Text style={s.appleBtnText}>Continue with Apple</Text>
-        </TouchableOpacity>
+        {oauthProfilePending && !canFinish && (
+          <TouchableOpacity
+            style={s.incompleteBanner}
+            activeOpacity={0.85}
+            onPress={() => router.replace('/onboarding/complete-profile')}
+          >
+            <Ionicons name="information-circle-outline" size={18} color={ORANGE} />
+            <Text style={s.incompleteText}>
+              Your plan data is incomplete. Tap here to restart setup from the beginning.
+            </Text>
+          </TouchableOpacity>
+        )}
 
-        <TouchableOpacity
-          style={[s.outlineBtn, { opacity: showLoading ? 0.55 : 1 }]}
-          activeOpacity={0.84}
-          disabled={showLoading}
-          onPress={() => signInWithOAuth('google')}
-        >
-          <GoogleLogo size={18} />
-          <Text style={s.outlineBtnText}>Continue with Google</Text>
-        </TouchableOpacity>
+        {awaitingOAuthSave ? (
+          <TouchableOpacity
+            style={[s.savePlanBtn, { opacity: showLoading ? 0.55 : 1 }]}
+            activeOpacity={0.84}
+            disabled={showLoading}
+            onPress={() => void finishOAuthSetup()}
+          >
+            <Text style={s.savePlanBtnText}>Save my plan & continue</Text>
+            <Ionicons name="arrow-forward" size={18} color="#FFF" />
+          </TouchableOpacity>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={[s.appleBtn, { opacity: showLoading ? 0.55 : 1 }]}
+              activeOpacity={0.84}
+              disabled={showLoading}
+              onPress={() => void signInWithOAuth('apple')}
+            >
+              <Ionicons name="logo-apple" size={20} color="#FFF" />
+              <Text style={s.appleBtnText}>Continue with Apple</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[s.outlineBtn, { opacity: showLoading ? 0.55 : 1 }]}
+              activeOpacity={0.84}
+              disabled={showLoading}
+              onPress={() => void signInWithOAuth('google')}
+            >
+              <GoogleLogo size={18} />
+              <Text style={s.outlineBtnText}>Continue with Google</Text>
+            </TouchableOpacity>
+          </>
+        )}
 
         <TouchableOpacity
           style={[s.outlineBtn, { opacity: showLoading ? 0.55 : 1 }]}
@@ -169,7 +199,7 @@ export function OnboardingSignupAuth({
           <Text style={s.legalAccent}>Privacy Policy</Text>
         </Text>
 
-        {showLoginLink && (
+        {showLoginLink && !oauthProfilePending && (
           <TouchableOpacity
             activeOpacity={0.6}
             onPress={() => router.replace('/auth/auth-options')}
@@ -206,6 +236,34 @@ const s = StyleSheet.create({
     paddingHorizontal: 14,
   },
   errorText: { flex: 1, fontSize: 13, color: '#EF4444', fontWeight: '500' },
+  incompleteBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: 'rgba(249,115,22,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(249,115,22,0.25)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  incompleteText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: INK,
+    fontWeight: '500',
+  },
+  savePlanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: ORANGE,
+    borderRadius: 16,
+    paddingVertical: 18,
+  },
+  savePlanBtnText: { color: '#FFF', fontSize: 15, fontWeight: '800' },
   appleBtn: {
     flexDirection: 'row',
     alignItems: 'center',

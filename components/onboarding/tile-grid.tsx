@@ -19,14 +19,11 @@ interface Props {
   baseDelay?: number;
 }
 
-const ACCENT  = '#F97316';
-const HI      = '#111111';
-const MID     = '#888';
-const LO      = '#E8E3DC';
-const SURF    = '#FFFFFF';
-const ACCENT_BG      = 'rgba(249,115,22,0.08)';
-const ACCENT_ICON_BG = 'rgba(249,115,22,0.12)';
-const ICON_IDLE_BG   = '#F2EFE9';
+const HI   = '#111111';
+const MID  = '#888';
+const LO   = '#E8E3DC';
+const SURF = '#FFFFFF';
+const ICON_IDLE_BG = 'rgba(249,115,22,0.12)';
 
 export function TileGrid({ tiles, selected, onSelect, baseDelay = 150 }: Props) {
   const fades = useRef(tiles.map(() => new Animated.Value(0))).current;
@@ -51,20 +48,20 @@ export function TileGrid({ tiles, selected, onSelect, baseDelay = 150 }: Props) 
             style={[s.wrapper, { opacity: fades[i], transform: [{ translateY: ys[i] }] }]}
           >
             <TouchableOpacity
-              style={[s.card, {
-                backgroundColor: active ? ACCENT_BG : SURF,
-                borderColor:     active ? ACCENT    : LO,
-                borderLeftWidth: active ? 4 : 1,
-                borderWidth:     1,
-              }]}
+              style={[s.card, active && s.cardActive]}
               onPress={() => onSelect(t.id)}
-              activeOpacity={0.8}
+              activeOpacity={0.82}
             >
-              <View style={[s.iconWrap, { backgroundColor: active ? ACCENT_ICON_BG : ICON_IDLE_BG }]}>
-                <Ionicons name={t.icon} size={22} color={active ? ACCENT : MID} />
+              {active && (
+                <View style={s.checkBadge}>
+                  <Ionicons name="checkmark" size={11} color="#FFF" />
+                </View>
+              )}
+              <View style={[s.iconWrap, active ? s.iconWrapActive : s.iconWrapIdle]}>
+                <Ionicons name={t.icon} size={22} color="#F97316" />
               </View>
-              <Text style={[s.label, { color: active ? ACCENT : HI }]}>{t.label}</Text>
-              <Text style={[s.desc, { color: MID }]}>{t.desc}</Text>
+              <Text style={[s.label, active && s.labelActive]}>{t.label}</Text>
+              <Text style={[s.desc,  active && s.descActive]}>{t.desc}</Text>
             </TouchableOpacity>
           </Animated.View>
         );
@@ -74,19 +71,47 @@ export function TileGrid({ tiles, selected, onSelect, baseDelay = 150 }: Props) 
 }
 
 const s = StyleSheet.create({
-  grid:    { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  grid:    { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   wrapper: { width: '47%' },
+
   card: {
-    borderRadius: 16,
-    padding:      18,
-    gap:          10,
-    minHeight:    140,
-    overflow:     'hidden',
+    backgroundColor: SURF,
+    borderRadius:    20,
+    padding:         18,
+    gap:             10,
+    minHeight:       160,
+    overflow:        'hidden',
+    borderWidth:     1,
+    borderColor:     '#EBEBEB',
   },
+  cardActive: {
+    backgroundColor: HI,
+    borderColor:     HI,
+  },
+
+  checkBadge: {
+    position:        'absolute',
+    top:             12,
+    right:           12,
+    width:           20,
+    height:          20,
+    borderRadius:    10,
+    backgroundColor: '#F97316',
+    alignItems:      'center',
+    justifyContent:  'center',
+  },
+
   iconWrap: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 48, height: 48, borderRadius: 24,
     alignItems: 'center', justifyContent: 'center',
+    marginBottom: 2,
   },
-  label: { fontSize: 15, fontWeight: '800', letterSpacing: -0.3 },
-  desc:  { fontSize: 12, lineHeight: 17, fontWeight: '400' },
+  iconWrapIdle:   { backgroundColor: ICON_IDLE_BG },
+  iconWrapActive: { backgroundColor: '#2A2A2A' },
+
+  label:       { fontSize: 17, fontWeight: '700', letterSpacing: -0.2, color: HI },
+  labelActive: { color: '#FFFFFF' },
+
+  desc:       { fontSize: 13, lineHeight: 18, fontWeight: '400', color: MID },
+  descActive: { color: '#888888' },
 });

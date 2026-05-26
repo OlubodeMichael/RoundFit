@@ -30,7 +30,9 @@ import {
   dayOfMonth,
   weekdayLetter,
   isToday,
+  readinessStatusTint,
   scoreTint,
+  READINESS_BAND_COLORS,
 } from '@/components/recovery/recovery-trend-utils';
 import type { TrendPalette } from '@/components/recovery/recovery-trend-utils';
 
@@ -59,9 +61,7 @@ function MetricRow({ factor, last, palette }: {
   palette: P;
 }) {
   const P = palette;
-  const valueColor = factor.status === 'good' ? P.protein
-                   : factor.status === 'ok'   ? P.carbs
-                   :                            P.calories;
+  const valueColor = readinessStatusTint(factor.status);
 
   const deltaArrow = factor.status === 'good' ? '▲'
                    : factor.status === 'poor'  ? '▼'
@@ -497,9 +497,7 @@ export default function RecoveryScreen() {
   const trend7d  = display.trend7d;
   const trend30d = display.trend30d;
 
-  const tint = score !== null
-    ? score >= 70 ? P.protein : score >= 40 ? P.carbs : P.calories
-    : P.protein;
+  const tint = score !== null ? scoreTint(score, P) : READINESS_BAND_COLORS.high;
 
   const gaugeSize  = Math.min(Math.floor(width * 0.68), GAUGE_MAX);
   const gaugeLabel = rec ? (GAUGE_LABELS[rec] ?? '') : '';

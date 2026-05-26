@@ -28,16 +28,37 @@ export interface TrendStats {
 const WEEKDAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const;
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
-export function scoreTint(score: number, palette: TrendPalette): string {
-  if (score >= 70) return palette.protein;
-  if (score >= 40) return palette.carbs;
-  return palette.calories;
+/** Readiness score bands — fixed to dark-theme hues so light mode matches recovery UI. */
+export const READINESS_BAND_COLORS = {
+  high: '#34D399',
+  mid:  '#FBBF24',
+  low:  '#FF7849',
+} as const;
+
+export const READINESS_BAND_SOFT = {
+  high: 'rgba(52,211,153,0.22)',
+  mid:  'rgba(251,191,36,0.22)',
+  low:  'rgba(255,120,73,0.22)',
+} as const;
+
+function readinessBand(score: number): keyof typeof READINESS_BAND_COLORS {
+  if (score >= 70) return 'high';
+  if (score >= 40) return 'mid';
+  return 'low';
 }
 
-export function scoreSoft(score: number, palette: TrendPalette): string {
-  if (score >= 70) return palette.isDark ? 'rgba(52,211,153,0.22)' : 'rgba(16,185,129,0.14)';
-  if (score >= 40) return palette.isDark ? 'rgba(251,191,36,0.22)' : 'rgba(245,158,11,0.14)';
-  return palette.isDark ? 'rgba(255,120,73,0.22)' : 'rgba(255,120,73,0.14)';
+export function scoreTint(score: number, _palette?: TrendPalette): string {
+  return READINESS_BAND_COLORS[readinessBand(score)];
+}
+
+export function scoreSoft(score: number, _palette?: TrendPalette): string {
+  return READINESS_BAND_SOFT[readinessBand(score)];
+}
+
+export function readinessStatusTint(status: 'good' | 'ok' | 'poor'): string {
+  if (status === 'good') return READINESS_BAND_COLORS.high;
+  if (status === 'ok') return READINESS_BAND_COLORS.mid;
+  return READINESS_BAND_COLORS.low;
 }
 
 export function computeTrendStats(points: ReadinessHistoryPoint[]): TrendStats {

@@ -12,7 +12,11 @@ const SEX_OPTIONS = [
 
 export default function AgeSexScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ name: string }>();
+  const params = useLocalSearchParams<{ name?: string; from?: string }>();
+  const backHref =
+    params.from === 'login'
+      ? '/onboarding/complete-profile'
+      : '/onboarding/value-hook';
   const insets = useSafeAreaInsets();
 
   const [age, setAge] = useState(25);
@@ -39,7 +43,7 @@ export default function AgeSexScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={3} total={9} backHref="/onboarding/value-hook" isDark={false} />
+        <ProgressBar step={3} total={9} backHref={backHref} isDark={false} />
       </View>
 
       <View style={{ flex: 1 }}>

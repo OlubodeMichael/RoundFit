@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GoogleLogo } from '@/components/ui/GoogleLogo';
+import { hasActiveUserSession } from '@/context/auth-context';
 import { useAuth } from '@/hooks/use-auth';
 
 const C = {
@@ -20,7 +21,17 @@ const C = {
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { signInWithOAuth, isLoading, error, clearError } = useAuth();
+  const {
+    signInWithOAuth,
+    isLoading,
+    error,
+    clearError,
+    status,
+    user,
+    oauthProfilePending,
+  } = useAuth();
+
+  const oauthAttemptRef = useRef(false);
 
   const fade  = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(20)).current;
@@ -37,6 +48,24 @@ export default function LoginScreen() {
     ]).start();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (hasActiveUserSession(status, user)) {
+      oauthAttemptRef.current = false;
+      router.replace('/(tabs)');
+      return;
+    }
+    if (!oauthAttemptRef.current) return;
+    if (status === 'needs-profile' && oauthProfilePending) {
+      oauthAttemptRef.current = false;
+      router.replace('/onboarding/complete-profile');
+    }
+  }, [status, user, oauthProfilePending, router]);
+
+  const runOAuth = (provider: 'apple' | 'google') => {
+    oauthAttemptRef.current = true;
+    void signInWithOAuth(provider);
+  };
+
   return (
     <View style={[s.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 }]}>
 
@@ -44,7 +73,7 @@ export default function LoginScreen() {
       <View style={s.bgBlob} pointerEvents="none" />
 
       {/* Back */}
-      <TouchableOpacity style={s.backBtn} onPress={() => router.replace('/auth')} activeOpacity={0.7}>
+      <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
         <Ionicons name="chevron-back" size={20} color={C.text} />
       </TouchableOpacity>
 
@@ -82,7 +111,7 @@ export default function LoginScreen() {
           style={[s.appleBtn, { opacity: isLoading ? 0.6 : 1 }]}
           activeOpacity={0.85}
           disabled={isLoading}
-          onPress={() => signInWithOAuth('apple')}
+          onPress={() => runOAuth('apple')}
         >
           <Ionicons name="logo-apple" size={20} color="#FFF" />
           <Text style={s.appleBtnText}>Continue with Apple</Text>
@@ -93,7 +122,7 @@ export default function LoginScreen() {
           style={[s.outlineBtn, { opacity: isLoading ? 0.6 : 1 }]}
           activeOpacity={0.85}
           disabled={isLoading}
-          onPress={() => signInWithOAuth('google')}
+          onPress={() => runOAuth('google')}
         >
           <GoogleLogo size={18} />
           <Text style={s.outlineBtnText}>Continue with Google</Text>

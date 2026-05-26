@@ -3,6 +3,7 @@ import type { DeleteAccountInput } from "@/types/account-deletion";
 import {
     apiFetch,
     clearTokens,
+    hasStoredAccessToken,
     isStoredTokenOAuth,
     proactiveRefreshIfNeeded,
     storeTokens,
@@ -15,9 +16,9 @@ import {
   parseOAuthCallbackUrl,
 } from "@/utils/oauth";
 import { notifyTodayTargetsChanged } from "@/utils/today-sync";
+import { createAppleSignInNonce } from "@/utils/apple-sign-in-nonce";
 import * as AppleAuthentication from "expo-apple-authentication";
 import Constants from "expo-constants";
-import * as Crypto from "expo-crypto";
 import * as WebBrowser from "expo-web-browser";
 import React, {
     createContext,
@@ -323,8 +324,11 @@ function parseApiError(
 async function fetchMe(emailFallback = ""): Promise<UserProfile> {
   const { ok, status, body } = await apiFetch("/auth/me");
   if (!ok) {
-    if (status === 404 && (body as Record<string, unknown>).error === 'PROFILE_NOT_FOUND') {
-      throw new Error('no_profile');
+    const errCode = String((body as Record<string, unknown>).error ?? "")
+      .toUpperCase()
+      .replace(/\s+/g, "_");
+    if (status === 404 && errCode === "PROFILE_NOT_FOUND") {
+      throw new Error("no_profile");
     }
     throw new Error("fetch_me_failed");
   }
@@ -620,6 +624,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
 
     try {
+      // Session exists but RoundFit profile missing — re-check /me before re-opening OAuth UI.
+      if (
+        statusRef.current === "needs-profile" &&
+        (await hasStoredAccessToken())
+      ) {
+        // Clear pending flag while we re-check; restoring it to true on no_profile
+        // causes a genuine state change that re-triggers the routing effect in _layout.tsx.
+        setOauthProfilePending(false);
+        try {
+          setUser(await loadUserFromServer("", true));
+          setStatus("authenticated");
+        } catch (err) {
+          if (err instanceof Error && err.message === "no_profile") {
+            setOauthProfilePending(true); // triggers routing → /onboarding/complete-profile
+          } else {
+            console.error(
+              "[auth] OAuth re-check failed:",
+              err instanceof Error ? err.message : err,
+            );
+            setError("UNKNOWN");
+          }
+        }
+        return;
+      }
+
       if (provider === "apple") {
         if (Platform.OS !== "ios") {
           setError("OAUTH_FAILED");
@@ -633,11 +662,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const rawNonce = Crypto.randomUUID();
-        const hashedNonce = await Crypto.digestStringAsync(
-          Crypto.CryptoDigestAlgorithm.SHA256,
-          rawNonce,
-        );
+        const { rawNonce, hashedNonce } = createAppleSignInNonce();
 
         const credential = await AppleAuthentication.signInAsync({
           requestedScopes: [
@@ -732,21 +757,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await storeTokens(callback.accessToken, callback.refreshToken);
       }
 
-      try {
-        setUser(await loadUserFromServer("", true));
+      // Fetch the user profile. OAuth tokens can take a moment to propagate on
+      // the backend, so retry once with a short delay on transient failures.
+      let fetchedUser = null;
+      let fetchErr: Error | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) await new Promise<void>(r => setTimeout(r, 1000));
+        try {
+          fetchedUser = await loadUserFromServer("", true);
+          fetchErr = null;
+          break;
+        } catch (e) {
+          fetchErr = e instanceof Error ? e : new Error(String(e));
+          if (fetchErr.message === "no_profile") break; // no point retrying
+        }
+      }
+
+      if (fetchedUser) {
+        setUser(fetchedUser);
         setOauthProfilePending(false);
         setStatus("authenticated");
-      } catch (err) {
-        if (err instanceof Error && err.message === "no_profile") {
-          setOauthProfilePending(true);
-          setStatus("needs-profile");
-        } else {
-          console.error(
-            "[auth] OAuth fetchMe failed:",
-            err instanceof Error ? err.message : err,
-          );
-          setError("UNKNOWN");
-        }
+      } else if (fetchErr?.message === "no_profile") {
+        setOauthProfilePending(true);
+        setStatus("needs-profile");
+      } else {
+        // Backend unreachable after retry but OAuth succeeded — treat as needs-profile
+        // so the user can complete setup rather than seeing a generic error.
+        console.error("[auth] OAuth fetchMe failed after retry:", fetchErr?.message);
+        setOauthProfilePending(true);
+        setStatus("needs-profile");
       }
     } catch (err: unknown) {
       if ((err as { code?: string })?.code === "ERR_CANCELED") return;
@@ -805,6 +844,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setError("UNKNOWN");
             return false;
           }
+        }
+
+        if (!nextUser.id) {
+          console.error("[auth] oauth-setup returned profile without id");
+          setError("UNKNOWN");
+          return false;
         }
 
         setUser(nextUser);

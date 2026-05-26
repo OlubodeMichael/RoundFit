@@ -163,13 +163,25 @@ export async function apiFetch(
  * (Google, Apple, etc.) rather than email/password.
  * Reads app_metadata.provider from the JWT payload — Supabase always sets this.
  */
+export async function hasStoredAccessToken(): Promise<boolean> {
+  const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
+  return Boolean(token);
+}
+
 export async function isStoredTokenOAuth(): Promise<boolean> {
   const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
   if (!token) return false;
   const payload = decodeJwtPayload(token);
   const meta = payload?.app_metadata as Record<string, unknown> | undefined;
-  const provider = typeof meta?.provider === 'string' ? meta.provider : 'email';
-  return provider !== 'email';
+  const provider = typeof meta?.provider === 'string' ? meta.provider : '';
+  if (provider && provider !== 'email') return true;
+  const providers = meta?.providers;
+  if (Array.isArray(providers)) {
+    return providers.some(
+      (p) => typeof p === 'string' && p !== 'email',
+    );
+  }
+  return false;
 }
 
 export async function storeTokens(accessToken: string, refreshToken: string): Promise<void> {

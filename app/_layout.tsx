@@ -59,7 +59,7 @@ export const unstable_settings = {
 
 function AppNavigator() {
   const { isDark } = useTheme();
-  const { status } = useAuth();
+  const { status, oauthProfilePending } = useAuth();
   const router = useRouter();
   const segments = useSegments();
   const navState = useRootNavigationState();
@@ -92,15 +92,19 @@ function AppNavigator() {
     const top = segments[0];
     const inPublicOnboarding = top === "auth" || top === "onboarding";
 
-    // Suppress redirect while finishing OAuth onboarding (reveal → sign-up-options → sign-up).
     const authScreen = segments[1];
-    const inProfileSetup =
-      top === "onboarding" ||
-      authScreen === "sign-up" ||
-      authScreen === "sign-up-options";
-    if (status === "needs-profile" && !inProfileSetup) {
-      router.replace("/onboarding/value-hook");
-      return;
+
+    if (status === "needs-profile") {
+      if (!inPublicOnboarding) {
+        router.replace("/auth");
+        return;
+      }
+      // OAuth user with valid tokens but no RoundFit profile yet.
+      // Redirect to the profile-setup intro unless they're already in onboarding.
+      if (oauthProfilePending && top !== "onboarding") {
+        router.replace("/onboarding/complete-profile");
+        return;
+      }
     }
 
     const passwordScreen =
@@ -117,7 +121,7 @@ function AppNavigator() {
     if (status === "unauthenticated" && !inPublicOnboarding) {
       router.replace("/auth");
     }
-  }, [navigatorReady, status, segments]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [navigatorReady, status, oauthProfilePending, segments]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const top = segments[0];
   // Hide auth UI until session is known, and while an authenticated user is still on `auth`
@@ -175,7 +179,7 @@ export default function RootLayout() {
     setupNotificationChannel();
   }, []);
 
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded) return <View style={{ flex: 1, backgroundColor: '#FAFAF8' }} />;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

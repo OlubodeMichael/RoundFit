@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Path, RadialGradient, Stop } from 'react-native-svg';
 
+import { READINESS_BAND_COLORS } from '@/components/recovery/recovery-trend-utils';
 import { usePalette } from '@/lib/log-theme';
 
 const ARC_START = 225;
@@ -246,7 +247,7 @@ export function RecoveryArcGauge({ score, gaugeLabel, tint, size, delta }: Recov
         <View style={styles.scoreRow}>
           <Text style={[styles.of, { color: P.textFaint }]}>recovery score</Text>
           {delta != null && (
-            <Text style={[styles.delta, { color: delta >= 0 ? tint : P.calories }]}>
+            <Text style={[styles.delta, { color: delta >= 0 ? tint : READINESS_BAND_COLORS.low }]}>
               {delta >= 0 ? `▲${delta}` : `▼${Math.abs(delta)}`}
             </Text>
           )}
