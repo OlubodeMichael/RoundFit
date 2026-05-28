@@ -340,6 +340,26 @@ export default function FoodLogScreen() {
     setFlash('off');
   };
 
+  const switchCameraMode = (newMode: CameraMode) => {
+    if (newMode === cameraMode) return;
+    setFlash('off');
+    if (newMode === 'scan') {
+      scanLock.current = false;
+      setScanned(null);
+      setScanLookupError(null);
+      setScanLookupLoading(false);
+      setCameraMode('scan');
+      setTimeout(startScanLine, 300);
+    } else {
+      stopScanLine();
+      scanLock.current = false;
+      setScanned(null);
+      setScanLookupError(null);
+      setScanLookupLoading(false);
+      setCameraMode('photo');
+    }
+  };
+
   const closeBarcodeConfirm = () => {
     setPendingBarcode(null);
   };
@@ -475,14 +495,14 @@ export default function FoodLogScreen() {
             onPress={() => openManual()}
           />
           <ActionCard
-            label="Scan"
-            caption="Barcode"
-            icon="barcode"
-            accent={P.water}
-            accentSoft={P.waterSoft}
+            label="Search"
+            caption="Browse foods"
+            icon="search"
+            accent={P.fat}
+            accentSoft={P.fatSoft}
             P={P}
             delay={280}
-            onPress={openScan}
+            onPress={() => router.push('/(tabs)/log/food/search')}
           />
         </View>
 
@@ -517,7 +537,8 @@ export default function FoodLogScreen() {
               ref={cameraMode === 'photo' ? cameraRef : undefined}
               style={cameraStyles.view}
               facing="back"
-              flash={flash}
+              flash={cameraMode === 'photo' ? flash : 'off'}
+              enableTorch={cameraMode === 'scan' && flash !== 'off'}
               {...(cameraMode === 'scan' ? {
                 barcodeScannerSettings: { barcodeTypes: FOOD_BARCODE_TYPES },
                 onBarcodeScanned: scanned ? undefined : onBarcodeScanned,
@@ -566,58 +587,73 @@ export default function FoodLogScreen() {
             <Text style={cameraStyles.title}>
               {cameraMode === 'scan' ? 'Scan barcode' : 'Snap your meal'}
             </Text>
-            {cameraMode === 'photo' ? (
-              <TouchableOpacity
-                style={[cameraStyles.circle, flash !== 'off' && { backgroundColor: 'rgba(255,120,73,0.55)' }]}
-                onPress={cycleFlash}
-              >
-                <Ionicons
-                  name={flash === 'on' ? 'flash' : flash === 'auto' ? 'flash-outline' : 'flash-off-outline'}
-                  size={20}
-                  color="#FFF"
-                />
-              </TouchableOpacity>
-            ) : (
-              <View style={cameraStyles.circle} />
-            )}
+            <TouchableOpacity
+              style={[cameraStyles.circle, flash !== 'off' && { backgroundColor: 'rgba(255,120,73,0.55)' }]}
+              onPress={cycleFlash}
+            >
+              <Ionicons
+                name={flash === 'on' ? 'flash' : flash === 'auto' ? 'flash-outline' : 'flash-off-outline'}
+                size={20}
+                color="#FFF"
+              />
+            </TouchableOpacity>
           </View>
 
-          {cameraMode === 'photo' && (
-            <View style={[cameraStyles.bottomBar, { paddingBottom: insets.bottom + 20 }]}>
-              <View style={cameraStyles.circle} />
-              <TouchableOpacity style={cameraStyles.captureOuter} onPress={capturePhoto}>
-                <View style={cameraStyles.captureInner} />
-              </TouchableOpacity>
-              <View style={cameraStyles.circle} />
-            </View>
-          )}
+          <View style={[cameraStyles.unifiedBottom, { paddingBottom: insets.bottom + 16 }]}>
+            {cameraMode === 'photo' ? (
+              <View style={cameraStyles.captureRow}>
+                <TouchableOpacity style={cameraStyles.captureOuter} onPress={capturePhoto}>
+                  <View style={cameraStyles.captureInner} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={cameraStyles.scanContent}>
+                {scanned ? (
+                  <View style={cameraStyles.lookupCard}>
+                    {scanLookupLoading ? (
+                      <>
+                        <ActivityIndicator color="#FF7849" />
+                        <Text style={cameraStyles.lookupText}>Looking up product…</Text>
+                      </>
+                    ) : scanLookupError ? (
+                      <>
+                        <Text style={cameraStyles.lookupError}>{scanLookupError}</Text>
+                        <TouchableOpacity style={cameraStyles.againBtn} onPress={resetScan}>
+                          <Text style={cameraStyles.againText}>Scan again</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : null}
+                  </View>
+                ) : (
+                  <View style={cameraStyles.hint}>
+                    <Ionicons name="barcode-outline" size={18} color="rgba(255,255,255,0.7)" />
+                    <Text style={cameraStyles.hintText}>Point at a barcode or QR code</Text>
+                  </View>
+                )}
+              </View>
+            )}
 
-          {cameraMode === 'scan' && (
-            <View style={[cameraStyles.scanBottom, { paddingBottom: insets.bottom + 24 }]}>
-              {scanned ? (
-                <View style={cameraStyles.lookupCard}>
-                  {scanLookupLoading ? (
-                    <>
-                      <ActivityIndicator color="#FF7849" />
-                      <Text style={cameraStyles.lookupText}>Looking up product…</Text>
-                    </>
-                  ) : scanLookupError ? (
-                    <>
-                      <Text style={cameraStyles.lookupError}>{scanLookupError}</Text>
-                      <TouchableOpacity style={cameraStyles.againBtn} onPress={resetScan}>
-                        <Text style={cameraStyles.againText}>Scan again</Text>
-                      </TouchableOpacity>
-                    </>
-                  ) : null}
-                </View>
-              ) : (
-                <View style={cameraStyles.hint}>
-                  <Ionicons name="barcode-outline" size={18} color="rgba(255,255,255,0.7)" />
-                  <Text style={cameraStyles.hintText}>Point at a barcode or QR code</Text>
-                </View>
-              )}
+            <View style={cameraStyles.modePill}>
+              <Pressable
+                onPress={() => switchCameraMode('photo')}
+                style={[cameraStyles.modeBtn, cameraMode === 'photo' && cameraStyles.modeBtnActive]}
+              >
+                <Ionicons name="aperture-outline" size={17} color={cameraMode === 'photo' ? '#111' : 'rgba(255,255,255,0.75)'} />
+                <Text style={[cameraStyles.modeBtnText, { color: cameraMode === 'photo' ? '#111' : 'rgba(255,255,255,0.75)' }]}>
+                  AI Photo
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => switchCameraMode('scan')}
+                style={[cameraStyles.modeBtn, cameraMode === 'scan' && cameraStyles.modeBtnActive]}
+              >
+                <Ionicons name="barcode-outline" size={17} color={cameraMode === 'scan' ? '#111' : 'rgba(255,255,255,0.75)'} />
+                <Text style={[cameraStyles.modeBtnText, { color: cameraMode === 'scan' ? '#111' : 'rgba(255,255,255,0.75)' }]}>
+                  Barcode
+                </Text>
+              </Pressable>
             </View>
-          )}
+          </View>
         </View>
       </Modal>
 
@@ -1212,9 +1248,38 @@ const cameraStyles = StyleSheet.create({
     position: 'absolute', left: 16, right: 16, top: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
-  bottomBar: {
+  unifiedBottom: {
     position: 'absolute', left: 16, right: 16, bottom: 0,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 20,
+  },
+  captureRow: {
+    alignItems: 'center', justifyContent: 'center',
+    width: '100%',
+  },
+  scanContent: {
+    width: '100%',
+    gap: 12,
+    alignItems: 'center',
+  },
+  modePill: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 999,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  modeBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    paddingHorizontal: 28, paddingVertical: 13,
+    borderRadius: 999,
+  },
+  modeBtnActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  modeBtnText: {
+    fontSize: 15, fontWeight: '700',
   },
   circle: {
     width: 44, height: 44, borderRadius: 22,
@@ -1251,7 +1316,6 @@ const cameraStyles = StyleSheet.create({
     shadowOpacity: 0.9, shadowRadius: 6,
   },
 
-  scanBottom: { position: 'absolute', left: 20, right: 20, bottom: 0, gap: 12 },
   hint:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12 },
   hintText:   { color: 'rgba(255,255,255,0.75)', fontSize: 14, fontWeight: '500' },
 
