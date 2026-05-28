@@ -198,6 +198,7 @@ export default function TargetsScreen() {
   const [calories,      setCalories]      = useState<number>(profile?.calorieBudget ?? tdee);
   const [sleep,         setSleep]         = useState<number>(8);
   const [steps,         setSteps]         = useState<number>(10000);
+  const [water,         setWater]         = useState<number>(profile?.waterGoalMl ?? 2000);
   const [savedSleep,    setSavedSleep]    = useState<number>(8);
   const [savedSteps,    setSavedSteps]    = useState<number>(10000);
   const [saving,        setSaving]        = useState(false);
@@ -222,17 +223,19 @@ export default function TargetsScreen() {
   }, [profile?.stepsTarget]);
 
   const originalCalories = profile?.calorieBudget ?? tdee;
+  const originalWater    = profile?.waterGoalMl ?? 2000;
   const isDirty = loaded && (
     calories !== originalCalories ||
     sleep    !== savedSleep       ||
-    steps    !== savedSteps
+    steps    !== savedSteps       ||
+    water    !== originalWater
   );
 
   async function handleSave() {
     if (saving) return;
     setSaving(true);
     try {
-      const saved = await updateProfile({ calorieBudget: calories, stepsTarget: steps });
+      const saved = await updateProfile({ calorieBudget: calories, stepsTarget: steps, waterGoalMl: water });
       if (!saved) {
         toast.error('Could not save targets', 'Please try again.');
         return;
@@ -255,6 +258,8 @@ export default function TargetsScreen() {
   const calorieDisplay = calories.toLocaleString();
   const sleepDisplay   = sleep.toFixed(1);
   const stepsDisplay   = steps.toLocaleString();
+  const waterDisplay   = (water / 1000).toFixed(2).replace(/0$/, '').replace(/\.$/, '.0');
+  const waterUnit      = 'L';
 
   if (!loaded) {
     return (
@@ -323,6 +328,22 @@ export default function TargetsScreen() {
             unit="hours"
             onIncrement={() => setSleep(s => clamp(Math.round((s + 0.5) * 2) / 2, 4, 12))}
             onDecrement={() => setSleep(s => clamp(Math.round((s - 0.5) * 2) / 2, 4, 12))}
+            card={P.card}
+            lo={P.lo}
+            mid={P.mid}
+            hi={P.hi}
+            isDark={P.isDark}
+          />
+
+          <SectionLabel label="Hydration" color={P.mid} />
+          <TargetCard
+            icon="water"
+            iconBg="#38BDF8"
+            label="DAILY WATER"
+            value={waterDisplay}
+            unit={waterUnit}
+            onIncrement={() => setWater(w => clamp(w + 250, 500, 6000))}
+            onDecrement={() => setWater(w => clamp(w - 250, 500, 6000))}
             card={P.card}
             lo={P.lo}
             mid={P.mid}

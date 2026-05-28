@@ -5,19 +5,24 @@ import { Alert, AppState, type AppStateStatus } from 'react-native';
 import {
   cancelMealReminders,
   cancelReminder,
+  cancelWaterReminders,
+  DEFAULT_WATER_CONFIG,
   getPermissionStatus,
   openNotificationSettings,
   requestPermissions,
   scheduleMealReminders,
   scheduleReminder,
+  scheduleWaterReminders,
   setupNotificationChannel,
   type PermissionStatus,
+  type WaterReminderConfig,
 } from '@/utils/notifications';
 
 // ── Storage keys ───────────────────────────────────────────────────────────
 
-const ENABLED_KEY = '@roundfit/notification_enabled_v1';
-const TIMES_KEY   = '@roundfit/notification_times_v1';
+const ENABLED_KEY       = '@roundfit/notification_enabled_v1';
+const TIMES_KEY         = '@roundfit/notification_times_v1';
+const WATER_CONFIG_KEY  = '@roundfit/water_reminder_config_v1';
 
 const DEFAULT_TIMES: Record<string, TimeVal> = {
   morning: { hour: 7,  minute: 0,  period: 'AM' },
@@ -38,12 +43,13 @@ interface TimeVal {
 }
 
 interface UseNotificationsReturn {
-  enabled:          Record<string, boolean>;
-  permissionStatus: PermissionStatus;
-  hydrated:         boolean;
-  toggle:           (id: string) => Promise<boolean>;
-  syncReminder:     (id: string, time: TimeVal) => Promise<void>;
-  syncMealReminders:(mealTimes: TimeVal[]) => Promise<void>;
+  enabled:             Record<string, boolean>;
+  permissionStatus:    PermissionStatus;
+  hydrated:            boolean;
+  toggle:              (id: string) => Promise<boolean>;
+  syncReminder:        (id: string, time: TimeVal) => Promise<void>;
+  syncMealReminders:   (mealTimes: TimeVal[]) => Promise<void>;
+  syncWaterReminders:  (config: WaterReminderConfig) => Promise<void>;
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────
@@ -190,10 +196,18 @@ export function useNotifications(
 
       if (cancelled) return;
 
+      let waterConfig: WaterReminderConfig = DEFAULT_WATER_CONFIG;
+      try {
+        const wcRaw = await AsyncStorage.getItem(WATER_CONFIG_KEY);
+        if (wcRaw) waterConfig = JSON.parse(wcRaw) as WaterReminderConfig;
+      } catch { /* use default */ }
+
       for (const id of reminderIds) {
         if (!enabledRef.current[id]) continue;
         if (id === 'meal') {
           await scheduleMealReminders(mealTimes);
+        } else if (id === 'water') {
+          await scheduleWaterReminders(waterConfig);
         } else {
           const t = times[id] ?? DEFAULT_TIMES[id];
           if (t) await scheduleReminder(id, t.hour, t.minute, t.period);
@@ -210,6 +224,13 @@ export function useNotifications(
     await scheduleMealReminders(mealTimes);
   }, []);
 
+  // ── Sync water reminders (interval or fixed times) ──────────────────────
+  const syncWaterReminders = useCallback(async (config: WaterReminderConfig) => {
+    await AsyncStorage.setItem(WATER_CONFIG_KEY, JSON.stringify(config));
+    if (!enabledRef.current.water) return;
+    await scheduleWaterReminders(config);
+  }, []);
+
   return {
     enabled,
     permissionStatus,
@@ -217,5 +238,6 @@ export function useNotifications(
     toggle,
     syncReminder,
     syncMealReminders,
+    syncWaterReminders,
   };
 }

@@ -141,6 +141,75 @@ export async function cancelReminder(id: string): Promise<void> {
   await Notifications.cancelScheduledNotificationAsync(id);
 }
 
+// ── Water reminders (interval or fixed times) ──────────────────────────────
+
+export interface WaterReminderConfig {
+  mode:          'interval' | 'times';
+  intervalHours: number;
+  windowStart:   { hour: number; minute: number; period: 'AM' | 'PM' };
+  windowEnd:     { hour: number; minute: number; period: 'AM' | 'PM' };
+  times:         { hour: number; minute: number; period: 'AM' | 'PM' }[];
+}
+
+export const DEFAULT_WATER_CONFIG: WaterReminderConfig = {
+  mode:          'interval',
+  intervalHours: 2,
+  windowStart:   { hour: 8,  minute: 0, period: 'AM' },
+  windowEnd:     { hour: 10, minute: 0, period: 'PM' },
+  times:         [{ hour: 9, minute: 0, period: 'AM' }],
+};
+
+export function computeIntervalTimes(
+  intervalHours: number,
+  start: { hour: number; minute: number; period: 'AM' | 'PM' },
+  end:   { hour: number; minute: number; period: 'AM' | 'PM' },
+): { hour: number; minute: number; period: 'AM' | 'PM' }[] {
+  const startMin = to24h(start.hour, start.period) * 60 + start.minute;
+  const endMin   = to24h(end.hour,   end.period)   * 60 + end.minute;
+  const stepMin  = Math.round(intervalHours * 60);
+  const result: { hour: number; minute: number; period: 'AM' | 'PM' }[] = [];
+  for (let m = startMin; m <= endMin; m += stepMin) {
+    const h24    = Math.floor(m / 60) % 24;
+    const minute = m % 60;
+    const period = h24 < 12 ? 'AM' : 'PM';
+    const hour   = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+    result.push({ hour, minute, period });
+  }
+  return result;
+}
+
+export async function scheduleWaterReminders(config: WaterReminderConfig): Promise<void> {
+  await cancelWaterReminders();
+  const slots = config.mode === 'interval'
+    ? computeIntervalTimes(config.intervalHours, config.windowStart, config.windowEnd)
+    : config.times;
+  for (let i = 0; i < slots.length; i++) {
+    const t = slots[i];
+    await Notifications.scheduleNotificationAsync({
+      identifier: `water-${i}`,
+      content: {
+        title: REMINDER_CONTENT.water.title,
+        body:  REMINDER_CONTENT.water.body,
+        data:  { screen: 'water' },
+        ...(Platform.OS === 'android' && { channelId: 'reminders' }),
+      },
+      trigger: {
+        type:   SchedulableTriggerInputTypes.DAILY,
+        hour:   to24h(t.hour, t.period),
+        minute: t.minute,
+      },
+    });
+  }
+}
+
+export async function cancelWaterReminders(): Promise<void> {
+  const all = await Notifications.getAllScheduledNotificationsAsync();
+  const ids = all
+    .map(n => n.identifier)
+    .filter(id => id === 'water' || id.startsWith('water-'));
+  await Promise.all(ids.map(id => Notifications.cancelScheduledNotificationAsync(id)));
+}
+
 // ── Meal reminders (multiple slots) ────────────────────────────────────────
 
 export async function scheduleMealReminders(

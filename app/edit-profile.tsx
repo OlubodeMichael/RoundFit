@@ -494,6 +494,7 @@ export default function EditProfileScreen() {
             ))}
           </View>
 
+
         </ScrollView>
       </View>
     </KeyboardAvoidingView>
@@ -695,4 +696,5 @@ const s = StyleSheet.create({
     height:       8,
     borderRadius: 4,
   },
+
 });

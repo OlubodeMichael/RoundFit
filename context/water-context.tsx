@@ -67,11 +67,9 @@ function parseWaterBody(body: Record<string, unknown>): WaterDayData {
 
 function applyDayToState(
   setEntries: React.Dispatch<React.SetStateAction<WaterEntry[]>>,
-  setGoalMl: React.Dispatch<React.SetStateAction<number>>,
   data: WaterDayData,
 ): void {
   setEntries(data.entries);
-  setGoalMl(data.goal_ml);
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -81,11 +79,12 @@ const WaterContext = createContext<WaterContextValue | null>(null);
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function WaterProvider({ children }: { children: React.ReactNode }) {
-  const { status, user } = useAuth();
+  const { status, user, updateProfile } = useAuth();
 
   const [entries,   setEntries]   = useState<WaterEntry[]>([]);
-  const [goalMl,    setGoalMl]    = useState(DEFAULT_GOAL_ML);
   const [isLoading, setIsLoading] = useState(false);
+
+  const goalMl = user?.waterGoalMl ?? DEFAULT_GOAL_ML;
 
   const goalMlRef = useRef(goalMl);
   const appStateRef = useRef(AppState.currentState);
@@ -126,7 +125,7 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
     if (!force) {
       const cached = await getResourceCached<WaterDayData>(key);
       if (cached) {
-        applyDayToState(setEntries, setGoalMl, cached.data);
+        applyDayToState(setEntries, cached.data);
         if (!cached.isStale) return;
       }
     }
@@ -145,7 +144,7 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
         { force },
       );
 
-      if (data) applyDayToState(setEntries, setGoalMl, data);
+      if (data) applyDayToState(setEntries, data);
     })().finally(() => {
       loadInFlightRef.current.delete(inflightKey);
     });
@@ -157,7 +156,6 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (sessionActive) return;
     setEntries([]);
-    setGoalMl(DEFAULT_GOAL_ML);
     setIsLoading(false);
     loadInFlightRef.current.clear();
   }, [sessionActive]);
@@ -170,7 +168,7 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
       const key = buildResourceKey('water', userId, todayString());
       const cached = await getResourceCached<WaterDayData>(key);
       if (cached && !cancelled) {
-        applyDayToState(setEntries, setGoalMl, cached.data);
+        applyDayToState(setEntries, cached.data);
       }
     })();
 
@@ -258,18 +256,9 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id, loadDate]);
 
   const setGoal = useCallback(async (ml: number): Promise<void> => {
-    const previous = goalMlRef.current;
-    setGoalMl(ml);
-    const { ok } = await apiFetch('/profile', {
-      method: 'PATCH',
-      body:   JSON.stringify({ water_goal_ml: ml }),
-    });
-    if (!ok) {
-      setGoalMl(previous);
-      throw new Error('Failed to update water goal');
-    }
-    if (user?.id) await loadDate(todayString(), { force: true });
-  }, [user?.id, loadDate]);
+    const saved = await updateProfile({ waterGoalMl: ml });
+    if (!saved) throw new Error('Failed to update water goal');
+  }, [updateProfile]);
 
   return (
     <WaterContext.Provider value={{

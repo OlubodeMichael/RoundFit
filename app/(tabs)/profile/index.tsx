@@ -265,6 +265,13 @@ export default function ProfileScreen() {
         />
         <Divider P={P} />
         <Row
+          icon="water" iconBg="#0EA5E9" iconFg="#FFF"
+          label="Water"
+          value={`${((profile?.waterGoalMl ?? 2000) / 1000).toFixed(1)} L`}
+          P={P}
+        />
+        <Divider P={P} />
+        <Row
           icon="footsteps" iconBg="#38BDF8" iconFg="#FFF"
           label="Daily Steps" value={stepsTarget.toLocaleString()}
           P={P}

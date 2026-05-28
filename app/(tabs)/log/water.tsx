@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Svg, { Circle } from 'react-native-svg';
 
+import { AppModal } from '@/components/ui/AppModal';
 import { DayNavigator, usePalette } from '@/lib/log-theme';
 import { useToast } from '@/components/ui/Toast';
 import { WaterQuickAdd } from '@/components/log/WaterQuickAdd';
@@ -98,10 +99,12 @@ export default function WaterLogScreen() {
   const toast  = useToast();
   const posthog = usePostHog();
 
-  const { entries, totalMl, goalMl, isLoading, logWater, deleteEntry, refresh } = useWater();
+  const { entries, totalMl, goalMl, isLoading, logWater, deleteEntry, refresh, setGoal } = useWater();
 
   const [selectedDate,   setSelectedDate]   = useState(() => new Date());
   const [showReminder,   setShowReminder]   = useState(false);
+  const [showEditGoal,   setShowEditGoal]   = useState(false);
+  const [draftGoalMl,    setDraftGoalMl]    = useState(goalMl);
 
   const acc = P.water;
 
@@ -283,7 +286,7 @@ export default function WaterLogScreen() {
             <Text style={[s.footerLabel, { color: P.textFaint }]}>
               {totalOz.toFixed(1)} of {goalOz.toFixed(1)} oz today
             </Text>
-            <Pressable hitSlop={10} onPress={() => {}}>
+            <Pressable hitSlop={10} onPress={() => { setDraftGoalMl(goalMl); setShowEditGoal(true); }}>
               <Text style={[s.adjustTxt, { color: acc }]}>Edit goal</Text>
             </Pressable>
           </View>
@@ -367,6 +370,62 @@ export default function WaterLogScreen() {
         visible={showReminder}
         onClose={() => setShowReminder(false)}
       />
+
+      {/* ── Edit goal sheet ───────────────────────────────────────────────── */}
+      <AppModal
+        visible={showEditGoal}
+        onClose={() => setShowEditGoal(false)}
+        title="Daily water goal"
+        sheetHeight={0.38}
+        dismissGestureArea="sheet"
+      >
+        <View style={s.goalSheet}>
+          <Text style={[s.modalSub, { color: P.textDim }]}>Adjust in 250 ml steps</Text>
+
+          <View style={s.modalStepper}>
+            <TouchableOpacity
+              style={[s.modalStepBtn, { backgroundColor: P.isDark ? '#252530' : '#F0EFEC', borderColor: P.isDark ? '#2A2A32' : '#E8E8E8' }]}
+              onPress={() => setDraftGoalMl(v => Math.max(500, v - 250))}
+              activeOpacity={0.6}
+              hitSlop={10}
+            >
+              <Text style={[s.modalStepGlyph, { color: acc }]}>−</Text>
+            </TouchableOpacity>
+
+            <View style={s.modalValueWrap}>
+              <Text style={[s.modalValue, { color: P.text }]}>
+                {(draftGoalMl / 1000).toFixed(2).replace(/0$/, '').replace(/\.$/, '.0')}
+              </Text>
+              <Text style={[s.modalValueUnit, { color: acc }]}>L</Text>
+            </View>
+
+            <TouchableOpacity
+              style={[s.modalStepBtn, { backgroundColor: P.isDark ? '#252530' : '#F0EFEC', borderColor: P.isDark ? '#2A2A32' : '#E8E8E8' }]}
+              onPress={() => setDraftGoalMl(v => Math.min(6000, v + 250))}
+              activeOpacity={0.6}
+              hitSlop={10}
+            >
+              <Text style={[s.modalStepGlyph, { color: acc }]}>+</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={[s.modalSaveBtn, { backgroundColor: acc }]}
+            activeOpacity={0.8}
+            onPress={async () => {
+              setShowEditGoal(false);
+              try {
+                await setGoal(draftGoalMl);
+                toast.success('Goal updated', `Daily target set to ${(draftGoalMl / 1000).toFixed(2).replace(/0$/, '').replace(/\.$/, '.0')} L`);
+              } catch {
+                toast.error('Could not save goal', 'Please try again.');
+              }
+            }}
+          >
+            <Text style={s.modalSaveTxt}>Save</Text>
+          </TouchableOpacity>
+        </View>
+      </AppModal>
     </View>
   );
 }
@@ -495,6 +554,40 @@ const s = StyleSheet.create({
   },
   groupLine:  { flex: 1, height: StyleSheet.hairlineWidth },
   groupLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1.6 },
+
+  // Edit goal sheet
+  goalSheet: {
+    paddingHorizontal: 28,
+    paddingTop: 4,
+    paddingBottom: 8,
+    gap: 6,
+  },
+  modalSub: { fontSize: 13, fontWeight: '500', marginBottom: 4 },
+  modalStepper: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    justifyContent: 'space-between',
+    marginVertical: 12,
+  },
+  modalStepBtn: {
+    width: 56, height: 56, borderRadius: 28,
+    borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  modalStepGlyph: {
+    fontSize: 28, fontWeight: '300', lineHeight: 32,
+    includeFontPadding: false,
+  },
+  modalValueWrap: { alignItems: 'center', gap: 2 },
+  modalValue:     { fontSize: 52, fontWeight: '900', letterSpacing: -2, lineHeight: 56, includeFontPadding: false },
+  modalValueUnit: { fontSize: 15, fontWeight: '700', letterSpacing: 0.3 },
+  modalSaveBtn: {
+    marginTop: 8,
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  modalSaveTxt: { fontSize: 16, fontWeight: '800', color: '#FFF', letterSpacing: 0.2 },
 
   // Empty
   emptyCard: {

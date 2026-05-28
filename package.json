@@ -15,7 +15,6 @@
   "dependencies": {
     "@expo-google-fonts/barlow-condensed": "^0.4.1",
     "@expo-google-fonts/syne": "^0.4.2",
-    "@expo/ui": "~0.2.0-beta.9",
     "@expo/vector-icons": "^15.0.3",
     "@kingstinct/react-native-healthkit": "^14.0.0",
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -27,6 +26,7 @@
     "expo": "~54.0.33",
     "expo-apple-authentication": "~8.0.8",
     "expo-application": "~7.0.8",
+    "expo-blur": "~15.0.8",
     "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.13",
     "expo-dev-client": "~6.0.21",

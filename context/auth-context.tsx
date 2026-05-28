@@ -83,6 +83,7 @@ export interface UserProfile {
   tdee?: number;
   calorieBudget?: number;
   stepsTarget?: number;
+  waterGoalMl?: number;
   currentStreak?: number;
   createdAt: string;
 }
@@ -258,6 +259,7 @@ function toApiBody(
   if (profile.unit !== undefined) out.unit = profile.unit;
   if (profile.calorieBudget !== undefined) out.calorie_budget = profile.calorieBudget;
   if (profile.stepsTarget !== undefined) out.steps_target = profile.stepsTarget;
+  if (profile.waterGoalMl !== undefined) out.water_goal_ml = profile.waterGoalMl;
   return out;
 }
 
@@ -289,6 +291,8 @@ function fromApiProfile(row: Record<string, unknown>): UserProfile {
       typeof row.calorie_budget === "number" ? row.calorie_budget : undefined,
     stepsTarget:
       typeof row.steps_target === "number" ? row.steps_target : undefined,
+    waterGoalMl:
+      typeof row.water_goal_ml === "number" ? row.water_goal_ml : undefined,
     currentStreak:
       typeof row.current_streak === "number" ? row.current_streak : undefined,
     createdAt: str(row.created_at, new Date().toISOString()),
