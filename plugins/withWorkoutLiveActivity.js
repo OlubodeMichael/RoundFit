@@ -1,16 +1,16 @@
 /**
- * Expo config plugin — adds the WorkoutLiveActivity Widget Extension target to
- * the Xcode project and sets the required Info.plist keys.
+ * Expo config plugin — sets up Live Activity prerequisites:
+ *   1. Adds NSSupportsLiveActivities to the main app Info.plist
+ *   2. Ensures ios/WorkoutLiveActivity/ directory exists so Swift files survive prebuild
  *
- * Applied automatically via app.config.js:
- *   plugins: [..., "./plugins/withWorkoutLiveActivity"]
+ * The Widget Extension Xcode target itself must be added manually in Xcode once
+ * (File → New → Target → Widget Extension, see plugins/SETUP_LIVE_ACTIVITY.md).
+ * Automated target creation via xcode-js is broken for Widget Extensions —
+ * CocoaPods rejects the resulting project because the .appex reference ends up
+ * with no PBXGroup parent.
  */
 
-const {
-  withInfoPlist,
-  withXcodeProject,
-  withDangerousMod,
-} = require('@expo/config-plugins');
+const { withInfoPlist, withDangerousMod } = require('@expo/config-plugins');
 const fs   = require('fs');
 const path = require('path');
 
@@ -19,6 +19,7 @@ const EXTENSION_SOURCES = [
   'ActivityAttributes.swift',
   'WorkoutLiveActivityWidget.swift',
   'WorkoutLiveActivityBundle.swift',
+  'Info.plist',
 ];
 
 // ─── 1. Main app Info.plist — enable Live Activities ─────────────────────────
@@ -30,102 +31,45 @@ const withLiveActivityPlist = (config) =>
     return mod;
   });
 
-// ─── 2. Ensure extension source directory exists ─────────────────────────────
+// ─── 2. Copy extension source files into the ios/ folder on prebuild ─────────
+//
+// Expo prebuild wipes the ios/ directory on --clean, so we keep authoritative
+// copies in this plugins/ folder and restore them after every prebuild.
 
 const withExtensionFiles = (config) =>
   withDangerousMod(config, [
     'ios',
     (mod) => {
-      const iosRoot = mod.modRequest.platformProjectRoot;
-      const extDir  = path.join(iosRoot, EXTENSION_NAME);
-      if (!fs.existsSync(extDir)) fs.mkdirSync(extDir, { recursive: true });
+      const iosRoot   = mod.modRequest.platformProjectRoot;
+      const targetDir = path.join(iosRoot, EXTENSION_NAME);
+      // Canonical files live in plugins/ — survive `expo prebuild --clean`
+      const sourceDir = path.join(
+        mod.modRequest.projectRoot,
+        'plugins',
+        EXTENSION_NAME,
+      );
+
+      if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+      if (fs.existsSync(sourceDir)) {
+        for (const filename of EXTENSION_SOURCES) {
+          const src = path.join(sourceDir, filename);
+          const dst = path.join(targetDir, filename);
+          if (fs.existsSync(src)) {
+            // Overwrite so updates in plugins/ propagate
+            fs.copyFileSync(src, dst);
+          }
+        }
+      }
+
       return mod;
     },
   ]);
-
-// ─── 3. Add Widget Extension target to .xcodeproj ───────────────────────────
-
-const withExtensionTarget = (config) =>
-  withXcodeProject(config, (mod) => {
-    const xcodeProject = mod.modResults;
-    const iosRoot      = mod.modRequest.platformProjectRoot;
-    const extBundleId  = `${config.ios?.bundleIdentifier ?? 'com.michaelolu.roundfit'}.WorkoutLiveActivity`;
-
-    // Idempotent — skip if the target was already added on a prior prebuild
-    if (xcodeProject.pbxTargetByName(EXTENSION_NAME)) return mod;
-
-    const extDir = path.join(iosRoot, EXTENSION_NAME);
-    if (!fs.existsSync(extDir)) fs.mkdirSync(extDir, { recursive: true });
-
-    // Group inside the project for the extension files
-    const groupKey =
-      xcodeProject.findPBXGroupKey({ name: EXTENSION_NAME }) ??
-      xcodeProject.addPbxGroup([], EXTENSION_NAME, EXTENSION_NAME).uuid;
-
-    // Add source + plist files to the group (skip if missing on disk)
-    for (const filename of [...EXTENSION_SOURCES, 'Info.plist']) {
-      const filePath = path.join(extDir, filename);
-      if (!fs.existsSync(filePath)) continue;
-
-      xcodeProject.addFile(`${EXTENSION_NAME}/${filename}`, groupKey, {
-        lastKnownFileType: filename.endsWith('.plist')
-          ? 'text.plist.xml'
-          : 'sourcecode.swift',
-      });
-    }
-
-    // Create the extension target
-    const target = xcodeProject.addTarget(
-      EXTENSION_NAME,
-      'app_extension',
-      EXTENSION_NAME,
-      extBundleId,
-    );
-
-    if (target) {
-      // Add Swift sources to the new target's compile phase
-      xcodeProject.addBuildPhase(
-        EXTENSION_SOURCES.map((f) => `${EXTENSION_NAME}/${f}`),
-        'PBXSourcesBuildPhase',
-        'Sources',
-        target.uuid,
-      );
-
-      // Build settings for the extension
-      const setProp = (key, val, cfg) =>
-        xcodeProject.addBuildProperty(key, val, cfg, target.uuid);
-
-      for (const cfg of ['Debug', 'Release']) {
-        setProp('SWIFT_VERSION',                  '5.0',  cfg);
-        setProp('TARGETED_DEVICE_FAMILY',         '"1,2"', cfg);
-        setProp('IPHONEOS_DEPLOYMENT_TARGET',     '16.1', cfg);
-        setProp('INFOPLIST_FILE',                 `${EXTENSION_NAME}/Info.plist`, cfg);
-        setProp('PRODUCT_BUNDLE_IDENTIFIER',      extBundleId, cfg);
-        setProp('CODE_SIGN_STYLE',                'Automatic', cfg);
-        setProp('LD_RUNPATH_SEARCH_PATHS',        '"$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"', cfg);
-        setProp('GENERATE_INFOPLIST_FILE',        'NO', cfg);
-        setProp('CURRENT_PROJECT_VERSION',        '1', cfg);
-        setProp('MARKETING_VERSION',              '1.0', cfg);
-      }
-
-      // Embed the extension into the main app
-      xcodeProject.addBuildPhase(
-        [`${EXTENSION_NAME}.appex`],
-        'PBXCopyFilesBuildPhase',
-        'Embed Foundation Extensions',
-        xcodeProject.getFirstTarget().uuid,
-        'wrapper.app-extension',
-      );
-    }
-
-    return mod;
-  });
 
 // ─── Compose ──────────────────────────────────────────────────────────────────
 
 module.exports = (config) => {
   config = withLiveActivityPlist(config);
   config = withExtensionFiles(config);
-  config = withExtensionTarget(config);
   return config;
 };
