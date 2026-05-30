@@ -23,6 +23,7 @@ import { useStepsTarget } from "@/hooks/use-steps-target";
 import { useSummary } from "@/hooks/use-summary";
 import { useTheme } from "@/hooks/use-theme";
 import { useUnits } from "@/hooks/use-units";
+import { useWorkoutLiveActivity } from "@/hooks/use-workout-live-activity";
 import { getLocalDateString } from "@/utils/date";
 import { calculateNutritionPlan } from "@/utils/nutrition";
 import { distanceUnitLabel, distanceValue } from "@/utils/units";
@@ -1714,6 +1715,22 @@ export default function HomeScreen() {
   );
   const [pickerOpen, setPickerOpen] = useState(false);
 
+  // Live Activity (iOS Lock Screen / Dynamic Island workout widget)
+  const {
+    active: liveWorkout,
+    start: startLiveWorkout,
+    end:   endLiveWorkout,
+  } = useWorkoutLiveActivity();
+
+  // Calories burned during the live workout (delta from baseline at start)
+  const liveBurned = liveWorkout
+    ? Math.max(
+        0,
+        (healthToday?.active_calories ?? liveWorkout.baselineCals) -
+          liveWorkout.baselineCals,
+      )
+    : 0;
+
   // Burn coach — recommend burning 15% of daily goal; more if over budget.
   const coachData = useMemo(() => {
     const base = Math.round(mealGoal * 0.15);
@@ -1871,10 +1888,22 @@ export default function HomeScreen() {
           {isToday && (
             <BurnCoachStrip
               caloriesToBurn={coachData.caloriesToBurn}
-              activity={coachData.activity}
+              activity={
+                liveWorkout
+                  ? { label: liveWorkout.activity.label, icon: liveWorkout.activity.icon }
+                  : coachData.activity
+              }
               goalProgress={coachData.goalProgress}
               isLive={true}
+              activeStartedAt={liveWorkout?.startedAt ?? null}
+              activeCaloriesBurned={liveBurned}
               onPress={() => setPickerOpen(true)}
+              onStart={() => {
+                if (!liveWorkout) {
+                  void startLiveWorkout(coachActivity, coachData.caloriesToBurn);
+                }
+              }}
+              onEnd={() => void endLiveWorkout()}
             />
           )}
           {isToday && <ReadinessWidget delay={260} />}
@@ -1920,9 +1949,7 @@ export default function HomeScreen() {
         caloriesToBurn={coachData.caloriesToBurn}
         weightKg={weightKg}
         currentId={coachActivity.id}
-        onSelect={(activity) => {
-          setCoachActivity(activity);
-        }}
+        onSelect={(activity) => setCoachActivity(activity)}
       />
 
       <AppModal

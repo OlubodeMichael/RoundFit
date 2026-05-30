@@ -67,6 +67,10 @@
     <string>Allow RoundFit to access your microphone</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Allow RoundFit to choose a profile photo from your library.</string>
+    <key>NSSupportsLiveActivities</key>
+    <true/>
+    <key>NSSupportsLiveActivitiesFrequentUpdates</key>
+    <true/>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>
