@@ -322,6 +322,40 @@ function parseApiError(
 }
 
 /**
+ * Parses a profile from GET /me, POST /login, or POST /register bodies.
+ * Returns null when the server signals profile setup is still required.
+ */
+function profileFromAuthPayload(
+  body: Record<string, unknown>,
+  emailFallback = "",
+): UserProfile | null {
+  if (body.needs_profile_setup === true) return null;
+
+  const data = (body.data ?? body) as Record<string, unknown>;
+  const profileRow = data.profile;
+  if (!profileRow || typeof profileRow !== "object") return null;
+
+  const profileRecord = profileRow as Record<string, unknown>;
+  const authUser = data.user as Record<string, unknown> | undefined;
+  const userMeta = authUser?.user_metadata as
+    | Record<string, unknown>
+    | undefined;
+
+  const name =
+    (typeof profileRecord.name === "string" && profileRecord.name) ||
+    (typeof userMeta?.name === "string" && userMeta.name) ||
+    (typeof userMeta?.full_name === "string" && userMeta.full_name) ||
+    "";
+
+  return fromApiProfile({
+    ...profileRecord,
+    name,
+    email: (authUser?.email ?? profileRecord.email ?? emailFallback) as string,
+    id: (authUser?.id ?? profileRecord.id ?? profileRecord.user_id) as string,
+  });
+}
+
+/**
  * Fetches and normalises the current user from GET /auth/me.
  * Throws if the request fails — callers handle the error.
  */
@@ -331,43 +365,29 @@ async function fetchMe(emailFallback = ""): Promise<UserProfile> {
     const errCode = String((body as Record<string, unknown>).error ?? "")
       .toUpperCase()
       .replace(/\s+/g, "_");
+    // Legacy prod: 404 when auth ok but profile row missing.
     if (status === 404 && errCode === "PROFILE_NOT_FOUND") {
       throw new Error("no_profile");
     }
     throw new Error("fetch_me_failed");
   }
 
-  // Response shape: { data: { user, profile } }
-  const data = (body.data ?? body) as Record<string, unknown>;
-  const profileRow = (data.profile ?? data) as Record<string, unknown>;
-  const authUser = data.user as Record<string, unknown> | undefined;
-  const userMeta = authUser?.user_metadata as
-    | Record<string, unknown>
-    | undefined;
-
-  // Name lives in the profile row; fallback to Supabase user_metadata
-  const name =
-    (typeof profileRow.name === "string" && profileRow.name) ||
-    (typeof userMeta?.name === "string" && userMeta.name) ||
-    (typeof userMeta?.full_name === "string" && userMeta.full_name) ||
-    "";
-
-  return fromApiProfile({
-    ...profileRow,
-    name,
-    email: (authUser?.email ?? profileRow.email ?? emailFallback) as string,
-    id: (authUser?.id ?? profileRow.id ?? profileRow.user_id) as string,
-  });
+  const profile = profileFromAuthPayload(body, emailFallback);
+  if (!profile) {
+    throw new Error("no_profile");
+  }
+  return profile;
 }
 
 /** Profile row returned by POST /auth/oauth-setup (`{ data: { profile } }`). */
 function profileFromOAuthSetupBody(
   body: Record<string, unknown>,
 ): UserProfile | null {
-  const data = (body.data ?? body) as Record<string, unknown>;
-  const profileRow = data.profile;
-  if (!profileRow || typeof profileRow !== "object") return null;
-  return fromApiProfile(profileRow as Record<string, unknown>);
+  return profileFromAuthPayload(body);
+}
+
+function isNoProfileError(err: unknown): boolean {
+  return err instanceof Error && err.message === "no_profile";
 }
 
 // ── Context ────────────────────────────────────────────────────────────────
@@ -438,12 +458,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(await loadUserFromServer("", true));
         setStatus("authenticated");
       } catch (err) {
-        if (err instanceof Error && err.message === 'no_profile') {
-          // Valid tokens but no RoundFit profile yet — route to onboarding to create one.
-          // Only set oauthProfilePending for OAuth providers; email users go through
-          // the full sign-up form instead of the "Complete setup" shortcut.
-          const isOAuth = await isStoredTokenOAuth();
-          setOauthProfilePending(isOAuth);
+        if (isNoProfileError(err)) {
+          setOauthProfilePending(true);
           setStatus("needs-profile");
         } else {
           await clearTokens();
@@ -484,18 +500,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await loadUserFromServer(userRef.current?.email ?? "", false),
           );
         } catch (err) {
-          if (err instanceof Error && err.message === "no_profile") {
+          if (isNoProfileError(err)) {
             try {
               setUser(
                 await loadUserFromServer(userRef.current?.email ?? "", true),
               );
             } catch (retryErr) {
-              if (
-                retryErr instanceof Error &&
-                retryErr.message === "no_profile"
-              ) {
-                const isOAuth = await isStoredTokenOAuth();
-                setOauthProfilePending(isOAuth);
+              if (isNoProfileError(retryErr)) {
+                setOauthProfilePending(true);
                 setStatus("needs-profile");
               }
             }
@@ -553,16 +565,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         await storeTokens(body.access_token, body.refresh_token);
 
+        if (body.needs_profile_setup === true) {
+          setOauthProfilePending(true);
+          setStatus("needs-profile");
+          return;
+        }
+
+        const inlineProfile = profileFromAuthPayload(body, email);
+        if (inlineProfile) {
+          lastMeFetchAtRef.current = Date.now();
+          setUser(inlineProfile);
+          setStatus("authenticated");
+          return;
+        }
+
         try {
           setUser(await loadUserFromServer(email, true));
           setStatus("authenticated");
         } catch (err) {
-          if (err instanceof Error && err.message === 'no_profile') {
-            // Tokens valid but profile missing — send them through onboarding to create one
+          if (isNoProfileError(err)) {
             setOauthProfilePending(true);
             setStatus("needs-profile");
           } else {
-            // Transient network/server error — profile was created server-side, retry on next mount
             setStatus("authenticated");
           }
         }
@@ -602,16 +626,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await storeTokens(body.access_token, body.refresh_token);
       }
 
+      if (body.needs_profile_setup === true) {
+        setOauthProfilePending(true);
+        setStatus("needs-profile");
+        return;
+      }
+
+      const inlineProfile = profileFromAuthPayload(body, email);
+      if (inlineProfile) {
+        lastMeFetchAtRef.current = Date.now();
+        setUser(inlineProfile);
+        setStatus("authenticated");
+        return;
+      }
+
       try {
         setUser(await loadUserFromServer(email, true));
         setStatus("authenticated");
       } catch (err) {
-        if (err instanceof Error && err.message === 'no_profile') {
-          // Tokens valid but profile missing — send them through onboarding to create one
+        if (isNoProfileError(err)) {
           setOauthProfilePending(true);
           setStatus("needs-profile");
         } else {
-          // Transient network/server error — tokens are valid, retry on next mount
           setStatus("authenticated");
         }
       }
@@ -640,8 +676,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(await loadUserFromServer("", true));
           setStatus("authenticated");
         } catch (err) {
-          if (err instanceof Error && err.message === "no_profile") {
-            setOauthProfilePending(true); // triggers routing → /onboarding/complete-profile
+          if (isNoProfileError(err)) {
+            setOauthProfilePending(true);
+            setStatus("needs-profile");
           } else {
             console.error(
               "[auth] OAuth re-check failed:",

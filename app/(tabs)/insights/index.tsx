@@ -21,6 +21,7 @@ import { useInsights } from '@/context/insights-context';
 import type { Insight as ApiInsight } from '@/context/insights-context';
 import { useWeeklyInsights } from '@/hooks/use-weekly-insights';
 import {
+  dayHasChartData,
   formatWeekRange,
   getDayLetter,
   getDayName,
@@ -344,22 +345,13 @@ function WeekView({ data, isLoading }: { data: ReturnType<typeof useWeeklyInsigh
   const targets     = data.targets_snapshot;
   const todayStr    = getLocalDateString();
 
-  const dayMap = new Map(data.days.map(d => [d.date, d]));
-  const dayBars = Array.from({ length: 7 }, (_, i) => {
-    const base = new Date(data.week_start + 'T12:00:00');
-    base.setDate(base.getDate() + i);
-    const mm   = String(base.getMonth() + 1).padStart(2, '0');
-    const dd   = String(base.getDate()).padStart(2, '0');
-    const date = `${base.getFullYear()}-${mm}-${dd}`;
-    const d    = dayMap.get(date);
-    return {
-      label:    getDayLetter(date),
-      score:    d?.score ?? 0,
-      onTarget: d?.met_calories === 'met',
-      hasData:  d != null && !d.is_partial,
-      today:    date === todayStr,
-    };
-  });
+  const dayBars = data.days.map(d => ({
+    label:    getDayLetter(d.date),
+    score:    d.score,
+    onTarget: d.met_calories === 'met',
+    hasData:  dayHasChartData(d),
+    today:    d.date === todayStr,
+  }));
 
   const bestDay = data.best_day_date
     ? data.days.find(d => d.date === data.best_day_date)
@@ -427,7 +419,7 @@ function WeekView({ data, isLoading }: { data: ReturnType<typeof useWeeklyInsigh
         {/* Day bars — always 7, ghost track for days without data */}
         <View style={s.daysRow}>
           {dayBars.map((d, i) => {
-            const pct   = d.hasData ? d.score / 100 : 0;
+            const pct   = d.hasData ? Math.max(d.score / 100, 0.08) : 0;
             const color = d.score >= 70 ? P.protein
                         : d.score >= 40 ? P.carbs
                         : P.calories;
@@ -451,7 +443,7 @@ function WeekView({ data, isLoading }: { data: ReturnType<typeof useWeeklyInsigh
       </AnimatedCard>
 
       {/* Best day */}
-      {bestDay && (
+      {bestDay && bestDay.score > 0 && (
         <AnimatedCard delay={140}>
           <View style={s.bestRow}>
             <View style={[s.trophyTile, { backgroundColor: P.carbsSoft }]}>

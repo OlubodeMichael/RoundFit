@@ -179,18 +179,18 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
 
     const weekStart = getWeekStart();
     const key       = buildResourceKey('summary-weekly', user.id, weekStart);
-    const parsed = await fetchWithResourceCache<WeeklySummary | null>(
+    const raw = await fetchWithResourceCache<Record<string, unknown> | null>(
       key,
       TTL_COLD_START_MS,
       async () => {
         const { ok, body } = await apiFetch(`/summary/weekly?weekStart=${weekStart}`);
         if (!ok) return null;
-        return fromApiWeekly(body);
+        return body as Record<string, unknown>;
       },
       { force },
     );
 
-    if (parsed) setWeekly(parsed);
+    if (raw) setWeekly(fromApiWeekly(raw));
   }, [user?.id]);
 
   const loadTodayDaily = useCallback(async (force = false) => {
@@ -222,12 +222,12 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
 
       const [dailyCached, weeklyCached] = await Promise.all([
         getCachedSummary(dailyKey),
-        getResourceCached<WeeklySummary>(weeklyKey),
+        getResourceCached<Record<string, unknown>>(weeklyKey),
       ]);
 
       if (!cancelled) {
         if (dailyCached) setDaily(dailyCached.data.daily);
-        if (weeklyCached) setWeekly(weeklyCached.data);
+        if (weeklyCached) setWeekly(fromApiWeekly(weeklyCached.data));
         if (dailyCached || weeklyCached) setIsLoading(false);
         else setIsLoading(true);
       }

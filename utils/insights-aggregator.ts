@@ -1,4 +1,4 @@
-import { getLocalDateString } from '@/utils/date'
+import { addLocalCalendarDays, getLocalDateString } from '@/utils/date'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -59,6 +59,75 @@ export interface DailyInsightSummary {
 }
 
 // ── Pure functions ─────────────────────────────────────────────────────────
+
+export function isValidIsoDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [y, m, d] = value.split('-').map(Number)
+  if (y === undefined || m === undefined || d === undefined) return false
+  const parsed = new Date(y, m - 1, d)
+  return (
+    parsed.getFullYear() === y &&
+    parsed.getMonth() === m - 1 &&
+    parsed.getDate() === d
+  )
+}
+
+/** Coerce API / DB date strings (timestamps, ISO) to `YYYY-MM-DD` in local calendar. */
+export function normalizeIsoDate(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) return ''
+  const head = value.trim().slice(0, 10)
+  return isValidIsoDate(head) ? head : ''
+}
+
+export function dayHasChartData(day: NormalizedDay | undefined): boolean {
+  if (!day) return false
+  return (
+    !day.is_partial ||
+    day.score > 0 ||
+    day.calories > 0 ||
+    day.protein > 0 ||
+    (day.steps ?? 0) > 0 ||
+    day.sleep_hours != null
+  )
+}
+
+function emptyWeekDay(date: string): NormalizedDay {
+  return {
+    date,
+    calories:      0,
+    protein:       0,
+    carbs:         0,
+    fat:           0,
+    steps:         null,
+    sleep_hours:   null,
+    workout_count: 0,
+    water_glasses: 0,
+    score:         0,
+    met_calories:  'no-data',
+    met_protein:   'no-data',
+    met_steps:     'no-data',
+    met_sleep:     'no-data',
+    is_partial:    true,
+    data_version:  1,
+  }
+}
+
+/** Align sparse API days onto Mon–Sun slots for the requested week. */
+export function buildWeekDays(
+  sparseDays: NormalizedDay[],
+  weekStart: string,
+): NormalizedDay[] {
+  const byDate = new Map<string, NormalizedDay>()
+  for (const day of sparseDays) {
+    const key = normalizeIsoDate(day.date)
+    if (key) byDate.set(key, { ...day, date: key })
+  }
+
+  return Array.from({ length: 7 }, (_, i) => {
+    const date = addLocalCalendarDays(weekStart, i)
+    return byDate.get(date) ?? emptyWeekDay(date)
+  })
+}
 
 export function getMetricStatus(
   actual: number | null,
@@ -160,7 +229,7 @@ export function apiDayToNormalized(day: Record<string, any>, targets: InsightTar
   const is_partial  = calories === 0 && protein === 0
 
   return {
-    date:          day.date,
+    date:          normalizeIsoDate(day.date),
     calories,
     protein,
     carbs,
@@ -201,7 +270,15 @@ export function computeWithinWeekStreak(days: NormalizedDay[]): number {
 export function apiWeeklyToSummary(
   apiData:        Record<string, any>,
   insightMessage: string | null,
+  weekStartFallback?: string,
 ): WeeklyInsightSummary {
+  const week_start = isValidIsoDate(apiData.week_start)
+    ? apiData.week_start
+    : (weekStartFallback ?? getWeekStart())
+  const week_end = isValidIsoDate(apiData.week_end)
+    ? apiData.week_end
+    : addLocalCalendarDays(week_start, 6)
+
   const targets: InsightTargets = apiData.targets_snapshot ?? {
     calorie_budget: 2000,
     protein_target: 150,
@@ -209,21 +286,23 @@ export function apiWeeklyToSummary(
     sleep_target:   null,
   }
 
-  const normalizedDays: NormalizedDay[] = (apiData.days ?? []).map((d: any) =>
-    apiDayToNormalized(d, targets)
+  const sparseDays: NormalizedDay[] = (apiData.days ?? []).map((d: any) =>
+    apiDayToNormalized(d, targets),
   )
+  const days = buildWeekDays(sparseDays, week_start)
 
-  const logged = normalizedDays.filter(d => !d.is_partial)
-  const bestDay = normalizedDays.length > 0
-    ? normalizedDays.reduce((b, d) => d.score > b.score ? d : b, normalizedDays[0])
+  const logged = days.filter(d => !d.is_partial)
+  const bestCandidates = logged.filter(d => d.score > 0)
+  const bestDay = bestCandidates.length > 0
+    ? bestCandidates.reduce((b, d) => (d.score > b.score ? d : b), bestCandidates[0])
     : null
 
   return {
-    week_start:             apiData.week_start,
-    week_end:               apiData.week_end,
-    days:                   normalizedDays,
+    week_start,
+    week_end,
+    days,
     consistency_score:      apiData.consistency_score ?? 0,
-    streak:                 computeWithinWeekStreak(normalizedDays),
+    streak:                 computeWithinWeekStreak(days),
     avg_calories:           apiData.avg_calories ?? 0,
     avg_protein:            apiData.avg_protein  ?? 0,
     avg_steps:              apiData.avg_steps    ?? null,
@@ -232,8 +311,8 @@ export function apiWeeklyToSummary(
     days_met_protein:       logged.filter(d => d.met_protein  === 'met').length,
     days_met_steps:         logged.filter(d => d.met_steps    === 'met').length,
     days_met_sleep:         logged.filter(d => d.met_sleep    === 'met').length,
-    best_day_date:          bestDay && !bestDay.is_partial ? bestDay.date : null,
-    best_day_score:         bestDay && !bestDay.is_partial ? bestDay.score : null,
+    best_day_date:          bestDay?.date ?? null,
+    best_day_score:         bestDay?.score ?? null,
     targets_snapshot:       targets,
     last_computed_at:       apiData.computed_at ?? new Date().toISOString(),
     weekly_insight_message: insightMessage,
@@ -251,17 +330,24 @@ export function getWeekStart(date?: Date): string {
 }
 
 export function formatWeekRange(weekStart: string, weekEnd: string): string {
-  const fmt = (s: string) =>
-    new Date(s + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const fmt = (s: string) => {
+    if (!isValidIsoDate(s)) return '—'
+    return new Date(`${s}T12:00:00`).toLocaleDateString(undefined, {
+      month: 'short',
+      day:   'numeric',
+    })
+  }
   return `${fmt(weekStart)} — ${fmt(weekEnd)}`
 }
 
 export function getDayLetter(isoDate: string): string {
-  return ['S', 'M', 'T', 'W', 'T', 'F', 'S'][new Date(isoDate + 'T00:00:00').getDay()]
+  if (!isValidIsoDate(isoDate)) return '?'
+  return ['S', 'M', 'T', 'W', 'T', 'F', 'S'][new Date(`${isoDate}T12:00:00`).getDay()]
 }
 
 export function getDayName(isoDate: string): string {
-  return new Date(isoDate + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long' })
+  if (!isValidIsoDate(isoDate)) return 'Unknown day'
+  return new Date(`${isoDate}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long' })
 }
 
 export function formatSleepHours(hours: number | null): string {

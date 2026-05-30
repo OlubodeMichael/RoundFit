@@ -19,6 +19,7 @@ import {
 } from '@/lib/log-theme';
 import { useWeeklyInsights } from '@/hooks/use-weekly-insights';
 import {
+  dayHasChartData,
   formatWeekRange,
   getDayLetter,
   getDayName,
@@ -88,7 +89,7 @@ export default function WeeklyReportScreen() {
     label:  getDayLetter(d.date),
     score:  d.score,
     target: d.met_calories === 'met',
-    empty:  d.is_partial,
+    empty:  !dayHasChartData(d),
   }));
 
   const targets = data?.targets_snapshot;
@@ -213,7 +214,7 @@ export default function WeeklyReportScreen() {
             {/* Day bars */}
             <View style={styles.daysRow}>
               {dayBars.map((d, i) => {
-                const pct   = d.score / 100;
+                const pct   = d.empty ? 0 : Math.max(d.score / 100, 0.08);
                 const color = d.empty ? P.textFaint : d.target ? P.protein : P.textFaint;
                 return (
                   <View key={i} style={styles.dayCol}>
@@ -235,7 +236,7 @@ export default function WeeklyReportScreen() {
           </AnimatedCard>
 
           {/* ── Best day ────────────────────────────────────────── */}
-          {bestDay && (
+          {bestDay && bestDay.score > 0 && (
             <AnimatedCard delay={140}>
               <View style={styles.bestRow}>
                 <View style={[styles.trophyTile, { backgroundColor: P.carbsSoft }]}>

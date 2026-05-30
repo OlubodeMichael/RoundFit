@@ -14,7 +14,8 @@ interface CacheEntry<T> {
 const mem = new Map<string, CacheEntry<unknown>>()
 const inflight = new Map<string, Promise<unknown>>()
 
-const CACHE_VERSION = 'v1'
+// v2: weekly summary resource cache now stores the raw API body (not the trimmed WeeklySummary shape).
+const CACHE_VERSION = 'v2'
 
 export function buildResourceKey(
   kind: string,

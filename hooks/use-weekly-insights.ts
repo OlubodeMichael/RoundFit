@@ -4,7 +4,10 @@ import type { UserProfile } from '@/context/auth-context'
 import { apiFetch } from '@/utils/api'
 import {
   apiWeeklyToSummary,
+  buildWeekDays,
+  dayHasChartData,
   getWeekStart,
+  isValidIsoDate,
   recomputeNormalizedDay,
   type InsightTargets,
   type NormalizedDay,
@@ -80,7 +83,7 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
     return () => { mountedRef.current = false }
   }, [])
 
-  const fetchFromServer = useCallback(async (local: LocalTargets): Promise<WeeklyInsightSummary> => {
+  const fetchFromServer = useCallback(async (local: LocalTargets, force = false): Promise<WeeklyInsightSummary> => {
     // Share the summary cache key with summary-context so concurrent fetches
     // deduplicate via the resource-cache inflight map (no duplicate HTTP requests).
     const summaryKey = buildResourceKey('summary-weekly', user?.id ?? '', week)
@@ -95,6 +98,7 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
           if (!r.ok) return null
           return r.body as Record<string, unknown>
         },
+        { force },
       ),
       apiFetch(`/insights/weekly?weekStart=${week}`)
         .then(r => ({ status: 'fulfilled' as const, value: r }))
@@ -123,7 +127,7 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
       ),
     }
 
-    return apiWeeklyToSummary(apiDataWithTargets, insightMessage)
+    return apiWeeklyToSummary(apiDataWithTargets, insightMessage, week)
   }, [week, user, isCurrentWeek])
 
   // Always re-derive each day on cache reads so stale `score` / `met_*` values
@@ -137,7 +141,8 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
         sleep_target: local.sleep_target ?? d.targets_snapshot.sleep_target,
       }
       const targets = ensureValidTargets(merged, fallbackProtein)
-      const days: NormalizedDay[] = d.days.map(day => recomputeNormalizedDay(day, targets))
+      const rescored = d.days.map(day => recomputeNormalizedDay(day, targets))
+      const days = buildWeekDays(rescored, d.week_start)
       const logged = days.filter(x => !x.is_partial)
       return {
         ...d,
@@ -161,7 +166,7 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
 
     if (!background) {
       const cached = await getCached<WeeklyInsightSummary>(cacheKey)
-      if (cached) {
+      if (cached && isValidIsoDate(cached.data.week_start)) {
         if (mountedRef.current) {
           setData(applyDerivedTargets(cached.data, local))
           setIsLoading(false)
@@ -174,7 +179,7 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
     }
 
     try {
-      const fresh = await fetchFromServer(local)
+      const fresh = await fetchFromServer(local, background)
       await setCached(cacheKey, fresh, ttl)
       if (mountedRef.current) {
         setData(fresh)

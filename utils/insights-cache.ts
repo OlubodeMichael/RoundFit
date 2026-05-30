@@ -1,12 +1,12 @@
 import {
+  buildResourceKey,
   getResourceCached,
   invalidateResourceCache,
   setResourceCached,
 } from '@/utils/resource-cache'
 
-// v2: bumped after backend summary queries were fixed to use `date` column
-// instead of `recorded_at` — old v1 entries had null steps/sleep baked in.
-const CACHE_VERSION = 'v2'
+// v4: weekly days aligned to Mon–Sun grid with normalized YYYY-MM-DD keys.
+const CACHE_VERSION = 'v4'
 
 export function buildWeekKey(userId: string, weekStart: string): string {
   return `insights:${CACHE_VERSION}:week:${userId}:${weekStart}`
@@ -36,7 +36,10 @@ export async function invalidate(key: string): Promise<void> {
 }
 
 export async function invalidateWeek(userId: string, weekStart: string): Promise<void> {
-  await invalidate(buildWeekKey(userId, weekStart))
+  await Promise.all([
+    invalidate(buildWeekKey(userId, weekStart)),
+    invalidateResourceCache(buildResourceKey('summary-weekly', userId, weekStart)),
+  ])
 }
 
 export async function invalidateDay(userId: string, date: string): Promise<void> {
