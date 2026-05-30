@@ -383,8 +383,12 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
       setHrvBaseline(null);
       setRestingHrBaseline(null);
       setHistoryScores([]);
+      return;
     }
-  }, [status, user?.id]);
+    // Kick off the full load (cache-first) as soon as the user is authenticated,
+    // so baselines are ready before the Recovery screen is ever opened.
+    if (!initialized) void refresh();
+  }, [status, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {

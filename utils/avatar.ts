@@ -28,7 +28,7 @@ function resolveAvatarUrl(body: UploadAvatarResponse): string | null {
 
 async function uploadBase64(base64: string): Promise<string | null> {
   const token = await SecureStore.getItemAsync('access_token');
-  const apiKey = process.env.EXPO_PUBLIC_API_SECRET_KEY;
+  const apiKey = process.env.EXPO_PUBLIC_API_KEY;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -42,10 +42,13 @@ async function uploadBase64(base64: string): Promise<string | null> {
   });
 
   if (!res.ok) {
-    let msg = `Upload failed (${res.status})`;
+    let msg = 'Something went wrong. Please try again.';
     try {
       const errBody = (await res.json()) as { error?: string };
-      if (errBody.error) msg = errBody.error;
+      // Only surface non-auth errors — auth errors are never the user's fault
+      if (errBody.error && res.status !== 401 && res.status !== 403) {
+        msg = errBody.error;
+      }
     } catch { /* ignore */ }
     throw new Error(msg);
   }

@@ -12,6 +12,7 @@ import { AppModal } from "@/components/ui/AppModal";
 import { useToast } from "@/components/ui/Toast";
 import { useCycle } from "@/context/cycle-context";
 import { useFood } from "@/context/food-context";
+import { useInsights } from "@/context/insights-context";
 import type { Workout } from "@/context/workout-context";
 import { useWorkouts } from "@/context/workout-context";
 import { useDayLogs } from "@/hooks/use-day-logs";
@@ -1401,7 +1402,7 @@ const wkStyles = StyleSheet.create({
 });
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Daily Insight — distinctive gradient-accent card with sparkle icon
+// Daily Insight — mirrors the Today card in the Insights tab
 // ───────────────────────────────────────────────────────────────────────────────
 function InsightCard({
   P,
@@ -1412,6 +1413,15 @@ function InsightCard({
   delay?: number;
   onPress: () => void;
 }) {
+  const { todayInsight, claudeInsight } = useInsights();
+  const insight = claudeInsight ?? todayInsight;
+
+  if (!insight) return null;
+
+  const isAi    = insight.type === 'claude';
+  const title   = insight.title || insight.message.split('. ')[0];
+  const eyebrow = isAi ? 'RIS INSIGHT' : 'DAILY INSIGHT';
+
   return (
     <Card delay={delay} style={{ overflow: "hidden" }}>
       <View
@@ -1425,7 +1435,7 @@ function InsightCard({
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[styles.insightEyebrow, { color: P.fat }]}>
-            DAILY INSIGHT
+            {eyebrow}
           </Text>
           <Text style={[styles.insightMeta, { color: P.textFaint }]}>
             Personalised for you
@@ -1433,16 +1443,11 @@ function InsightCard({
         </View>
       </View>
 
-      <Text style={[styles.insightBody, { color: P.text }]}>
-        Your protein dips below target every afternoon. Try a{" "}
-        <Text style={{ color: P.protein, fontWeight: "700" }}>
-          Greek yogurt
-        </Text>{" "}
-        or a{" "}
-        <Text style={{ color: P.protein, fontWeight: "700" }}>
-          handful of almonds
-        </Text>{" "}
-        around 3 PM to stay steady through dinner.
+      <Text style={[styles.insightBody, { color: P.text, fontWeight: '700', marginBottom: 6 }]} numberOfLines={2}>
+        {title}
+      </Text>
+      <Text style={[styles.insightBody, { color: P.textDim }]} numberOfLines={3}>
+        {insight.message}
       </Text>
 
       <TouchableOpacity
@@ -1607,6 +1612,7 @@ export default function HomeScreen() {
   const { mealGoal, refreshLogs, fetchForDate: fetchMealsForDate } = useFood();
   const { today: healthToday, refresh: refreshHealth } = useHealth();
   const { refresh: refreshSummary } = useSummary();
+  const { ensureLoaded: ensureInsightsLoaded } = useInsights();
   const toast = useToast();
   const { unreadCount } = useNotificationInbox();
 
@@ -1632,6 +1638,12 @@ export default function HomeScreen() {
       void fetchWorkoutsForDate(next);
     }
   }, [dateStr, todayStr, fetchMealsForDate, fetchWorkoutsForDate]);
+
+  // Load insights on home screen mount so the insight card shows real data
+  // even if the Insights tab has never been opened.
+  useEffect(() => {
+    void ensureInsightsLoaded();
+  }, [ensureInsightsLoaded]);
   const totalCalories = useMemo(
     () => meals.reduce((s, m) => s + m.cals, 0),
     [meals],
@@ -1828,13 +1840,15 @@ export default function HomeScreen() {
               )}
             </TouchableOpacity>
 
-            <UserAvatar
-              size="sm"
-              avatarUrl={avatarUrl}
-              avatarLetter={avatarLetter}
-              accentColor={P.calories}
-              fillColor={P.sunken}
-            />
+            <Pressable onPress={() => router.push('/profile')} hitSlop={8}>
+              <UserAvatar
+                size="sm"
+                avatarUrl={avatarUrl}
+                avatarLetter={avatarLetter}
+                accentColor={P.calories}
+                fillColor={P.sunken}
+              />
+            </Pressable>
           </View>
         </AnimatedHeader>
 
