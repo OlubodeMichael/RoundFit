@@ -20,7 +20,6 @@ import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
 import {
   formatSleepHours,
   recomputeNormalizedDay,
-  type MetricStatus,
   type NormalizedDay,
   type InsightTargets,
 } from '@/utils/insights-aggregator';
@@ -32,8 +31,8 @@ type IoniconName = ComponentProps<typeof Ionicons>['name'];
 function SkeletonBlock({ width, height, radius = 8, style }: {
   width: number | string; height: number; radius?: number; style?: object;
 }) {
-  const P     = usePalette();
-  const anim  = useRef(new Animated.Value(0)).current;
+  const P    = usePalette();
+  const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.loop(
@@ -45,7 +44,7 @@ function SkeletonBlock({ width, height, radius = 8, style }: {
     return () => anim.stopAnimation();
   }, [anim]);
 
-  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.7] });
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.6] });
 
   return (
     <Animated.View style={[{ width, height, borderRadius: radius, backgroundColor: P.hair, opacity }, style]} />
@@ -55,7 +54,7 @@ function SkeletonBlock({ width, height, radius = 8, style }: {
 function DailySkeleton({
   pad, insets, date, isToday, onBack, onPrev, onNext,
 }: {
-  pad:     ReturnType<typeof import('@/lib/log-theme').useScreenPadding>;
+  pad:     ReturnType<typeof useScreenPadding>;
   insets:  { bottom: number };
   date:    string;
   isToday: boolean;
@@ -71,67 +70,63 @@ function DailySkeleton({
         showsVerticalScrollIndicator={false}
         scrollEnabled={false}
       >
-        {/* Real header — date and nav are already known */}
         <View style={[styles.header, { paddingHorizontal: 20 }]}>
           <Pressable onPress={onBack} hitSlop={12} style={[styles.backBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
             <Ionicons name="chevron-back" size={18} color={P.text} />
           </Pressable>
-          <DayNavigator
-            label={formatDateLabel(date)}
-            isToday={isToday}
-            onPrev={onPrev}
-            onNext={onNext}
-          />
+          <DayNavigator label={formatDateLabel(date)} isToday={isToday} onPrev={onPrev} onNext={onNext} />
           <View style={{ width: 40 }} />
         </View>
 
         <View style={styles.stack}>
-          {/* Score hero skeleton */}
-          <View style={[skeletonStyles.card, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
-            <SkeletonBlock width={80} height={10} radius={4} style={{ alignSelf: 'center' }} />
-            <SkeletonBlock width={90} height={72} radius={10} style={{ alignSelf: 'center', marginTop: 10 }} />
-            <SkeletonBlock width={40} height={12} radius={4} style={{ alignSelf: 'center', marginTop: 6 }} />
-            <SkeletonBlock width='100%' height={6} radius={4} style={{ marginTop: 16 }} />
-            <SkeletonBlock width={140} height={13} radius={4} style={{ alignSelf: 'center', marginTop: 14 }} />
+          {/* Goals summary skeleton */}
+          <View style={[skeletonCard, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
+            <SkeletonBlock width={80}  height={10} radius={4} />
+            <SkeletonBlock width={160} height={52} radius={8} style={{ marginTop: 12 }} />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 20 }}>
+              {[0, 1, 2, 3].map(i => (
+                <View key={i} style={{ flex: 1, gap: 6 }}>
+                  <SkeletonBlock width="100%" height={3} radius={2} />
+                  <SkeletonBlock width="70%"  height={9} radius={3} />
+                </View>
+              ))}
+            </View>
           </View>
 
-          {/* Metric card skeletons */}
-          {[0, 1, 2, 3].map(i => (
-            <View key={i} style={[skeletonStyles.card, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <SkeletonBlock width={44} height={44} radius={14} />
-                <View style={{ flex: 1, gap: 8 }}>
-                  <SkeletonBlock width={60} height={9} radius={4} />
-                  <SkeletonBlock width={80} height={20} radius={5} />
-                  <SkeletonBlock width={100} height={11} radius={4} />
+          {/* Metric rows skeleton */}
+          <View style={[skeletonCard, { backgroundColor: P.card, borderColor: P.cardEdge, padding: 0, overflow: 'hidden' }]}>
+            {[0, 1, 2, 3].map(i => (
+              <View key={i} style={{ paddingHorizontal: 18, paddingVertical: 14, borderTopWidth: i > 0 ? StyleSheet.hairlineWidth : 0, borderTopColor: P.hair }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                    <SkeletonBlock width={15} height={15} radius={4} />
+                    <SkeletonBlock width={60}  height={14} radius={4} />
+                  </View>
+                  <SkeletonBlock width={100} height={14} radius={4} />
                 </View>
-                <SkeletonBlock width={72} height={30} radius={8} />
+                <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                  <SkeletonBlock width="80%" height={4} radius={2} />
+                  <SkeletonBlock width={30}  height={11} radius={3} />
+                </View>
               </View>
-            </View>
-          ))}
+            ))}
+          </View>
         </View>
       </ScrollView>
     </View>
   );
 }
 
-const skeletonStyles = StyleSheet.create({
-  card: {
-    borderRadius: 24,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 20,
-  },
-});
+const skeletonCard: object = {
+  borderRadius: 20,
+  borderWidth:  StyleSheet.hairlineWidth,
+  padding:      20,
+};
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function prevDay(iso: string): string {
-  return addLocalCalendarDays(iso, -1);
-}
-
-function nextDay(iso: string): string {
-  return addLocalCalendarDays(iso, 1);
-}
+function prevDay(iso: string): string { return addLocalCalendarDays(iso, -1); }
+function nextDay(iso: string): string { return addLocalCalendarDays(iso, 1);  }
 
 function formatDateLabel(iso: string): string {
   const today     = getLocalDateString();
@@ -143,31 +138,12 @@ function formatDateLabel(iso: string): string {
   });
 }
 
-function statusColor(
-  status: MetricStatus,
-  met: string,
-  partial: string,
-  missed: string,
-  faint: string,
-): string {
-  if (status === 'met')     return met;
-  if (status === 'partial') return partial;
-  if (status === 'missed')  return missed;
-  return faint;
+function formatCardDate(iso: string): string {
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+  }).toUpperCase();
 }
 
-function statusLabel(status: MetricStatus): string {
-  if (status === 'met')     return 'On target';
-  if (status === 'partial') return 'Close';
-  if (status === 'missed')  return 'Off target';
-  return 'No data';
-}
-
-/**
- * Re-derive a NormalizedDay using fresh nutrition totals from the live food
- * context. Steps, sleep, water, and date are kept from the server-side day so
- * we only override what the food log actually owns.
- */
 function withLiveNutrition(
   day:      NormalizedDay,
   targets:  InsightTargets,
@@ -176,10 +152,7 @@ function withLiveNutrition(
   carbs:    number,
   fat:      number,
 ): NormalizedDay {
-  return recomputeNormalizedDay(
-    { ...day, calories, protein, carbs, fat },
-    targets,
-  );
+  return recomputeNormalizedDay({ ...day, calories, protein, carbs, fat }, targets);
 }
 
 // ── Screen ─────────────────────────────────────────────────────────────────
@@ -195,12 +168,10 @@ export default function DailyInsightScreen() {
   const [date, setDate] = useState(params.date ?? today);
   const isToday = date === today;
 
-  const goTo    = (d: string) => { if (d <= today) setDate(d); };
+  const goTo = (d: string) => { if (d <= today) setDate(d); };
 
   const { data, isLoading, isRefreshing, error, refresh } = useDailyInsights(date);
 
-  // Live food totals — when viewing today, prefer these over the cached server
-  // values so calories/protein update the moment a meal is logged.
   const {
     activeDate:    foodActiveDate,
     totalCalories: liveCalories,
@@ -210,14 +181,10 @@ export default function DailyInsightScreen() {
   } = useFood();
   const useLiveFood = isToday && foodActiveDate === today;
 
-  // ── Loading ────────────────────────────────────────────────────────────
   if (isLoading && !data) {
     return (
       <DailySkeleton
-        pad={pad}
-        insets={insets}
-        date={date}
-        isToday={isToday}
+        pad={pad} insets={insets} date={date} isToday={isToday}
         onBack={() => router.back()}
         onPrev={() => goTo(prevDay(date))}
         onNext={() => goTo(nextDay(date))}
@@ -225,14 +192,11 @@ export default function DailyInsightScreen() {
     );
   }
 
-  // ── Error ──────────────────────────────────────────────────────────────
   if (error && !data) {
     return (
       <View style={{ flex: 1, backgroundColor: P.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
         <Ionicons name="cloud-offline-outline" size={36} color={P.textFaint} />
-        <Text style={{ color: P.textDim, fontSize: 14, textAlign: 'center', marginTop: 12, lineHeight: 20 }}>
-          {error}
-        </Text>
+        <Text style={{ color: P.textDim, fontSize: 14, textAlign: 'center', marginTop: 12, lineHeight: 20 }}>{error}</Text>
         <Pressable
           onPress={refresh}
           style={({ pressed }) => [
@@ -250,88 +214,87 @@ export default function DailyInsightScreen() {
   const day     = data?.day && targets && useLiveFood
     ? withLiveNutrition(data.day, targets, liveCalories, liveProtein, liveCarbs, liveFat)
     : data?.day;
-  const score   = day?.score ?? 0;
 
-  // Count targets met (excluding no-data metrics)
-  const metricStatuses = day
-    ? [day.met_calories, day.met_protein, day.met_steps, day.met_sleep]
-    : [];
-  const trackable = metricStatuses.filter(s => s !== 'no-data').length;
-  const metCount  = metricStatuses.filter(s => s === 'met').length;
+  // Targets with fallbacks
+  const calBudget   = targets?.calorie_budget ?? 2000;
+  const protTarget  = targets?.protein_target ?? 150;
+  const stepsTarget = targets?.steps_target   ?? 10000;
+  const sleepTarget = targets?.sleep_target   ?? 7;
+
+  // Values
+  const cals    = day?.calories    ?? 0;
+  const protein = day?.protein     ?? 0;
+  const steps   = day?.steps       ?? null;
+  const sleep   = day?.sleep_hours ?? null;
+
+  // Progress percentages (0–100, capped)
+  const calPct   = calBudget   > 0 ? Math.min((cals    / calBudget)   * 100, 100) : 0;
+  const protPct  = protTarget  > 0 ? Math.min((protein / protTarget)  * 100, 100) : 0;
+  const stepsPct = stepsTarget > 0 && steps != null ? Math.min((steps / stepsTarget) * 100, 100) : 0;
+  const sleepPct = sleepTarget > 0 && sleep != null ? Math.min((sleep / sleepTarget) * 100, 100) : 0;
+
+  // Met status
+  const metCal   = day?.met_calories === 'met';
+  const metProt  = day?.met_protein  === 'met';
+  const metSteps = day?.met_steps    === 'met';
+  const metSleep = day?.met_sleep    === 'met';
+  const goalsMetCount = [metCal, metProt, metSteps, metSleep].filter(Boolean).length;
+
+  const miniGoals = [
+    { label: 'Calories', pct: calPct,   met: metCal   },
+    { label: 'Protein',  pct: protPct,  met: metProt  },
+    { label: 'Steps',    pct: stepsPct, met: metSteps },
+    { label: 'Sleep',    pct: sleepPct, met: metSleep },
+  ];
 
   const metrics: {
-    key:    string;
-    label:  string;
-    icon:   IoniconName;
-    tint:   string;
-    soft:   string;
-    actual: string;
-    target: string;
-    status: MetricStatus;
-  }[] = [];
-
-  if (day && targets) {
-    metrics.push({
-      key:    'calories',
-      label:  'Calories',
-      icon:   'flame',
-      tint:   P.calories,
-      soft:   P.caloriesSoft,
-      actual: `${Math.round(day.calories)} kcal`,
-      target: `${targets.calorie_budget} kcal`,
-      status: day.met_calories,
-    });
-    metrics.push({
-      key:    'protein',
-      label:  'Protein',
-      icon:   'fitness',
-      tint:   P.protein,
-      soft:   P.proteinSoft,
-      actual: `${Math.round(day.protein)} g`,
-      target: `${targets.protein_target} g`,
-      status: day.met_protein,
-    });
-    if (day.steps !== null || targets.steps_target !== null) {
-      metrics.push({
-        key:    'steps',
-        label:  'Steps',
-        icon:   'walk',
-        tint:   P.fat,
-        soft:   P.fatSoft,
-        actual: day.steps != null ? day.steps.toLocaleString() : '—',
-        target: targets.steps_target != null ? targets.steps_target.toLocaleString() : '—',
-        status: day.met_steps,
-      });
-    }
-    if (day.sleep_hours !== null || targets.sleep_target !== null) {
-      metrics.push({
-        key:    'sleep',
-        label:  'Sleep',
-        icon:   'moon',
-        tint:   P.sleep,
-        soft:   P.sleepSoft,
-        actual: formatSleepHours(day.sleep_hours),
-        target: formatSleepHours(targets.sleep_target ?? 7),
-        status: day.met_sleep,
-      });
-    }
-  }
+    key: string; label: string; icon: IoniconName;
+    value: string; target: string; pct: number; met: boolean; noData: boolean;
+  }[] = [
+    {
+      key: 'cals',  label: 'Calories', icon: 'flame-outline',
+      value:  cals > 0 ? cals.toLocaleString() : '0',
+      target: `${calBudget.toLocaleString()} kcal`,
+      pct: calPct, met: metCal, noData: false,
+    },
+    {
+      key: 'prot',  label: 'Protein',  icon: 'pulse-outline',
+      value:  protein > 0 ? `${Math.round(protein)}` : '0',
+      target: `${protTarget} g`,
+      pct: protPct, met: metProt, noData: false,
+    },
+    {
+      key: 'steps', label: 'Steps',    icon: 'walk-outline',
+      value:  steps != null ? steps.toLocaleString() : '—',
+      target: stepsTarget.toLocaleString(),
+      pct: stepsPct, met: metSteps, noData: steps == null,
+    },
+    {
+      key: 'sleep', label: 'Sleep',    icon: 'moon-outline',
+      value:  sleep != null ? formatSleepHours(sleep) : '—',
+      target: `${sleepTarget}h`,
+      pct: sleepPct, met: metSleep, noData: sleep == null,
+    },
+  ];
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <ScrollView
-        contentContainerStyle={{ paddingTop: pad.paddingTop, paddingBottom: insets.bottom + 24 }}
+        contentContainerStyle={{ paddingTop: pad.paddingTop, paddingBottom: insets.bottom + 48 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={isRefreshing} onRefresh={refresh} tintColor={P.calories} />
         }
       >
-        {/* ── Header ──────────────────────────────────────────── */}
+        {/* ── Header ───────────────────────────────────────── */}
         <View style={[styles.header, { paddingHorizontal: 20 }]}>
-          <Pressable onPress={() => router.back()} hitSlop={12} style={[styles.backBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
+          <Pressable
+            onPress={() => router.back()}
+            hitSlop={12}
+            style={[styles.backBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
+          >
             <Ionicons name="chevron-back" size={18} color={P.text} />
           </Pressable>
-
           <DayNavigator
             label={formatDateLabel(date)}
             isToday={isToday}
@@ -339,74 +302,85 @@ export default function DailyInsightScreen() {
             onNext={() => goTo(nextDay(date))}
             accentColor={P.calories}
           />
-
-          {/* Balance spacer */}
           <View style={{ width: 40 }} />
         </View>
 
         <View style={styles.stack}>
-          {/* ── Score hero ───────────────────────────────────── */}
-          <AnimatedCard delay={60} style={{ overflow: 'hidden', alignItems: 'center' }}>
-            <View pointerEvents="none" style={[styles.glow, { backgroundColor: P.caloriesSoft, top: -80, right: -60 }]} />
 
-            <Text style={[styles.scoreLabel, { color: P.textFaint }]}>DAILY SCORE</Text>
-            <Text style={[styles.scoreNumber, { color: P.text }]}>{score}</Text>
-            <Text style={[styles.scoreOf, { color: P.textFaint }]}>/ 100</Text>
+          {/* ── Goals summary ────────────────────────────── */}
+          <AnimatedCard delay={60} padding={24}>
+            <Text style={[styles.dateLabel, { color: P.textFaint }]}>{formatCardDate(date)}</Text>
 
-            <View style={[styles.progressTrack, { backgroundColor: P.sunken, width: '100%', marginTop: 16 }]}>
-              <View style={[styles.progressFill, { width: `${score}%`, backgroundColor: P.calories }]} />
+            <View style={styles.goalsRow}>
+              <Text style={[styles.goalsBigNum, { color: P.text }]}>{goalsMetCount}</Text>
+              <Text style={[styles.goalsOfText, { color: P.text }]}> of 4 goals met</Text>
             </View>
 
-            {trackable > 0 && (
-              <Text style={[styles.metSummary, { color: P.textDim }]}>
-                {metCount} of {trackable} targets hit today
-              </Text>
-            )}
+            <View style={styles.miniGoalsRow}>
+              {miniGoals.map(g => (
+                <View key={g.label} style={styles.miniGoalCol}>
+                  <View style={[styles.miniGoalTrack, { backgroundColor: P.sunken }]}>
+                    {g.pct > 0 && (
+                      <View style={[
+                        styles.miniGoalFill,
+                        { width: `${g.pct}%`, backgroundColor: g.met ? P.calories : P.text },
+                      ]} />
+                    )}
+                  </View>
+                  <Text style={[styles.miniGoalLabel, {
+                    color:      g.met ? P.text : P.textFaint,
+                    fontWeight: g.met ? '700' : '400',
+                  }]}>{g.label}</Text>
+                </View>
+              ))}
+            </View>
           </AnimatedCard>
 
-          {/* ── Metric cards ─────────────────────────────────── */}
-          {metrics.map((m, i) => {
-            const statusCol = statusColor(m.status, P.protein, P.carbs, P.calories, P.textFaint);
-            return (
-              <AnimatedCard key={m.key} delay={140 + i * 60}>
+          {/* ── Metric rows ──────────────────────────────── */}
+          <AnimatedCard delay={140} padding={0}>
+            {metrics.map((m, i) => (
+              <View key={m.key}>
+                {i > 0 && <View style={[styles.divider, { backgroundColor: P.hair }]} />}
                 <View style={styles.metricRow}>
-                  <View style={[styles.metricIcon, { backgroundColor: m.soft }]}>
-                    <Ionicons name={m.icon} size={18} color={m.tint} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.metricLabel, { color: P.textFaint }]}>{m.label.toUpperCase()}</Text>
-                    <Text style={[styles.metricActual, { color: P.text }]}>{m.actual}</Text>
-                    <Text style={[styles.metricTarget, { color: P.textDim }]}>Target: {m.target}</Text>
-                  </View>
-                  <View style={[styles.statusChip, { backgroundColor: `${statusCol}22` }]}>
-                    <Text style={[styles.statusChipText, { color: statusCol }]}>{statusLabel(m.status)}</Text>
-                  </View>
-                </View>
-              </AnimatedCard>
-            );
-          })}
 
-          {/* ── Water ────────────────────────────────────────── */}
-          {day && day.water_glasses > 0 && (
-            <AnimatedCard delay={440}>
-              <View style={styles.metricRow}>
-                <View style={[styles.metricIcon, { backgroundColor: P.sleepSoft }]}>
-                  <Ionicons name="water" size={18} color={P.sleep} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.metricLabel, { color: P.textFaint }]}>WATER</Text>
-                  <Text style={[styles.metricActual, { color: P.text }]}>{day.water_glasses} glasses</Text>
+                  <View style={styles.metricTopRow}>
+                    <View style={styles.metricLabelRow}>
+                      <Ionicons name={m.icon} size={16} color={P.textFaint} />
+                      <Text style={[styles.metricName, { color: P.text }]}>{m.label}</Text>
+                    </View>
+                    <Text style={[styles.metricValueText, { color: P.text }]}>
+                      {m.value}
+                      {!m.noData && (
+                        <Text style={[styles.metricTargetText, { color: P.textFaint }]}> / {m.target}</Text>
+                      )}
+                    </Text>
+                  </View>
+
+                  {!m.noData && (
+                    <View style={styles.metricBarRow}>
+                      <View style={[styles.metricBarTrack, { backgroundColor: P.sunken, flex: 1 }]}>
+                        <View style={[styles.metricBarFill, {
+                          width: `${m.pct}%`,
+                          backgroundColor: m.met ? P.calories : P.text,
+                        }]} />
+                      </View>
+                      <Text style={[styles.metricPct, { color: m.met ? P.calories : P.textFaint }]}>
+                        {Math.round(m.pct)}%
+                      </Text>
+                    </View>
+                  )}
+
                 </View>
               </View>
-            </AnimatedCard>
-          )}
+            ))}
+          </AnimatedCard>
 
-          {/* ── Empty state ───────────────────────────────────── */}
+          {/* ── Empty state ──────────────────────────────── */}
           {day?.is_partial && (
-            <AnimatedCard delay={200}>
-              <View style={{ alignItems: 'center', paddingVertical: 16, gap: 8 }}>
+            <AnimatedCard delay={220}>
+              <View style={styles.emptyState}>
                 <Ionicons name="journal-outline" size={28} color={P.textFaint} />
-                <Text style={{ color: P.textDim, fontSize: 14, textAlign: 'center', lineHeight: 20 }}>
+                <Text style={[styles.emptyText, { color: P.textDim }]}>
                   {isToday
                     ? 'No meals logged yet today. Start logging to see your daily score.'
                     : 'No data was logged for this day.'}
@@ -414,6 +388,7 @@ export default function DailyInsightScreen() {
               </View>
             </AnimatedCard>
           )}
+
         </View>
       </ScrollView>
     </View>
@@ -425,92 +400,43 @@ const styles = StyleSheet.create({
     flexDirection:  'row',
     alignItems:     'center',
     justifyContent: 'space-between',
-    marginBottom:   16,
+    marginBottom:   24,
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 12,
-    alignItems:     'center',
-    justifyContent: 'center',
-    borderWidth:    StyleSheet.hairlineWidth,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   stack: {
     paddingHorizontal: 20,
-    gap:               12,
+    gap:               16,
   },
 
-  glow: {
-    position:     'absolute',
-    width:        240,
-    height:       240,
-    borderRadius: 120,
-  },
+  // ── Goals summary ──
+  dateLabel:     { fontSize: 13, fontWeight: '500', letterSpacing: 0.6, marginBottom: 16 },
+  goalsRow:      { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 28 },
+  goalsBigNum:   { fontSize: 72, fontWeight: '800', letterSpacing: -3, lineHeight: 74 },
+  goalsOfText:   { fontSize: 18, fontWeight: '500', paddingBottom: 12 },
+  miniGoalsRow:  { flexDirection: 'row', gap: 12 },
+  miniGoalCol:   { flex: 1, gap: 8 },
+  miniGoalTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
+  miniGoalFill:  { height: '100%', borderRadius: 2 },
+  miniGoalLabel: { fontSize: 11, letterSpacing: 0.2 },
 
-  scoreLabel: {
-    fontSize:      10,
-    fontWeight:    '800',
-    letterSpacing: 1.8,
-    marginBottom:  4,
-  },
-  scoreNumber: {
-    fontSize:      72,
-    fontWeight:    '800',
-    letterSpacing: -3,
-    lineHeight:    76,
-  },
-  scoreOf: {
-    fontSize:   14,
-    fontWeight: '700',
-    marginTop:  -4,
-  },
-  progressTrack: {
-    height:       6,
-    borderRadius: 4,
-    overflow:     'hidden',
-  },
-  progressFill: {
-    height:       '100%',
-    borderRadius: 4,
-  },
-  metSummary: {
-    fontSize:   13,
-    fontWeight: '600',
-    marginTop:  12,
-  },
+  // ── Metric rows ──
+  divider:          { height: StyleSheet.hairlineWidth },
+  metricRow:        { paddingHorizontal: 22, paddingVertical: 20, gap: 10 },
+  metricTopRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  metricLabelRow:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  metricName:       { fontSize: 16, fontWeight: '600' },
+  metricValueText:  { fontSize: 15, fontWeight: '700' },
+  metricTargetText: { fontSize: 14, fontWeight: '400' },
+  metricBarRow:     { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  metricBarTrack:   { height: 5, borderRadius: 3, overflow: 'hidden' },
+  metricBarFill:    { height: '100%', borderRadius: 3 },
+  metricPct:        { fontSize: 13, fontWeight: '600', minWidth: 38, textAlign: 'right' },
 
-  metricRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           12,
-  },
-  metricIcon: {
-    width: 44, height: 44, borderRadius: 14,
-    alignItems:     'center',
-    justifyContent: 'center',
-  },
-  metricLabel: {
-    fontSize:      9,
-    fontWeight:    '800',
-    letterSpacing: 1.2,
-    marginBottom:  2,
-  },
-  metricActual: {
-    fontSize:      20,
-    fontWeight:    '800',
-    letterSpacing: -0.5,
-  },
-  metricTarget: {
-    fontSize:   11,
-    fontWeight: '500',
-    marginTop:  2,
-  },
-  statusChip: {
-    paddingHorizontal: 10,
-    paddingVertical:   5,
-    borderRadius:      8,
-  },
-  statusChipText: {
-    fontSize:      11,
-    fontWeight:    '700',
-    letterSpacing: 0.2,
-  },
+  // ── Empty state ──
+  emptyState: { alignItems: 'center', paddingVertical: 24, gap: 12 },
+  emptyText:  { fontSize: 14, fontWeight: '400', textAlign: 'center', lineHeight: 22 },
 });
