@@ -83,6 +83,7 @@ export interface UserProfile {
   tdee?: number;
   calorieBudget?: number;
   stepsTarget?: number;
+  sleepTarget?: number;
   waterGoalMl?: number;
   currentStreak?: number;
   createdAt: string;
@@ -259,6 +260,7 @@ function toApiBody(
   if (profile.unit !== undefined) out.unit = profile.unit;
   if (profile.calorieBudget !== undefined) out.calorie_budget = profile.calorieBudget;
   if (profile.stepsTarget !== undefined) out.steps_target = profile.stepsTarget;
+  if (profile.sleepTarget !== undefined) out.sleep_target = profile.sleepTarget;
   if (profile.waterGoalMl !== undefined) out.water_goal_ml = profile.waterGoalMl;
   return out;
 }
@@ -291,6 +293,12 @@ function fromApiProfile(row: Record<string, unknown>): UserProfile {
       typeof row.calorie_budget === "number" ? row.calorie_budget : undefined,
     stepsTarget:
       typeof row.steps_target === "number" ? row.steps_target : undefined,
+    sleepTarget:
+      typeof row.sleep_target === "number"
+        ? row.sleep_target
+        : typeof row.sleep_target === "string"
+          ? Number(row.sleep_target)
+          : undefined,
     waterGoalMl:
       typeof row.water_goal_ml === "number" ? row.water_goal_ml : undefined,
     currentStreak:
@@ -997,7 +1005,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         const touchesDerivedTargets = Object.keys(patch).some((key) =>
-          ['calorieBudget', 'stepsTarget', 'goal', 'activityLevel', 'weightKg', 'heightCm', 'sex', 'age'].includes(key),
+          ['calorieBudget', 'stepsTarget', 'sleepTarget', 'goal', 'activityLevel', 'weightKg', 'heightCm', 'sex', 'age'].includes(key),
         );
         if (touchesDerivedTargets) notifyTodayTargetsChanged();
         return true;

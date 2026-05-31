@@ -329,6 +329,8 @@ function SleepLogScreen() {
     setNotes('');
     setNotesExpanded(false);
     setQualityExpanded(false);
+    // Reset the auto-save guard so the new date can re-fire on HK populate.
+    autoSavedDate.current = null;
   }, [activeDate]);
 
   useEffect(() => {
@@ -383,8 +385,11 @@ function SleepLogScreen() {
   );
 
   // ── Save ───────────────────────────────────────────────────────────────────
-  const handleSave = async () => {
-    setSaving(true);
+  // `silent` skips the toast + the saving spinner — used by the HealthKit
+  // auto-save path so persistence happens in the background without UI churn.
+  const performSave = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setSaving(true);
     try {
       const apiQuality: SleepQuality = quality === 'great' ? 'good' : quality;
       const sleepH = hours.rawHours > 0 ? hours.rawHours : (hkSleep?.sleep_hours ?? 0);
@@ -424,19 +429,45 @@ function SleepLogScreen() {
         quality,
         source,
         is_today: isToday,
+        silent,
       });
-      toast.success('Sleep logged', `${hours.label} · ${capital(quality)}`);
+      if (!silent) toast.success('Sleep logged', `${hours.label} · ${capital(quality)}`);
     } catch (err) {
-      toast.error('Could not save', 'Please try again');
+      if (!silent) toast.error('Could not save', 'Please try again');
       const e = err instanceof Error ? err : new Error(String(err));
       posthog.capture('$exception', {
         $exception_list: [{ type: e.name, value: e.message, stacktrace: { type: 'raw', frames: e.stack ?? '' } }],
-        $exception_source: 'sleep_logged',
+        $exception_source: silent ? 'sleep_autosaved' : 'sleep_logged',
       });
     } finally {
-      setSaving(false);
+      if (!silent) setSaving(false);
     }
-  };
+  }, [
+    activeDate, bedtime, deepH, deepM, fromHealthKit, health, hkSleep, hours.label, hours.rawHours,
+    isToday, logRecovery, notes, posthog, quality, qualityScore, toast, wakeup,
+  ]);
+
+  const handleSave = useCallback(() => performSave(), [performSave]);
+
+  // ── Auto-save when HealthKit provides data ────────────────────────────────
+  // The user shouldn't have to tap "Save" for data that's already in HealthKit.
+  // We fire once per date on the first HealthKit populate, then again silently
+  // (debounced) whenever notes change so user-added context still persists.
+  const autoSavedDate = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!fromHealthKit) return;
+    if (autoSavedDate.current === activeDate) return;
+    autoSavedDate.current = activeDate;
+    void performSave({ silent: true });
+  }, [fromHealthKit, activeDate, performSave]);
+
+  useEffect(() => {
+    if (!fromHealthKit) return;
+    if (autoSavedDate.current !== activeDate) return; // wait for initial autosave
+    const handle = setTimeout(() => { void performSave({ silent: true }); }, 1500);
+    return () => clearTimeout(handle);
+  }, [notes, fromHealthKit, activeDate, performSave]);
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
@@ -762,17 +793,26 @@ function SleepLogScreen() {
 
         {/* ── CTA ──────────────────────────────────────────────────────────── */}
         <View style={{ paddingHorizontal: 20, marginTop: 8 }}>
-          <PrimaryButton
-            label={isToday ? 'Save sleep log' : `Save for ${formatNavDate(activeDate)}`}
-            icon="checkmark"
-            onPress={handleSave}
-            loading={saving}
-            accent={P.sleep}
-          />
-          {!fromHealthKit && (
-            <Text style={[sleepStyles.hint, { color: P.textFaint }]}>
-              Connect Apple Health to sync sleep automatically.
-            </Text>
+          {fromHealthKit ? (
+            <View style={[sleepStyles.autoSavedPill, { backgroundColor: P.sleepSoft, borderColor: P.sleep + '40' }]}>
+              <Ionicons name="checkmark-circle" size={16} color={P.sleep} />
+              <Text style={[sleepStyles.autoSavedText, { color: P.sleep }]}>
+                Saved automatically from Apple Health
+              </Text>
+            </View>
+          ) : (
+            <>
+              <PrimaryButton
+                label={isToday ? 'Save sleep log' : `Save for ${formatNavDate(activeDate)}`}
+                icon="checkmark"
+                onPress={handleSave}
+                loading={saving}
+                accent={P.sleep}
+              />
+              <Text style={[sleepStyles.hint, { color: P.textFaint }]}>
+                Connect Apple Health to sync sleep automatically.
+              </Text>
+            </>
           )}
         </View>
       </ScrollView>
@@ -1074,5 +1114,18 @@ const sleepStyles = StyleSheet.create({
   },
   hint: {
     marginTop: 12, fontSize: 11, fontWeight: '500', textAlign: 'center',
+  },
+  autoSavedPill: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'center',
+    gap:               8,
+    paddingHorizontal: 16,
+    paddingVertical:   14,
+    borderRadius:      14,
+    borderWidth:       StyleSheet.hairlineWidth,
+  },
+  autoSavedText: {
+    fontSize: 13, fontWeight: '700', letterSpacing: -0.2,
   },
 });

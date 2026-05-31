@@ -307,7 +307,7 @@ function TodayView({
   const calBudget   = todayTargets?.calorie_budget ?? 2000;
   const protTarget  = todayTargets?.protein_target ?? 150;
   const stepsTarget = todayTargets?.steps_target   ?? 10000;
-  const sleepTarget = todayTargets?.sleep_target   ?? 7;
+  const sleepTarget = todayTargets?.sleep_target   ?? 8;
 
   // Values
   const cals    = todayDay?.calories    ?? 0;

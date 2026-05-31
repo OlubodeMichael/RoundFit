@@ -183,7 +183,7 @@ export function scoreDay(
   }
 
   // Sleep: only score when a sleep session was actually recorded
-  const sleepTarget = targets.sleep_target ?? 7
+  const sleepTarget = targets.sleep_target ?? 8
   if (sleep_hours !== null && sleep_hours > 0) {
     const s = getMetricStatus(sleep_hours, sleepTarget, 'at_least')
     score  += s === 'met' ? 20 : s === 'partial' ? 14 : 0
@@ -248,7 +248,7 @@ export function apiDayToNormalized(day: Record<string, any>, targets: InsightTar
     met_sleep:
       sleep_hours === null
         ? 'no-data'
-        : getMetricStatus(sleep_hours, targets.sleep_target ?? 7, 'at_least'),
+        : getMetricStatus(sleep_hours, targets.sleep_target ?? 8, 'at_least'),
     is_partial,
     data_version: 1,
   }

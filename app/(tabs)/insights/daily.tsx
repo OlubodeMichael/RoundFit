@@ -219,7 +219,7 @@ export default function DailyInsightScreen() {
   const calBudget   = targets?.calorie_budget ?? 2000;
   const protTarget  = targets?.protein_target ?? 150;
   const stepsTarget = targets?.steps_target   ?? 10000;
-  const sleepTarget = targets?.sleep_target   ?? 7;
+  const sleepTarget = targets?.sleep_target   ?? 8;
 
   // Values
   const cals    = day?.calories    ?? 0;

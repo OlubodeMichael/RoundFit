@@ -210,8 +210,9 @@ export default function TargetsScreen() {
         AsyncStorage.getItem(SLEEP_KEY),
         AsyncStorage.getItem(STEPS_KEY),
       ]);
-      const sleepVal = sleepRaw !== null ? parseFloat(sleepRaw) : 8;
-      // Prefer the server value; fall back to AsyncStorage, then default 10000
+      // Prefer the server value; fall back to AsyncStorage, then default
+      const sleepVal = profile?.sleepTarget
+        ?? (sleepRaw !== null ? parseFloat(sleepRaw) : 8);
       const stepsVal = profile?.stepsTarget
         ?? (stepsRaw !== null ? parseInt(stepsRaw, 10) : 10000);
       setSleep(sleepVal);
@@ -220,7 +221,7 @@ export default function TargetsScreen() {
       setSavedSteps(stepsVal);
       setLoaded(true);
     })();
-  }, [profile?.stepsTarget]);
+  }, [profile?.stepsTarget, profile?.sleepTarget]);
 
   const originalCalories = profile?.calorieBudget ?? tdee;
   const originalWater    = profile?.waterGoalMl ?? 2000;
@@ -235,7 +236,7 @@ export default function TargetsScreen() {
     if (saving) return;
     setSaving(true);
     try {
-      const saved = await updateProfile({ calorieBudget: calories, stepsTarget: steps, waterGoalMl: water });
+      const saved = await updateProfile({ calorieBudget: calories, stepsTarget: steps, sleepTarget: sleep, waterGoalMl: water });
       if (!saved) {
         toast.error('Could not save targets', 'Please try again.');
         return;

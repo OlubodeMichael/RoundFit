@@ -94,9 +94,9 @@ export default function ProfileScreen() {
 
   const reloadLocalTargets = useCallback(async () => {
     const local = await getLocalTargets();
-    if (local.sleep_target != null) setSleepTarget(local.sleep_target);
+    setSleepTarget(profile?.sleepTarget ?? local.sleep_target ?? 8);
     setStepsTarget(profile?.stepsTarget ?? local.steps_target ?? 10000);
-  }, [profile?.stepsTarget]);
+  }, [profile?.stepsTarget, profile?.sleepTarget]);
 
   useFocusEffect(
     useCallback(() => {
