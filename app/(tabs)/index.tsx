@@ -1717,9 +1717,11 @@ export default function HomeScreen() {
 
   // Live Activity (iOS Lock Screen / Dynamic Island workout widget)
   const {
-    active: liveWorkout,
-    start: startLiveWorkout,
-    end:   endLiveWorkout,
+    active:  liveWorkout,
+    start:   startLiveWorkout,
+    pause:   pauseLiveWorkout,
+    resume:  resumeLiveWorkout,
+    end:     endLiveWorkout,
   } = useWorkoutLiveActivity();
 
   // Calories burned during the live workout (delta from baseline at start)
@@ -1897,12 +1899,15 @@ export default function HomeScreen() {
               isLive={true}
               activeStartedAt={liveWorkout?.startedAt ?? null}
               activeCaloriesBurned={liveBurned}
+              activePausedAt={liveWorkout?.pausedAt ?? null}
               onPress={() => setPickerOpen(true)}
               onStart={() => {
                 if (!liveWorkout) {
                   void startLiveWorkout(coachActivity, coachData.caloriesToBurn);
                 }
               }}
+              onPause={() => void pauseLiveWorkout()}
+              onResume={() => void resumeLiveWorkout()}
               onEnd={() => void endLiveWorkout()}
             />
           )}

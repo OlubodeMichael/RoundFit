@@ -7,11 +7,18 @@ public struct WorkoutActivityAttributes: ActivityAttributes {
         public var caloriesBurned: Double
         public var heartRate: Int?
         public var isActive: Bool
+        public var pausedAt: Date?
 
-        public init(caloriesBurned: Double, heartRate: Int? = nil, isActive: Bool = true) {
+        public init(
+            caloriesBurned: Double,
+            heartRate: Int? = nil,
+            isActive: Bool = true,
+            pausedAt: Date? = nil
+        ) {
             self.caloriesBurned = caloriesBurned
             self.heartRate = heartRate
             self.isActive = isActive
+            self.pausedAt = pausedAt
         }
     }
 

@@ -3,28 +3,45 @@ import ExpoModulesCore
 import Foundation
 
 // Must match ios/WorkoutLiveActivity/ActivityAttributes.swift exactly.
-struct WorkoutActivityAttributes: ActivityAttributes {
-    struct ContentState: Codable, Hashable {
-        var caloriesBurned: Double
-        var heartRate: Int?
-        var isActive: Bool
+// Public so the App Intents file in the main app target can import this pod's
+// type and address the same activity instance.
+public struct WorkoutActivityAttributes: ActivityAttributes {
+    public struct ContentState: Codable, Hashable {
+        public var caloriesBurned: Double
+        public var heartRate: Int?
+        public var isActive: Bool
+        public var pausedAt: Date?
+
+        public init(caloriesBurned: Double, heartRate: Int? = nil, isActive: Bool = true, pausedAt: Date? = nil) {
+            self.caloriesBurned = caloriesBurned
+            self.heartRate = heartRate
+            self.isActive = isActive
+            self.pausedAt = pausedAt
+        }
     }
-    var workoutType: String
-    var workoutName: String
-    var workoutIcon: String
-    var goalCalories: Double
-    var startTime: Date
+    public var workoutType: String
+    public var workoutName: String
+    public var workoutIcon: String
+    public var goalCalories: Double
+    public var startTime: Date
+
+    public init(workoutType: String, workoutName: String, workoutIcon: String, goalCalories: Double, startTime: Date) {
+        self.workoutType = workoutType
+        self.workoutName = workoutName
+        self.workoutIcon = workoutIcon
+        self.goalCalories = goalCalories
+        self.startTime = startTime
+    }
 }
 
 public class WorkoutLiveActivityModule: Module {
 
-    // The single active workout activity (only one at a time).
-    private var activity: Activity<WorkoutActivityAttributes>?
+    // Stored as `Any?` so the class can compile on iOS < 16.1; cast at use sites.
+    private var activity: Any?
 
     public func definition() -> ModuleDefinition {
         Name("WorkoutLiveActivity")
 
-        // MARK: - isSupported
         Function("isSupported") { () -> Bool in
             if #available(iOS 16.1, *) {
                 return ActivityAuthorizationInfo().areActivitiesEnabled
@@ -32,7 +49,6 @@ public class WorkoutLiveActivityModule: Module {
             return false
         }
 
-        // MARK: - startActivity
         AsyncFunction("startActivity") {
             (params: [String: Any], promise: Promise) in
             guard #available(iOS 16.1, *) else {
@@ -59,7 +75,8 @@ public class WorkoutLiveActivityModule: Module {
             let initialState = WorkoutActivityAttributes.ContentState(
                 caloriesBurned: 0,
                 heartRate:      nil,
-                isActive:       true
+                isActive:       true,
+                pausedAt:       nil
             )
 
             do {
@@ -75,25 +92,37 @@ public class WorkoutLiveActivityModule: Module {
             }
         }
 
-        // MARK: - updateActivity
         AsyncFunction("updateActivity") {
             (params: [String: Any], promise: Promise) in
             guard #available(iOS 16.1, *) else {
                 promise.resolve(nil); return
             }
-            guard let activity = self.activity else {
+            guard let activity = self.activity as? Activity<WorkoutActivityAttributes> else {
                 promise.reject("NO_ACTIVITY", "No active workout activity")
                 return
             }
 
-            let calories  = params["caloriesBurned"] as? Double ?? 0
-            let heartRate = params["heartRate"]      as? Int
-            let isActive  = params["isActive"]       as? Bool ?? true
+            let prev = activity.contentState
+
+            let calories  = params["caloriesBurned"] as? Double ?? prev.caloriesBurned
+            let heartRate = (params["heartRate"]    as? Int)  ?? prev.heartRate
+            let isActive  = (params["isActive"]     as? Bool) ?? prev.isActive
+
+            // `pausedAt` semantics:
+            //   key present + number  → set paused
+            //   key present + NSNull  → clear paused
+            //   key absent            → preserve previous value
+            let pausedAt: Date? = {
+                if !params.keys.contains("pausedAt") { return prev.pausedAt }
+                if let ms = params["pausedAt"] as? Double { return Date(timeIntervalSince1970: ms / 1000) }
+                return nil
+            }()
 
             let newState = WorkoutActivityAttributes.ContentState(
                 caloriesBurned: calories,
                 heartRate:      heartRate,
-                isActive:       isActive
+                isActive:       isActive,
+                pausedAt:       pausedAt
             )
 
             Task {
@@ -102,39 +131,58 @@ public class WorkoutLiveActivityModule: Module {
             }
         }
 
-        // MARK: - endActivity
         AsyncFunction("endActivity") {
             (params: [String: Any], promise: Promise) in
             guard #available(iOS 16.1, *) else {
                 promise.resolve(nil); return
             }
-            guard let activity = self.activity else {
+            guard let activity = self.activity as? Activity<WorkoutActivityAttributes> else {
                 promise.resolve(nil); return
             }
 
-            let calories  = params["caloriesBurned"] as? Double ?? 0
-            let heartRate = params["heartRate"]       as? Int
+            let prev = activity.contentState
+            let calories  = params["caloriesBurned"] as? Double ?? prev.caloriesBurned
+            let heartRate = (params["heartRate"]    as? Int)  ?? prev.heartRate
             let finalState = WorkoutActivityAttributes.ContentState(
                 caloriesBurned: calories,
                 heartRate:      heartRate,
-                isActive:       false
+                isActive:       false,
+                pausedAt:       prev.pausedAt
             )
 
             Task {
-                // Keep the final summary visible for ~5 min before auto-dismiss
                 await activity.end(
                     using:           finalState,
-                    dismissalPolicy: .after(Date.now.addingTimeInterval(300))
+                    dismissalPolicy: .immediate
                 )
                 self.activity = nil
                 promise.resolve(nil)
             }
         }
 
-        // MARK: - hasActiveActivity
         Function("hasActiveActivity") { () -> Bool in
             guard #available(iOS 16.1, *) else { return false }
             return self.activity != nil
+        }
+
+        // Returns the current activity's state, or nil if none.
+        // Used by JS to resync after lock-screen Pause/Resume/End taps.
+        Function("getCurrentState") { () -> [String: Any]? in
+            guard #available(iOS 16.1, *) else { return nil }
+            // Reattach to a system-managed activity in case the in-process
+            // reference was lost (e.g. ended via App Intent from lock screen).
+            if self.activity == nil {
+                self.activity = Activity<WorkoutActivityAttributes>.activities.first
+            }
+            guard let activity = self.activity as? Activity<WorkoutActivityAttributes> else { return nil }
+            let s = activity.contentState
+            var dict: [String: Any] = [
+                "caloriesBurned": s.caloriesBurned,
+                "isActive":       s.isActive,
+            ]
+            if let hr = s.heartRate { dict["heartRate"] = hr }
+            if let p  = s.pausedAt  { dict["pausedAt"]  = p.timeIntervalSince1970 * 1000 }
+            return dict
         }
     }
 }

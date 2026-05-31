@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import { useHealth } from '@/hooks/use-health';
 import {
   endLiveActivity,
+  getCurrentLiveActivityState,
+  hasActiveLiveActivity,
   isLiveActivitySupported,
   startLiveActivity,
   updateLiveActivity,
@@ -38,8 +40,9 @@ const POLL_INTERVAL_MS = 8_000;
 export interface ActiveWorkoutState {
   activity:     BurnActivity;
   goalCalories: number;
-  startedAt:    number;   // ms
-  baselineCals: number;   // active_calories at start, so we report delta
+  startedAt:    number;        // ms — shifted forward on resume so elapsed excludes pauses
+  baselineCals: number;        // active_calories at start, so we report delta
+  pausedAt:     number | null; // ms when paused, null when running
 }
 
 export interface UseWorkoutLiveActivityResult {
@@ -49,7 +52,11 @@ export interface UseWorkoutLiveActivityResult {
   isSupported: boolean;
   /** Begin tracking — starts the Dynamic Island/lock-screen widget. */
   start: (activity: BurnActivity, goalCalories: number) => Promise<void>;
-  /** End tracking — widget remains visible as a 5-min summary, then dismisses. */
+  /** Freeze the timer + calorie polling. Widget stays visible, marked paused. */
+  pause: () => Promise<void>;
+  /** Unfreeze; startedAt shifts forward so elapsed time excludes the pause. */
+  resume: () => Promise<void>;
+  /** End tracking — widget is dismissed immediately. */
   end: () => Promise<void>;
 }
 
@@ -67,7 +74,11 @@ export function useWorkoutLiveActivity(): UseWorkoutLiveActivityResult {
 
   const start = useCallback(
     async (activity: BurnActivity, goalCalories: number) => {
-      if (!isSupported) return;
+      console.log('[LiveActivity] start called', { isSupported, activity: activity.id, goalCalories });
+      if (!isSupported) {
+        console.warn('[LiveActivity] not supported — iOS < 16.1 or user disabled Live Activities in Settings');
+        return;
+      }
 
       const baselineCals = healthRef.current?.active_calories ?? 0;
       const startedAt    = Date.now();
@@ -76,26 +87,75 @@ export function useWorkoutLiveActivity(): UseWorkoutLiveActivityResult {
         goalCalories,
         startedAt,
         baselineCals,
+        pausedAt: null,
       };
 
       try {
-        await startLiveActivity({
+        const id = await startLiveActivity({
           workoutType:  activity.id,
           workoutName:  activity.label,
           workoutIcon:  SF_SYMBOL_FOR_ACTIVITY[activity.id] ?? 'figure.mixed.cardio',
           goalCalories,
           startTime:    startedAt,
         });
+        console.log('[LiveActivity] started', { id });
         setActive(next);
-      } catch {
-        // Permission denied / iOS < 16.1 — fail silently, user gets no widget
+      } catch (e) {
+        console.error('[LiveActivity] start failed', e);
       }
     },
     [isSupported],
   );
 
+  const pause = useCallback(async () => {
+    const current = activeRef.current;
+    if (!current || current.pausedAt != null) return;
+
+    const pausedAt = Date.now();
+    const live = healthRef.current?.active_calories ?? current.baselineCals;
+    const burned = Math.max(0, live - current.baselineCals);
+    const hr = healthRef.current?.avg_heart_rate
+      ? Math.round(healthRef.current.avg_heart_rate)
+      : undefined;
+
+    setActive({ ...current, pausedAt });
+    try {
+      await updateLiveActivity({
+        caloriesBurned: burned,
+        heartRate:      hr,
+        isActive:       false,
+        pausedAt,
+      });
+    } catch (e) {
+      console.error('[LiveActivity] pause update failed', e);
+    }
+  }, []);
+
+  const resume = useCallback(async () => {
+    const current = activeRef.current;
+    if (!current || current.pausedAt == null) return;
+
+    const pauseDuration = Date.now() - current.pausedAt;
+    const newStartedAt  = current.startedAt + pauseDuration;
+    setActive({
+      ...current,
+      startedAt: newStartedAt,
+      pausedAt:  null,
+    });
+    try {
+      await updateLiveActivity({
+        isActive:  true,
+        startTime: newStartedAt,
+        pausedAt:  null,
+      });
+    } catch (e) {
+      console.error('[LiveActivity] resume update failed', e);
+    }
+  }, []);
+
   const end = useCallback(async () => {
     const current = activeRef.current;
+    console.log('[LiveActivity] end called', { hasCurrent: current != null });
     if (!current) return;
 
     const live = healthRef.current?.active_calories ?? current.baselineCals;
@@ -106,14 +166,17 @@ export function useWorkoutLiveActivity(): UseWorkoutLiveActivityResult {
 
     try {
       await endLiveActivity({ caloriesBurned: burned, heartRate: hr });
+      console.log('[LiveActivity] ended');
+    } catch (e) {
+      console.error('[LiveActivity] end failed', e);
     } finally {
       setActive(null);
     }
   }, []);
 
-  // Polling loop — pushes calorie + HR deltas to the widget while active
+  // Polling loop — pushes calorie + HR deltas to the widget while active (and unpaused)
   useEffect(() => {
-    if (!active) return;
+    if (!active || active.pausedAt != null) return;
 
     const tick = async () => {
       const current = activeRef.current;
@@ -126,10 +189,12 @@ export function useWorkoutLiveActivity(): UseWorkoutLiveActivityResult {
         : undefined;
 
       try {
+        // Don't force `isActive` here — lock-screen Pause/Resume buttons
+        // mutate it natively, and the next polling tick would otherwise
+        // overwrite their effect.
         await updateLiveActivity({
           caloriesBurned: burned,
           heartRate:      hr,
-          isActive:       true,
         });
       } catch {
         // Activity may have been dismissed by the user — ignore
@@ -143,5 +208,46 @@ export function useWorkoutLiveActivity(): UseWorkoutLiveActivityResult {
     return () => clearInterval(interval);
   }, [active]);
 
-  return { active, isSupported, start, end };
+  // Resync from the native activity whenever the app foregrounds — lock-screen
+  // Pause/Resume/End buttons mutate native state directly and JS won't know.
+  useEffect(() => {
+    if (!isSupported) return;
+
+    const sync = () => {
+      const current = activeRef.current;
+      if (!current) return;
+
+      if (!hasActiveLiveActivity()) {
+        // User tapped End on the lock screen.
+        setActive(null);
+        return;
+      }
+
+      const native = getCurrentLiveActivityState();
+      if (!native) return;
+
+      const nativePaused = native.pausedAt != null;
+      const jsPaused     = current.pausedAt != null;
+
+      if (nativePaused && !jsPaused) {
+        // Lock-screen Pause.
+        setActive({ ...current, pausedAt: native.pausedAt ?? Date.now() });
+      } else if (!nativePaused && jsPaused) {
+        // Lock-screen Resume — shift startedAt forward by the pause duration.
+        const pauseDuration = Date.now() - (current.pausedAt ?? Date.now());
+        setActive({
+          ...current,
+          startedAt: current.startedAt + pauseDuration,
+          pausedAt:  null,
+        });
+      }
+    };
+
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') sync();
+    });
+    return () => sub.remove();
+  }, [isSupported]);
+
+  return { active, isSupported, start, pause, resume, end };
 }

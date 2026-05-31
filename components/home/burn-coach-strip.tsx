@@ -25,10 +25,14 @@ export type BurnCoachStripProps = {
   /** When set, the strip swaps to an "in progress" state showing live timer + End button. */
   activeStartedAt?: number | null;
   activeCaloriesBurned?: number;
+  /** ms timestamp when paused; null/undefined means running. Freezes the timer. */
+  activePausedAt?: number | null;
   /** Tap the activity area (icon + label) to change the activity (opens picker). */
   onPress?:       () => void;
   /** Tap the Start button — fires the live workout immediately. */
   onStart?:       () => void;
+  onPause?:       () => void;
+  onResume?:      () => void;
   onEnd?:         () => void;
 };
 
@@ -46,21 +50,29 @@ export function BurnCoachStrip({
   isLive = true,
   activeStartedAt = null,
   activeCaloriesBurned = 0,
+  activePausedAt = null,
   onPress,
   onStart,
+  onPause,
+  onResume,
   onEnd,
 }: BurnCoachStripProps) {
   const inProgress = activeStartedAt != null;
+  const isPaused   = inProgress && activePausedAt != null;
 
-  // Local ticker for the elapsed timer — only runs while in progress
+  // Local ticker for the elapsed timer. Frozen at pausedAt - startedAt when paused.
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     if (!inProgress || activeStartedAt == null) return;
+    if (activePausedAt != null) {
+      setElapsed(activePausedAt - activeStartedAt);
+      return;
+    }
     const tick = () => setElapsed(Date.now() - activeStartedAt);
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [inProgress, activeStartedAt]);
+  }, [inProgress, activeStartedAt, activePausedAt]);
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!isLive && !inProgress) return;
@@ -77,7 +89,7 @@ export function BurnCoachStrip({
   const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 2] });
   const pulseOpac  = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0] });
 
-  // ─── In-progress state: timer + calories + End button ────────────────────
+  // ─── In-progress state: timer + calories + Pause/Resume + End ───────────
   if (inProgress) {
     return (
       <View style={[styles.card, { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(249,115,22,0.35)' }]}>
@@ -95,13 +107,13 @@ export function BurnCoachStrip({
               <Animated.View
                 style={[
                   styles.liveDotPulse,
-                  { transform: [{ scale: pulseScale }], opacity: pulseOpac, backgroundColor: ORANGE },
+                  { transform: [{ scale: pulseScale }], opacity: pulseOpac, backgroundColor: isPaused ? '#71717A' : ORANGE },
                 ]}
               />
-              <View style={[styles.liveDot, { backgroundColor: ORANGE }]} />
+              <View style={[styles.liveDot, { backgroundColor: isPaused ? '#71717A' : ORANGE }]} />
             </View>
             <Text style={[styles.liveLabel, { color: 'rgba(255,255,255,0.85)' }]}>
-              {activity.label.toUpperCase()}
+              {isPaused ? 'PAUSED · ' : ''}{activity.label.toUpperCase()}
             </Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10 }}>
@@ -112,14 +124,24 @@ export function BurnCoachStrip({
           </View>
         </View>
 
-        <Pressable
-          onPress={onEnd}
-          style={({ pressed }) => [styles.endBtn, pressed && { opacity: 0.82 }]}
-          hitSlop={6}
-        >
-          <Ionicons name="stop" size={11} color="#fff" />
-          <Text style={styles.endText}> End</Text>
-        </Pressable>
+        <View style={styles.actionRow}>
+          <Pressable
+            onPress={isPaused ? onResume : onPause}
+            style={({ pressed }) => [styles.pauseBtn, pressed && { opacity: 0.82 }]}
+            hitSlop={6}
+          >
+            <Ionicons name={isPaused ? 'play' : 'pause'} size={12} color="#fff" />
+          </Pressable>
+
+          <Pressable
+            onPress={onEnd}
+            style={({ pressed }) => [styles.endBtn, pressed && { opacity: 0.82 }]}
+            hitSlop={6}
+          >
+            <Ionicons name="stop" size={11} color="#fff" />
+            <Text style={styles.endText}> End</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -272,6 +294,19 @@ const styles = StyleSheet.create({
     fontSize:    12,
     fontWeight:  '700',
     color:       ORANGE,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           8,
+  },
+  pauseBtn: {
+    width:           36,
+    height:          36,
+    borderRadius:    999,
+    backgroundColor: '#27272A',
+    alignItems:      'center',
+    justifyContent:  'center',
   },
   endBtn: {
     flexDirection:     'row',
