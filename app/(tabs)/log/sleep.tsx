@@ -348,7 +348,23 @@ function SleepLogScreen() {
   }, [isToday, loadingDate, hkSleep, health.isConnected]);
 
   // ── Computed values ────────────────────────────────────────────────────────
-  const hours = useMemo(() => computeHours(bedtime, wakeup), [bedtime, wakeup]);
+  // When HealthKit is the source, render its "Time Asleep" directly. Deriving
+  // from bedtime → wakeup would include any awake gaps and disagree with the
+  // Health app (which shows time-asleep, not the in-bed window spread).
+  const hours = useMemo(() => {
+    if (fromHealthKit && hkSleep && hkSleep.sleep_hours > 0) {
+      const totalMin = Math.round(hkSleep.sleep_hours * 60);
+      const h = Math.floor(totalMin / 60);
+      const m = totalMin % 60;
+      return {
+        hours:    h,
+        minutes:  m,
+        rawHours: hkSleep.sleep_hours,
+        label:    `${h}h ${String(m).padStart(2, '0')}m`,
+      };
+    }
+    return computeHours(bedtime, wakeup);
+  }, [fromHealthKit, hkSleep, bedtime, wakeup]);
 
   // True while we're waiting for data to arrive — suppresses default-value flash
   const heroLoading = !fromHealthKit && (loadingDate || !!hkSleep);
