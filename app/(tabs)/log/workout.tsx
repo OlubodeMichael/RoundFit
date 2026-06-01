@@ -24,6 +24,8 @@ import {
     usePalette,
     useScreenPadding,
 } from "@/lib/log-theme";
+import { LiveSessionSheet } from "@/components/log/workout/LiveSessionSheet";
+import { useWorkoutSessionLiveActivity } from "@/hooks/use-workout-session-live-activity";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { usePostHog } from "posthog-react-native";
 import type { ComponentProps } from "react";
@@ -83,6 +85,16 @@ function fmtDuration(mins: number): string {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+/** Live-session ticking timer label (h:mm:ss or m:ss). */
+function fmtElapsed(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  const h   = Math.floor(sec / 3600);
+  const m   = Math.floor((sec % 3600) / 60);
+  const s   = sec % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
 function newSet(): SetRow {
@@ -1726,6 +1738,32 @@ export default function WorkoutLogScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
 
+  // Live session, separate from the "log past workout" sheet above.
+  const session = useWorkoutSessionLiveActivity();
+  const [liveSheetOpen, setLiveSheetOpen] = useState(false);
+
+  // Deep-link entry: tapping the Dynamic Island or lock-screen Live Activity
+  // routes through `app/workout-session.tsx`, which bumps openSheetSignal.
+  // Every increment opens the sheet (only fires when the signal actually
+  // changes, so it doesn't fight the user closing the sheet).
+  useEffect(() => {
+    if (session.openSheetSignal > 0) setLiveSheetOpen(true);
+  }, [session.openSheetSignal]);
+
+  // Live banner ticking timer.
+  const [liveElapsed, setLiveElapsed] = useState(0);
+  useEffect(() => {
+    if (!session.active) return;
+    if (session.active.pausedAt != null) {
+      setLiveElapsed(session.active.pausedAt - session.active.startedAt);
+      return;
+    }
+    const tick = () => setLiveElapsed(Date.now() - session.active!.startedAt);
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [session.active]);
+
   const handleDelete = useCallback(
     async (id: string) => {
       try {
@@ -1759,6 +1797,95 @@ export default function WorkoutLogScreen() {
         showsVerticalScrollIndicator={false}
       >
         <ScreenHeader eyebrow="Training" title="Workouts" accent={P.workout} />
+
+        {/* Live session entry / banner */}
+        <View style={{ paddingHorizontal: 20, marginTop: 4, marginBottom: 8 }}>
+          {session.active ? (
+            <Pressable
+              onPress={() => setLiveSheetOpen(true)}
+              style={({ pressed }) => [
+                ms.liveBanner,
+                { backgroundColor: P.card, borderColor: P.workout + '55' },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              <View style={[ms.liveIcon, { backgroundColor: P.workoutSoft }]}>
+                <Ionicons name="barbell" size={18} color={P.workout} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={ms.liveDotRow}>
+                  <Text style={[ms.liveContinueTitle, { color: P.text }]}>
+                    Continue workout
+                  </Text>
+                  <View
+                    style={[
+                      ms.liveStatusChip,
+                      {
+                        backgroundColor:
+                          session.active.pausedAt != null
+                            ? P.sunken
+                            : 'rgba(52,211,153,0.15)',
+                        borderColor:
+                          session.active.pausedAt != null
+                            ? P.cardEdge
+                            : 'rgba(52,211,153,0.35)',
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        ms.liveDot,
+                        {
+                          backgroundColor:
+                            session.active.pausedAt != null ? P.textFaint : '#34D399',
+                        },
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        ms.liveBadge,
+                        {
+                          color:
+                            session.active.pausedAt != null ? P.textFaint : '#34D399',
+                        },
+                      ]}
+                    >
+                      {session.active.pausedAt != null ? 'PAUSED' : 'LIVE'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[ms.liveMeta, { color: P.textFaint }]} numberOfLines={1}>
+                  {session.active.workoutName} · {fmtElapsed(liveElapsed)} ·{' '}
+                  {session.active.sets.length}{' '}
+                  {session.active.sets.length === 1 ? 'set' : 'sets'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={P.textFaint} />
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => setLiveSheetOpen(true)}
+              style={({ pressed }) => [
+                ms.startSessionCard,
+                { backgroundColor: P.card, borderColor: P.cardEdge },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              <View style={[ms.startSessionIcon, { backgroundColor: P.workoutSoft }]}>
+                <Ionicons name="play" size={16} color={P.workout} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[ms.startSessionTitle, { color: P.text }]}>
+                  Start a workout
+                </Text>
+                <Text style={[ms.startSessionSub, { color: P.textFaint }]}>
+                  Track your time and sets as you go.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={P.textFaint} />
+            </Pressable>
+          )}
+        </View>
 
         {/* Stats strip */}
         {workouts.length > 0 && (
@@ -1879,6 +2006,12 @@ export default function WorkoutLogScreen() {
         onClose={handleSheetClose}
         editWorkout={editingWorkout}
       />
+
+      {/* Live session sheet: picker before start, in-progress view after. */}
+      <LiveSessionSheet
+        visible={liveSheetOpen}
+        onClose={() => setLiveSheetOpen(false)}
+      />
     </View>
   );
 }
@@ -1886,6 +2019,54 @@ export default function WorkoutLogScreen() {
 // ── Main screen styles ────────────────────────────────────────────────────────
 
 const ms = StyleSheet.create({
+  // ── Live session entry ──
+  startSessionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  startSessionIcon: {
+    width: 40, height: 40, borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+  },
+  startSessionTitle: { fontSize: 14, fontWeight: "800", letterSpacing: -0.2 },
+  startSessionSub:   { fontSize: 12, marginTop: 2 },
+
+  liveBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: 1.5,
+  },
+  liveIcon: {
+    width: 42, height: 42, borderRadius: 13,
+    alignItems: "center", justifyContent: "center",
+  },
+  liveDotRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  liveDot:    { width: 6, height: 6, borderRadius: 3 },
+  liveBadge:  { fontSize: 9, fontWeight: "800", letterSpacing: 1.0 },
+  liveName:   { fontSize: 13, fontWeight: "800", letterSpacing: -0.2, flexShrink: 1 },
+  liveMeta:   { fontSize: 12, fontVariant: ["tabular-nums"], marginTop: 3 },
+  liveContinueTitle: {
+    fontSize: 14, fontWeight: "800", letterSpacing: -0.2,
+  },
+  liveStatusChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+
   statsStrip: {
     flexDirection: "row",
     alignItems: "center",

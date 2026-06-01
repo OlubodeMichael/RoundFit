@@ -13,7 +13,7 @@ export interface UpdateActivityParams {
   caloriesBurned?: number;
   heartRate?:      number;
   isActive?:       boolean;
-  /** ms since epoch — sets effective start (shifted forward on resume). */
+  /** ms since epoch. Sets the effective start (shifted forward on resume). */
   startTime?:      number;
   /** ms since epoch when paused, or null to clear paused state. Omit to leave unchanged. */
   pausedAt?:       number | null;
@@ -31,6 +31,45 @@ export interface CurrentActivityState {
   pausedAt?:      number; // ms since epoch
 }
 
+// ── Workout session (set tracker) types ──────────────────────────────────
+
+export interface StartSessionActivityParams {
+  workoutType: string;
+  workoutName: string;
+  workoutIcon: string; // SF Symbol name (e.g. "dumbbell.fill")
+  startTime:   number; // ms since epoch
+}
+
+export interface UpdateSessionActivityParams {
+  setCount?:        number;
+  /** Pass to update the "last set" summary on the lock screen. */
+  lastExercise?:    string | null;
+  lastSetReps?:     number | null;
+  lastSetWeightKg?: number | null;
+  totalVolumeKg?:   number;
+  isActive?:        boolean;
+  /** ms since epoch. Effective start, shifts forward on resume. */
+  startTime?:       number;
+  /** ms since epoch when paused, or null to clear. Omit to leave unchanged. */
+  pausedAt?:        number | null;
+}
+
+export interface EndSessionActivityParams {
+  setCount?:      number;
+  totalVolumeKg?: number;
+}
+
+export interface CurrentSessionActivityState {
+  setCount:         number;
+  lastExercise?:    string;
+  lastSetReps?:     number;
+  lastSetWeightKg?: number;
+  totalVolumeKg:    number;
+  isActive:         boolean;
+  pausedAt?:        number; // ms since epoch
+  startTime?:       number; // ms since epoch
+}
+
 interface NativeModule {
   isSupported():   boolean;
   hasActiveActivity(): boolean;
@@ -38,6 +77,12 @@ interface NativeModule {
   startActivity(params: StartActivityParams):  Promise<{ activityId: string }>;
   updateActivity(params: UpdateActivityParams): Promise<void>;
   endActivity(params: EndActivityParams):       Promise<void>;
+  // Workout-session (set tracker): parallel API for the second activity type.
+  hasActiveSessionActivity?():  boolean;
+  getCurrentSessionState?():    CurrentSessionActivityState | null;
+  startSessionActivity?(params: StartSessionActivityParams):   Promise<{ activityId: string }>;
+  updateSessionActivity?(params: UpdateSessionActivityParams): Promise<void>;
+  endSessionActivity?(params: EndSessionActivityParams):       Promise<void>;
 }
 
 const Native =
@@ -52,7 +97,7 @@ if (Platform.OS === 'ios') {
 /** True if the device supports Live Activities (iOS 16.1+ and user hasn't disabled them). */
 export function isLiveActivitySupported(): boolean {
   if (!Native) {
-    console.warn('[LiveActivity] native module is null — not linked into the build');
+    console.warn('[LiveActivity] native module is null (not linked into the build)');
     return false;
   }
   const supported = Native.isSupported();
@@ -95,4 +140,51 @@ export async function endLiveActivity(
 ): Promise<void> {
   if (!Native) return;
   await Native.endActivity(params);
+}
+
+// ── Workout session (set tracker) bindings ───────────────────────────────
+
+/**
+ * Tri-state check for the workout-session activity:
+ *   - `true`  → session is active
+ *   - `false` → native supports the check and there's no active session
+ *   - `null`  → native module is null or this function isn't compiled in yet
+ *              (e.g. simulator is running a stale binary). Callers should
+ *              treat `null` as "unknown" and NOT drop their JS state.
+ */
+export function hasActiveSessionLiveActivity(): boolean | null {
+  if (!Native || typeof Native.hasActiveSessionActivity !== 'function') {
+    return null;
+  }
+  return Native.hasActiveSessionActivity();
+}
+
+/** Snapshot of the current workout-session activity's state, or null. */
+export function getCurrentSessionLiveActivityState(): CurrentSessionActivityState | null {
+  return Native?.getCurrentSessionState?.() ?? null;
+}
+
+/** Start a workout-session Live Activity (set tracker). */
+export async function startSessionLiveActivity(
+  params: StartSessionActivityParams,
+): Promise<string | null> {
+  if (!Native?.startSessionActivity) return null;
+  const result = await Native.startSessionActivity(params);
+  return result.activityId ?? null;
+}
+
+/** Push updated set count / last set / volume to the active session. */
+export async function updateSessionLiveActivity(
+  params: UpdateSessionActivityParams,
+): Promise<void> {
+  if (!Native?.updateSessionActivity) return;
+  await Native.updateSessionActivity(params);
+}
+
+/** End the active workout session and dismiss the Live Activity. */
+export async function endSessionLiveActivity(
+  params: EndSessionActivityParams = {},
+): Promise<void> {
+  if (!Native?.endSessionActivity) return;
+  await Native.endSessionActivity(params);
 }

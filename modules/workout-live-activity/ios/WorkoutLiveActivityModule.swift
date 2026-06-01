@@ -39,10 +39,68 @@ public struct WorkoutActivityAttributes: ActivityAttributes {
     }
 }
 
+// ─── Workout session (set tracker) Live Activity ─────────────────────────────
+// Independent from the burn-coach activity above. Both can run at the same time
+// (iOS allows multiple Live Activities) — they're distinguished by attribute
+// type, so iOS routes updates correctly.
+public struct WorkoutSessionAttributes: ActivityAttributes {
+    public struct ContentState: Codable, Hashable {
+        /// Number of sets logged so far this session.
+        public var setCount: Int
+        /// Name of the most recently logged exercise (e.g. "Bench Press").
+        public var lastExercise: String?
+        /// Reps in the most recently logged set.
+        public var lastSetReps: Int?
+        /// Weight (kg) in the most recently logged set.
+        public var lastSetWeightKg: Double?
+        /// Cumulative volume in kg (sum of weight × reps across logged sets).
+        public var totalVolumeKg: Double
+        public var isActive: Bool
+        public var pausedAt: Date?
+        /// Effective start used by the widget timer; resumes use this to skip
+        /// over paused time without mutating `attributes.startTime`.
+        public var startTime: Date?
+
+        public init(
+            setCount: Int = 0,
+            lastExercise: String? = nil,
+            lastSetReps: Int? = nil,
+            lastSetWeightKg: Double? = nil,
+            totalVolumeKg: Double = 0,
+            isActive: Bool = true,
+            pausedAt: Date? = nil,
+            startTime: Date? = nil
+        ) {
+            self.setCount = setCount
+            self.lastExercise = lastExercise
+            self.lastSetReps = lastSetReps
+            self.lastSetWeightKg = lastSetWeightKg
+            self.totalVolumeKg = totalVolumeKg
+            self.isActive = isActive
+            self.pausedAt = pausedAt
+            self.startTime = startTime
+        }
+    }
+    public var workoutType: String
+    public var workoutName: String
+    public var workoutIcon: String
+    public var startTime: Date
+
+    public init(workoutType: String, workoutName: String, workoutIcon: String, startTime: Date) {
+        self.workoutType = workoutType
+        self.workoutName = workoutName
+        self.workoutIcon = workoutIcon
+        self.startTime = startTime
+    }
+}
+
 public class WorkoutLiveActivityModule: Module {
 
     // Stored as `Any?` so the class can compile on iOS < 16.1; cast at use sites.
+    // Burn-coach activity (existing).
     private var activity: Any?
+    // Workout-session activity (new — set tracker).
+    private var sessionActivity: Any?
 
     public func definition() -> ModuleDefinition {
         Name("WorkoutLiveActivity")
@@ -200,6 +258,187 @@ public class WorkoutLiveActivityModule: Module {
             ]
             if let hr = s.heartRate { dict["heartRate"] = hr }
             if let p  = s.pausedAt  { dict["pausedAt"]  = p.timeIntervalSince1970 * 1000 }
+            return dict
+        }
+
+        // ── Workout-session (set tracker) lifecycle ──────────────────────
+        // Parallel to startActivity / updateActivity / endActivity, but for
+        // the WorkoutSessionAttributes type. Both Live Activities can run
+        // simultaneously — iOS keys them by attribute type.
+
+        AsyncFunction("startSessionActivity") {
+            (params: [String: Any], promise: Promise) in
+            guard #available(iOS 16.1, *) else {
+                promise.reject("UNSUPPORTED", "Live Activities require iOS 16.1+")
+                return
+            }
+
+            let workoutType = params["workoutType"] as? String ?? "other"
+            let workoutName = params["workoutName"] as? String ?? "Workout"
+            let workoutIcon = params["workoutIcon"] as? String ?? "dumbbell"
+            let startMs     = (params["startTime"] as? NSNumber)?.doubleValue
+            let startTime   = startMs != nil
+                ? Date(timeIntervalSince1970: startMs! / 1000)
+                : Date()
+
+            let attributes = WorkoutSessionAttributes(
+                workoutType: workoutType,
+                workoutName: workoutName,
+                workoutIcon: workoutIcon,
+                startTime:   startTime
+            )
+            let initialState = WorkoutSessionAttributes.ContentState(
+                setCount:        0,
+                lastExercise:    nil,
+                lastSetReps:     nil,
+                lastSetWeightKg: nil,
+                totalVolumeKg:   0,
+                isActive:        true,
+                pausedAt:        nil,
+                startTime:       startTime
+            )
+
+            do {
+                let activity = try Activity.request(
+                    attributes:    attributes,
+                    contentState:  initialState,
+                    pushType:      nil
+                )
+                self.sessionActivity = activity
+                promise.resolve(["activityId": activity.id])
+            } catch {
+                promise.reject("START_FAILED", error.localizedDescription)
+            }
+        }
+
+        AsyncFunction("updateSessionActivity") {
+            (params: [String: Any], promise: Promise) in
+            guard #available(iOS 16.1, *) else {
+                promise.resolve(nil); return
+            }
+            guard let activity = self.sessionActivity as? Activity<WorkoutSessionAttributes> else {
+                promise.reject("NO_ACTIVITY", "No active workout session")
+                return
+            }
+
+            let prev = activity.contentState
+
+            // `setCount` / `totalVolumeKg`: if the key is present, set it;
+            // otherwise preserve previous. Same NSNumber-coercion pattern as
+            // the burn-coach update so JS ints and floats both bridge cleanly.
+            let setCount: Int = (params["setCount"] as? NSNumber)?.intValue ?? prev.setCount
+            let totalVolumeKg: Double =
+                (params["totalVolumeKg"] as? NSNumber)?.doubleValue ?? prev.totalVolumeKg
+
+            // Last-set fields: key present + string/number → set it.
+            //                  key present + NSNull       → clear it.
+            //                  key absent                 → preserve previous.
+            let lastExercise: String? = {
+                if !params.keys.contains("lastExercise") { return prev.lastExercise }
+                return params["lastExercise"] as? String
+            }()
+            let lastSetReps: Int? = {
+                if !params.keys.contains("lastSetReps") { return prev.lastSetReps }
+                return (params["lastSetReps"] as? NSNumber)?.intValue
+            }()
+            let lastSetWeightKg: Double? = {
+                if !params.keys.contains("lastSetWeightKg") { return prev.lastSetWeightKg }
+                return (params["lastSetWeightKg"] as? NSNumber)?.doubleValue
+            }()
+
+            let isActive = (params["isActive"] as? Bool) ?? prev.isActive
+
+            let pausedAt: Date? = {
+                if !params.keys.contains("pausedAt") { return prev.pausedAt }
+                if let ms = (params["pausedAt"] as? NSNumber)?.doubleValue {
+                    return Date(timeIntervalSince1970: ms / 1000)
+                }
+                return nil
+            }()
+            let startTime: Date? = {
+                if !params.keys.contains("startTime") { return prev.startTime }
+                if let ms = (params["startTime"] as? NSNumber)?.doubleValue {
+                    return Date(timeIntervalSince1970: ms / 1000)
+                }
+                return prev.startTime
+            }()
+
+            let newState = WorkoutSessionAttributes.ContentState(
+                setCount:        setCount,
+                lastExercise:    lastExercise,
+                lastSetReps:     lastSetReps,
+                lastSetWeightKg: lastSetWeightKg,
+                totalVolumeKg:   totalVolumeKg,
+                isActive:        isActive,
+                pausedAt:        pausedAt,
+                startTime:       startTime
+            )
+
+            Task {
+                await activity.update(using: newState)
+                promise.resolve(nil)
+            }
+        }
+
+        AsyncFunction("endSessionActivity") {
+            (params: [String: Any], promise: Promise) in
+            guard #available(iOS 16.1, *) else {
+                promise.resolve(nil); return
+            }
+            guard let activity = self.sessionActivity as? Activity<WorkoutSessionAttributes> else {
+                promise.resolve(nil); return
+            }
+
+            let prev = activity.contentState
+            let setCount: Int = (params["setCount"] as? NSNumber)?.intValue ?? prev.setCount
+            let totalVolumeKg: Double =
+                (params["totalVolumeKg"] as? NSNumber)?.doubleValue ?? prev.totalVolumeKg
+            let finalState = WorkoutSessionAttributes.ContentState(
+                setCount:        setCount,
+                lastExercise:    prev.lastExercise,
+                lastSetReps:     prev.lastSetReps,
+                lastSetWeightKg: prev.lastSetWeightKg,
+                totalVolumeKg:   totalVolumeKg,
+                isActive:        false,
+                pausedAt:        prev.pausedAt,
+                startTime:       prev.startTime
+            )
+
+            Task {
+                await activity.end(
+                    using:           finalState,
+                    dismissalPolicy: .immediate
+                )
+                self.sessionActivity = nil
+                promise.resolve(nil)
+            }
+        }
+
+        Function("hasActiveSessionActivity") { () -> Bool in
+            guard #available(iOS 16.1, *) else { return false }
+            if self.sessionActivity == nil {
+                self.sessionActivity = Activity<WorkoutSessionAttributes>.activities.first
+            }
+            return self.sessionActivity != nil
+        }
+
+        Function("getCurrentSessionState") { () -> [String: Any]? in
+            guard #available(iOS 16.1, *) else { return nil }
+            if self.sessionActivity == nil {
+                self.sessionActivity = Activity<WorkoutSessionAttributes>.activities.first
+            }
+            guard let activity = self.sessionActivity as? Activity<WorkoutSessionAttributes> else { return nil }
+            let s = activity.contentState
+            var dict: [String: Any] = [
+                "setCount":      s.setCount,
+                "totalVolumeKg": s.totalVolumeKg,
+                "isActive":      s.isActive,
+            ]
+            if let n = s.lastExercise    { dict["lastExercise"]    = n }
+            if let r = s.lastSetReps     { dict["lastSetReps"]     = r }
+            if let w = s.lastSetWeightKg { dict["lastSetWeightKg"] = w }
+            if let p = s.pausedAt        { dict["pausedAt"]        = p.timeIntervalSince1970 * 1000 }
+            if let t = s.startTime       { dict["startTime"]       = t.timeIntervalSince1970 * 1000 }
             return dict
         }
     }
