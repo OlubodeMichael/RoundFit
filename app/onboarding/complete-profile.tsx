@@ -12,6 +12,7 @@ import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { hasActiveUserSession } from '@/context/auth-context';
 import { useAuth } from '@/hooks/use-auth';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 const BG = '#FAFAF8';
 const INK = '#111110';
@@ -97,6 +98,10 @@ export default function CompleteProfileScreen() {
             Your account is connected. We just need a few details to build your
             calorie and training plan.
           </Text>
+          <WhyWeAsk
+            text="We use your answers to calculate your personal calorie targets."
+            style={s.whyWeAsk}
+          />
         </Animated.View>
 
         <Animated.View style={[s.stepCard, { opacity: listFade }]}>
@@ -196,6 +201,10 @@ const s = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: DIM,
+    maxWidth: 320,
+  },
+  whyWeAsk: {
+    marginTop: 10,
     maxWidth: 320,
   },
   stepCard: {

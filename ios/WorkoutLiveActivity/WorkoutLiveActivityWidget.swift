@@ -291,8 +291,12 @@ private func sessionTimerView(
 struct SessionCompactLeading: View {
     let state: WorkoutSessionAttributes.ContentState
     var body: some View {
+        // Both active and paused render as small monochrome glyphs so the
+        // compact leading hugs the Dynamic Island the same way Apple's own
+        // activities do. The icon shape (dumbbell vs pause) is enough to
+        // tell the two states apart without needing a brand-color tint.
         Image(systemName: state.pausedAt != nil ? "pause.fill" : "dumbbell.fill")
-            .foregroundColor(state.pausedAt != nil ? grey : sessionAccent)
+            .foregroundColor(.white)
             .font(.system(size: 14, weight: .semibold))
     }
 }
@@ -314,8 +318,10 @@ struct SessionCompactTrailing: View {
 struct SessionMinimalView: View {
     let state: WorkoutSessionAttributes.ContentState
     var body: some View {
+        // Mirror SessionCompactLeading: white glyph regardless of state so
+        // the minimal Dynamic Island looks system-native.
         Image(systemName: state.pausedAt != nil ? "pause.fill" : "dumbbell.fill")
-            .foregroundColor(state.pausedAt != nil ? grey : sessionAccent)
+            .foregroundColor(.white)
             .font(.system(size: 12, weight: .semibold))
     }
 }

@@ -10,7 +10,89 @@
     "ios:metro": "expo start --localhost",
     "web": "expo start --web",
     "lint": "expo lint",
-    "eas:build:ios": "EXPO_NO_CAPABILITY_SYNC=1 eas build --platform ios"
+    "eas:build:ios": "EXPO_NO_CAPABILITY_SYNC=1 eas build --platform ios",
+    "eas:release:ios": "eas build --platform ios --profile production --auto-submit"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   },
   "expo": {
     "autolinking": {

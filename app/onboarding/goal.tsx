@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import { usePostHog } from 'posthog-react-native';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -62,6 +63,10 @@ export default function GoalScreen() {
       <View style={{ flex: 1 }}>
       <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
         <Text style={[s.headline, { color: hi }]}>Your main{'\n'}goal.</Text>
+        <WhyWeAsk
+          text="We use this to set your calorie target and macro split."
+          style={s.whyWeAsk}
+        />
       </Animated.View>
 
       <View style={s.grid}>
@@ -120,7 +125,8 @@ export default function GoalScreen() {
 const s = StyleSheet.create({
   root:     { flex: 1, paddingHorizontal: 28 },
   progress: { marginBottom: 8 },
-  headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 32 },
+  headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 8 },
+  whyWeAsk: { marginBottom: 24 },
 
   grid:        { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   cardWrapper: { width: '47%' },

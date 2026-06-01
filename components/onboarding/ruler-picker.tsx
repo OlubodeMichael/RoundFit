@@ -44,7 +44,7 @@ export function RulerPicker({
       }, 0);
       return () => clearTimeout(t);
     }
-  }, [cW]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cW, value, min, step, tickSpacing]);
 
   const count = Math.round((max - min) / step) + 1;
 

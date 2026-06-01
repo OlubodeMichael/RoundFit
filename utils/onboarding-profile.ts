@@ -17,6 +17,22 @@ export type OnboardingRouteParams = {
   unit?: string;
 };
 
+/** Normalise expo-router params (string | string[]) to a single string. */
+export function parseOnboardingParam(
+  value: string | string[] | undefined,
+): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+export function parseOnboardingNumber(
+  value: string | string[] | undefined,
+  fallback: number,
+): number {
+  const n = Number(parseOnboardingParam(value));
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 export function hasOnboardingParams(params: OnboardingRouteParams): boolean {
   return Boolean(
     params.name?.trim() &&

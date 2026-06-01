@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 import { TileGrid, Tile } from '@/components/onboarding/tile-grid';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 const PHASES: Tile[] = [
   { id: 'menstrual',  icon: 'water-outline', label: 'Menstrual',  desc: 'On your period right now' },
@@ -49,6 +50,10 @@ export default function CyclePhaseScreen() {
       <Animated.View style={{ opacity: fade, transform: [{ translateY: slideY }] }}>
         <Text style={[s.headline, { color: hi }]}>Your current{'\n'}phase.</Text>
         <Text style={[s.sub, { color: mid }]}>Where are you in your cycle today?</Text>
+        <WhyWeAsk
+          text="We use this to adjust your targets for where you are right now."
+          style={s.whyWeAsk}
+        />
       </Animated.View>
 
       <TileGrid tiles={PHASES} selected={selected} onSelect={setSelected} />
@@ -71,5 +76,6 @@ const s = StyleSheet.create({
   root:     { flex: 1, paddingHorizontal: 28 },
   progress: { marginBottom: 8 },
   headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 6 },
-  sub:      { fontSize: 15, fontWeight: '400', lineHeight: 22, marginBottom: 32 },
+  sub:      { fontSize: 15, fontWeight: '400', lineHeight: 22, marginBottom: 6 },
+  whyWeAsk: { marginBottom: 26 },
 });

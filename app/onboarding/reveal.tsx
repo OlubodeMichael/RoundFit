@@ -9,6 +9,8 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   buildOnboardingProfile,
   hasOnboardingParams,
+  parseOnboardingNumber,
+  parseOnboardingParam,
 } from '@/utils/onboarding-profile';
 import {
   View, Text, StyleSheet, TouchableOpacity, Animated, Easing,
@@ -19,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Svg, { Path, Line, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -102,20 +105,23 @@ export default function RevealScreen() {
     }
   }, [status, user, router]);
 
-  const canonicalGoal     = useMemo(() => mapOnboardingGoal(params.goal),         [params.goal]);
-  const canonicalActivity = useMemo(() => mapOnboardingActivity(params.activity), [params.activity]);
+  const canonicalGoal     = useMemo(() => mapOnboardingGoal(parseOnboardingParam(params.goal)),         [params.goal]);
+  const canonicalActivity = useMemo(() => mapOnboardingActivity(parseOnboardingParam(params.activity)), [params.activity]);
+
+  const age      = parseOnboardingNumber(params.age, 25);
+  const heightCm = parseOnboardingNumber(params.height, 170);
+  const weightKg = parseOnboardingNumber(params.weight, 70);
 
   const plan = useMemo(() => calculateNutritionPlan({
-    sex:           mapOnboardingSex(params.sex),
-    age:           Number(params.age)    || 25,
-    heightCm:      Number(params.height) || 170,
-    weightKg:      Number(params.weight) || 70,
+    sex:           mapOnboardingSex(parseOnboardingParam(params.sex)),
+    age,
+    heightCm,
+    weightKg,
     activityLevel: canonicalActivity,
     goal:          canonicalGoal,
-  }), [params.sex, params.age, params.height, params.weight, canonicalActivity, canonicalGoal]);
+  }), [age, heightCm, weightKg, canonicalActivity, canonicalGoal, params.sex]);
 
-  const weightKg     = Number(params.weight) || 70;
-  const name         = params.name?.trim() || 'You';
+  const name         = parseOnboardingParam(params.name)?.trim() || 'You';
   const canFinishOAuth = hasOnboardingParams(params);
   const oauthProfile = useMemo(() => buildOnboardingProfile(params), [params]);
 
@@ -166,7 +172,8 @@ export default function RevealScreen() {
   // Chart width = screen - horizontal padding (20×2) - card padding (16×2)
   const chartW = scrW - 72;
 
-  const [displayCals, setDisplayCals] = useState(0);
+  const calorieTarget = plan.calorieBudget;
+  const [displayCals, setDisplayCals] = useState(calorieTarget);
   const [chartReady, setChartReady]   = useState(false);
 
   // ── Animations ────────────────────────────────────────────────────────
@@ -179,8 +186,19 @@ export default function RevealScreen() {
   const bodyY      = useRef(new Animated.Value(8)).current;
   const bottomFade = useRef(new Animated.Value(0)).current;
   const bottomY    = useRef(new Animated.Value(10)).current;
+  const countRef   = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    const target = calorieTarget;
+    setDisplayCals(0);
+    setChartReady(false);
+    heroFade.setValue(0);
+    heroY.setValue(10);
+    bodyFade.setValue(0);
+    bodyY.setValue(8);
+    bottomFade.setValue(0);
+    bottomY.setValue(10);
+
     const E = Easing.out(Easing.cubic);
     Animated.timing(topFade, { toValue: 1, duration: 400, useNativeDriver: true }).start();
 
@@ -195,14 +213,15 @@ export default function RevealScreen() {
         Animated.timing(heroY,    { toValue: 0, duration: 440, easing: E, useNativeDriver: true }),
       ]).start();
 
-      const target = plan.calorieBudget;
-      const step   = Math.max(1, Math.ceil(target / 50));
-      let cur      = 0;
-      const iv = setInterval(() => {
+      const step = Math.max(1, Math.ceil(target / 50));
+      let cur = 0;
+      countRef.current = setInterval(() => {
         cur = Math.min(cur + step, target);
         setDisplayCals(cur);
         if (cur >= target) {
-          clearInterval(iv);
+          if (countRef.current) clearInterval(countRef.current);
+          countRef.current = null;
+          setDisplayCals(target);
           setTimeout(() => Animated.parallel([
             Animated.timing(bodyFade, { toValue: 1, duration: 440, useNativeDriver: true }),
             Animated.timing(bodyY,    { toValue: 0, duration: 380, easing: E, useNativeDriver: true }),
@@ -213,11 +232,23 @@ export default function RevealScreen() {
           ]).start(), 380);
         }
       }, 18);
-      return () => clearInterval(iv);
     }, 340);
 
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [plan.calorieBudget]); // eslint-disable-line react-hooks/exhaustive-deps
+    const tFallback = setTimeout(() => {
+      setDisplayCals(prev => (prev > 0 ? prev : target));
+      heroFade.setValue(1);
+      heroY.setValue(0);
+    }, 1200);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(tFallback);
+      if (countRef.current) clearInterval(countRef.current);
+    };
+  }, [calorieTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const calorieDisplay = displayCals > 0 ? displayCals : calorieTarget;
 
   return (
     <View style={[s.root, { paddingTop: insets.top + 16 }]}>
@@ -240,12 +271,16 @@ export default function RevealScreen() {
             Hi, {name}.{'  '}
             <Text style={s.greetingSub}>Your daily target</Text>
           </Text>
+          <WhyWeAsk
+            text="Calculated from the details you shared."
+            style={s.whyWeAsk}
+          />
         </Animated.View>
 
         {/* ── Hero number ──────────────────────────────────── */}
-        <Animated.View style={[s.heroBlock, { opacity: heroFade, transform: [{ translateY: heroY }] }]}>
+        <Animated.View style={[s.heroBlock, { transform: [{ translateY: heroY }] }]}>
           <Text style={s.calNumber} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
-            {displayCals.toLocaleString()}
+            {calorieDisplay.toLocaleString()}
           </Text>
           <Text style={s.calLabel}>kcal / day</Text>
         </Animated.View>
@@ -463,6 +498,7 @@ const s = StyleSheet.create({
   // Greeting
   greeting:    { fontSize: 19, fontWeight: '800', color: INK, letterSpacing: -0.3 },
   greetingSub: { fontSize: 19, fontWeight: '500', color: DIM },
+  whyWeAsk:    { marginTop: 6, marginBottom: 4 },
 
   // Hero
   heroBlock: { marginBottom: 20, gap: 4 },

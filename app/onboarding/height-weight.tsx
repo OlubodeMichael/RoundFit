@@ -1,15 +1,26 @@
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 import { MeasurementPicker } from '@/components/onboarding/measurement-picker';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ── Conversion helpers ─────────────────────────────────────────────────────
-const kgToLb  = (kg: number) => Math.round(kg  * 2.20462);
-const lbToKg  = (lb: number) => Math.round(lb  / 2.20462);
-const cmToIn  = (cm: number) => Math.round(cm  / 2.54);
-const inToCm  = (i:  number) => Math.round(i   * 2.54);
+// Store metric as precise floats; round only for display so every lb/in tick is reachable.
+const KG_PER_LB = 2.20462;
+const CM_PER_IN = 2.54;
+
+const kgToLb  = (kg: number) => Math.round(kg * KG_PER_LB);
+const lbToKg  = (lb: number) => lb / KG_PER_LB;
+const cmToIn  = (cm: number) => Math.round(cm / CM_PER_IN);
+const inToCm  = (i:  number) => i * CM_PER_IN;
+
+// Paired defaults so kg/lb and cm/in show the same measurement when toggling units
+const DEFAULT_WEIGHT_LB = 154;
+const DEFAULT_WEIGHT_KG = lbToKg(DEFAULT_WEIGHT_LB);
+const DEFAULT_HEIGHT_IN = 67;
+const DEFAULT_HEIGHT_CM = inToCm(DEFAULT_HEIGHT_IN);
 
 function formatHeight(totalIn: number): string {
   const ft  = Math.floor(totalIn / 12);
@@ -25,15 +36,15 @@ export default function HeightWeightScreen() {
   const total  = params.sex === 'female' ? 12 : 9;
 
   // Internal values always stored in metric
-  const [weightKg, setWeightKg] = useState(70);
-  const [heightCm, setHeightCm] = useState(172);
+  const [weightKg, setWeightKg] = useState(DEFAULT_WEIGHT_KG);
+  const [heightCm, setHeightCm] = useState(DEFAULT_HEIGHT_CM);
 
   // Independent unit states per measurement
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('kg');
   const [heightUnit, setHeightUnit] = useState<'cm' | 'in'>('cm');
 
   // ── Weight derived values ───────────────────────────────────────────────
-  const weightRulerValue   = weightUnit === 'kg' ? weightKg : kgToLb(weightKg);
+  const weightRulerValue   = weightUnit === 'kg' ? Math.round(weightKg) : kgToLb(weightKg);
   const weightMin          = weightUnit === 'kg' ? 30  : 66;
   const weightMax          = weightUnit === 'kg' ? 300 : 660;
   const weightDisplayValue = String(weightRulerValue);
@@ -44,10 +55,10 @@ export default function HeightWeightScreen() {
   };
 
   // ── Height derived values ───────────────────────────────────────────────
-  const heightRulerValue   = heightUnit === 'cm' ? heightCm : cmToIn(heightCm);
+  const heightRulerValue   = heightUnit === 'cm' ? Math.round(heightCm) : cmToIn(heightCm);
   const heightMin          = heightUnit === 'cm' ? 100 : 39;
   const heightMax          = heightUnit === 'cm' ? 250 : 98;
-  const heightDisplayValue = heightUnit === 'cm' ? String(heightCm) : formatHeight(cmToIn(heightCm));
+  const heightDisplayValue = heightUnit === 'cm' ? String(heightRulerValue) : formatHeight(heightRulerValue);
   const heightDisplayUnit  = heightUnit === 'cm' ? 'cm' : '';
 
   const onHeightChange = (v: number) => {
@@ -69,6 +80,10 @@ export default function HeightWeightScreen() {
       </View>
 
       <Text style={s.headline}>Height &{'\n'}weight.</Text>
+      <WhyWeAsk
+        text="We use this to calculate your personal calorie targets."
+        style={s.whyWeAsk}
+      />
 
       <ScrollView
         style={s.scroll}
@@ -122,8 +137,8 @@ export default function HeightWeightScreen() {
           pathname: '/onboarding/goal',
           params: {
             ...params,
-            height: String(heightCm),
-            weight: String(weightKg),
+            height: String(Math.round(heightCm)),
+            weight: String(Math.round(weightKg)),
             unit:   unitParam,
           },
         })}
@@ -147,7 +162,10 @@ const s = StyleSheet.create({
     letterSpacing: -2,
     lineHeight:    44,
     color:         '#111111',
-    marginBottom:  24,
+    marginBottom:  8,
+  },
+  whyWeAsk: {
+    marginBottom: 16,
   },
 
   scroll:        { flex: 1 },

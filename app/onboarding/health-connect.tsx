@@ -8,6 +8,7 @@ import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Svg, { Path } from 'react-native-svg';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import { HEALTHKIT_READ_IDENTIFIERS, isExpoGoEnvironment } from '@/utils/healthkit';
 
 const HERO_H = 300;
@@ -175,6 +176,10 @@ export default function HealthConnectScreen() {
       <View style={{ flex: 1 }}>
         <Animated.View style={[s.textBlock, { opacity: textFade, transform: [{ translateY: textY }] }]}>
           <Text style={s.headline}>Sync with{'\n'}Apple Health</Text>
+          <WhyWeAsk
+            text="We use this to keep your plan updated without manual logging."
+            style={s.whyWeAsk}
+          />
           <Text style={s.body}>
             Pull your activity, sleep and heart data into RoundFit, so your plan adapts daily without manual logging.
           </Text>
@@ -249,6 +254,7 @@ const s = StyleSheet.create({
     fontSize: 34, fontWeight: '900', letterSpacing: -1.5,
     lineHeight: 38, color: '#111111',
   },
+  whyWeAsk: { marginTop: 8 },
   body: { fontSize: 14, lineHeight: 21, color: '#888888', fontWeight: '400' },
 
   ctaBlock:       { gap: 4, paddingHorizontal: 28 },

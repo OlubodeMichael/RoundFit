@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 const LEVELS = [
   { id: 'sedentary', num: '01', label: 'Sedentary',         multiplier: '× 1.20',  sub: 'Desk job, little exercise',      kcal: '+0 kcal'   },
@@ -53,6 +54,10 @@ export default function ActivityScreen() {
       <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
         <Text style={[s.headline, { color: hi }]}>Your{'\n'}activity.</Text>
         <Text style={s.subheadline}>Outside of structured workouts, on a typical week.</Text>
+        <WhyWeAsk
+          text="We use this to estimate how many calories you burn daily."
+          style={s.whyWeAsk}
+        />
       </Animated.View>
 
       <View style={s.list}>
@@ -121,7 +126,8 @@ const s = StyleSheet.create({
   root:        { flex: 1, paddingHorizontal: 28 },
   progress:    { marginBottom: 8 },
   headline:    { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 8 },
-  subheadline: { fontSize: 17, fontWeight: '400', lineHeight: 24, marginBottom: 28, color: '#888888' },
+  subheadline: { fontSize: 17, fontWeight: '400', lineHeight: 24, marginBottom: 6, color: '#888888' },
+  whyWeAsk:    { marginBottom: 22 },
 
   list: { gap: 0 },
   row:  {

@@ -3,6 +3,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 const SEX_OPTIONS = [
@@ -49,6 +50,10 @@ export default function AgeSexScreen() {
       <View style={{ flex: 1 }}>
         <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>
           <Text style={[s.headline, { color: hi }]}>About you.</Text>
+          <WhyWeAsk
+            text="We use this to calculate your personal calorie targets."
+            style={s.whyWeAsk}
+          />
 
           {/* ── Age ── */}
           <View style={s.section}>
@@ -141,8 +146,9 @@ export default function AgeSexScreen() {
 const s = StyleSheet.create({
   root:     { flex: 1, paddingHorizontal: 28 },
   progress: { marginBottom: 8 },
-  body:     { gap: 44 },
-  headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48 },
+  body:      { gap: 44 },
+  headline:  { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48 },
+  whyWeAsk:  { marginTop: -28, marginBottom: 8 },
 
   section:      {},
   sectionLabel: {

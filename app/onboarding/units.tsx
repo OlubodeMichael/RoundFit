@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 export default function UnitsScreen() {
   const router = useRouter();
@@ -80,6 +81,10 @@ export default function UnitsScreen() {
       <View style={{ flex: 1 }}>
       <Animated.View style={{ opacity: fade, transform: [{ translateY: slideY }] }}>
         <Text style={s.headline}>Your unit.</Text>
+        <WhyWeAsk
+          text="We use this to show weights and measurements in the format you prefer."
+          style={s.whyWeAsk}
+        />
       </Animated.View>
 
       {/* ── Cards ── */}
@@ -168,8 +173,9 @@ const s = StyleSheet.create({
   progress: { marginBottom: 8 },
   headline: {
     fontSize: 42, fontWeight: '900', letterSpacing: -2,
-    lineHeight: 48, color: '#111111', marginBottom: 24,
+    lineHeight: 48, color: '#111111', marginBottom: 8,
   },
+  whyWeAsk: { marginBottom: 16 },
 
   // ── Cards ──────────────────────────────────────────────────────────────────
   grid:     { flexDirection: 'row', gap: 12, marginBottom: 18 },

@@ -6,6 +6,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 export default function NameScreen() {
   const router = useRouter();
@@ -66,9 +67,10 @@ export default function NameScreen() {
             <Text style={[s.headline, { color: hi }]}>
               {"What's your\nname?"}
             </Text>
-            <Text style={[s.sub, { color: mid }]}>
-              {"We'll personalize everything for you."}
-            </Text>
+            <WhyWeAsk
+              text="We use this to personalize your plan and dashboard."
+              style={s.whyWeAsk}
+            />
 
             {/* Input with animated underline */}
             <View style={s.inputWrap}>
@@ -118,8 +120,8 @@ const s = StyleSheet.create({
   progress: { marginBottom: 8 },
 
   body:     { gap: 12 },
-  headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 4 },
-  sub:      { fontSize: 15, fontWeight: '400', lineHeight: 22 },
+  headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 8 },
+  whyWeAsk: { marginBottom: 4 },
 
   inputWrap:      { marginTop: 36, gap: 0 },
   input:          { fontSize: 38, fontWeight: '700', letterSpacing: -1, paddingVertical: 8, paddingHorizontal: 0 },

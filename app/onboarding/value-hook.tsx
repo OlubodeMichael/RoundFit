@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -55,6 +56,10 @@ export default function ValueHookScreen() {
         <Text style={[s.headLine, { color: hi }]}>Train.</Text>
         <Text style={[s.headLine, { color: hi }]}>Track.</Text>
         <Text style={[s.headLineAccent]}>Recover.</Text>
+        <WhyWeAsk
+          text="A few quick questions help us calculate your personal calorie targets."
+          style={s.whyWeAsk}
+        />
       </Animated.View>
 
       <View style={s.cards}>
@@ -90,6 +95,7 @@ const s = StyleSheet.create({
   progress: { marginBottom: 8 },
 
   headBlock:      { marginBottom: 32, gap: 0 },
+  whyWeAsk:       { marginTop: 12, maxWidth: 300 },
   headLine:       { fontFamily: 'Syne_800ExtraBold', fontSize: 52, letterSpacing: -2.5, lineHeight: 56 },
   headLineAccent: { fontFamily: 'Syne_800ExtraBold', fontSize: 52, letterSpacing: -2.5, lineHeight: 56, color: '#F97316' },
 
