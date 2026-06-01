@@ -46,6 +46,7 @@ function formatElapsed(ms: number): string {
 }
 
 export function BurnCoachStrip({
+  caloriesToBurn,
   activity,
   isLive = true,
   activeStartedAt = null,
@@ -92,54 +93,80 @@ export function BurnCoachStrip({
   // ─── In-progress state: timer + calories + Pause/Resume + End ───────────
   if (inProgress) {
     return (
-      <View style={[styles.card, { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(249,115,22,0.35)' }]}>
-        <View style={styles.iconTile}>
-          <Ionicons
-            name={(activity.icon as IoniconName) ?? 'walk'}
-            size={22}
-            color="#fff"
-          />
-        </View>
+      <View style={[styles.cardCol, { borderColor: isPaused ? 'rgba(113,113,122,0.35)' : 'rgba(249,115,22,0.35)' }]}>
+        {/* Info row: icon | activity name + LIVE chip + timer/kcal */}
+        <View style={styles.infoRow}>
+          <View style={[styles.iconTile, isPaused && { backgroundColor: '#71717A' }]}>
+            <Ionicons
+              name={(activity.icon as IoniconName) ?? 'walk'}
+              size={22}
+              color="#fff"
+            />
+          </View>
 
-        <View style={styles.center}>
-          <View style={styles.liveRow}>
-            <View style={styles.liveDotWrap}>
-              <Animated.View
-                style={[
-                  styles.liveDotPulse,
-                  { transform: [{ scale: pulseScale }], opacity: pulseOpac, backgroundColor: isPaused ? '#71717A' : ORANGE },
-                ]}
-              />
-              <View style={[styles.liveDot, { backgroundColor: isPaused ? '#71717A' : ORANGE }]} />
+          <View style={styles.center}>
+            <View style={styles.liveRow}>
+              <View style={styles.liveDotWrap}>
+                <Animated.View
+                  style={[
+                    styles.liveDotPulse,
+                    { transform: [{ scale: pulseScale }], opacity: pulseOpac, backgroundColor: isPaused ? '#71717A' : LIVE_GREEN },
+                  ]}
+                />
+                <View style={[styles.liveDot, { backgroundColor: isPaused ? '#71717A' : LIVE_GREEN }]} />
+              </View>
+              <Text style={[styles.liveLabel, { color: isPaused ? '#9CA3AF' : LIVE_GREEN }]}>
+                {isPaused ? 'PAUSED' : 'LIVE'}
+              </Text>
+              <Text style={styles.activityName} numberOfLines={1}>
+                {activity.label}
+              </Text>
             </View>
-            <Text style={[styles.liveLabel, { color: 'rgba(255,255,255,0.85)' }]}>
-              {isPaused ? 'PAUSED · ' : ''}{activity.label.toUpperCase()}
-            </Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10 }}>
-            <Text style={styles.timerText}>{formatElapsed(elapsed)}</Text>
-            <Text style={styles.calorieText}>
-              {Math.round(activeCaloriesBurned)} kcal
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10 }}>
+              <Text style={styles.timerText}>{formatElapsed(elapsed)}</Text>
+              <Text style={styles.calorieText}>
+                {Math.round(activeCaloriesBurned)}
+                <Text style={styles.calorieGoalText}>
+                  {caloriesToBurn > 0 ? ` / ${Math.round(caloriesToBurn)} kcal` : ' kcal'}
+                </Text>
+              </Text>
+            </View>
           </View>
         </View>
 
-        <View style={styles.actionRow}>
+        {/* Calorie progress bar — matches lock-screen design */}
+        {caloriesToBurn > 0 && (
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${Math.min(100, (activeCaloriesBurned / caloriesToBurn) * 100)}%`,
+                  backgroundColor: isPaused ? '#71717A' : ORANGE,
+                },
+              ]}
+            />
+          </View>
+        )}
+
+        {/* Button row: full-width Pause/Resume (dark) + End (red) */}
+        <View style={styles.buttonRow}>
           <Pressable
             onPress={isPaused ? onResume : onPause}
-            style={({ pressed }) => [styles.pauseBtn, pressed && { opacity: 0.82 }]}
+            style={({ pressed }) => [styles.pauseBtnFull, pressed && { opacity: 0.82 }]}
             hitSlop={6}
           >
-            <Ionicons name={isPaused ? 'play' : 'pause'} size={12} color="#fff" />
+            <Ionicons name={isPaused ? 'play' : 'pause'} size={14} color="#fff" />
+            <Text style={styles.pauseTextFull}>{isPaused ? 'Resume' : 'Pause'}</Text>
           </Pressable>
 
           <Pressable
             onPress={onEnd}
-            style={({ pressed }) => [styles.endBtn, pressed && { opacity: 0.82 }]}
+            style={({ pressed }) => [styles.endBtnFull, pressed && { opacity: 0.82 }]}
             hitSlop={6}
           >
-            <Ionicons name="stop" size={11} color="#fff" />
-            <Text style={styles.endText}> End</Text>
+            <Ionicons name="stop" size={13} color="#fff" />
+            <Text style={styles.endText}>End</Text>
           </Pressable>
         </View>
       </View>
@@ -202,8 +229,11 @@ export function BurnCoachStrip({
   );
 }
 
-const ORANGE = '#F97316';
-const GREEN  = '#34D399';
+const ORANGE     = '#F97316';
+const GREEN      = '#34D399';
+const LIVE_GREEN = '#34D399';                  // green dot + "LIVE" label
+const END_RED    = 'rgb(158, 43, 46)';         // matches lock-screen endRed
+const PAUSE_BG   = 'rgba(255,255,255,0.10)';   // matches lock-screen pause bg
 
 const styles = StyleSheet.create({
   card: {
@@ -295,30 +325,77 @@ const styles = StyleSheet.create({
     fontWeight:  '700',
     color:       ORANGE,
   },
-  actionRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           8,
-  },
-  pauseBtn: {
-    width:           36,
-    height:          36,
-    borderRadius:    999,
-    backgroundColor: '#27272A',
-    alignItems:      'center',
-    justifyContent:  'center',
-  },
-  endBtn: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    backgroundColor:   '#27272A',
-    borderRadius:      999,
-    paddingHorizontal: 14,
-    paddingVertical:   10,
-  },
   endText: {
     fontSize:   14,
     fontWeight: '800',
     color:      '#fff',
+  },
+  calorieGoalText: {
+    fontSize:   12,
+    fontWeight: '500',
+    color:      'rgba(255,255,255,0.5)',
+  },
+  progressTrack: {
+    height:          4,
+    borderRadius:    999,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    overflow:        'hidden',
+  },
+  progressFill: {
+    height:       '100%',
+    borderRadius: 999,
+  },
+
+  // ── V1 in-progress layout (matches lock-screen design) ──
+  cardCol: {
+    backgroundColor: '#111113',
+    borderRadius:    22,
+    borderWidth:     StyleSheet.hairlineWidth,
+    paddingVertical:    14,
+    paddingHorizontal:  14,
+    gap:                12,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           12,
+  },
+  activityName: {
+    fontSize:      13,
+    fontWeight:    '800',
+    letterSpacing: -0.2,
+    color:         '#fff',
+    marginLeft:    2,
+    flexShrink:    1,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           10,
+  },
+  pauseBtnFull: {
+    flex:              1,
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'center',
+    gap:               6,
+    backgroundColor:   PAUSE_BG,
+    borderRadius:      999,
+    paddingVertical:   11,
+  },
+  pauseTextFull: {
+    fontSize:   14,
+    fontWeight: '800',
+    color:      '#fff',
+  },
+  endBtnFull: {
+    flex:              1,
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'center',
+    gap:               6,
+    backgroundColor:   END_RED,
+    borderRadius:      999,
+    paddingVertical:   11,
   },
 });

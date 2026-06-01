@@ -11,12 +11,17 @@ public struct WorkoutActivityAttributes: ActivityAttributes {
         public var heartRate: Int?
         public var isActive: Bool
         public var pausedAt: Date?
+        // Effective start used by the widget timer. Differs from
+        // `attributes.startTime` after resume (shifted forward by pause
+        // duration) so the elapsed time picks up where it left off.
+        public var startTime: Date?
 
-        public init(caloriesBurned: Double, heartRate: Int? = nil, isActive: Bool = true, pausedAt: Date? = nil) {
+        public init(caloriesBurned: Double, heartRate: Int? = nil, isActive: Bool = true, pausedAt: Date? = nil, startTime: Date? = nil) {
             self.caloriesBurned = caloriesBurned
             self.heartRate = heartRate
             self.isActive = isActive
             self.pausedAt = pausedAt
+            self.startTime = startTime
         }
     }
     public var workoutType: String
@@ -76,7 +81,8 @@ public class WorkoutLiveActivityModule: Module {
                 caloriesBurned: 0,
                 heartRate:      nil,
                 isActive:       true,
-                pausedAt:       nil
+                pausedAt:       nil,
+                startTime:      startTime
             )
 
             do {
@@ -104,25 +110,36 @@ public class WorkoutLiveActivityModule: Module {
 
             let prev = activity.contentState
 
-            let calories  = params["caloriesBurned"] as? Double ?? prev.caloriesBurned
-            let heartRate = (params["heartRate"]    as? Int)  ?? prev.heartRate
-            let isActive  = (params["isActive"]     as? Bool) ?? prev.isActive
+            let calories  = (params["caloriesBurned"] as? NSNumber)?.doubleValue ?? prev.caloriesBurned
+            let heartRate = (params["heartRate"]      as? NSNumber)?.intValue    ?? prev.heartRate
+            let isActive  = (params["isActive"]       as? Bool)                  ?? prev.isActive
 
-            // `pausedAt` semantics:
-            //   key present + number  → set paused
-            //   key present + NSNull  → clear paused
+            // `pausedAt` / `startTime` semantics:
+            //   key present + number  → set to that ms timestamp
+            //   key present + NSNull  → clear (only for pausedAt)
             //   key absent            → preserve previous value
+            // NSNumber casting is used so we accept both JS integers and floats.
             let pausedAt: Date? = {
                 if !params.keys.contains("pausedAt") { return prev.pausedAt }
-                if let ms = params["pausedAt"] as? Double { return Date(timeIntervalSince1970: ms / 1000) }
+                if let ms = (params["pausedAt"] as? NSNumber)?.doubleValue {
+                    return Date(timeIntervalSince1970: ms / 1000)
+                }
                 return nil
+            }()
+            let startTime: Date? = {
+                if !params.keys.contains("startTime") { return prev.startTime }
+                if let ms = (params["startTime"] as? NSNumber)?.doubleValue {
+                    return Date(timeIntervalSince1970: ms / 1000)
+                }
+                return prev.startTime
             }()
 
             let newState = WorkoutActivityAttributes.ContentState(
                 caloriesBurned: calories,
                 heartRate:      heartRate,
                 isActive:       isActive,
-                pausedAt:       pausedAt
+                pausedAt:       pausedAt,
+                startTime:      startTime
             )
 
             Task {
@@ -141,13 +158,14 @@ public class WorkoutLiveActivityModule: Module {
             }
 
             let prev = activity.contentState
-            let calories  = params["caloriesBurned"] as? Double ?? prev.caloriesBurned
-            let heartRate = (params["heartRate"]    as? Int)  ?? prev.heartRate
+            let calories  = (params["caloriesBurned"] as? NSNumber)?.doubleValue ?? prev.caloriesBurned
+            let heartRate = (params["heartRate"]      as? NSNumber)?.intValue    ?? prev.heartRate
             let finalState = WorkoutActivityAttributes.ContentState(
                 caloriesBurned: calories,
                 heartRate:      heartRate,
                 isActive:       false,
-                pausedAt:       prev.pausedAt
+                pausedAt:       prev.pausedAt,
+                startTime:      prev.startTime
             )
 
             Task {

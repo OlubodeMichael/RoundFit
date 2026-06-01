@@ -208,46 +208,54 @@ export function useWorkoutLiveActivity(): UseWorkoutLiveActivityResult {
     return () => clearInterval(interval);
   }, [active]);
 
-  // Resync from the native activity whenever the app foregrounds — lock-screen
-  // Pause/Resume/End buttons mutate native state directly and JS won't know.
+  // Resync from the native activity. Lock-screen + Dynamic Island Pause/Resume/
+  // End buttons run as App Intents in the widget extension's process, so the
+  // host app's JS never gets notified. We poll periodically AND on foreground.
+  const syncFromNative = useCallback(() => {
+    const current = activeRef.current;
+    if (!current) return;
+
+    if (!hasActiveLiveActivity()) {
+      // User tapped End on the lock screen / Dynamic Island.
+      setActive(null);
+      return;
+    }
+
+    const native = getCurrentLiveActivityState();
+    if (!native) return;
+
+    const nativePaused = native.pausedAt != null;
+    const jsPaused     = current.pausedAt != null;
+
+    if (nativePaused && !jsPaused) {
+      setActive({ ...current, pausedAt: native.pausedAt ?? Date.now() });
+    } else if (!nativePaused && jsPaused) {
+      const pauseDuration = Date.now() - (current.pausedAt ?? Date.now());
+      setActive({
+        ...current,
+        startedAt: current.startedAt + pauseDuration,
+        pausedAt:  null,
+      });
+    }
+  }, []);
+
+  // Foreground resync — handles "lock phone, tap Pause, unlock" path.
   useEffect(() => {
     if (!isSupported) return;
-
-    const sync = () => {
-      const current = activeRef.current;
-      if (!current) return;
-
-      if (!hasActiveLiveActivity()) {
-        // User tapped End on the lock screen.
-        setActive(null);
-        return;
-      }
-
-      const native = getCurrentLiveActivityState();
-      if (!native) return;
-
-      const nativePaused = native.pausedAt != null;
-      const jsPaused     = current.pausedAt != null;
-
-      if (nativePaused && !jsPaused) {
-        // Lock-screen Pause.
-        setActive({ ...current, pausedAt: native.pausedAt ?? Date.now() });
-      } else if (!nativePaused && jsPaused) {
-        // Lock-screen Resume — shift startedAt forward by the pause duration.
-        const pauseDuration = Date.now() - (current.pausedAt ?? Date.now());
-        setActive({
-          ...current,
-          startedAt: current.startedAt + pauseDuration,
-          pausedAt:  null,
-        });
-      }
-    };
-
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') sync();
+      if (next === 'active') syncFromNative();
     });
     return () => sub.remove();
-  }, [isSupported]);
+  }, [isSupported, syncFromNative]);
+
+  // Foreground polling — handles "Dynamic Island Pause tap while app open".
+  // Cheap call (synchronous read of in-process activity state); 3s is fast
+  // enough that taps feel responsive without burning battery.
+  useEffect(() => {
+    if (!isSupported || !active) return;
+    const id = setInterval(syncFromNative, 3_000);
+    return () => clearInterval(id);
+  }, [isSupported, active, syncFromNative]);
 
   return { active, isSupported, start, pause, resume, end };
 }

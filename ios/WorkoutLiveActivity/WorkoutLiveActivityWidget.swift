@@ -1,76 +1,38 @@
 import ActivityKit
 import SwiftUI
 import WidgetKit
-import AppIntents
 
-// ── Live Activity App Intents ────────────────────────────────────────────────
-// Defined inline (rather than a separate file) so they're guaranteed to compile
-// into this widget extension target — the PBXFileSystemSynchronizedRootGroup
-// auto-include behaviour is unreliable on objectVersion < 70.
-
-@available(iOS 17.0, *)
-private func currentWorkoutActivity() -> Activity<WorkoutActivityAttributes>? {
-    return Activity<WorkoutActivityAttributes>.activities.first
-}
-
-@available(iOS 17.0, *)
-struct PauseWorkoutIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Pause Workout"
-
-    func perform() async throws -> some IntentResult {
-        guard let activity = currentWorkoutActivity() else { return .result() }
-        let prev = activity.contentState
-        let newState = WorkoutActivityAttributes.ContentState(
-            caloriesBurned: prev.caloriesBurned,
-            heartRate:      prev.heartRate,
-            isActive:       false,
-            pausedAt:       Date()
-        )
-        await activity.update(using: newState)
-        return .result()
-    }
-}
-
-@available(iOS 17.0, *)
-struct ResumeWorkoutIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Resume Workout"
-
-    func perform() async throws -> some IntentResult {
-        guard let activity = currentWorkoutActivity() else { return .result() }
-        let prev = activity.contentState
-        let newState = WorkoutActivityAttributes.ContentState(
-            caloriesBurned: prev.caloriesBurned,
-            heartRate:      prev.heartRate,
-            isActive:       true,
-            pausedAt:       nil
-        )
-        await activity.update(using: newState)
-        return .result()
-    }
-}
-
-@available(iOS 17.0, *)
-struct EndWorkoutIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "End Workout"
-
-    func perform() async throws -> some IntentResult {
-        guard let activity = currentWorkoutActivity() else { return .result() }
-        let prev = activity.contentState
-        let finalState = WorkoutActivityAttributes.ContentState(
-            caloriesBurned: prev.caloriesBurned,
-            heartRate:      prev.heartRate,
-            isActive:       false,
-            pausedAt:       prev.pausedAt
-        )
-        await activity.end(using: finalState, dismissalPolicy: .immediate)
-        return .result()
-    }
-}
-
-private let orange = Color(red: 0.976, green: 0.451, blue: 0.086)
-private let grey   = Color(red: 0.443, green: 0.443, blue: 0.475)
+private let orange    = Color(red: 0.976, green: 0.451, blue: 0.086)
+private let grey      = Color(red: 0.443, green: 0.443, blue: 0.475)
 private let liveGreen = Color(red: 0.20, green: 0.85, blue: 0.36)
-private let endRed    = Color(red: 0.62, green: 0.17, blue: 0.18)
+
+// Effective timer start: `state.startTime` if set (shifted on resume), else
+// the immutable `attributes.startTime`.
+private func effectiveStart(
+    attributes: WorkoutActivityAttributes,
+    state:      WorkoutActivityAttributes.ContentState
+) -> Date {
+    return state.startTime ?? attributes.startTime
+}
+
+// When paused, format the frozen elapsed interval as a static string so the
+// timer stops ticking. When running, use the auto-ticking system timer.
+private func timerView(
+    attributes: WorkoutActivityAttributes,
+    state:      WorkoutActivityAttributes.ContentState
+) -> Text {
+    let start = effectiveStart(attributes: attributes, state: state)
+    if let pausedAt = state.pausedAt {
+        let secs = max(0, Int(pausedAt.timeIntervalSince(start)))
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        let s = secs % 60
+        return Text(h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%d:%02d", m, s))
+    }
+    return Text(timerInterval: start...Date.distantFuture, countsDown: false)
+}
 
 private func sfSymbol(for workoutIcon: String) -> String {
     let known = [
@@ -94,11 +56,12 @@ struct CompactLeading: View {
 
 struct CompactTrailing: View {
     let attributes: WorkoutActivityAttributes
+    let state:      WorkoutActivityAttributes.ContentState
     var body: some View {
-        Text(timerInterval: attributes.startTime...Date.distantFuture, countsDown: false)
+        timerView(attributes: attributes, state: state)
             .monospacedDigit()
             .font(.system(size: 13, weight: .bold))
-            .foregroundColor(.white)
+            .foregroundColor(state.pausedAt != nil ? grey : .white)
             .frame(minWidth: 44)
     }
 }
@@ -133,10 +96,10 @@ struct ExpandedView: View {
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.white.opacity(0.55))
                     .kerning(1.2)
-                Text(timerInterval: attributes.startTime...Date.distantFuture, countsDown: false)
+                timerView(attributes: attributes, state: state)
                     .monospacedDigit()
                     .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(state.pausedAt != nil ? grey : .white)
             }
 
             Spacer()
@@ -213,10 +176,10 @@ struct LockScreenView: View {
                 Spacer(minLength: 8)
 
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(timerInterval: attributes.startTime...Date.distantFuture, countsDown: false)
+                    timerView(attributes: attributes, state: state)
                         .monospacedDigit()
                         .font(.system(size: 20, weight: .heavy, design: .rounded))
-                        .foregroundColor(.white)
+                        .foregroundColor(state.pausedAt != nil ? grey : .white)
                     Text("ELAPSED")
                         .font(.system(size: 9, weight: .heavy))
                         .kerning(1.0)
@@ -264,55 +227,6 @@ struct LockScreenView: View {
                     }
                 }
             }
-
-            // ── Bottom row: Pause/Resume (dark) | End (red) ──
-            if #available(iOS 17.0, *) {
-                HStack(spacing: 10) {
-                    if state.pausedAt != nil {
-                        Button(intent: ResumeWorkoutIntent()) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "play.fill")
-                                Text("Resume")
-                            }
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 11)
-                            .background(Color.white.opacity(0.12))
-                            .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        Button(intent: PauseWorkoutIntent()) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "pause.fill")
-                                Text("Pause")
-                            }
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 11)
-                            .background(Color.white.opacity(0.12))
-                            .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Button(intent: EndWorkoutIntent()) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "stop.fill")
-                            Text("End")
-                        }
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(endRed)
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -332,50 +246,15 @@ struct WorkoutLiveActivityWidget: Widget {
                     CompactLeading(attributes: context.attributes, state: context.state)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    CompactTrailing(attributes: context.attributes)
+                    CompactTrailing(attributes: context.attributes, state: context.state)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(spacing: 8) {
-                        ExpandedView(attributes: context.attributes, state: context.state)
-                        if #available(iOS 17.0, *) {
-                            HStack(spacing: 10) {
-                                if context.state.pausedAt != nil {
-                                    Button(intent: ResumeWorkoutIntent()) {
-                                        Image(systemName: "play.fill")
-                                            .foregroundColor(.white)
-                                            .frame(maxWidth: .infinity, minHeight: 32)
-                                            .background(orange)
-                                            .clipShape(Capsule())
-                                    }
-                                    .buttonStyle(.plain)
-                                } else {
-                                    Button(intent: PauseWorkoutIntent()) {
-                                        Image(systemName: "pause.fill")
-                                            .foregroundColor(.white)
-                                            .frame(maxWidth: .infinity, minHeight: 32)
-                                            .background(Color.white.opacity(0.15))
-                                            .clipShape(Capsule())
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                                Button(intent: EndWorkoutIntent()) {
-                                    Image(systemName: "stop.fill")
-                                        .foregroundColor(.white)
-                                        .frame(maxWidth: .infinity, minHeight: 32)
-                                        .background(Color.white.opacity(0.15))
-                                        .clipShape(Capsule())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 8)
-                        }
-                    }
+                    ExpandedView(attributes: context.attributes, state: context.state)
                 }
             } compactLeading: {
                 CompactLeading(attributes: context.attributes, state: context.state)
             } compactTrailing: {
-                CompactTrailing(attributes: context.attributes)
+                CompactTrailing(attributes: context.attributes, state: context.state)
             } minimal: {
                 MinimalView(attributes: context.attributes, state: context.state)
             }
