@@ -23,6 +23,9 @@ prepare_react_native_project!
 target 'RoundFit' do
   use_expo_modules!
 
+  # Local Live Activity bridge module (expo autolinking misses this; see modules/workout-live-activity)
+  pod 'WorkoutLiveActivityModule', :path => '../modules/workout-live-activity/ios', :modular_headers => true
+
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
   else

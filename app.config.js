@@ -102,6 +102,7 @@ module.exports = {
           defaultChannel: "reminders",
         },
       ],
+      "./plugins/withWorkoutLiveActivity",
     ],
     experiments: {
       typedRoutes: true,
