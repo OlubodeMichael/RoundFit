@@ -20,7 +20,7 @@ import { safeBack } from '@/utils/navigation';
 const ERROR_LABELS: Record<AuthError, string> = {
   EMAIL_IN_USE:        'An account with this email already exists.',
   INVALID_CREDENTIALS: 'Invalid email or password.',
-  WEAK_PASSWORD:       'Password must be at least 6 characters.',
+  WEAK_PASSWORD:       'Password must be at least 8 characters.',
   INVALID_EMAIL:       'Please enter a valid email address.',
   OAUTH_FAILED:        'Sign in with Google or Apple failed. Please try again.',
   UNKNOWN:             'Something went wrong. Please try again.',
@@ -35,7 +35,7 @@ export default function SignUpScreen() {
     goal: string; activity: string; unit: string;
   }>();
   const { isDark } = useTheme();
-  const { signUp, oauthProfilePending, isLoading, status, user, error, clearError } = useAuth();
+  const { signUp, profileSetupPending, isLoading, status, user, error, clearError } = useAuth();
   const posthog = usePostHog();
 
   const [email, setEmail]       = useState('');
@@ -55,10 +55,10 @@ export default function SignUpScreen() {
   const slideY = useRef(new Animated.Value(24)).current;
 
   useEffect(() => {
-    if (oauthProfilePending) {
+    if (profileSetupPending) {
       router.replace({ pathname: '/auth/sign-up-options', params });
     }
-  }, [oauthProfilePending, params, router]);
+  }, [profileSetupPending, params, router]);
 
   useEffect(() => {
     Animated.parallel([
@@ -83,7 +83,7 @@ export default function SignUpScreen() {
     if (hasActiveUserSession(status, user)) router.replace('/(tabs)');
   }, [status, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canSubmit = email.trim().length > 4 && password.length >= 6 && !isLoading;
+  const canSubmit = email.trim().length > 4 && password.length >= 8 && !isLoading;
   const firstName = params.name || 'there';
 
   async function handleSignUp() {
@@ -177,7 +177,7 @@ export default function SignUpScreen() {
                   style={[s.fieldInput, { color: hi }]}
                   value={password}
                   onChangeText={t => { setPassword(t); if (error) clearError(); }}
-                  placeholder="Min. 6 characters"
+                  placeholder="Min. 8 characters"
                   placeholderTextColor={lo}
                   secureTextEntry={!showPass}
                   autoCapitalize="none"

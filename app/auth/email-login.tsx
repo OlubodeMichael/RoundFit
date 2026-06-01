@@ -164,9 +164,11 @@ export default function LoginScreen() {
               disabled={!canSubmit}
               onPress={async () => {
                 try {
-                  await signIn(email.trim(), password);
-                  posthog.identify(email.trim(), { $set: { email: email.trim() } });
-                  posthog.capture('user_signed_in');
+                  const success = await signIn(email.trim(), password);
+                  if (success) {
+                    posthog.identify(email.trim(), { $set: { email: email.trim() } });
+                    posthog.capture('user_signed_in');
+                  }
                 } catch (err) {
                   const e = err instanceof Error ? err : new Error(String(err));
                   posthog.capture('$exception', {

@@ -129,10 +129,11 @@ interface AuthContextValue {
     >,
   ) => Promise<void>;
 
-  /** Signs in with email + password. */
-  signIn: (email: string, password: string) => Promise<void>;
+  /** Signs in with email + password. Resolves to `true` on confirmed success
+   *  (token stored AND profile loaded), `false` otherwise. */
+  signIn: (email: string, password: string) => Promise<boolean>;
 
-  /** Signs out server-side (clears cookie) and resets local state. */
+  /** Signs out server-side (invalidates Supabase session) and resets local state. */
   signOut: () => Promise<void>;
 
   /** Sends a partial profile update to the server. TDEE recalculates automatically. */
@@ -150,7 +151,7 @@ interface AuthContextValue {
    * True when an OAuth sign-in succeeded but no RoundFit profile exists yet.
    * The user is in the `needs-profile` flow (onboarding → sign-up screen).
    */
-  oauthProfilePending: boolean;
+  profileSetupPending: boolean;
 
   /**
    * Creates a RoundFit profile for an OAuth user who just completed onboarding.
@@ -320,12 +321,34 @@ function parseApiError(
         : "";
   const msg = raw.toLowerCase();
 
-  if (status === 409 || msg.includes("already") || msg.includes("in use"))
+  // Duplicate-email: 409 (preferred) or message wording. Backend now maps
+  // Supabase "already registered" to 409, but keep the message check as a
+  // safety net for older builds.
+  if (
+    status === 409 ||
+    msg.includes("already registered") ||
+    msg.includes("already exists") ||
+    msg.includes("email in use") ||
+    msg.includes("already in use")
+  ) {
     return "EMAIL_IN_USE";
-  if (status === 401 || msg.includes("invalid") || msg.includes("credentials"))
+  }
+  // Invalid credentials: narrow to the actual signal — 401 from /login or
+  // explicit credential wording. A generic "invalid X" no longer collapses
+  // into this bucket (it used to swallow validation errors).
+  if (
+    status === 401 ||
+    msg.includes("invalid credentials") ||
+    msg.includes("invalid login") ||
+    msg.includes("incorrect password") ||
+    msg.includes("wrong password")
+  ) {
     return "INVALID_CREDENTIALS";
-  if (msg.includes("weak") || msg.includes("password")) return "WEAK_PASSWORD";
-  if (msg.includes("email")) return "INVALID_EMAIL";
+  }
+  if (msg.includes("weak password") || msg.includes("password is too weak"))
+    return "WEAK_PASSWORD";
+  if (msg.includes("invalid email") || msg.includes("email format"))
+    return "INVALID_EMAIL";
   return "UNKNOWN";
 }
 
@@ -365,18 +388,13 @@ function profileFromAuthPayload(
 
 /**
  * Fetches and normalises the current user from GET /auth/me.
- * Throws if the request fails — callers handle the error.
+ * Throws "no_profile" when the server has a session but no profile row, and
+ * "fetch_me_failed" for any other failure. Callers must treat the two
+ * distinctly — only "no_profile" should send the user into onboarding.
  */
 async function fetchMe(emailFallback = ""): Promise<UserProfile> {
-  const { ok, status, body } = await apiFetch("/auth/me");
+  const { ok, body } = await apiFetch("/auth/me");
   if (!ok) {
-    const errCode = String((body as Record<string, unknown>).error ?? "")
-      .toUpperCase()
-      .replace(/\s+/g, "_");
-    // Legacy prod: 404 when auth ok but profile row missing.
-    if (status === 404 && errCode === "PROFILE_NOT_FOUND") {
-      throw new Error("no_profile");
-    }
     throw new Error("fetch_me_failed");
   }
 
@@ -409,7 +427,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<AuthError | null>(null);
-  const [oauthProfilePending, setOauthProfilePending] = useState(false);
+  const [profileSetupPending, setProfileSetupPending] = useState(false);
 
   // Stable ref so updateProfile's rollback always sees the latest snapshot.
   const userRef = useRef<UserProfile | null>(null);
@@ -467,7 +485,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setStatus("authenticated");
       } catch (err) {
         if (isNoProfileError(err)) {
-          setOauthProfilePending(true);
+          setProfileSetupPending(true);
           setStatus("needs-profile");
         } else {
           await clearTokens();
@@ -515,7 +533,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               );
             } catch (retryErr) {
               if (isNoProfileError(retryErr)) {
-                setOauthProfilePending(true);
+                setProfileSetupPending(true);
                 setStatus("needs-profile");
               }
             }
@@ -574,7 +592,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await storeTokens(body.access_token, body.refresh_token);
 
         if (body.needs_profile_setup === true) {
-          setOauthProfilePending(true);
+          setProfileSetupPending(true);
           setStatus("needs-profile");
           return;
         }
@@ -592,10 +610,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setStatus("authenticated");
         } catch (err) {
           if (isNoProfileError(err)) {
-            setOauthProfilePending(true);
+            setProfileSetupPending(true);
             setStatus("needs-profile");
           } else {
-            setStatus("authenticated");
+            // /me failed for a reason other than missing profile (network,
+            // 5xx, etc). Don't claim "authenticated" — we have a user-less
+            // session that the rest of the app can't work with. Clear and
+            // surface an error.
+            await clearTokens();
+            setUser(null);
+            setStatus("unauthenticated");
+            setError("UNKNOWN");
           }
         }
       } catch {
@@ -608,7 +633,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   // ── Sign in ──────────────────────────────────────────────────────────────
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string): Promise<boolean> => {
     setError(null);
     setIsLoading(true);
 
@@ -624,20 +649,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (!ok) {
         setError(parseApiError(s, body));
-        return;
+        return false;
       }
 
+      // Treat missing tokens on a "successful" login as a failure — without
+      // tokens we'd silently fall back to whatever's still in SecureStore
+      // (potentially a different user's session).
       if (
-        typeof body.access_token === "string" &&
-        typeof body.refresh_token === "string"
+        typeof body.access_token !== "string" ||
+        typeof body.refresh_token !== "string"
       ) {
-        await storeTokens(body.access_token, body.refresh_token);
+        setError("UNKNOWN");
+        return false;
       }
+      await storeTokens(body.access_token, body.refresh_token);
 
       if (body.needs_profile_setup === true) {
-        setOauthProfilePending(true);
+        setProfileSetupPending(true);
         setStatus("needs-profile");
-        return;
+        // needs-profile is not the "authenticated and ready" state callers
+        // probably want to gate on, so report it as not-yet-success.
+        return false;
       }
 
       const inlineProfile = profileFromAuthPayload(body, email);
@@ -645,22 +677,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         lastMeFetchAtRef.current = Date.now();
         setUser(inlineProfile);
         setStatus("authenticated");
-        return;
+        return true;
       }
 
       try {
         setUser(await loadUserFromServer(email, true));
         setStatus("authenticated");
+        return true;
       } catch (err) {
         if (isNoProfileError(err)) {
-          setOauthProfilePending(true);
+          setProfileSetupPending(true);
           setStatus("needs-profile");
-        } else {
-          setStatus("authenticated");
+          return false;
         }
+        // /me failed for a non-no_profile reason — don't claim authenticated.
+        await clearTokens();
+        setUser(null);
+        setStatus("unauthenticated");
+        setError("UNKNOWN");
+        return false;
       }
     } catch {
       setError("UNKNOWN");
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -679,13 +718,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ) {
         // Clear pending flag while we re-check; restoring it to true on no_profile
         // causes a genuine state change that re-triggers the routing effect in _layout.tsx.
-        setOauthProfilePending(false);
+        setProfileSetupPending(false);
         try {
           setUser(await loadUserFromServer("", true));
           setStatus("authenticated");
         } catch (err) {
           if (isNoProfileError(err)) {
-            setOauthProfilePending(true);
+            setProfileSetupPending(true);
             setStatus("needs-profile");
           } else {
             console.error(
@@ -824,17 +863,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (fetchedUser) {
         setUser(fetchedUser);
-        setOauthProfilePending(false);
+        setProfileSetupPending(false);
         setStatus("authenticated");
       } else if (fetchErr?.message === "no_profile") {
-        setOauthProfilePending(true);
+        setProfileSetupPending(true);
         setStatus("needs-profile");
       } else {
-        // Backend unreachable after retry but OAuth succeeded — treat as needs-profile
-        // so the user can complete setup rather than seeing a generic error.
+        // Backend unreachable / 5xx after retry: don't push the user into
+        // onboarding (would re-create a profile and orphan their existing
+        // data on next /me success). Surface an error and keep them at the
+        // auth-options screen so they can retry.
         console.error("[auth] OAuth fetchMe failed after retry:", fetchErr?.message);
-        setOauthProfilePending(true);
-        setStatus("needs-profile");
+        await clearTokens();
+        setUser(null);
+        setProfileSetupPending(false);
+        setStatus("unauthenticated");
+        setError("OAUTH_FAILED");
       }
     } catch (err: unknown) {
       if ((err as { code?: string })?.code === "ERR_CANCELED") return;
@@ -864,7 +908,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         const apiBody = toApiBody(profile);
-        console.log("[auth] oauth-setup request body:", JSON.stringify(apiBody));
+        if (__DEV__) {
+          // Body contains weight, age, sex, etc. — keep out of prod logs.
+          console.log("[auth] oauth-setup request body:", JSON.stringify(apiBody));
+        }
 
         const {
           ok,
@@ -902,7 +949,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         setUser(nextUser);
-        setOauthProfilePending(false);
+        setProfileSetupPending(false);
         setStatus("authenticated");
         return true;
       } catch (err) {
@@ -923,7 +970,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { clearUserCachesOnLogout } = await import('@/utils/clear-user-caches');
     await clearUserCachesOnLogout();
     setUser(null);
-    setOauthProfilePending(false);
+    setProfileSetupPending(false);
     lastMeFetchAtRef.current = 0;
     setStatus("unauthenticated");
   }, []);
@@ -954,7 +1001,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { clearUserCachesOnLogout } = await import('@/utils/clear-user-caches');
     await clearUserCachesOnLogout();
     setUser(null);
-    setOauthProfilePending(false);
+    setProfileSetupPending(false);
     lastMeFetchAtRef.current = 0;
     setStatus("unauthenticated");
   }, []);
@@ -987,8 +1034,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return false;
         }
 
-        if (body.profile) {
-          const profileRow = body.profile as Record<string, unknown>;
+        // Backend returns `{ data: { profile } }` — match that shape so the
+        // server-recomputed tdee/calorie_budget actually land in state.
+        // Fall back to legacy `body.profile` for older builds.
+        const data = (body.data ?? {}) as Record<string, unknown>;
+        const profileRow =
+          (data.profile as Record<string, unknown> | undefined) ??
+          (body.profile as Record<string, unknown> | undefined);
+        if (profileRow) {
           setUser((prev) =>
             prev
               ? {
@@ -1022,8 +1075,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const fresh = await loadUserFromServer(userRef.current?.email ?? "", true);
       setUser(fresh);
-    } catch {
-      // silently ignore — stale data is better than a crash
+    } catch (err) {
+      if (__DEV__) {
+        console.warn(
+          "[auth] refreshUser failed (keeping stale profile):",
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
   }, [loadUserFromServer]);
 
@@ -1041,7 +1099,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signUp,
         signIn,
         signInWithOAuth,
-        oauthProfilePending,
+        profileSetupPending,
         setupOAuthProfile,
         signOut,
         deleteAccount,

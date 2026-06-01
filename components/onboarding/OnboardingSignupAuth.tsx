@@ -31,7 +31,7 @@ const RULE = '#E6E2DA';
 const ERROR_LABELS: Record<AuthError, string> = {
   EMAIL_IN_USE: 'An account with this email already exists.',
   INVALID_CREDENTIALS: 'Invalid email or password.',
-  WEAK_PASSWORD: 'Password must be at least 6 characters.',
+  WEAK_PASSWORD: 'Password must be at least 8 characters.',
   INVALID_EMAIL: 'Please enter a valid email address.',
   OAUTH_FAILED: 'Sign in failed. Please try again.',
   UNKNOWN: 'Something went wrong. Please try again.',
@@ -54,7 +54,7 @@ export function OnboardingSignupAuth({
   const {
     signInWithOAuth,
     setupOAuthProfile,
-    oauthProfilePending,
+    profileSetupPending,
     isLoading,
     status,
     user,
@@ -116,12 +116,12 @@ export function OnboardingSignupAuth({
   };
 
   useEffect(() => {
-    if (!oauthProfilePending || !canFinish) return;
+    if (!profileSetupPending || !canFinish) return;
     void finishOAuthSetup();
-  }, [oauthProfilePending, canFinish]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [profileSetupPending, canFinish]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showLoading = isLoading || settingUpProfile;
-  const awaitingOAuthSave = oauthProfilePending && canFinish;
+  const awaitingOAuthSave = profileSetupPending && canFinish;
 
   return (
     <View>
@@ -135,7 +135,7 @@ export function OnboardingSignupAuth({
           </TouchableOpacity>
         )}
 
-        {oauthProfilePending && !canFinish && (
+        {profileSetupPending && !canFinish && (
           <TouchableOpacity
             style={s.incompleteBanner}
             activeOpacity={0.85}
@@ -199,7 +199,7 @@ export function OnboardingSignupAuth({
           <Text style={s.legalAccent}>Privacy Policy</Text>
         </Text>
 
-        {showLoginLink && !oauthProfilePending && (
+        {showLoginLink && !profileSetupPending && (
           <TouchableOpacity
             activeOpacity={0.6}
             onPress={() => router.replace('/auth/auth-options')}

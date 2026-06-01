@@ -230,13 +230,25 @@ export default function ProgressScreen() {
   }, [weekly, profile?.calorieBudget, profile?.tdee]);
 
   // ── Consistency day strip — always 7 days (Mon → Sun) ───────────────────
+  // A day is marked "on" only when the backend says the user actually met
+  // their targets that day (calorie ±200, protein 90%+, steps target, sleep
+  // target — at least 75% of applicable slots). Falls back to the old
+  // "logged anything" check if the API doesn't return `met_targets` yet
+  // (e.g. cached responses from an older server).
   const consistencyDays = useMemo(() => {
     const dayMap = new Map((weekly?.days ?? []).map(d => [d.date, d]));
-    return buildWeekDates(todayStr).map(date => ({
-      label: new Date(date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })[0],
-      on:    (dayMap.get(date)?.calories_consumed ?? 0) > 0,
-      today: date === todayStr,
-    }));
+    return buildWeekDates(todayStr).map(date => {
+      const day = dayMap.get(date);
+      const onTarget =
+        day?.met_targets !== undefined
+          ? day.met_targets
+          : (day?.calories_consumed ?? 0) > 0;
+      return {
+        label: new Date(date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })[0],
+        on:    onTarget,
+        today: date === todayStr,
+      };
+    });
   }, [weekly, todayStr]);
 
   // ── Calories chart — always 7 days (Mon → Sun) ───────────────────────────

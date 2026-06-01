@@ -88,7 +88,7 @@ export default function RevealScreen() {
   const insets          = useSafeAreaInsets();
   const { width: scrW } = useWindowDimensions();
   const {
-    oauthProfilePending,
+    profileSetupPending,
     setupOAuthProfile,
     isLoading,
     status,
@@ -120,7 +120,7 @@ export default function RevealScreen() {
   const oauthProfile = useMemo(() => buildOnboardingProfile(params), [params]);
 
   async function handleContinue() {
-    if (oauthProfilePending && canFinishOAuth) {
+    if (profileSetupPending && canFinishOAuth) {
       setSavingPlan(true);
       try {
         const ok = await setupOAuthProfile(oauthProfile);
@@ -329,7 +329,7 @@ export default function RevealScreen() {
           <Text style={s.ctaText}>
             {savingPlan
               ? 'Saving your plan…'
-              : oauthProfilePending && canFinishOAuth
+              : profileSetupPending && canFinishOAuth
                 ? 'Save plan & continue'
                 : 'Continue'}
           </Text>

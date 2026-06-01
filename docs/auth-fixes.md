@@ -14,12 +14,12 @@ Audit of frontend (`roundfit`) and backend (`roundfit-backend`). Auth model: **S
 | **Frontend** | `app/auth/reset-password.tsx` expects deep-link `access_token` and sends `{ access_token, new_password }`. |
 | **Copy** | Forgot-password says “reset link”; backend sends a **code**. |
 
-**Fix**
+**Fix** ✅
 
-- [ ] Redesign reset flow: collect **email + code + new password** (or add a dedicated code-entry screen after forgot-password).
-- [ ] Remove `access_token` deep-link assumption unless backend is changed to match.
-- [ ] Update forgot-password copy to say “reset code”, not “link”.
-- [ ] Align email template (`password-reset`) with whatever UX we ship.
+- [x] Redesign reset flow: collect **email + code + new password** (or add a dedicated code-entry screen after forgot-password).
+- [x] Remove `access_token` deep-link assumption unless backend is changed to match.
+- [x] Update forgot-password copy to say “reset code”, not “link”.
+- [ ] Align email template (`password-reset`) with whatever UX we ship.  *(email template unchanged — code-based UI already matches resetCode template)*
 
 **Files:** `app/auth/forgot-password.tsx`, `app/auth/reset-password.tsx`, `roundfit-backend/src/controllers/auth.controller.ts`, `roundfit-backend/src/emailTemplate/resetCode.ts`
 
@@ -29,10 +29,10 @@ Audit of frontend (`roundfit`) and backend (`roundfit-backend`). Auth model: **S
 
 `apiFetch` sends `X-API-Key`; forgot/reset use raw `fetch` without it. Backend `requireApiKey` rejects unauthenticated requests in production.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Route forgot-password and reset-password through `apiFetch` or a shared `publicApiFetch` helper that always attaches `X-API-Key`.
-- [ ] Confirm env: `EXPO_PUBLIC_API_KEY` matches backend `API_KEY`.
+- [x] Route forgot-password and reset-password through `apiFetch` or a shared `publicApiFetch` helper that always attaches `X-API-Key`.  *(new `publicApiFetch` helper in `utils/api.ts`)*
+- [ ] Confirm env: `EXPO_PUBLIC_API_KEY` matches backend `API_KEY`.  *(env verification left to you)*
 
 **Files:** `app/auth/forgot-password.tsx`, `app/auth/reset-password.tsx`, `utils/api.ts`
 
@@ -42,10 +42,10 @@ Audit of frontend (`roundfit`) and backend (`roundfit-backend`). Auth model: **S
 
 On `/auth/me` failure that is **not** `no_profile`, status becomes `authenticated` while `user` stays `null`. Navigator sends user to `/(tabs)` → empty/broken app state.
 
-**Fix**
+**Fix** ✅
 
-- [ ] On `/me` failure (except `no_profile`): set `unauthenticated`, clear tokens, or surface error — never `authenticated` without `user`.
-- [ ] Guard navigation: only redirect to tabs when `hasActiveUserSession(status, user)` is true.
+- [x] On `/me` failure (except `no_profile`): set `unauthenticated`, clear tokens, or surface error — never `authenticated` without `user`.
+- [x] `_layout.tsx` now gates the tabs redirect on `hasActiveUserSession(status, user)` and adds `user` to the effect deps.
 
 **Files:** `context/auth-context.tsx`, `app/_layout.tsx`
 
@@ -55,10 +55,10 @@ On `/auth/me` failure that is **not** `no_profile`, status becomes `authenticate
 
 After OAuth, network/server errors on `fetchMe` (after retry) set `needs-profile` instead of showing an error. Users with existing profiles can be sent back through onboarding.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Only set `needs-profile` when error is explicitly `no_profile`.
-- [ ] On other failures: keep tokens, show retry/error UI, do not call `oauth-setup` again.
+- [x] Only set `needs-profile` when error is explicitly `no_profile`.
+- [x] On other failures: clear tokens, surface `OAUTH_FAILED` error, do not push into onboarding.
 
 **Files:** `context/auth-context.tsx`
 
@@ -68,13 +68,12 @@ After OAuth, network/server errors on `fetchMe` (after retry) set `needs-profile
 
 `resolveProfileForAuthUser` tries `UPDATE users SET id = new_auth_id` when the same email has another auth user with a profile. Child tables (e.g. `water_logs`) reference `users(id)` with `ON DELETE CASCADE` only — no `ON UPDATE CASCADE`. Migration fails when legacy user has data; fallback copy can duplicate/orphan rows.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Prefer a safe linking strategy (e.g. merge metadata, re-point FKs, or document “one auth provider per email”).
-- [ ] If keeping migration: add `ON UPDATE CASCADE` on FKs or migrate child rows in a transaction.
-- [ ] Add logging/metrics when migration falls back to copy.
+- [x] Added SQL migration `users_id_on_update_cascade.sql` that introspects every FK referencing `public.users(id)` and recreates it with `ON UPDATE CASCADE`. Run it once before deploying.
+- [x] Removed the silent copy fallback — if the migration UPDATE fails after that SQL is applied, the controller now throws `profile_link_blocked` instead of orphaning child data.
 
-**Files:** `roundfit-backend/src/controllers/auth.controller.ts`, Supabase migrations
+**Files:** `roundfit-backend/src/controllers/auth.controller.ts`, `roundfit-backend/supabase/migrations/users_id_on_update_cascade.sql`
 
 ---
 
@@ -84,9 +83,9 @@ After OAuth, network/server errors on `fetchMe` (after retry) set `needs-profile
 
 `email-login.tsx` calls `posthog.identify` and `user_signed_in` after `await signIn()` even when `signIn` returned early without throwing.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Only identify/capture after confirmed success (`status === 'authenticated'` and user loaded, or have `signIn` return `boolean`).
+- [x] `signIn` now returns `Promise<boolean>` (true only on confirmed authenticated + profile loaded). Login screen gates `posthog.identify`/`capture` on the result.
 
 **Files:** `app/auth/email-login.tsx`, optionally `context/auth-context.tsx`
 
@@ -96,10 +95,10 @@ After OAuth, network/server errors on `fetchMe` (after retry) set `needs-profile
 
 Backend returns `{ data: { profile } }`. Frontend reads `body.profile` → server recalculated `tdee` / `calorie_budget` never applied after PATCH.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Read `body.data?.profile` (same as `profileFromAuthPayload` pattern).
-- [ ] Add integration test or manual check after weight/goal change.
+- [x] `updateProfile` now reads `body.data?.profile` (falls back to legacy `body.profile`).
+- [ ] Add integration test or manual check after weight/goal change.  *(test left to you)*
 
 **Files:** `context/auth-context.tsx`
 
@@ -109,10 +108,10 @@ Backend returns `{ data: { profile } }`. Frontend reads `body.profile` → serve
 
 `updateProfile` spreads full `req.body` into Supabase update. Authenticated clients could send unexpected columns.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Whitelist allowed fields (mirror register/oauth-setup).
-- [ ] Reject unknown keys.
+- [x] Whitelist via `PROFILE_UPDATABLE_FIELDS` constant in `updateProfile`.
+- [x] Unknown keys are silently dropped; empty patch returns 400.
 
 **Files:** `roundfit-backend/src/controllers/auth.controller.ts`
 
@@ -122,10 +121,10 @@ Backend returns `{ data: { profile } }`. Frontend reads `body.profile` → serve
 
 Partial PATCH (e.g. only `weight_kg`) skips TDEE recalculation. Stale calorie targets on server.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Load current profile, merge patch, recalc TDEE when any TDEE input changes.
-- [ ] Return updated profile in response (already does; frontend must consume it — see #7).
+- [x] On any `TDEE_INPUT_FIELDS` change, load current profile, merge with patch, then recompute. Partial PATCH (e.g. weight only) now produces correct targets.
+- [x] Frontend consumes the recomputed profile via #7.
 
 **Files:** `roundfit-backend/src/controllers/auth.controller.ts`
 
@@ -135,10 +134,10 @@ Partial PATCH (e.g. only `weight_kg`) skips TDEE recalculation. Stale calorie ta
 
 Profile links to change password for everyone. `isStoredTokenOAuth` is imported in auth-context but unused. OAuth users without a password get misleading errors from `signInWithPassword` verification.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Hide or disable “Change password” when token provider is not `email`.
-- [ ] Optional: offer “Set password” for OAuth users via a dedicated flow.
+- [x] `profile/index.tsx` calls `isStoredTokenOAuth()` on mount and hides the Change Password row (plus its trailing divider) when the user signed in via Apple/Google.
+- [ ] Optional: offer “Set password” for OAuth users via a dedicated flow.  *(not implemented)*
 
 **Files:** `app/(tabs)/profile/index.tsx`, `context/auth-context.tsx`, `utils/api.ts`
 
@@ -152,10 +151,11 @@ Profile links to change password for everyone. `isStoredTokenOAuth` is imported 
 | Reset / change (backend) | Min 8 characters |
 | Change password UI | 8 + upper + lower + number + special |
 
-**Fix**
+**Fix** ✅
 
-- [ ] Single policy document and enforce consistently on frontend + backend.
-- [ ] Sign-up should meet the same bar as change/reset (recommend min 8 everywhere).
+- [x] Sign-up now requires min 8 characters (`canSubmit`, placeholder, error label all updated in both `app/auth/sign-up.tsx` and `components/onboarding/OnboardingSignupAuth.tsx`).
+- [x] Reset password screen uses `MIN_PASSWORD_LEN = 8` constant matching the backend.
+- [ ] Change-password's stricter complexity rules (upper/lower/number/special) are left in place — frontend can be stricter than backend. Document if you want to relax.
 
 **Files:** `app/auth/sign-up.tsx`, `app/auth/change-password.tsx`, `app/auth/reset-password.tsx`, backend auth controller
 
@@ -165,10 +165,9 @@ Profile links to change password for everyone. `isStoredTokenOAuth` is imported 
 
 `signOut(token!, 'global')` when Authorization and cookie are both absent.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Guard: if no token, skip Supabase signOut and return 200 (client already clears local state).
-- [ ] Or require token for logout route.
+- [x] Guard added — if no token, skip Supabase signOut and return 200 with cookie cleared.
 
 **Files:** `roundfit-backend/src/controllers/auth.controller.ts`
 
@@ -178,10 +177,10 @@ Profile links to change password for everyone. `isStoredTokenOAuth` is imported 
 
 Deletes `users` row before `auth.admin.deleteUser`. Auth delete failure → orphaned auth user, no profile.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Delete auth user first (if cascade handles profile), or wrap in transaction / compensating rollback.
-- [ ] Return clear error if partial failure.
+- [x] Reordered: delete auth user first, then the profile row as a safety net. If auth delete fails, the profile row is still intact so the account is recoverable.
+- [x] Auth-delete failure returns 500 with the error message; profile-delete is best-effort after.
 
 **Files:** `roundfit-backend/src/controllers/auth.controller.ts`
 
@@ -191,10 +190,10 @@ Deletes `users` row before `auth.admin.deleteUser`. Auth delete failure → orph
 
 `authRateLimiter` uses API key as rate-limit key → **20 requests / 15 min shared across all users** of the app.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Rate limit auth endpoints by IP or by user id (after token parse) for refresh/login, not only by API key.
-- [ ] Keep stricter limits on unauthenticated routes (login, forgot-password).
+- [x] `apiRateLimiter` now keys by user id (decoded from Bearer JWT sub) when authenticated, falling back to IP. API key is no longer a rate-limit bucket.
+- [x] `authRateLimiter` keys purely by IP — appropriate for login / forgot / reset / refresh where the caller may not have a valid token.
 
 **Files:** `roundfit-backend/src/middleware/rateLimit.ts`
 
@@ -206,9 +205,9 @@ Deletes `users` row before `auth.admin.deleteUser`. Auth delete failure → orph
 
 If login returns 200 but omits tokens, flow still calls `/me` and may use **stale** SecureStore tokens.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Treat missing tokens on login/register success as error; do not proceed to authenticated state.
+- [x] `signIn` now bails with `UNKNOWN` error when the 200 body lacks `access_token` / `refresh_token` (matches what `signUp` already did).
 
 **Files:** `context/auth-context.tsx`
 
@@ -218,9 +217,9 @@ If login returns 200 but omits tokens, flow still calls `/me` and may use **stal
 
 Any 401 or message containing `"invalid"` → invalid credentials.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Narrow mapping; use backend `error` codes where possible.
+- [x] Tightened to specific phrases (`invalid credentials`, `invalid login`, `incorrect/wrong password`) plus 401. Same for `EMAIL_IN_USE` (`already registered/exists/in use`), `WEAK_PASSWORD`, `INVALID_EMAIL`. Generic `"invalid"` no longer collapses everything.
 
 **Files:** `context/auth-context.tsx`
 
@@ -230,9 +229,9 @@ Any 401 or message containing `"invalid"` → invalid credentials.
 
 Frontend expects **409** for `EMAIL_IN_USE`; Supabase `createUser` often returns **400**.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Map Supabase “already registered” messages to 409 on backend, or handle 400 + message on frontend.
+- [x] Backend `register` now inspects the Supabase error message (`already`, `registered`, `exists`, `in use`) and returns 409 for duplicates. Frontend's message-based detection in `parseApiError` remains as a belt-and-braces.
 
 **Files:** `roundfit-backend/src/controllers/auth.controller.ts`, `context/auth-context.tsx`
 
@@ -255,9 +254,9 @@ Multiple auth users can share an email (email + Apple + Google). Forgot/reset at
 
 Relies on `nextPage` on listUsers response; may not match Supabase admin API shape.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Verify against current Supabase admin API; fix pagination loop.
+- [x] Pagination now stops when a page returns fewer than `perPage` users (documented Supabase signal) instead of relying on a `nextPage` field. Hard cap of 100 pages (20k users) as a safety net.
 
 **Files:** `roundfit-backend/src/controllers/auth.controller.ts`
 
@@ -267,9 +266,9 @@ Relies on `nextPage` on listUsers response; may not match Supabase admin API sha
 
 Flag set for email `needs_profile_setup` too, not only OAuth.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Rename to `profileSetupPending` (or split OAuth vs email flags) for clearer routing/analytics.
+- [x] Renamed to `profileSetupPending` across `auth-context.tsx`, `sign-up.tsx`, `auth-options.tsx`, `reveal.tsx`, `OnboardingSignupAuth.tsx`. Setter renamed too.
 
 **Files:** `context/auth-context.tsx`, consumers in onboarding/auth screens
 
@@ -280,9 +279,9 @@ Flag set for email `needs_profile_setup` too, not only OAuth.
 - `utils/api.ts` → `EXPO_PUBLIC_API_KEY`
 - `utils/avatar.ts`, `health-context` → `EXPO_PUBLIC_API_SECRET_KEY`
 
-**Fix**
+**Fix** ✅
 
-- [ ] Consolidate to one public env var or document both must be set to the same value.
+- [x] `health-context` now reads `EXPO_PUBLIC_API_KEY` first, falling back to `EXPO_PUBLIC_API_SECRET_KEY` for compatibility. `utils/avatar.ts` was already on `EXPO_PUBLIC_API_KEY` — the doc was slightly out of date. Single env var going forward.
 
 **Files:** `.env`, `utils/api.ts`, `utils/avatar.ts`, `MVP_TODO.md`
 
@@ -292,9 +291,9 @@ Flag set for email `needs_profile_setup` too, not only OAuth.
 
 Logs full profile body in production path.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Remove or gate behind `__DEV__`.
+- [x] Gated behind `if (__DEV__)`.
 
 **Files:** `context/auth-context.tsx`
 
@@ -304,9 +303,9 @@ Logs full profile body in production path.
 
 Frontend still handles `404` + `PROFILE_NOT_FOUND`; backend now returns `200` + `needs_profile_setup`.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Optional cleanup: rely only on `needs_profile_setup` in response body.
+- [x] Removed the 404 + `PROFILE_NOT_FOUND` branch from `fetchMe`. Any non-OK response now throws `fetch_me_failed`; profile-missing is detected from the 200 body via `needs_profile_setup` / missing profile row.
 
 **Files:** `context/auth-context.tsx`
 
@@ -318,9 +317,9 @@ Frontend still handles `404` + `PROFILE_NOT_FOUND`; backend now returns `200` + 
 
 Combined with missing API key, user may see “check inbox” while request failed.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Fixed by #2; verify error paths show failure message.
+- [x] `forgot-password.tsx` now uses `publicApiFetch` and only navigates to the reset-code screen on `ok`. Non-ok responses surface the server error message inline.
 
 ---
 
@@ -328,9 +327,9 @@ Combined with missing API key, user may see “check inbox” while request fail
 
 Silent failure leaves stale profile.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Optional: expose error to callers or log in dev.
+- [x] Now logs a warning in `__DEV__` so the failure surfaces during development. Production behavior unchanged (keep stale data rather than crash).
 
 **Files:** `context/auth-context.tsx`
 
@@ -340,9 +339,9 @@ Silent failure leaves stale profile.
 
 Comments refer to cookie-based session; mobile uses Bearer + SecureStore only.
 
-**Fix**
+**Fix** ✅
 
-- [ ] Update comments in auth-context / api utils.
+- [x] `signOut` JSDoc updated to "invalidates Supabase session" instead of "clears cookie". (Backend still issues cookies for web clients; mobile path ignores them.)
 
 ---
 

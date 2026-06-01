@@ -156,6 +156,32 @@ export async function apiFetch(
   }
 }
 
+// ── Public (no-token) fetch ─────────────────────────────────────────────
+// For endpoints that must NOT carry the Bearer token but still need the
+// X-API-Key header (forgot-password / reset-password): the user has no
+// session yet, but the backend's requireApiKey middleware rejects requests
+// without the key.
+export async function publicApiFetch(
+  path: string,
+  options: RequestInit = {},
+): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
+    ...(options.headers as Record<string, string>),
+  }
+
+  const controller = new AbortController()
+  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  try {
+    const res  = await fetch(`${API_BASE}${path}`, { ...options, headers, signal: controller.signal })
+    const body = await res.json().catch(() => ({}))
+    return { ok: res.ok, status: res.status, body }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 // ── Token helpers (used by AuthProvider) ──────────────────────────────────
 
 /**

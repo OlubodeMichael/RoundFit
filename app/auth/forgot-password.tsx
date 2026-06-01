@@ -16,8 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
 import { safeBack } from '@/utils/navigation';
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
+import { publicApiFetch } from '@/utils/api';
 
 export default function ForgotPasswordScreen() {
   const router  = useRouter();
@@ -27,7 +26,6 @@ export default function ForgotPasswordScreen() {
 
   const [email,   setEmail]   = useState(prefill ?? '');
   const [loading, setLoading] = useState(false);
-  const [sent,    setSent]    = useState(false);
   const [error,   setError]   = useState('');
   const [focused, setFocused] = useState(false);
 
@@ -57,17 +55,25 @@ export default function ForgotPasswordScreen() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/auth/forgot-password`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email: email.trim() }),
+      const { ok, body } = await publicApiFetch('/auth/forgot-password', {
+        method: 'POST',
+        body:   JSON.stringify({ email: email.trim() }),
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({})) as Record<string, unknown>;
-        setError(typeof data.message === 'string' ? data.message : 'Something went wrong. Please try again.');
-      } else {
-        setSent(true);
+      if (!ok) {
+        const msg = typeof body.message === 'string'
+          ? body.message
+          : typeof body.error === 'string'
+            ? body.error
+            : 'Something went wrong. Please try again.';
+        setError(msg);
+        return;
       }
+      // Backend always returns 200 for security (doesn't leak whether the
+      // email exists). Push the user to the code-entry screen regardless.
+      router.replace({
+        pathname: '/auth/reset-password',
+        params: { email: email.trim() },
+      });
     } catch {
       setError('Network error. Please check your connection.');
     } finally {
@@ -76,34 +82,6 @@ export default function ForgotPasswordScreen() {
   }
 
   const canSubmit = email.trim().includes('@') && !loading;
-
-  if (sent) {
-    return (
-      <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 28 }]}>
-        <TouchableOpacity style={s.backBtn} onPress={() => safeBack(router, '/auth/email-login')} activeOpacity={0.7}>
-          <Ionicons name="chevron-back" size={22} color={hi} />
-        </TouchableOpacity>
-
-        <View style={s.successWrap}>
-          <View style={s.successIcon}>
-            <Ionicons name="mail-unread-outline" size={40} color="#F97316" />
-          </View>
-          <Text style={[s.headline, { color: hi, textAlign: 'center' }]}>Check your{'\n'}inbox.</Text>
-          <Text style={[s.sub, { color: mid, textAlign: 'center' }]}>
-            We sent a reset link to{'\n'}
-            <Text style={{ color: hi, fontWeight: '600' }}>{email.trim()}</Text>
-          </Text>
-          <TouchableOpacity
-            style={[s.cta, { marginTop: 8 }]}
-            activeOpacity={0.85}
-            onPress={() => safeBack(router, '/auth/email-login')}
-          >
-            <Text style={s.ctaText}>Back to login  →</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -121,7 +99,7 @@ export default function ForgotPasswordScreen() {
 
           <Animated.View style={[s.headBlock, { opacity: fade, transform: [{ translateY: slideY }] }]}>
             <Text style={[s.headline, { color: hi }]}>Forgot your{'\n'}password?</Text>
-            <Text style={[s.sub, { color: mid }]}>Enter your email and we'll send you a reset link.</Text>
+            <Text style={[s.sub, { color: mid }]}>Enter your email and we'll send you a 6-digit reset code.</Text>
           </Animated.View>
 
           <Animated.View style={[s.form, { opacity: fade }]}>
@@ -167,7 +145,7 @@ export default function ForgotPasswordScreen() {
               disabled={!canSubmit}
               onPress={handleSend}
             >
-              <Text style={s.ctaText}>{loading ? 'Sending…' : 'Send reset link  →'}</Text>
+              <Text style={s.ctaText}>{loading ? 'Sending…' : 'Send reset code  →'}</Text>
             </TouchableOpacity>
           </Animated.View>
 

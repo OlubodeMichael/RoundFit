@@ -51,6 +51,7 @@ import { WaterProvider } from "@/context/water-context";
 import { WeightProvider } from "@/context/weight-context";
 import { WorkoutProvider } from "@/context/workout-context";
 import { useAuth } from "@/hooks/use-auth";
+import { hasActiveUserSession } from "@/context/auth-context";
 import { useTheme } from "@/hooks/use-theme";
 
 export const unstable_settings = {
@@ -59,7 +60,7 @@ export const unstable_settings = {
 
 function AppNavigator() {
   const { isDark } = useTheme();
-  const { status } = useAuth();
+  const { status, user } = useAuth();
   const router = useRouter();
   const segments = useSegments();
   const navState = useRootNavigationState();
@@ -104,7 +105,10 @@ function AppNavigator() {
       authScreen === "forgot-password" ||
       authScreen === "reset-password" ||
       authScreen === "change-password";
-    if (status === "authenticated" && (top === "auth" || top === "onboarding")) {
+    // Only redirect into the tabs when status is authenticated AND a profile
+    // is actually loaded (`hasActiveUserSession`). Status alone can briefly be
+    // "authenticated" with `user === null` between sign-in and /me hydration.
+    if (hasActiveUserSession(status, user) && (top === "auth" || top === "onboarding")) {
       if (!passwordScreen) {
         router.replace("/(tabs)");
         return;
@@ -114,7 +118,7 @@ function AppNavigator() {
     if (status === "unauthenticated" && !inPublicOnboarding) {
       router.replace("/auth");
     }
-  }, [navigatorReady, status, segments]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [navigatorReady, status, user, segments]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const top = segments[0];
   // Hide auth UI until session is known, and while an authenticated user is still on `auth`

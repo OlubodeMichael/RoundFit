@@ -28,7 +28,7 @@ export default function LoginScreen() {
     clearError,
     status,
     user,
-    oauthProfilePending,
+    profileSetupPending,
   } = useAuth();
 
   const oauthAttemptRef = useRef(false);
@@ -55,11 +55,11 @@ export default function LoginScreen() {
       return;
     }
     if (!oauthAttemptRef.current) return;
-    if (status === 'needs-profile' && oauthProfilePending) {
+    if (status === 'needs-profile' && profileSetupPending) {
       oauthAttemptRef.current = false;
       router.replace('/onboarding/complete-profile');
     }
-  }, [status, user, oauthProfilePending, router]);
+  }, [status, user, profileSetupPending, router]);
 
   const runOAuth = (provider: 'apple' | 'google') => {
     oauthAttemptRef.current = true;

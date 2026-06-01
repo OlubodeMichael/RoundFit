@@ -115,7 +115,12 @@ export interface HealthContextValue {
 
 // ── API helper ─────────────────────────────────────────────────────────────
 
-const API_KEY = process.env.EXPO_PUBLIC_API_SECRET_KEY;
+// Prefer the single EXPO_PUBLIC_API_KEY env var (same one apiFetch and avatar
+// use). Fall back to the legacy EXPO_PUBLIC_API_SECRET_KEY so existing .env
+// files keep working until they're migrated.
+const API_KEY =
+  process.env.EXPO_PUBLIC_API_KEY ??
+  process.env.EXPO_PUBLIC_API_SECRET_KEY;
 
 function healthFetch(
   path: string,

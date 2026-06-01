@@ -18,6 +18,7 @@ import { getLocalTargets } from '@/utils/local-targets';
 import { registerTodayTargetsListener } from '@/utils/today-sync';
 import { useTheme } from '@/hooks/use-theme';
 import { deleteAvatar, pickAndUploadAvatar } from '@/utils/avatar';
+import { isStoredTokenOAuth } from '@/utils/api';
 import { usePostHog } from 'posthog-react-native';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -89,6 +90,18 @@ export default function ProfileScreen() {
   const [viewingAvatar,     setViewingAvatar]     = useState(false);
   const [sleepTarget,       setSleepTarget]       = useState(8);
   const [stepsTarget,       setStepsTarget]       = useState(10000);
+  // OAuth users have no password (Supabase creates them with provider=apple/
+  // google and no email/password credentials), so "Change password" would
+  // fail at the verify step. Hide the row for them.
+  const [isOAuthAccount,    setIsOAuthAccount]    = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    isStoredTokenOAuth().then((isOAuth) => {
+      if (!cancelled) setIsOAuthAccount(isOAuth);
+    });
+    return () => { cancelled = true; };
+  }, []);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
 
@@ -387,13 +400,17 @@ export default function ProfileScreen() {
 
       {/* ── Account ─────────────────────────────────────────────────── */}
       <Section label="Account" P={P}>
-        <NavRow
-          icon="lock-closed" iconBg="#818CF8" iconFg="#FFF"
-          label="Change Password"
-          P={P}
-          onPress={() => router.push('/auth/change-password')}
-        />
-        <Divider P={P} />
+        {!isOAuthAccount && (
+          <>
+            <NavRow
+              icon="lock-closed" iconBg="#818CF8" iconFg="#FFF"
+              label="Change Password"
+              P={P}
+              onPress={() => router.push('/auth/change-password')}
+            />
+            <Divider P={P} />
+          </>
+        )}
         <NavRow
           icon="cloud-upload" iconBg="#38BDF8" iconFg="#FFF"
           label="Export Data"

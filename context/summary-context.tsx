@@ -45,6 +45,10 @@ export interface DailySummary {
   fat_consumed:        number;
   water_glasses:       number;
   calorie_burn_source: CalorieBurnSource | null;
+  /** Backend-computed flag — true when the day's targets were actually met
+   *  (>=75% of applicable slots: calories ±200, protein 90%+, steps target,
+   *  sleep target). Optional for resilience against older API versions. */
+  met_targets?:        boolean;
 }
 
 export interface WeeklySummary {
@@ -101,6 +105,7 @@ function fromApiDaily(row: Record<string, unknown>): DailySummary {
     calorie_burn_source: typeof row.calorie_burn_source === 'string'
       ? (row.calorie_burn_source as CalorieBurnSource)
       : null,
+    met_targets: typeof row.met_targets === 'boolean' ? row.met_targets : undefined,
   };
 }
 

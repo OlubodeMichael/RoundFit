@@ -16,15 +16,19 @@ import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '@/hooks/use-theme';
 import { safeBack } from '@/utils/navigation';
+import { publicApiFetch } from '@/utils/api';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
+// Min length matches backend (auth.controller.ts resetPassword: 8+ chars).
+const MIN_PASSWORD_LEN = 8;
 
 export default function ResetPasswordScreen() {
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
   const { isDark } = useTheme();
-  const { access_token } = useLocalSearchParams<{ access_token?: string }>();
+  const { email: emailParam } = useLocalSearchParams<{ email?: string }>();
 
+  const [email,     setEmail]     = useState(emailParam ?? '');
+  const [code,      setCode]      = useState('');
   const [password,  setPassword]  = useState('');
   const [confirm,   setConfirm]   = useState('');
   const [showPass,  setShowPass]  = useState(false);
@@ -32,7 +36,7 @@ export default function ResetPasswordScreen() {
   const [loading,   setLoading]   = useState(false);
   const [done,      setDone]      = useState(false);
   const [error,     setError]     = useState('');
-  const [focused,   setFocused]   = useState<'password' | 'confirm' | null>(null);
+  const [focused,   setFocused]   = useState<'email' | 'code' | 'password' | 'confirm' | null>(null);
 
   const bg  = isDark ? '#0A0B0F' : '#FAFAF8';
   const hi  = isDark ? '#F4F4F5' : '#111111';
@@ -41,6 +45,8 @@ export default function ResetPasswordScreen() {
 
   const fade       = useRef(new Animated.Value(0)).current;
   const slideY     = useRef(new Animated.Value(24)).current;
+  const underlineE = useRef(new Animated.Value(0)).current;
+  const underlineCd = useRef(new Animated.Value(0)).current;
   const underlineP = useRef(new Animated.Value(0)).current;
   const underlineC = useRef(new Animated.Value(0)).current;
 
@@ -52,12 +58,10 @@ export default function ResetPasswordScreen() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    Animated.timing(underlineP, {
-      toValue: focused === 'password' ? 1 : 0, duration: 250, useNativeDriver: false,
-    }).start();
-    Animated.timing(underlineC, {
-      toValue: focused === 'confirm' ? 1 : 0, duration: 250, useNativeDriver: false,
-    }).start();
+    Animated.timing(underlineE,  { toValue: focused === 'email'    ? 1 : 0, duration: 250, useNativeDriver: false }).start();
+    Animated.timing(underlineCd, { toValue: focused === 'code'     ? 1 : 0, duration: 250, useNativeDriver: false }).start();
+    Animated.timing(underlineP,  { toValue: focused === 'password' ? 1 : 0, duration: 250, useNativeDriver: false }).start();
+    Animated.timing(underlineC,  { toValue: focused === 'confirm'  ? 1 : 0, duration: 250, useNativeDriver: false }).start();
   }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleReset() {
@@ -65,24 +69,31 @@ export default function ResetPasswordScreen() {
       setError('Passwords do not match.');
       return;
     }
-    if (!access_token) {
-      setError('Invalid or expired reset link. Please request a new one.');
+    if (password.length < MIN_PASSWORD_LEN) {
+      setError(`Password must be at least ${MIN_PASSWORD_LEN} characters.`);
       return;
     }
     setError('');
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/auth/reset-password`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ access_token, new_password: password }),
+      const { ok, body } = await publicApiFetch('/auth/reset-password', {
+        method: 'POST',
+        body:   JSON.stringify({
+          email:        email.trim(),
+          code:         code.trim(),
+          new_password: password,
+        }),
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({})) as Record<string, unknown>;
-        setError(typeof data.message === 'string' ? data.message : 'Something went wrong. Please try again.');
-      } else {
-        setDone(true);
+      if (!ok) {
+        const msg = typeof body.message === 'string'
+          ? body.message
+          : typeof body.error === 'string'
+            ? body.error
+            : 'Something went wrong. Please try again.';
+        setError(msg);
+        return;
       }
+      setDone(true);
     } catch {
       setError('Network error. Please check your connection.');
     } finally {
@@ -90,33 +101,12 @@ export default function ResetPasswordScreen() {
     }
   }
 
-  const canSubmit = password.length >= 8 && confirm.length >= 1 && !!access_token && !loading;
-
-  if (!access_token) {
-    return (
-      <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 28 }]}>
-        <TouchableOpacity style={s.backBtn} onPress={() => router.replace('/auth/auth-options')} activeOpacity={0.7}>
-          <Ionicons name="chevron-back" size={22} color={hi} />
-        </TouchableOpacity>
-        <View style={s.centeredWrap}>
-          <View style={[s.stateIcon, { backgroundColor: 'rgba(239,68,68,0.12)' }]}>
-            <Ionicons name="alert-circle-outline" size={40} color="#EF4444" />
-          </View>
-          <Text style={[s.headline, { color: hi, textAlign: 'center' }]}>Invalid link.</Text>
-          <Text style={[s.sub, { color: mid, textAlign: 'center' }]}>
-            This reset link is missing or expired.{'\n'}Please request a new one.
-          </Text>
-          <TouchableOpacity
-            style={[s.cta, { marginTop: 8 }]}
-            activeOpacity={0.85}
-            onPress={() => router.replace('/auth/forgot-password')}
-          >
-            <Text style={s.ctaText}>Request new link  →</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
+  const canSubmit =
+    email.trim().includes('@') &&
+    code.trim().length >= 4 &&
+    password.length >= MIN_PASSWORD_LEN &&
+    confirm.length >= 1 &&
+    !loading;
 
   if (done) {
     return (
@@ -156,11 +146,61 @@ export default function ResetPasswordScreen() {
           </TouchableOpacity>
 
           <Animated.View style={[s.headBlock, { opacity: fade, transform: [{ translateY: slideY }] }]}>
-            <Text style={[s.headline, { color: hi }]}>Set new{'\n'}password.</Text>
-            <Text style={[s.sub, { color: mid }]}>Choose a strong password, at least 8 characters.</Text>
+            <Text style={[s.headline, { color: hi }]}>Enter your{'\n'}reset code.</Text>
+            <Text style={[s.sub, { color: mid }]}>
+              Check your email for a 6-digit code, then choose a new password ({MIN_PASSWORD_LEN}+ characters).
+            </Text>
           </Animated.View>
 
           <Animated.View style={[s.form, { opacity: fade }]}>
+            {/* Email */}
+            <View style={s.fieldWrap}>
+              <Text style={[s.fieldLabel, { color: mid }]}>Email</Text>
+              <View style={s.fieldInner}>
+                <TextInput
+                  style={[s.fieldInput, { color: hi }]}
+                  value={email}
+                  onChangeText={(v) => { setEmail(v); setError(''); }}
+                  placeholder="you@example.com"
+                  placeholderTextColor={lo}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onFocus={() => setFocused('email')}
+                  onBlur={() => setFocused(null)}
+                />
+              </View>
+              <View style={[s.underlineTrack, { backgroundColor: lo }]}>
+                <Animated.View style={[s.underlineFill, {
+                  width: underlineE.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                }]} />
+              </View>
+            </View>
+
+            {/* Reset code */}
+            <View style={s.fieldWrap}>
+              <Text style={[s.fieldLabel, { color: mid }]}>Reset code</Text>
+              <View style={s.fieldInner}>
+                <TextInput
+                  style={[s.fieldInput, { color: hi, letterSpacing: 6 }]}
+                  value={code}
+                  onChangeText={(v) => { setCode(v.replace(/\s/g, '')); setError(''); }}
+                  placeholder="123456"
+                  placeholderTextColor={lo}
+                  keyboardType="number-pad"
+                  autoCapitalize="none"
+                  maxLength={6}
+                  onFocus={() => setFocused('code')}
+                  onBlur={() => setFocused(null)}
+                />
+              </View>
+              <View style={[s.underlineTrack, { backgroundColor: lo }]}>
+                <Animated.View style={[s.underlineFill, {
+                  width: underlineCd.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                }]} />
+              </View>
+            </View>
+
             {/* New password */}
             <View style={s.fieldWrap}>
               <Text style={[s.fieldLabel, { color: mid }]}>New password</Text>
@@ -169,7 +209,7 @@ export default function ResetPasswordScreen() {
                   style={[s.fieldInput, { color: hi }]}
                   value={password}
                   onChangeText={(v) => { setPassword(v); setError(''); }}
-                  placeholder="8+ characters"
+                  placeholder={`${MIN_PASSWORD_LEN}+ characters`}
                   placeholderTextColor={lo}
                   secureTextEntry={!showPass}
                   autoCapitalize="none"
@@ -184,11 +224,9 @@ export default function ResetPasswordScreen() {
                 </TouchableOpacity>
               </View>
               <View style={[s.underlineTrack, { backgroundColor: lo }]}>
-                <Animated.View
-                  style={[s.underlineFill, {
-                    width: underlineP.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                  }]}
-                />
+                <Animated.View style={[s.underlineFill, {
+                  width: underlineP.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                }]} />
               </View>
             </View>
 
@@ -217,12 +255,10 @@ export default function ResetPasswordScreen() {
                 </TouchableOpacity>
               </View>
               <View style={[s.underlineTrack, { backgroundColor: lo }]}>
-                <Animated.View
-                  style={[s.underlineFill, {
-                    width: underlineC.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                    backgroundColor: confirm.length > 0 && confirm !== password ? '#EF4444' : '#F97316',
-                  }]}
-                />
+                <Animated.View style={[s.underlineFill, {
+                  width: underlineC.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                  backgroundColor: confirm.length > 0 && confirm !== password ? '#EF4444' : '#F97316',
+                }]} />
               </View>
             </View>
           </Animated.View>
@@ -252,14 +288,14 @@ export default function ResetPasswordScreen() {
 }
 
 const s = StyleSheet.create({
-  root:    { flex: 1, paddingHorizontal: 28, gap: 40 },
+  root:    { flex: 1, paddingHorizontal: 28, gap: 28 },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginLeft: -4 },
 
   headBlock: { gap: 10 },
   headline:  { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48 },
   sub:       { fontSize: 15, fontWeight: '400', lineHeight: 22 },
 
-  form:       { gap: 32 },
+  form:       { gap: 24 },
   fieldWrap:  { gap: 0 },
   fieldInner: { flexDirection: 'row', alignItems: 'center', paddingBottom: 8 },
   fieldLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 },
