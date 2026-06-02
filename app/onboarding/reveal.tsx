@@ -281,14 +281,14 @@ export default function RevealScreen() {
         </Animated.View>
 
         {/* ── Hero number ──────────────────────────────────── */}
-        {/* Render the COUNTING value (grows from 0). Mounting the full target
-            number immediately under `adjustsFontSizeToFit` blanks the text on
-            iOS — growing from "0" avoids that. The fade-in hides the brief "0"
-            before the count starts; the 1200ms fallback guarantees the final
-            target shows even if the count interval never runs. */}
-        <Animated.View style={[s.heroBlock, { opacity: heroFade, transform: [{ translateY: heroY }] }]}>
-          <Text style={s.calNumber} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
-            {displayCals.toLocaleString()}
+        {/* No `adjustsFontSizeToFit`: it blanks this large hero number on iOS
+            (the bottom TARGET stat — a plain Text — renders the same value
+            fine). No opacity gate either, so the number can't be hidden by an
+            unfinished animation. Show the target immediately and let the
+            count-up animate `displayCals` toward it. */}
+        <Animated.View style={[s.heroBlock, { transform: [{ translateY: heroY }] }]}>
+          <Text style={s.calNumber} numberOfLines={1}>
+            {(displayCals > 0 ? displayCals : calorieTarget).toLocaleString()}
           </Text>
           <Text style={s.calLabel}>kcal / day</Text>
         </Animated.View>
