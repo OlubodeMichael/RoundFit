@@ -139,6 +139,9 @@ export default function RevealScreen() {
   }
   const goalLabel    = GOAL_LABEL[canonicalGoal];
   const actLabel     = ACTIVITY_LABEL[canonicalActivity];
+  const weightLabel  = parseOnboardingParam(params.unit) === 'imperial'
+    ? `${Math.round(weightKg * 2.20462)} lb`
+    : `${Math.round(weightKg)} kg`;
   const readyDays    = computeReadyDays(canonicalGoal, weightKg);
   const caloricDelta = plan.calorieBudget - plan.tdee;
 
@@ -295,7 +298,7 @@ export default function RevealScreen() {
 
         {/* ── Profile pills ────────────────────────────────── */}
         <Animated.View style={[s.pillsRow, { opacity: heroFade }]}>
-          {[name, goalLabel, actLabel].map((t) => (
+          {[weightLabel, goalLabel, actLabel].map((t) => (
             <View key={t} style={s.pill}>
               <Text style={s.pillText}>{t}</Text>
             </View>

@@ -6,7 +6,6 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useTheme } from '@/hooks/use-theme';
 import { hasActiveUserSession } from '@/context/auth-context';
 import { useAuth } from '@/hooks/use-auth';
 import { safeBack } from '@/utils/navigation';
@@ -15,7 +14,6 @@ import { usePostHog } from 'posthog-react-native';
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isDark } = useTheme();
   const { signIn, signInWithOAuth, isLoading, error, clearError, status, user } = useAuth();
   const posthog = usePostHog();
 
@@ -27,10 +25,11 @@ export default function LoginScreen() {
   const emailUnderline    = useRef(new Animated.Value(0)).current;
   const passwordUnderline = useRef(new Animated.Value(0)).current;
 
-  const bg  = isDark ? '#0A0B0F' : '#FAFAF8';
-  const hi  = isDark ? '#F4F4F5' : '#111111';
-  const mid = isDark ? '#909096' : '#888';
-  const lo  = isDark ? '#2A2A32' : '#E8E3DC';
+  // Auth flow is light-only — never follow the system dark theme here.
+  const bg  = '#FAFAF8';
+  const hi  = '#111111';
+  const mid = '#888';
+  const lo  = '#E8E3DC';
 
   const fade  = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;

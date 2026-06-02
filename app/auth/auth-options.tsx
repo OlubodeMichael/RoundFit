@@ -247,14 +247,13 @@ const s = StyleSheet.create({
     justifyContent:  'center',
     gap:             10,
     backgroundColor: '#000000',
-    borderRadius:    14,
-    paddingVertical: 17,
+    borderRadius:    16,
+    paddingVertical: 18,
   },
   appleBtnText: {
-    color:         '#FFF',
-    fontFamily:    'Syne_700Bold',
-    fontSize:      15,
-    letterSpacing: -0.1,
+    color:      '#FFF',
+    fontSize:   15,
+    fontWeight: '700',
   },
 
   outlineBtn: {
@@ -263,16 +262,15 @@ const s = StyleSheet.create({
     justifyContent:    'center',
     gap:               10,
     backgroundColor:   '#FFFFFF',
-    borderRadius:      14,
+    borderRadius:      16,
     borderWidth:       1,
-    borderColor:       C.line,
-    paddingVertical:   16,
+    borderColor:       '#E6E2DA',
+    paddingVertical:   17,
   },
   outlineBtnText: {
-    color:         C.text,
-    fontFamily:    'Syne_700Bold',
-    fontSize:      15,
-    letterSpacing: -0.1,
+    color:      C.text,
+    fontSize:   15,
+    fontWeight: '700',
   },
 
   dividerRow: {
