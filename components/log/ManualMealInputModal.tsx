@@ -1,5 +1,7 @@
 import { AppModal } from "@/components/ui/AppModal";
+import { Image } from "expo-image";
 import { usePalette } from "@/lib/log-theme";
+import { guessMealLabel } from "@/components/log/MealLabelPicker";
 import { useEffect, useState } from "react";
 import {
     Alert,
@@ -35,6 +37,8 @@ export type ManualMealInitialValues = {
   protein?: number;
   carbs?: number;
   fat?: number;
+  /** Photo of a previously-logged meal — shown read-only at the top when editing. */
+  imageUrl?: string;
 };
 
 type ManualMealInputModalProps = {
@@ -79,7 +83,7 @@ export function ManualMealInputModal({
   const P = usePalette();
 
   const [name,     setName]     = useState("");
-  const [label,    setLabel]    = useState<MealLabel>(presetLabel ?? "breakfast");
+  const [label,    setLabel]    = useState<MealLabel>(presetLabel ?? guessMealLabel());
   const [calories, setCalories] = useState("");
   const [protein,  setProtein]  = useState("");
   const [carbs,    setCarbs]    = useState("");
@@ -91,14 +95,14 @@ export function ManualMealInputModal({
     if (!visible) return;
     if (initialValues) {
       setName(initialValues.name ?? "");
-      setLabel(presetLabel ?? "breakfast");
+      setLabel(presetLabel ?? guessMealLabel());
       setCalories(initialValues.calories != null ? String(initialValues.calories) : "");
       setProtein(initialValues.protein   != null ? String(initialValues.protein)  : "");
       setCarbs(  initialValues.carbs     != null ? String(initialValues.carbs)    : "");
       setFat(    initialValues.fat       != null ? String(initialValues.fat)      : "");
     } else {
       setName("");
-      setLabel(presetLabel ?? "breakfast");
+      setLabel(presetLabel ?? guessMealLabel());
       setCalories("");
       setProtein("");
       setCarbs("");
@@ -132,7 +136,8 @@ export function ManualMealInputModal({
     <AppModal
       visible={visible}
       onClose={onClose}
-      sheetHeight={0.80}
+      sheetHeight="full"
+      keyboardAvoiding
     >
       <ScrollView
         style={{ flex: 1 }}
@@ -158,6 +163,17 @@ export function ManualMealInputModal({
             <Text style={[s.closeBtnText, { color: P.textDim }]}>✕</Text>
           </Pressable>
         </View>
+
+        {/* ── Meal photo (when editing a logged meal that has one) ── */}
+        {initialValues?.imageUrl ? (
+          <Image
+            source={initialValues.imageUrl}
+            style={s.heroImage}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={150}
+          />
+        ) : null}
 
         {/* ── Meal name ───────────────────────────────────────── */}
         <View style={s.section}>
@@ -317,6 +333,12 @@ const s = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom:     20,
     gap:               20,
+  },
+
+  heroImage: {
+    width:        '100%',
+    height:       180,
+    borderRadius: 16,
   },
 
   // Header

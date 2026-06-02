@@ -76,8 +76,12 @@ export interface FoodContextValue {
   /** True while the initial log fetch is in-flight. */
   isLoading: boolean;
 
-  /** Logs a meal from manual entry — hits POST /food/log. */
-  addMeal: (entry: ManualMealInput) => Promise<void>;
+  /** Logs a meal from manual entry — hits POST /food/log. Pass `imageUrl` to
+   *  attach an already-uploaded food photo (see `uploadMealPhoto`). */
+  addMeal: (entry: ManualMealInput, imageUrl?: string) => Promise<void>;
+
+  /** Uploads a base64 food photo and returns its public URL (no DB write). */
+  uploadMealPhoto: (base64Image: string) => Promise<string | null>;
 
   /** Analyzes a base64 photo via AI — returns nutrition preview WITHOUT saving. */
   previewPhoto: (base64Image: string) => Promise<PhotoPreview | null>;
@@ -328,7 +332,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   }, [status, user?.id, fetchLogs]);
 
   // ── Add meal (manual) ────────────────────────────────────────────────────
-  const addMeal = useCallback(async (entry: ManualMealInput) => {
+  const addMeal = useCallback(async (entry: ManualMealInput, imageUrl?: string) => {
     const now      = new Date();
     const tempId   = `optimistic-${Date.now()}`;
     const optimistic: MealItem = {
@@ -340,6 +344,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       carbs:   entry.carbs,
       fat:     entry.fat,
       time:    now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+      imageUrl,
     };
 
     setMeals((prev) => [...prev, optimistic]);
@@ -360,6 +365,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
         carbs:      entry.carbs,
         fat:        entry.fat,
         log_date:   todayDateString(),
+        ...(imageUrl ? { image_url: imageUrl } : {}),
       }),
     });
 
@@ -390,6 +396,20 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       fat:     toApiNumber(row.fat) ?? 0,
     };
   }
+
+  // ── Upload a food photo (storage only, no DB write) ──────────────────────
+  const uploadMealPhoto = useCallback(async (base64Image: string): Promise<string | null> => {
+    try {
+      const { ok, body } = await apiFetch('/food/upload-image', {
+        method: 'POST',
+        body:   JSON.stringify({ base64Image }),
+      });
+      if (!ok) return null;
+      return typeof body.image_url === 'string' ? body.image_url : null;
+    } catch {
+      return null;
+    }
+  }, []);
 
   // ── Preview via photo (analyze only, no DB save) ─────────────────────────
   const previewPhoto = useCallback(async (base64Image: string): Promise<PhotoPreview | null> => {
@@ -542,7 +562,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     <FoodContext.Provider value={{
       meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
       remaining, activeDate, isLoading,
-      addMeal, previewPhoto, previewBarcode, analyzePhoto, logBarcode, deleteMeal, refreshLogs, fetchForDate,
+      addMeal, uploadMealPhoto, previewPhoto, previewBarcode, analyzePhoto, logBarcode, deleteMeal, refreshLogs, fetchForDate,
     }}>
       {children}
     </FoodContext.Provider>

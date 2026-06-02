@@ -21,13 +21,13 @@ export const MEAL_OPTIONS: { id: MealLabel; label: string; icon: IoniconName }[]
 
 // ─── Helper ────────────────────────────────────────────────────────────────
 /** Picks a reasonable default meal label based on the current hour of day. */
+// Only the three time-of-day meals are ever auto-guessed. Snack, pre-workout
+// and post-workout aren't time-bound — those stay a manual choice.
 export function guessMealLabel(now: Date = new Date()): MealLabel {
   const h = now.getHours();
-  if (h < 10) return 'breakfast';
-  if (h < 14) return 'lunch';
-  if (h < 17) return 'snack';
-  if (h < 21) return 'dinner';
-  return 'snack';
+  if (h < 11) return 'breakfast'; // before 11am
+  if (h < 17) return 'lunch';     // 11am–4:59pm (covers a late 3–4pm lunch)
+  return 'dinner';                // 5pm onward (covers a late dinner)
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────

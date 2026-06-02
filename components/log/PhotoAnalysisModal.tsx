@@ -1,16 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Modal, View, Text, TouchableOpacity, TextInput,
+  Modal, View, Text, TouchableOpacity,
   StyleSheet, Animated, Dimensions, Easing,
-  KeyboardAvoidingView, Platform, ScrollView, Pressable,
+  KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFood } from '@/hooks/use-food';
 import type { PhotoPreview } from '@/context/food-context';
 import { ZeroCaloriesError } from '@/context/food-context';
-import type { MealLabel } from '@/components/log/ManualMealInputModal';
+import {
+  ManualMealInputModal,
+  type MealLabel,
+  type ManualMealInput,
+} from '@/components/log/ManualMealInputModal';
+import { MealLabelPicker, guessMealLabel } from '@/components/log/MealLabelPicker';
 import { useTheme } from '@/hooks/use-theme';
 import { useToast } from '@/components/ui/Toast';
 
@@ -26,22 +32,6 @@ const C_FAT     = '#A855F7';
 const C_CARBS   = '#EAB308';
 
 type Status = 'analyzing' | 'review' | 'error' | 'retry';
-
-const MEAL_OPTIONS: { id: MealLabel; label: string }[] = [
-  { id: 'breakfast', label: 'Breakfast' },
-  { id: 'lunch',     label: 'Lunch'     },
-  { id: 'dinner',    label: 'Dinner'    },
-  { id: 'snack',     label: 'Snack'     },
-];
-
-function deriveMealLabel(): MealLabel {
-  const h = new Date().getHours();
-  if (h < 10) return 'breakfast';
-  if (h < 14) return 'lunch';
-  if (h < 17) return 'snack';
-  if (h < 21) return 'dinner';
-  return 'snack';
-}
 
 function formatTime(): string {
   const now = new Date();
@@ -188,58 +178,27 @@ function MacroBar({ proteinG, fatG, carbsG }: { proteinG: number; fatG: number; 
   );
 }
 
-// ── MacroInput (edit mode) ────────────────────────────────────────────────────
-
-function MacroInput({ label, value, color, bg, inputBorder, onChange }: {
-  label: string; value: string; color: string; bg: string; inputBorder: string;
-  onChange: (v: string) => void;
-}) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <View style={[mi.card, { backgroundColor: bg, borderTopColor: color, borderColor: focused ? color : inputBorder }]}>
-      <TextInput
-        style={[mi.input, { color }]}
-        value={value}
-        onChangeText={(v) => onChange(v.replace(/[^0-9]/g, ''))}
-        keyboardType="number-pad"
-        selectionColor={color}
-        returnKeyType="done"
-        maxLength={4}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        textAlign="center"
-      />
-      <Text style={[mi.unit, { color }]}>{' '}g</Text>
-      <Text style={mi.label}>{label}</Text>
-    </View>
-  );
-}
-
-const mi = StyleSheet.create({
-  card:  { flex: 1, borderRadius: 14, borderTopWidth: 2, borderWidth: 1, paddingTop: 10, paddingBottom: 8, alignItems: 'center' },
-  input: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5, width: '100%', textAlign: 'center', paddingVertical: 0 },
-  unit:  { fontSize: 11, fontWeight: '600', opacity: 0.5, marginTop: -2 },
-  label: { fontSize: 10, fontWeight: '700', color: '#888', letterSpacing: 0.5, marginTop: 3 },
-});
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, onRetry }: Props) {
   const insets                        = useSafeAreaInsets();
   const { isDark }                    = useTheme();
   const P                             = usePalette(isDark);
-  const { previewPhoto, addMeal, mealGoal } = useFood();
+  const { previewPhoto, addMeal, uploadMealPhoto, mealGoal } = useFood();
   const toast                         = useToast();
 
   const [status,        setStatus]        = useState<Status>('analyzing');
   const [dots,          setDots]          = useState('');
   const [isSaving,      setIsSaving]      = useState(false);
-  const [isEditing,     setIsEditing]     = useState(false);
+  const [editVisible,   setEditVisible]   = useState(false);
   const [microExpanded, setMicroExpanded] = useState(false);
   const [logTime,       setLogTime]       = useState('');
+  // Public URL of the uploaded photo, set in the background while the AI
+  // analyses, so it's ready by the time the user taps "Add to log".
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
 
   const [editName,    setEditName]    = useState('');
-  const [editMeal,    setEditMeal]    = useState<MealLabel>(deriveMealLabel());
+  const [editMeal,    setEditMeal]    = useState<MealLabel>(guessMealLabel());
   const [editCals,    setEditCals]    = useState('');
   const [editProtein, setEditProtein] = useState('');
   const [editCarbs,   setEditCarbs]   = useState('');
@@ -247,7 +206,7 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
 
   const populate = (p: PhotoPreview) => {
     setEditName(p.name);
-    setEditMeal(deriveMealLabel());
+    setEditMeal(guessMealLabel());
     setEditCals(String(p.cals));
     setEditProtein(String(p.protein));
     setEditCarbs(String(p.carbs));
@@ -260,11 +219,30 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
       setStatus('analyzing');
       setDots('');
       setIsSaving(false);
-      setIsEditing(false);
+      setEditVisible(false);
       setMicroExpanded(false);
+      setUploadedImageUrl(null);
       return;
     }
     let cancelled = false;
+
+    // Upload the photo in the background (resized + EXIF-stripped) so its URL is
+    // ready when the user logs. Failure is non-fatal — the meal still logs.
+    (async () => {
+      try {
+        const resized = await manipulateAsync(
+          imageUri,
+          [{ resize: { width: 1080 } }],
+          { compress: 0.7, format: SaveFormat.JPEG, base64: true },
+        );
+        if (cancelled || !resized.base64) return;
+        const url = await uploadMealPhoto(resized.base64);
+        if (!cancelled && url) setUploadedImageUrl(url);
+      } catch {
+        // ignore — logging proceeds without a photo
+      }
+    })();
+
     (async () => {
       try {
         const preview = await previewPhoto(base64Image);
@@ -296,13 +274,24 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
         protein:  parseInt(editProtein, 10) || undefined,
         carbs:    parseInt(editCarbs,   10) || undefined,
         fat:      parseInt(editFat,     10) || undefined,
-      });
+      }, uploadedImageUrl ?? undefined);
       toast.success('Food logged', editName.trim() || 'Meal');
       onClose();
     } catch {
       toast.error('Failed to log', 'Please try again.');
       setIsSaving(false);
     }
+  };
+
+  // Edits made in the shared ManualMealInputModal flow back into the review
+  // screen's state. Meal type stays controlled by the review tabs (the edit
+  // modal is opened with a fixed `presetLabel`), so we keep `editMeal` as-is.
+  const applyEdits = (entry: ManualMealInput) => {
+    setEditName(entry.name);
+    setEditCals(String(entry.calories));
+    setEditProtein(entry.protein != null ? String(entry.protein) : '');
+    setEditCarbs(entry.carbs   != null ? String(entry.carbs)   : '');
+    setEditFat(entry.fat       != null ? String(entry.fat)     : '');
   };
 
   const cals      = parseInt(editCals,    10) || 0;
@@ -366,7 +355,7 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
             )}
 
             {/* ── Review ── */}
-            {status === 'review' && !isEditing && (
+            {status === 'review' && (
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={s.reviewContent}>
 
                 {/* AI badge + edit pen */}
@@ -379,7 +368,7 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
                   </View>
                   <TouchableOpacity
                     style={[s.penBtn, { backgroundColor: P.penBg }]}
-                    onPress={() => setIsEditing(true)}
+                    onPress={() => setEditVisible(true)}
                     hitSlop={8}
                   >
                     <Ionicons name="pencil" size={14} color={P.penIcon} />
@@ -397,22 +386,9 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
                   {'1 serving  ·  '}~{estWeight} g{'  ·  '}{logTime}
                 </Text>
 
-                {/* Meal type tabs */}
-                <View style={[s.mealTabsWrap, { backgroundColor: P.surface }]}>
-                  {MEAL_OPTIONS.map((opt) => {
-                    const active = editMeal === opt.id;
-                    return (
-                      <Pressable
-                        key={opt.id}
-                        style={[s.mealTab, active && [s.mealTabActive, { backgroundColor: P.pillActive }]]}
-                        onPress={() => setEditMeal(opt.id)}
-                      >
-                        <Text style={[s.mealTabText, { color: active ? '#FFFFFF' : P.textMid }]}>
-                          {opt.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
+                {/* Meal type */}
+                <View style={{ marginBottom: 16 }}>
+                  <MealLabelPicker value={editMeal} onChange={setEditMeal} />
                 </View>
 
                 {/* Energy + macros card */}
@@ -513,82 +489,6 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
               </ScrollView>
             )}
 
-            {/* ── Edit mode ── */}
-            {status === 'review' && isEditing && (
-              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={s.reviewContent}>
-                <View style={s.editHeader}>
-                  <Text style={[s.editTitle, { color: P.text }]}>Edit details</Text>
-                  <TouchableOpacity style={s.doneBtn} onPress={() => setIsEditing(false)}>
-                    <Text style={s.doneBtnText}>Done</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={s.fieldBlock}>
-                  <Text style={[s.fieldLabel, { color: P.textFaint }]}>FOOD NAME</Text>
-                  <TextInput
-                    style={[s.nameInput, { color: P.text, borderBottomColor: P.inputBorder }]}
-                    value={editName}
-                    onChangeText={setEditName}
-                    placeholder="Meal name"
-                    placeholderTextColor={P.textFaint}
-                    selectionColor={O}
-                    returnKeyType="done"
-                    maxLength={80}
-                  />
-                </View>
-
-                <View style={[s.divider, { backgroundColor: P.divider }]} />
-
-                <View style={s.fieldBlock}>
-                  <Text style={[s.fieldLabel, { color: P.textFaint }]}>CALORIES</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-                    <TextInput
-                      style={[s.calsInput, { color: P.text }]}
-                      value={editCals}
-                      onChangeText={(v) => setEditCals(v.replace(/[^0-9]/g, ''))}
-                      keyboardType="number-pad"
-                      selectionColor={O}
-                      returnKeyType="done"
-                      maxLength={5}
-                    />
-                    <Text style={[s.calsUnit, { color: P.textFaint }]}>kcal</Text>
-                  </View>
-                </View>
-
-                <View style={[s.divider, { backgroundColor: P.divider }]} />
-
-                <View style={s.fieldBlock}>
-                  <Text style={[s.fieldLabel, { color: P.textFaint }]}>NUTRITION</Text>
-                  <View style={s.macroInputGrid}>
-                    <MacroInput label="Protein" value={editProtein} color={C_PROTEIN} bg="rgba(34,197,94,0.08)"  inputBorder={P.inputBorder} onChange={setEditProtein} />
-                    <MacroInput label="Fat"     value={editFat}     color={C_FAT}     bg="rgba(168,85,247,0.08)" inputBorder={P.inputBorder} onChange={setEditFat}     />
-                    <MacroInput label="Carbs"   value={editCarbs}   color={C_CARBS}   bg="rgba(234,179,8,0.08)"  inputBorder={P.inputBorder} onChange={setEditCarbs}   />
-                  </View>
-                </View>
-
-                <View style={[s.divider, { backgroundColor: P.divider }]} />
-
-                <View style={s.actionRow}>
-                  <TouchableOpacity
-                    style={[s.discardBtn, { backgroundColor: P.discardBg }]}
-                    onPress={onClose}
-                    activeOpacity={0.75}
-                  >
-                    <Text style={[s.discardBtnText, { color: P.discardText }]}>Discard</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[s.logBtn, isSaving && { opacity: 0.6 }]}
-                    onPress={handleAddToLog}
-                    activeOpacity={0.85}
-                    disabled={isSaving}
-                  >
-                    <Text style={s.logBtnText}>{isSaving ? 'Saving…' : 'Add to log'}</Text>
-                    {!isSaving && <Ionicons name="arrow-forward" size={16} color="#FFF" />}
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
-            )}
-
             {/* ── Retry ── */}
             {status === 'retry' && (
               <View style={s.centerContent}>
@@ -631,6 +531,21 @@ export function PhotoAnalysisModal({ visible, imageUri, base64Image, onClose, on
               </View>
             )}
           </View>
+
+          {/* Edit the detected food in the shared edit-meal modal. */}
+          <ManualMealInputModal
+            visible={editVisible}
+            onClose={() => setEditVisible(false)}
+            onSubmit={applyEdits}
+            presetLabel={editMeal}
+            initialValues={{
+              name:     editName,
+              calories: cals,
+              protein:  protein || undefined,
+              carbs:    carbs || undefined,
+              fat:      fat || undefined,
+            }}
+          />
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -682,14 +597,6 @@ const s = StyleSheet.create({
   metaLine: { fontSize: 12, fontWeight: '500', marginBottom: 14 },
 
   // Meal tabs (segment control)
-  mealTabsWrap: { flexDirection: 'row', borderRadius: 12, padding: 3, marginBottom: 16 },
-  mealTab:      { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
-  mealTabActive: {
-    shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 }, elevation: 3,
-  },
-  mealTabText: { fontSize: 12, fontWeight: '600' },
-
   // Energy + macro card
   energyCard:    { borderRadius: 16, padding: 16, marginBottom: 4 },
   energyLabel:   { fontSize: 10, fontWeight: '700', letterSpacing: 1, marginBottom: 4 },

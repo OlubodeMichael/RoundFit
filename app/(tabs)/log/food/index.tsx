@@ -26,6 +26,7 @@ import { BarcodeScanPreview } from '@/components/log/BarcodeScanPreview';
 import { AppModal } from '@/components/ui/AppModal';
 import { ManualMealInputModal, type MealLabel, type ManualMealInput } from '@/components/log/ManualMealInputModal';
 import { PhotoAnalysisModal } from '@/components/log/PhotoAnalysisModal';
+import { Image } from 'expo-image';
 import { persistCameraPhoto, prunePhotoCache } from '@/utils/photo-cache';
 import { useToast } from '@/components/ui/Toast';
 import { DayNavigator, usePalette, type Palette } from '@/lib/log-theme';
@@ -714,6 +715,7 @@ export default function FoodLogScreen() {
             protein:  editItem.protein,
             carbs:    editItem.carbs,
             fat:      editItem.fat,
+            imageUrl: editItem.imageUrl,
           }}
         />
       )}
@@ -964,8 +966,18 @@ function MealRow({
         onPress={onEdit}
         style={({ pressed }) => [styles.mealRow, { backgroundColor: P.card }, pressed && { backgroundColor: P.sunken }]}
       >
-        <View style={[styles.thumb, { backgroundColor: accentSoft }]}>
-          <Text style={{ fontSize: 18 }}>{emoji}</Text>
+        <View style={[styles.thumb, { backgroundColor: accentSoft, overflow: 'hidden' }]}>
+          {item.imageUrl ? (
+            <Image
+              source={item.imageUrl}
+              style={{ width: '100%', height: '100%' }}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={150}
+            />
+          ) : (
+            <Text style={{ fontSize: 18 }}>{emoji}</Text>
+          )}
         </View>
 
         <View style={{ flex: 1, gap: 3 }}>

@@ -551,52 +551,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ── Restore session on mount ─────────────────────────────────────────────
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      try {
-        // Proactively refresh if expired — this also runs the mismatch guard
-        // (different-user tokens) before any data requests fire.
-        const refreshState = await proactiveRefreshStateIfNeeded(0);
-        if (refreshState === "invalid") {
-          setStatus("unauthenticated");
-          return;
-        }
-        setUser(await loadUserWithRetry(""));
-        setProfileSetupPending(false);
-        setStatus("authenticated");
-      } catch (err) {
-        if (isNoProfileError(err)) {
-          setProfileSetupPending(true);
-          setStatus("needs-profile");
-        } else {
-          lastMeFetchAtRef.current = 0;
-          const hasToken = await hasStoredAccessToken();
-          if (!hasToken) {
+      // Bounded retries so a transient backend/network blip at cold start does
+      // NOT bounce a user with valid tokens to the auth screen. Only a
+      // definitive "invalid" refresh (or a missing token) ends in
+      // unauthenticated; transient failures retry with backoff and keep tokens.
+      const MAX_ATTEMPTS = 4;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+        if (cancelled) return;
+        if (attempt > 0) await wait(1200 * attempt);
+        if (cancelled) return;
+
+        try {
+          // Proactively refresh if expired — this also runs the mismatch guard
+          // (different-user tokens) before any data requests fire.
+          const refreshState = await proactiveRefreshStateIfNeeded(0);
+          if (cancelled) return;
+          if (refreshState === "invalid") {
             setStatus("unauthenticated");
             return;
           }
-
-          // Give transient backend/network failures one delayed retry on boot.
-          await wait(1200);
-          try {
-            const retryRefreshState = await proactiveRefreshStateIfNeeded(0);
-            if (retryRefreshState === "invalid") {
+          if (refreshState === "transient") {
+            // Backend unreachable while the token may be expired. Keep tokens,
+            // stay on the splash, and retry — do not log the user out.
+            if (!(await hasStoredAccessToken())) {
               setStatus("unauthenticated");
               return;
             }
-            setUser(await loadUserWithRetry(""));
-            setProfileSetupPending(false);
-            setStatus("authenticated");
-          } catch (retryErr) {
-            if (isNoProfileError(retryErr)) {
-              setProfileSetupPending(true);
-              setStatus("needs-profile");
-            } else {
-              setStatus("unauthenticated");
-            }
+            if (attempt < MAX_ATTEMPTS - 1) continue;
+            setStatus("unauthenticated"); // last resort after exhausting retries
+            return;
           }
+
+          const restored = await loadUserWithRetry("");
+          if (cancelled) return;
+          setUser(restored);
+          setProfileSetupPending(false);
+          setStatus("authenticated");
+          return;
+        } catch (err) {
+          if (cancelled) return;
+          if (isNoProfileError(err)) {
+            setProfileSetupPending(true);
+            setStatus("needs-profile");
+            return;
+          }
+
+          // fetch_me_failed or other transient error. Preserve tokens so the
+          // user recovers on retry / next launch instead of being logged out.
+          lastMeFetchAtRef.current = 0;
+          if (!(await hasStoredAccessToken())) {
+            setStatus("unauthenticated");
+            return;
+          }
+          if (attempt < MAX_ATTEMPTS - 1) continue;
+          // Exhausted transient retries — surface auth as a last resort, but
+          // tokens remain so a later launch can restore the session.
+          setStatus("unauthenticated");
+          return;
         }
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [loadUserWithRetry]);
 
   // ── Proactive token refresh on foreground ─────────────────────────────────

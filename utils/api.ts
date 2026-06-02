@@ -7,6 +7,16 @@ const REFRESH_KEY = 'refresh_token';
 const SUB_KEY     = 'token_sub';       // plain-string owner of the stored session
 const TIMEOUT_MS  = 10_000;
 
+if (!API_KEY) {
+  // A build shipped without the API key will have every request — including
+  // /auth/refresh — rejected by the backend's requireApiKey middleware, which
+  // looks exactly like a mass random logout. Surface it loudly at startup.
+  console.warn(
+    '[api] EXPO_PUBLIC_API_KEY is empty — requests that require the API key ' +
+      '(including /auth/refresh) may be rejected and log users out.',
+  );
+}
+
 // ── JWT helpers ────────────────────────────────────────────────────────────
 // Decode a JWT payload without an external library.
 // Handles base64url encoding (uses - and _ instead of + and /) and missing
@@ -44,6 +54,44 @@ type RefreshFailureReason = 'invalid' | 'transient';
 type RefreshOutcome = { token: string | null; reason: RefreshFailureReason | null };
 let lastRefreshFailureReason: RefreshFailureReason | null = null;
 
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+// executeRefresh re-attempts on transient failures (network, timeout, 5xx, or
+// non-definitive 4xx). An immediate retry also covers the refresh-token
+// rotation grace window: if a prior refresh rotated the token but its response
+// was lost, Supabase's reuse interval can still return the already-rotated
+// token on a quick retry instead of forcing a logout.
+const REFRESH_MAX_ATTEMPTS   = 2;
+const REFRESH_RETRY_DELAY_MS = 600;
+
+/**
+ * True when a failed /auth/refresh response explicitly signals that the refresh
+ * token itself is dead (revoked, expired, not found, invalid_grant). We only
+ * hard-logout on a definitive signal — gateways/WAFs/rate-limiters return
+ * 400/403 for non-auth reasons and must NOT clear the session.
+ */
+function isInvalidRefreshBody(body: Record<string, unknown>): boolean {
+  const raw =
+    (typeof body.error === 'string' && body.error) ||
+    (typeof body.code === 'string' && body.code) ||
+    (typeof body.message === 'string' && body.message) ||
+    '';
+  const s = raw.toLowerCase();
+  if (
+    s.includes('invalid_refresh_token') ||
+    s.includes('refresh_token_not_found') ||
+    s.includes('invalid_grant') ||
+    s.includes('invalid refresh')
+  ) {
+    return true;
+  }
+  return (
+    s.includes('refresh token') &&
+    (s.includes('expired') || s.includes('revoked') || s.includes('not found'))
+  );
+}
+
 async function executeRefresh(): Promise<string | null> {
   const [storedRefresh, storedSub] = await Promise.all([
     SecureStore.getItemAsync(REFRESH_KEY).catch(() => null),
@@ -54,65 +102,84 @@ async function executeRefresh(): Promise<string | null> {
     return null;
   }
 
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}/auth/refresh`, {
-      method:  'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
-      },
-      body:    JSON.stringify({ refresh_token: storedRefresh }),
-    });
-  } catch {
-    lastRefreshFailureReason = 'transient';
-    return null;
-  }
+  for (let attempt = 0; attempt < REFRESH_MAX_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await sleep(REFRESH_RETRY_DELAY_MS);
 
-  if (!res.ok) {
-    // Only hard-clear on definitive invalid refresh credentials.
-    // Transient outages (5xx/network edge cases) should not force logout.
-    if (res.status === 400 || res.status === 401 || res.status === 403) {
+    // Bound the refresh request with a timeout — without it a hung request
+    // would stall the shared mutex (and every caller awaiting it) forever.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/auth/refresh`, {
+        method:  'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
+        },
+        body:    JSON.stringify({ refresh_token: storedRefresh }),
+        signal:  controller.signal,
+      });
+    } catch {
+      // Network error / timeout — transient. Retry; never clear tokens.
+      lastRefreshFailureReason = 'transient';
+      continue;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!res.ok) {
+      const errBody = await res
+        .json()
+        .catch(() => ({} as Record<string, unknown>));
+      // Only a 401 or an explicit invalid-refresh marker is a definitive
+      // "this session is dead" signal. Everything else (400/403 from a
+      // gateway/WAF/rate-limiter, 5xx) is transient — retry, keep tokens.
+      if (res.status === 401 || isInvalidRefreshBody(errBody)) {
+        await clearTokens();
+        lastRefreshFailureReason = 'invalid';
+        return null;
+      }
+      lastRefreshFailureReason = 'transient';
+      continue;
+    }
+
+    const json = await res.json().catch(() => ({} as Record<string, string>));
+    const { access_token, refresh_token } = json;
+    if (!access_token) {
+      console.error('[api] refresh response missing access_token:', Object.keys(json));
+      lastRefreshFailureReason = 'transient';
+      continue;
+    }
+
+    // Guard: compare the refreshed token's owner against the sub we stored at
+    // login time (a plain string — no JWT decoding of the old token needed).
+    // If they differ the stored tokens are from two different accounts; clear
+    // everything and force a fresh sign-in.
+    const newSub = tokenSub(access_token);
+    if (storedSub && newSub && storedSub !== newSub) {
+      console.error(`[api] refresh mismatch: stored sub=${storedSub} refreshed sub=${newSub} — clearing tokens`);
       await clearTokens();
       lastRefreshFailureReason = 'invalid';
-    } else {
-      lastRefreshFailureReason = 'transient';
+      return null;
     }
-    return null;
+
+    await Promise.all([
+      SecureStore.setItemAsync(TOKEN_KEY, access_token),
+      typeof refresh_token === 'string'
+        ? SecureStore.setItemAsync(REFRESH_KEY, refresh_token)
+        : Promise.resolve(),
+      newSub
+        ? SecureStore.setItemAsync(SUB_KEY, newSub)
+        : Promise.resolve(),
+    ]);
+    console.log('[api] refresh succeeded, new token stored');
+    lastRefreshFailureReason = null;
+    return access_token;
   }
 
-  const json = await res.json().catch(() => ({} as Record<string, string>));
-  const { access_token, refresh_token } = json;
-  if (!access_token) {
-    console.error('[api] refresh response missing access_token:', Object.keys(json));
-    lastRefreshFailureReason = 'transient';
-    return null;
-  }
-
-  // Guard: compare the refreshed token's owner against the sub we stored at
-  // login time (a plain string — no JWT decoding of the old token needed).
-  // If they differ the stored tokens are from two different accounts; clear
-  // everything and force a fresh sign-in.
-  const newSub = tokenSub(access_token);
-  if (storedSub && newSub && storedSub !== newSub) {
-    console.error(`[api] refresh mismatch: stored sub=${storedSub} refreshed sub=${newSub} — clearing tokens`);
-    await clearTokens();
-    lastRefreshFailureReason = 'invalid';
-    return null;
-  }
-
-  await Promise.all([
-    SecureStore.setItemAsync(TOKEN_KEY, access_token),
-    typeof refresh_token === 'string'
-      ? SecureStore.setItemAsync(REFRESH_KEY, refresh_token)
-      : Promise.resolve(),
-    newSub
-      ? SecureStore.setItemAsync(SUB_KEY, newSub)
-      : Promise.resolve(),
-  ]);
-  console.log('[api] refresh succeeded, new token stored');
-  lastRefreshFailureReason = null;
-  return access_token;
+  // Exhausted all attempts on transient failures — keep tokens, report transient.
+  return null;
 }
 
 async function getOrCreateRefresh(): Promise<RefreshOutcome> {
