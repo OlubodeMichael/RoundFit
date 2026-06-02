@@ -6,9 +6,16 @@ import {
   View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image } from 'expo-image';
 
 import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
 import type { MealItem } from '@/context/food-context';
+import {
+  MEAL_ROW_MIN_HEIGHT,
+  mealLogThumbStyles,
+} from '@/lib/meal-log-row';
+
+const MAX_VISIBLE_MEALS = 5;
 
 const MEAL_EMOJIS: Record<string, string> = {
   breakfast: '🍳',
@@ -101,46 +108,17 @@ export function MealsCard({
         />
       ) : (
         <View>
-          {meals.slice(0, 5).map((meal, i) => {
-            const tintKey = ROW_TINTS[i % ROW_TINTS.length];
-            const tintSoft = P[`${tintKey}Soft`];
-            const emoji = MEAL_EMOJIS[meal.meal.toLowerCase()] ?? '🍴';
-
-            return (
-              <View key={meal.id}>
-                {i > 0 ? (
-                  <View style={[s.rowDivider, { backgroundColor: P.hair }]} />
-                ) : null}
-                <Pressable
-                  onPress={onLogMore}
-                  disabled={!onLogMore}
-                  style={({ pressed }) => [
-                    s.row,
-                    onLogMore && pressed && { backgroundColor: P.sunken },
-                  ]}
-                >
-                  <View style={[s.rowIcon, { backgroundColor: tintSoft }]}>
-                    <Text style={s.emoji}>{emoji}</Text>
-                  </View>
-                  <View style={s.rowCopy}>
-                    <Text
-                      style={[s.rowTitle, { color: P.text }]}
-                      numberOfLines={1}
-                    >
-                      {meal.name}
-                    </Text>
-                    <Text style={[s.rowMeta, { color: P.textFaint }]}>
-                      {meal.meal} · {meal.time}
-                    </Text>
-                  </View>
-                  <View style={s.rowStat}>
-                    <Text style={[s.rowValue, { color: P.text }]}>{meal.cals}</Text>
-                    <Text style={[s.rowUnit, { color: P.textFaint }]}>kcal</Text>
-                  </View>
-                </Pressable>
-              </View>
-            );
-          })}
+          {meals.slice(0, MAX_VISIBLE_MEALS).map((meal, i) => (
+            <MealLogRow
+              key={meal.id}
+              meal={meal}
+              P={P}
+              tintSoft={P[`${ROW_TINTS[i % ROW_TINTS.length]}Soft`]}
+              emoji={MEAL_EMOJIS[meal.meal.toLowerCase()] ?? '🍴'}
+              showDivider={i > 0}
+              onPress={onLogMore}
+            />
+          ))}
         </View>
       )}
 
@@ -156,6 +134,74 @@ export function MealsCard({
         </>
       ) : null}
     </GradientCard>
+  );
+}
+
+function MealLogRow({
+  meal,
+  P,
+  tintSoft,
+  emoji,
+  showDivider,
+  onPress,
+}: {
+  meal: MealItem;
+  P: MealsCardPalette;
+  tintSoft: string;
+  emoji: string;
+  showDivider: boolean;
+  onPress?: () => void;
+}) {
+  const hasPhoto = Boolean(meal.imageUrl);
+  const firstFood = meal.name.split(',')[0]?.trim() || meal.name;
+
+  return (
+    <View>
+      {showDivider ? (
+        <View style={[s.rowDivider, { backgroundColor: P.hair }]} />
+      ) : null}
+      <Pressable
+        onPress={onPress}
+        disabled={!onPress}
+        style={({ pressed }) => [
+          s.row,
+          onPress && pressed && { backgroundColor: P.sunken },
+        ]}
+      >
+        <View style={[mealLogThumbStyles.thumb, { backgroundColor: tintSoft }]}>
+          {hasPhoto ? (
+            <Image
+              source={meal.imageUrl}
+              style={mealLogThumbStyles.thumbImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={150}
+            />
+          ) : (
+            <Text style={mealLogThumbStyles.emoji} allowFontScaling={false}>
+              {emoji}
+            </Text>
+          )}
+        </View>
+        <View style={s.rowCopy}>
+          <Text
+            style={[s.rowTitle, { color: P.text }]}
+            numberOfLines={1}
+          >
+            {firstFood}
+          </Text>
+          <Text style={[s.rowMeta, { color: P.textFaint }]} numberOfLines={1}>
+            {meal.meal} · {meal.time}
+          </Text>
+        </View>
+        <View style={s.rowStat}>
+          <Text style={[s.rowValue, { color: P.text }]}>
+            {meal.cals.toLocaleString()}
+          </Text>
+          <Text style={[s.rowUnit, { color: P.textFaint }]}>kcal</Text>
+        </View>
+      </Pressable>
+    </View>
   );
 }
 
@@ -281,50 +327,45 @@ const s = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
+    minHeight: MEAL_ROW_MIN_HEIGHT,
   },
   rowDivider: {
     height: StyleSheet.hairlineWidth,
     marginHorizontal: 16,
   },
-  rowIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emoji: {
-    fontSize: 20,
-  },
   rowCopy: {
     flex: 1,
-    gap: 3,
+    gap: 4,
     minWidth: 0,
+    justifyContent: 'center',
   },
   rowTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
-    letterSpacing: -0.2,
+    letterSpacing: -0.25,
+    lineHeight: 20,
   },
   rowMeta: {
-    fontSize: 11,
-    fontWeight: '500',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
   },
   rowStat: {
     alignItems: 'flex-end',
-    gap: 2,
+    justifyContent: 'center',
+    gap: 3,
   },
   rowValue: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '800',
     letterSpacing: -0.4,
     fontVariant: ['tabular-nums'],
   },
   rowUnit: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.8,
   },

@@ -64,7 +64,7 @@ export default function WeeklyReportScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: P.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
         <Ionicons name="cloud-offline-outline" size={36} color={P.textFaint} />
-        <Text style={{ color: P.textDim, fontSize: 14, textAlign: 'center', marginTop: 12, lineHeight: 20 }}>
+        <Text style={{ color: P.textDim, fontSize: 16, textAlign: 'center', marginTop: 12, lineHeight: 24 }}>
           {error}
         </Text>
         <Pressable
@@ -74,7 +74,7 @@ export default function WeeklyReportScreen() {
             pressed && { opacity: 0.8 },
           ]}
         >
-          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Try again</Text>
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Try again</Text>
         </Pressable>
       </View>
     );
@@ -415,7 +415,7 @@ const styles = StyleSheet.create({
     borderRadius:      999,
   },
   miniPillText: {
-    fontSize:      9,
+    fontSize:      11,
     fontWeight:    '800',
     letterSpacing: 1.2,
   },
@@ -448,13 +448,13 @@ const styles = StyleSheet.create({
     marginBottom:  12,
   },
   heroScore: {
-    fontSize:      56,
+    fontSize:      64,
     fontWeight:    '800',
     letterSpacing: -2.2,
-    lineHeight:    58,
+    lineHeight:    66,
   },
   heroScoreOf: {
-    fontSize:      13,
+    fontSize:      15,
     fontWeight:    '700',
     paddingBottom: 10,
   },
@@ -493,7 +493,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   dayLabel: {
-    fontSize:   10,
+    fontSize:   12,
     fontWeight: '700',
   },
 
@@ -509,29 +509,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   smallLabel: {
-    fontSize:      10,
+    fontSize:      12,
     fontWeight:    '800',
     letterSpacing: 1.4,
   },
   bestTitle: {
-    fontSize:      18,
+    fontSize:      20,
     fontWeight:    '800',
     letterSpacing: -0.4,
     marginTop:     3,
   },
   bestScore: {
-    fontSize:      28,
+    fontSize:      30,
     fontWeight:    '800',
     letterSpacing: -1,
   },
   bestReason: {
-    fontSize:   13,
+    fontSize:   15,
     fontWeight: '500',
-    lineHeight: 19,
+    lineHeight: 22,
   },
 
   cardTitle: {
-    fontSize:      15,
+    fontSize:      17,
     fontWeight:    '800',
     letterSpacing: -0.3,
     marginBottom:  14,
@@ -556,17 +556,17 @@ const styles = StyleSheet.create({
     marginBottom:   2,
   },
   avgLabel: {
-    fontSize:      9,
+    fontSize:      11,
     fontWeight:    '800',
     letterSpacing: 1.0,
   },
   avgValue: {
-    fontSize:      18,
+    fontSize:      20,
     fontWeight:    '800',
     letterSpacing: -0.5,
   },
   avgDelta: {
-    fontSize:   11,
+    fontSize:   13,
     fontWeight: '500',
   },
 
@@ -582,7 +582,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   patternMeta: {
-    fontSize:   11,
+    fontSize:   13,
     fontWeight: '500',
   },
 
@@ -603,13 +603,13 @@ const styles = StyleSheet.create({
     marginBottom:  12,
   },
   claudeMeta: {
-    fontSize:   11,
+    fontSize:   13,
     fontWeight: '500',
   },
   claudeBody: {
-    fontSize:      14,
+    fontSize:      16,
     fontWeight:    '500',
-    lineHeight:    22,
+    lineHeight:    24,
     letterSpacing: -0.1,
   },
 
@@ -624,7 +624,7 @@ const styles = StyleSheet.create({
   },
   shareCtaText: {
     color:         '#fff',
-    fontSize:      15,
+    fontSize:      17,
     fontWeight:    '800',
     letterSpacing: -0.2,
   },

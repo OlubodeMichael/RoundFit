@@ -137,12 +137,13 @@ export function ManualMealInputModal({
       visible={visible}
       onClose={onClose}
       sheetHeight="full"
-      keyboardAvoiding
     >
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={s.scroll}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
         showsVerticalScrollIndicator={false}
       >
         {/* ── Header ─────────────────────────────────────────── */}

@@ -153,8 +153,13 @@ export function AppModal({
   const lo   = isDark ? '#2A2A32' : '#EBEBEB';
   const mid  = isDark ? '#707078' : '#BBBBBB';
 
-  const OverlayRoot = keyboardAvoiding ? KeyboardAvoidingView : View;
-  const overlayRootProps = keyboardAvoiding
+  // Full sheets sit high on screen — root KeyboardAvoidingView shifts the whole
+  // sheet up when a top field is focused. Use ScrollView keyboard insets instead.
+  const useRootKeyboardAvoid =
+    keyboardAvoiding && sheetHeight !== 'full';
+
+  const OverlayRoot = useRootKeyboardAvoid ? KeyboardAvoidingView : View;
+  const overlayRootProps = useRootKeyboardAvoid
     ? {
         style: s.overlay,
         behavior: Platform.OS === 'ios' ? 'padding' as const : 'height' as const,

@@ -225,13 +225,14 @@ export function EditProfileModal({ visible, onClose }: EditProfileModalProps) {
       visible={visible}
       onClose={onClose}
       sheetHeight="full"
-      keyboardAvoiding
       dismissGestureArea="sheet"
     >
       <ScrollView
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
       >
         <View style={s.modalHeader}>
           <View style={{ flex: 1 }}>

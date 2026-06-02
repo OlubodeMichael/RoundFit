@@ -1,7 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  Animated,
-  Easing,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +17,7 @@ import {
   DistanceMetricCard,
   StepsMetricCard,
 } from '@/components/home/ActivityCard';
+import { MirrorPromoCard } from '@/components/progress/MirrorPromoCard';
 import { AnimatedCard, usePalette } from '@/lib/log-theme';
 import { ReadinessWidget } from '@/components/home/ReadinessWidget';
 import { useHealth } from '@/hooks/use-health';
@@ -513,39 +512,7 @@ export default function ProgressScreen() {
             </Pressable>
           </AnimatedCard>
 
-          {/* ── 30-day mirror promo ────────────────────────────── */}
-          <AnimatedCard delay={480} padding={0} style={{ overflow: 'hidden' }}>
-            <Pressable
-              onPress={() => router.push('/(tabs)/progress/mirror')}
-              style={({ pressed }) => [
-                styles.mirrorCard,
-                { backgroundColor: P.fat },
-                pressed && { opacity: 0.92 },
-              ]}
-            >
-              <View pointerEvents="none" style={[styles.mirrorGlow, { backgroundColor: 'rgba(255,255,255,0.14)' }]} />
-
-              <Text style={styles.mirrorTitle}>30-day mirror</Text>
-              <Text style={styles.mirrorSub}>
-                Optimal sleep, optimal protein, best training days, and the strongest correlation in your last month.
-              </Text>
-
-              <View style={styles.mirrorFoot}>
-                <View style={styles.mirrorItem}>
-                  <Ionicons name="analytics" size={12} color="rgba(255,255,255,0.9)" />
-                  <Text style={styles.mirrorFootLabel}>4 correlations</Text>
-                </View>
-                <View style={styles.mirrorItem}>
-                  <Ionicons name="sparkles" size={12} color="rgba(255,255,255,0.9)" />
-                  <Text style={styles.mirrorFootLabel}>AI synthesis</Text>
-                </View>
-                <View style={[styles.mirrorCta, { backgroundColor: '#fff' }]}>
-                  <Text style={[styles.mirrorCtaText, { color: P.fat }]}>Open</Text>
-                  <Ionicons name="arrow-forward" size={13} color={P.fat} />
-                </View>
-              </View>
-            </Pressable>
-          </AnimatedCard>
+          <MirrorPromoCard P={P} delay={480} />
         </View>
       </ScrollView>
     </View>
@@ -827,76 +794,4 @@ const styles = StyleSheet.create({
     marginTop:  2,
   },
 
-  // ─── Mirror promo ──
-  mirrorCard: {
-    padding:  22,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  mirrorGlow: {
-    position:     'absolute',
-    top:          -60,
-    right:        -80,
-    width:        220,
-    height:       220,
-    borderRadius: 110,
-  },
-  premiumPill: {
-    alignSelf:         'flex-start',
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               5,
-    paddingHorizontal: 8,
-    paddingVertical:   4,
-    borderRadius:      8,
-    marginBottom:      12,
-  },
-  premiumPillText: {
-    color:         '#fff',
-    fontSize:      9,
-    fontWeight:    '800',
-    letterSpacing: 1.2,
-  },
-  mirrorTitle: {
-    fontSize:      22,
-    fontWeight:    '800',
-    letterSpacing: -0.6,
-    color:         '#fff',
-    marginBottom:  6,
-  },
-  mirrorSub: {
-    fontSize:      13,
-    fontWeight:    '500',
-    lineHeight:    19,
-    color:         'rgba(255,255,255,0.85)',
-    marginBottom:  16,
-  },
-  mirrorFoot: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           14,
-  },
-  mirrorItem: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           5,
-  },
-  mirrorFootLabel: {
-    fontSize:   11,
-    fontWeight: '700',
-    color:      'rgba(255,255,255,0.9)',
-  },
-  mirrorCta: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               5,
-    paddingHorizontal: 12,
-    paddingVertical:   7,
-    borderRadius:      10,
-    marginLeft:        'auto',
-  },
-  mirrorCtaText: {
-    fontSize:   12,
-    fontWeight: '800',
-  },
 });

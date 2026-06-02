@@ -11,6 +11,7 @@ export type CardAccentVariant =
   | 'meals'
   | 'workouts'
   | 'insight'
+  | 'insightGrey'
   | 'readiness'
   | 'protein'
   | 'carbs'
@@ -74,6 +75,13 @@ export function insightAccent(isDark: boolean): CardAccent {
     : accentFromRgb(false, '124,58,237', '#7C3AED');
 }
 
+/** Neutral grey wash for insight screens and cards. */
+export function insightGreyAccent(isDark: boolean): CardAccent {
+  return isDark
+    ? accentFromRgb(isDark, '161,161,170', '#909096')
+    : accentFromRgb(false, '113,113,122', '#71717A');
+}
+
 export function readinessAccent(score: number, isDark: boolean): CardAccent {
   const band = score >= 70 ? 'high' : score >= 40 ? 'mid' : 'low';
   const tones = {
@@ -129,6 +137,8 @@ export function getCardAccent(
       return workoutsAccent(isDark);
     case 'insight':
       return insightAccent(isDark);
+    case 'insightGrey':
+      return insightGreyAccent(isDark);
     case 'readiness':
       return readinessAccent(options.readinessScore ?? 0, isDark);
     case 'protein':

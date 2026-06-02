@@ -27,6 +27,7 @@ function usePalette() {
         hair: 'rgba(255,255,255,0.07)',
         hi: '#F4F4F5',
         mid: '#909096',
+        faint: '#6B6B73',
         accent: '#F97316',
         unreadDot: '#F97316',
       }
@@ -37,6 +38,7 @@ function usePalette() {
         hair: 'rgba(0,0,0,0.06)',
         hi: '#09090B',
         mid: '#6B7280',
+        faint: '#A1A1AA',
         accent: '#F97316',
         unreadDot: '#F97316',
       };
@@ -123,23 +125,22 @@ export default function NotificationsInboxScreen() {
         {!hydrated ? (
           <ActivityIndicator color={P.accent} style={{ marginTop: 40 }} />
         ) : items.length === 0 ? (
-          <NotificationInboxEmpty hi={P.hi} mid={P.mid} accent={P.accent} />
+          <NotificationInboxEmpty hi={P.hi} mid={P.mid} />
         ) : (
           <View
             style={[
-              s.card,
-              { backgroundColor: P.card, borderColor: P.edge, marginHorizontal: 20 },
+              s.list,
+              { backgroundColor: P.card, borderColor: P.edge },
             ]}
           >
             {items.map((item, index) => (
               <View key={item.id}>
-                {index > 0 && (
+                {index > 0 ? (
                   <View style={[s.divider, { backgroundColor: P.hair }]} />
-                )}
+                ) : null}
                 <NotificationInboxRow
                   item={item}
                   P={P}
-                  last={index === items.length - 1}
                   onPress={() => handlePress(item.id, item.screen)}
                 />
               </View>
@@ -192,13 +193,14 @@ const s = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  card: {
-    borderRadius: 16,
-    borderWidth: 1,
+  list: {
+    marginHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
   divider: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 68,
+    marginLeft: 64,
   },
 });

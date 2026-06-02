@@ -17,6 +17,9 @@ import type { ComponentProps } from 'react';
 import { useRouter } from 'expo-router';
 
 import { AnimatedCard, usePalette } from '@/lib/log-theme';
+import { DailyGoalsSummaryCard } from '@/components/insights/DailyGoalsSummaryCard';
+import { InsightGradientCard } from '@/components/insights/InsightGradientCard';
+import { GradientCard } from '@/components/ui/GradientCard';
 import { useInsights } from '@/context/insights-context';
 import type { Insight as ApiInsight } from '@/context/insights-context';
 import { useWeeklyInsights } from '@/hooks/use-weekly-insights';
@@ -344,34 +347,15 @@ function TodayView({
     <View style={s.stack}>
 
       {/* ── Goals summary — visible when logged, or evening reminder ── */}
-      {showGoalsCard && <AnimatedCard delay={60}>
-        <Text style={[s.todayDateLabel, { color: P.textFaint }]}>{cardDate}</Text>
-
-        <View style={s.goalsRow}>
-          <Text style={[s.goalsBigNum, { color: P.text }]}>{goalsMetCount}</Text>
-          <Text style={[s.goalsOfText, { color: P.text }]}> of 4 goals met</Text>
-        </View>
-
-        {/* Mini proportional bars */}
-        <View style={s.miniGoalsRow}>
-          {miniGoals.map(g => (
-            <View key={g.label} style={s.miniGoalCol}>
-              <View style={[s.miniGoalTrack, { backgroundColor: P.sunken }]}>
-                {g.pct > 0 && (
-                  <View style={[
-                    s.miniGoalFill,
-                    { width: `${g.pct}%`, backgroundColor: g.met ? P.calories : P.text },
-                  ]} />
-                )}
-              </View>
-              <Text style={[s.miniGoalLabel, {
-                color:      g.met ? P.text : P.textFaint,
-                fontWeight: g.met ? '700' : '400',
-              }]}>{g.label}</Text>
-            </View>
-          ))}
-        </View>
-      </AnimatedCard>}
+      {showGoalsCard ? (
+        <DailyGoalsSummaryCard
+          P={P}
+          delay={60}
+          dateLabel={cardDate}
+          goalsMetCount={goalsMetCount}
+          miniGoals={miniGoals}
+        />
+      ) : null}
 
       {/* ── Today's AI insight ──────────────────────────── */}
       {heroDisplay && (
@@ -409,18 +393,46 @@ function TodayView({
 
 // ─── Week view (inline) ───────────────────────────────────────────────────────
 
+function weekInsightPalette(P: ReturnType<typeof usePalette>) {
+  return { card: P.card, cardEdge: P.cardEdge, isDark: P.isDark };
+}
+
+function WeekInsightCard({
+  P,
+  delay,
+  contentStyle,
+  children,
+}: {
+  P: ReturnType<typeof usePalette>;
+  delay: number;
+  contentStyle?: object;
+  children: React.ReactNode;
+}) {
+  return (
+    <GradientCard
+      variant="insightGrey"
+      palette={weekInsightPalette(P)}
+      corner="top-right"
+      delay={delay}
+      contentStyle={contentStyle}
+    >
+      {children}
+    </GradientCard>
+  );
+}
+
 function WeekView({ data, isLoading }: { data: ReturnType<typeof useWeeklyInsights>['data']; isLoading: boolean }) {
   const P = usePalette();
 
   if (isLoading && !data) {
     return (
       <View style={s.stack}>
-        <AnimatedCard delay={60}>
+        <WeekInsightCard P={P} delay={60} contentStyle={{ padding: 20 }}>
           <View style={s.loadingRow}>
             <ActivityIndicator size="small" color={P.calories} />
             <Text style={[s.loadingText, { color: P.textFaint }]}>Loading weekly report…</Text>
           </View>
-        </AnimatedCard>
+        </WeekInsightCard>
       </View>
     );
   }
@@ -428,15 +440,15 @@ function WeekView({ data, isLoading }: { data: ReturnType<typeof useWeeklyInsigh
   if (!data) {
     return (
       <View style={s.stack}>
-        <AnimatedCard delay={60} padding={24}>
+        <WeekInsightCard P={P} delay={60} contentStyle={{ padding: 24 }}>
           <View style={{ alignItems: 'center', gap: 8, paddingVertical: 8 }}>
-            <Ionicons name="bar-chart-outline" size={28} color={P.textFaint} />
+            <Ionicons name="bar-chart-outline" size={32} color={P.textFaint} />
             <Text style={[s.emptyTitle, { color: P.text, textAlign: 'center' }]}>No data yet</Text>
             <Text style={[s.emptyBody, { color: P.textFaint, textAlign: 'center' }]}>
               Log meals and workouts to generate your weekly report.
             </Text>
           </View>
-        </AnimatedCard>
+        </WeekInsightCard>
       </View>
     );
   }
@@ -515,7 +527,7 @@ function WeekView({ data, isLoading }: { data: ReturnType<typeof useWeeklyInsigh
     <View style={s.stack}>
 
       {/* ── Days logged + bar chart ──────────────────────── */}
-      <AnimatedCard delay={60}>
+      <WeekInsightCard P={P} delay={60} contentStyle={{ padding: 20 }}>
         <Text style={[s.weekRangeText, { color: P.textFaint }]}>{weekRangeLabel}</Text>
 
         <View style={s.daysLoggedRow}>
@@ -541,11 +553,11 @@ function WeekView({ data, isLoading }: { data: ReturnType<typeof useWeeklyInsigh
             );
           })}
         </View>
-      </AnimatedCard>
+      </WeekInsightCard>
 
       {/* ── Best day ──────────────────────────────────────── */}
       {bestDay && bestDayMet > 0 && (
-        <AnimatedCard delay={140}>
+        <WeekInsightCard P={P} delay={140} contentStyle={{ padding: 20 }}>
           <View style={s.bestRow}>
             <View style={{ flex: 1 }}>
               <Text style={[s.bestDayLabel, { color: P.textFaint }]}>BEST DAY</Text>
@@ -562,11 +574,11 @@ function WeekView({ data, isLoading }: { data: ReturnType<typeof useWeeklyInsigh
               )}
             </View>
           </View>
-        </AnimatedCard>
+        </WeekInsightCard>
       )}
 
       {/* ── Daily averages ────────────────────────────────── */}
-      <AnimatedCard delay={200} padding={18}>
+      <WeekInsightCard P={P} delay={200} contentStyle={{ padding: 18 }}>
         <Text style={[s.avgSectionTitle, { color: P.text }]}>Daily averages</Text>
         <View style={s.avgGrid}>
           {averages.map((a, i) => (
@@ -577,7 +589,7 @@ function WeekView({ data, isLoading }: { data: ReturnType<typeof useWeeklyInsigh
               i < 2      && s.avgCellBottom,
             ]}>
               <View style={s.avgIconRow}>
-                <Ionicons name={a.icon} size={13} color={P.textFaint} />
+                <Ionicons name={a.icon} size={15} color={P.textFaint} />
                 <Text style={[s.avgLabel, { color: P.textFaint }]}>{a.label}</Text>
               </View>
               <Text style={[s.avgValue, { color: P.text }]}>{a.value}</Text>
@@ -585,7 +597,7 @@ function WeekView({ data, isLoading }: { data: ReturnType<typeof useWeeklyInsigh
             </View>
           ))}
         </View>
-      </AnimatedCard>
+      </WeekInsightCard>
 
     </View>
   );
@@ -597,33 +609,47 @@ function InsightHeroCard({ insight, delay, onDismiss, onPress }: {
   insight: DisplayInsight; delay: number; onDismiss: () => void; onPress: () => void;
 }) {
   const P = usePalette();
+  const cardP = {
+    card: P.card,
+    cardEdge: P.cardEdge,
+    text: P.text,
+    textDim: P.textDim,
+    textFaint: P.textFaint,
+    hair: P.hair,
+    isDark: P.isDark,
+  };
+
   return (
-    <AnimatedCard delay={delay} onPress={onPress}>
-      <View style={s.heroTopRow}>
-        <Ionicons name="add" size={13} color={P.calories} />
-        <Text style={[s.heroEyebrow, { color: P.textFaint }]}>
-          {`TODAY'S INSIGHT · ${insight.category}`}
-        </Text>
-      </View>
-      <Text style={[s.heroTitle, { color: P.text }]}>{insight.title}</Text>
-      <Text style={[s.heroBody, { color: P.textDim }]}>{insight.body}</Text>
-      <View style={[s.heroFoot, { borderTopColor: P.hair }]}>
-        <Pressable style={({ pressed }) => [s.footBtn, pressed && { opacity: 0.6 }]} hitSlop={8}>
-          <Ionicons name="thumbs-up-outline" size={14} color={P.textDim} />
-          <Text style={[s.footBtnText, { color: P.textDim }]}>Helpful</Text>
-        </Pressable>
-        <View style={[s.footDivider, { backgroundColor: P.hair }]} />
-        <Pressable onPress={onDismiss} style={({ pressed }) => [s.footBtn, pressed && { opacity: 0.6 }]} hitSlop={8}>
-          <Ionicons name="eye-off-outline" size={14} color={P.textDim} />
-          <Text style={[s.footBtnText, { color: P.textDim }]}>Dismiss</Text>
-        </Pressable>
-        <View style={[s.footDivider, { backgroundColor: P.hair }]} />
-        <Pressable style={({ pressed }) => [s.footBtn, pressed && { opacity: 0.6 }]} hitSlop={8}>
-          <Ionicons name="share-outline" size={14} color={P.textDim} />
-          <Text style={[s.footBtnText, { color: P.textDim }]}>Share</Text>
-        </Pressable>
-      </View>
-    </AnimatedCard>
+    <InsightGradientCard
+      P={cardP}
+      delay={delay}
+      onPress={onPress}
+      eyebrow={`Today's insight · ${insight.category}`}
+      title={insight.title}
+      body={insight.body}
+      footer={
+        <View style={s.heroFoot}>
+          <Pressable style={({ pressed }) => [s.footBtn, pressed && { opacity: 0.6 }]} hitSlop={8}>
+            <Ionicons name="thumbs-up-outline" size={16} color={P.textDim} />
+            <Text style={[s.footBtnText, { color: P.textDim }]}>Helpful</Text>
+          </Pressable>
+          <View style={[s.footDivider, { backgroundColor: P.hair }]} />
+          <Pressable
+            onPress={onDismiss}
+            style={({ pressed }) => [s.footBtn, pressed && { opacity: 0.6 }]}
+            hitSlop={8}
+          >
+            <Ionicons name="eye-off-outline" size={16} color={P.textDim} />
+            <Text style={[s.footBtnText, { color: P.textDim }]}>Dismiss</Text>
+          </Pressable>
+          <View style={[s.footDivider, { backgroundColor: P.hair }]} />
+          <Pressable style={({ pressed }) => [s.footBtn, pressed && { opacity: 0.6 }]} hitSlop={8}>
+            <Ionicons name="share-outline" size={16} color={P.textDim} />
+            <Text style={[s.footBtnText, { color: P.textDim }]}>Share</Text>
+          </Pressable>
+        </View>
+      }
+    />
   );
 }
 
@@ -632,19 +658,24 @@ function InsightPastCard({ insight, delay, onPress }: {
 }) {
   const P = usePalette();
   return (
-    <AnimatedCard delay={delay} padding={16} onPress={onPress}>
-      <View style={s.pastRow}>
-        <View style={[s.pastPinCircle, { backgroundColor: P.sunken }]}>
-          <Ionicons name="location-outline" size={15} color={P.textFaint} />
-        </View>
-        <View style={{ flex: 1, gap: 3 }}>
-          <Text style={[s.pastDateLabel, { color: P.textFaint }]}>{insight.date.toUpperCase()}</Text>
-          <Text style={[s.pastTitle, { color: P.text }]}>{insight.title}</Text>
-          <Text style={[s.pastBody, { color: P.textDim }]} numberOfLines={2}>{insight.body}</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
-      </View>
-    </AnimatedCard>
+    <InsightGradientCard
+      P={{
+        card: P.card,
+        cardEdge: P.cardEdge,
+        text: P.text,
+        textDim: P.textDim,
+        textFaint: P.textFaint,
+        hair: P.hair,
+        isDark: P.isDark,
+      }}
+      delay={delay}
+      onPress={onPress}
+      compact
+      icon="time-outline"
+      eyebrow={insight.date.toUpperCase()}
+      title={insight.title}
+      body={insight.body}
+    />
   );
 }
 
@@ -657,13 +688,13 @@ const s = StyleSheet.create({
     paddingBottom:     16,
   },
   eyebrow: {
-    fontSize:      10,
+    fontSize:      12,
     fontWeight:    '700',
     letterSpacing: 1.8,
     marginBottom:  4,
   },
   title: {
-    fontSize:      30,
+    fontSize:      34,
     fontWeight:    '800',
     letterSpacing: -0.8,
   },
@@ -697,7 +728,7 @@ const s = StyleSheet.create({
     zIndex:         1,
   },
   toggleLabel: {
-    fontSize:      13,
+    fontSize:      15,
     fontWeight:    '700',
     letterSpacing: -0.2,
   },
@@ -713,7 +744,7 @@ const s = StyleSheet.create({
     gap:           12,
     paddingVertical: 4,
   },
-  loadingText: { fontSize: 13, fontWeight: '500' },
+  loadingText: { fontSize: 15, fontWeight: '500' },
 
   glow: {
     position: 'absolute', top: -80, right: -60,
@@ -724,43 +755,43 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   smallLabel: {
-    fontSize: 10, fontWeight: '800', letterSpacing: 1.4,
+    fontSize: 12, fontWeight: '800', letterSpacing: 1.4,
   },
 
   // ── Week: days logged card ──
-  weekRangeText:  { fontSize: 12, fontWeight: '500', letterSpacing: 0.4, marginBottom: 12 },
+  weekRangeText:  { fontSize: 14, fontWeight: '500', letterSpacing: 0.4, marginBottom: 12 },
   daysLoggedRow:  { flexDirection: 'row', alignItems: 'flex-end', gap: 0, marginBottom: 20 },
-  daysLoggedNum:  { fontSize: 56, fontWeight: '800', letterSpacing: -2, lineHeight: 58 },
-  daysLoggedOf:   { fontSize: 16, fontWeight: '500', paddingBottom: 9 },
+  daysLoggedNum:  { fontSize: 64, fontWeight: '800', letterSpacing: -2, lineHeight: 66 },
+  daysLoggedOf:   { fontSize: 18, fontWeight: '500', paddingBottom: 10 },
 
   daysRow:  { flexDirection: 'row', gap: 5, height: 120, alignItems: 'flex-end' },
   dayCol:   { flex: 1, alignItems: 'center', gap: 5 },
   dayTrack: { width: '100%', height: 100, borderRadius: 5, justifyContent: 'flex-end', overflow: 'hidden' },
   dayFill:  { width: '100%', borderRadius: 5 },
-  dayLabel: { fontSize: 10, fontWeight: '700' },
+  dayLabel: { fontSize: 12, fontWeight: '700' },
 
   // ── Week: best day ──
   bestRow:     { flexDirection: 'row', alignItems: 'center' },
-  bestDayLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1.6, marginBottom: 4 },
-  bestDayName:  { fontSize: 20, fontWeight: '800', letterSpacing: -0.5 },
-  bestDayGoals: { fontSize: 13, fontWeight: '700' },
-  bestDaySleep: { fontSize: 12, fontWeight: '400' },
+  bestDayLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1.6, marginBottom: 4 },
+  bestDayName:  { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
+  bestDayGoals: { fontSize: 15, fontWeight: '700' },
+  bestDaySleep: { fontSize: 14, fontWeight: '400' },
 
   // ── Week: averages ──
-  avgSectionTitle: { fontSize: 16, fontWeight: '700', letterSpacing: -0.3, marginBottom: 16 },
+  avgSectionTitle: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3, marginBottom: 16 },
   avgGrid:     { flexDirection: 'row', flexWrap: 'wrap' },
   avgCell:     { width: '50%', paddingVertical: 10, gap: 4 },
   avgCellRight:  { borderRightWidth: StyleSheet.hairlineWidth, paddingRight: 14 },
   avgCellBottom: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 14, marginBottom: 4 },
   avgIconRow:  { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 },
-  avgLabel:    { fontSize: 12, fontWeight: '500' },
-  avgValue:    { fontSize: 20, fontWeight: '700', letterSpacing: -0.5 },
-  avgDelta:    { fontSize: 11, fontWeight: '400' },
+  avgLabel:    { fontSize: 14, fontWeight: '500' },
+  avgValue:    { fontSize: 22, fontWeight: '700', letterSpacing: -0.5 },
+  avgDelta:    { fontSize: 13, fontWeight: '400' },
 
   // ── Today: empty ──
   emptyRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
-  emptyTitle: { fontSize: 15, fontWeight: '700', letterSpacing: -0.3, marginBottom: 4 },
-  emptyBody:  { fontSize: 13, fontWeight: '400', lineHeight: 19 },
+  emptyTitle: { fontSize: 17, fontWeight: '700', letterSpacing: -0.3, marginBottom: 4 },
+  emptyBody:  { fontSize: 15, fontWeight: '400', lineHeight: 22 },
 
   // ── Today: goals summary ──
   todayDateLabel: { fontSize: 12, fontWeight: '500', letterSpacing: 0.6, marginBottom: 12 },
@@ -778,9 +809,9 @@ const s = StyleSheet.create({
   heroEyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.4 },
   heroTitle:   { fontSize: 26, fontWeight: '800', letterSpacing: -0.8, lineHeight: 32, marginBottom: 12 },
   heroBody:    { fontSize: 15, fontWeight: '400', lineHeight: 23, letterSpacing: -0.1 },
-  heroFoot:    { flexDirection: 'row', alignItems: 'center', marginTop: 20, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth },
+  heroFoot:    { flexDirection: 'row', alignItems: 'center', paddingTop: 14, paddingHorizontal: 4, paddingBottom: 12 },
   footBtn:     { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 6 },
-  footBtnText: { fontSize: 12, fontWeight: '600' },
+  footBtnText: { fontSize: 14, fontWeight: '600' },
   footDivider: { width: StyleSheet.hairlineWidth, height: 16 },
 
   // ── Past list (kept for insight cards) ──
@@ -792,6 +823,6 @@ const s = StyleSheet.create({
 
   // ── Section header (kept for past insights) ──
   sectionHead:    { marginTop: 10, marginBottom: -2, gap: 3 },
-  sectionTitle:   { fontSize: 18, fontWeight: '800', letterSpacing: -0.5 },
-  sectionCaption: { fontSize: 12, fontWeight: '400' },
+  sectionTitle:   { fontSize: 20, fontWeight: '800', letterSpacing: -0.5 },
+  sectionCaption: { fontSize: 14, fontWeight: '400' },
 });

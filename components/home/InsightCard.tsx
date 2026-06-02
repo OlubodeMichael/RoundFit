@@ -19,7 +19,7 @@ export interface InsightCardProps {
   onPress: () => void;
 }
 
-/** Home-screen daily insight — subtle violet wash from the top-right. */
+/** Home-screen daily insight — subtle grey wash from the top-right. */
 export function InsightCard({ P, delay = 0, onPress }: InsightCardProps) {
   const { todayInsight, claudeInsight } = useInsights();
   const insight = claudeInsight ?? todayInsight;
@@ -29,11 +29,11 @@ export function InsightCard({ P, delay = 0, onPress }: InsightCardProps) {
   const isAi = insight.type === 'claude';
   const title = insight.title || insight.message.split('. ')[0];
   const label = isAi ? 'RIS insight' : 'Daily insight';
-  const accent = getCardAccent('insight', P.isDark);
+  const accent = getCardAccent('insightGrey', P.isDark);
   const palette = { card: P.card, cardEdge: P.cardEdge, isDark: P.isDark };
 
   return (
-    <GradientCard variant="insight" palette={palette} corner="top-right" delay={delay}>
+    <GradientCard variant="insightGrey" palette={palette} corner="top-right" delay={delay}>
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
@@ -44,7 +44,7 @@ export function InsightCard({ P, delay = 0, onPress }: InsightCardProps) {
           <View style={s.headerMain}>
             <View style={[s.iconRing, { backgroundColor: accent.iconSoft }]}>
               <View style={[s.iconBox, { backgroundColor: accent.iconBg }]}>
-                <Ionicons name="sparkles" size={14} color="#FFF" />
+                <Ionicons name="sparkles" size={16} color="#FFF" />
               </View>
             </View>
             <View style={s.headerCopy}>
@@ -54,7 +54,7 @@ export function InsightCard({ P, delay = 0, onPress }: InsightCardProps) {
               </Text>
             </View>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
+          <Ionicons name="chevron-forward" size={18} color={P.textFaint} />
         </View>
 
         <Text
@@ -69,7 +69,7 @@ export function InsightCard({ P, delay = 0, onPress }: InsightCardProps) {
 
         <View style={s.cta}>
           <Text style={[s.ctaText, { color: P.textDim }]}>View daily insight</Text>
-          <Ionicons name="arrow-forward" size={14} color={P.textFaint} />
+          <Ionicons name="arrow-forward" size={16} color={P.textFaint} />
         </View>
       </Pressable>
     </GradientCard>
@@ -113,26 +113,26 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   headerLabel: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
     letterSpacing: -0.1,
   },
   headerMeta: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '500',
   },
   title: {
-    fontSize: 17,
+    fontSize: 20,
     fontWeight: '800',
-    letterSpacing: -0.35,
-    lineHeight: 22,
+    letterSpacing: -0.4,
+    lineHeight: 26,
     paddingHorizontal: 16,
     paddingTop: 8,
   },
   body: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '500',
-    lineHeight: 21,
+    lineHeight: 24,
     letterSpacing: -0.1,
     paddingHorizontal: 16,
     paddingTop: 6,
@@ -146,7 +146,7 @@ const s = StyleSheet.create({
     paddingBottom: 16,
   },
   ctaText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
   },
 });

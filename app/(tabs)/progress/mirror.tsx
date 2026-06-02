@@ -9,8 +9,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ComponentProps } from 'react';
 
+import { MirrorSectionHeader } from '@/components/progress/MirrorSectionHeader';
+import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
+import type { CardAccent } from '@/components/ui/gradient-card-theme';
+import type { CardAccentVariant } from '@/components/ui/gradient-card-theme';
 import {
-  AnimatedCard,
   ScreenHeader,
   usePalette,
   useScreenPadding,
@@ -56,10 +59,14 @@ const BIGGEST_IMPROVEMENT = IMPROVEMENTS[3]; // streak
 const AI_SYNTHESIS =
   'Your body responds best to a consistent 7:30 AM wake. When you protect that, everything else compounds: energy lifts, protein lands naturally, and your training days get easier.';
 
+const CARD_PAD = { paddingHorizontal: 16, paddingBottom: 16 };
+
 export default function MirrorScreen() {
   const P      = usePalette();
   const pad    = useScreenPadding();
   const insets = useSafeAreaInsets();
+  const cardPalette = { card: P.card, cardEdge: P.cardEdge, isDark: P.isDark };
+  const insightAccent = getCardAccent('insight', P.isDark);
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
@@ -70,7 +77,7 @@ export default function MirrorScreen() {
         <ScreenHeader
           eyebrow="Premium report"
           title="30-day mirror"
-          accent={P.fat}
+          accent={insightAccent.iconBg}
           right={
             <Pressable hitSlop={10} style={[styles.shareBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
               <Ionicons name="share-outline" size={18} color={P.text} />
@@ -79,69 +86,78 @@ export default function MirrorScreen() {
         />
 
         <View style={styles.stack}>
-          {/* ── Date range pill ────────────────────────────────── */}
           <View style={styles.rangeHead}>
-            <View style={[styles.rangePill, { backgroundColor: P.fatSoft }]}>
-              <Ionicons name="calendar" size={11} color={P.fat} />
-              <Text style={[styles.rangeText, { color: P.fat }]}>{DATE_RANGE.toUpperCase()}</Text>
+            <View style={[styles.rangePill, { backgroundColor: insightAccent.iconSoft }]}>
+              <Ionicons name="calendar-outline" size={12} color={insightAccent.iconBg} />
+              <Text style={[styles.rangeText, { color: insightAccent.iconBg }]}>
+                {DATE_RANGE.toUpperCase()}
+              </Text>
             </View>
-            <View style={[styles.aiBadge, { backgroundColor: P.fatSoft }]}>
-              <Ionicons name="sparkles" size={10} color={P.fat} />
-              <Text style={[styles.aiBadgeText, { color: P.fat }]}>RIS</Text>
+            <View style={[styles.rangePill, { backgroundColor: insightAccent.iconSoft }]}>
+              <Ionicons name="sparkles" size={12} color={insightAccent.iconBg} />
+              <Text style={[styles.rangeText, { color: insightAccent.iconBg }]}>RIS</Text>
             </View>
           </View>
 
-          {/* ── AI synthesis quote ─────────────────────────────── */}
-          <AnimatedCard delay={60} style={{ overflow: 'hidden' }}>
-            <View pointerEvents="none" style={[styles.glow, { backgroundColor: P.fatSoft, top: -80, right: -80 }]} />
-            <Text style={[styles.quoteMark, { color: P.fat }]}>{"\u201C"}</Text>
-            <Text style={[styles.quoteBody, { color: P.text }]}>{AI_SYNTHESIS}</Text>
-            <Text style={[styles.quoteAttrib, { color: P.textFaint }]}>
-              RoundFit Intelligence Score · 30 days of logs, check-ins & wearables
-            </Text>
-          </AnimatedCard>
+          <GradientCard
+            variant="insight"
+            palette={cardPalette}
+            corner="top-right"
+            delay={60}
+          >
+            <View style={[CARD_PAD, { paddingTop: 16 }]}>
+              <MirrorSectionHeader
+                accent={insightAccent}
+                icon="sparkles"
+                label="AI synthesis"
+                meta="RoundFit Intelligence Score"
+                textDim={P.textDim}
+                textFaint={P.textFaint}
+              />
+              <Text style={[styles.quoteBody, { color: P.text }]}>{AI_SYNTHESIS}</Text>
+              <Text style={[styles.quoteAttrib, { color: P.textFaint }]}>
+                Based on 30 days of logs, check-ins, and wearables
+              </Text>
+            </View>
+          </GradientCard>
 
-          {/* ── Optimal sleep + protein ────────────────────────── */}
           <View style={styles.optimalRow}>
-            <AnimatedCard delay={120} padding={18} style={styles.optimalCard}>
-              <View style={[styles.iconTile, { backgroundColor: P.sleepSoft }]}>
-                <Ionicons name="moon" size={16} color={P.sleep} />
-              </View>
-              <Text style={[styles.optimalLabel, { color: P.textFaint }]}>OPTIMAL SLEEP</Text>
-              <Text style={[styles.optimalValue, { color: P.text }]}>
-                {OPTIMAL_SLEEP.hours}
-                <Text style={[styles.optimalUnit, { color: P.textFaint }]}>h </Text>
-                {OPTIMAL_SLEEP.minutes}
-                <Text style={[styles.optimalUnit, { color: P.textFaint }]}>m</Text>
-              </Text>
-              <Text style={[styles.optimalNote, { color: P.textDim }]}>
-                {OPTIMAL_SLEEP.note}
-              </Text>
-            </AnimatedCard>
-
-            <AnimatedCard delay={160} padding={18} style={styles.optimalCard}>
-              <View style={[styles.iconTile, { backgroundColor: P.proteinSoft }]}>
-                <Ionicons name="fitness" size={16} color={P.protein} />
-              </View>
-              <Text style={[styles.optimalLabel, { color: P.textFaint }]}>OPTIMAL PROTEIN</Text>
-              <Text style={[styles.optimalValue, { color: P.text }]}>
-                {OPTIMAL_PROTEIN.grams}
-                <Text style={[styles.optimalUnit, { color: P.textFaint }]}>g</Text>
-              </Text>
-              <Text style={[styles.optimalNote, { color: P.textDim }]}>
-                {OPTIMAL_PROTEIN.note}
-              </Text>
-            </AnimatedCard>
+            <OptimalMetricCard
+              cardVariant="insight"
+              accent={{
+                ...getCardAccent('insight', P.isDark),
+                iconBg: P.sleep,
+                iconSoft: P.sleepSoft,
+              }}
+              icon="moon-outline"
+              palette={cardPalette}
+              delay={120}
+              label="Optimal sleep"
+              value={`${OPTIMAL_SLEEP.hours}h ${OPTIMAL_SLEEP.minutes}m`}
+              note={OPTIMAL_SLEEP.note}
+              P={P}
+            />
+            <OptimalMetricCard
+              cardVariant="protein"
+              palette={cardPalette}
+              delay={160}
+              label="Optimal protein"
+              value={`${OPTIMAL_PROTEIN.grams}g`}
+              note={OPTIMAL_PROTEIN.note}
+              P={P}
+            />
           </View>
 
-          {/* ── Training: best vs worst ────────────────────────── */}
-          <AnimatedCard delay={220}>
-            <Text style={[styles.cardTitle, { color: P.text }]}>Training days</Text>
-            <Text style={[styles.cardSub, { color: P.textFaint }]}>
-              Across 30 days of logged workouts
-            </Text>
-
-            <View style={{ marginTop: 14 }}>
+          <GradientCard variant="workouts" palette={cardPalette} delay={220}>
+            <View style={[CARD_PAD, { paddingTop: 16 }]}>
+              <MirrorSectionHeader
+                accent={getCardAccent('workouts', P.isDark)}
+                icon="barbell-outline"
+                label="Training days"
+                meta="Across 30 days of logged workouts"
+                textDim={P.textDim}
+                textFaint={P.textFaint}
+              />
               <TrainingRow
                 variant="best"
                 day={TRAINING.best.day}
@@ -156,143 +172,153 @@ export default function MirrorScreen() {
                 reason={TRAINING.worst.reason}
               />
             </View>
-          </AnimatedCard>
+          </GradientCard>
 
-          {/* ── Strongest correlation ──────────────────────────── */}
-          <AnimatedCard delay={280}>
-            <View style={styles.correlHead}>
-              <View style={[styles.iconTile, { backgroundColor: P.sleepSoft }]}>
-                <Ionicons name="git-network" size={16} color={P.sleep} />
-              </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={[styles.miniLabel, { color: P.sleep }]}>STRONGEST CORRELATION</Text>
-                <Text style={[styles.correlMeta, { color: P.textFaint }]}>
-                  {Math.round(STRONGEST.strength * 100)}% confidence · 30-day window
-                </Text>
-              </View>
-            </View>
-
-            <Text style={[styles.correlTitle, { color: P.text }]}>
-              {STRONGEST.label}
-            </Text>
-
-            <View style={[styles.strengthTrack, { backgroundColor: P.sunken }]}>
-              <View
-                style={[
-                  styles.strengthFill,
-                  { width: `${STRONGEST.strength * 100}%`, backgroundColor: P.sleep },
-                ]}
+          <GradientCard variant="insight" palette={cardPalette} delay={280}>
+            <View style={[CARD_PAD, { paddingTop: 16 }]}>
+              <MirrorSectionHeader
+                accent={{
+                  ...getCardAccent('insight', P.isDark),
+                  iconBg: P.sleep,
+                  iconSoft: P.sleepSoft,
+                }}
+                icon="git-network-outline"
+                label="Strongest correlation"
+                meta={`${Math.round(STRONGEST.strength * 100)}% confidence · 30-day window`}
+                textDim={P.textDim}
+                textFaint={P.textFaint}
               />
-            </View>
-
-            <Text style={[styles.correlCaption, { color: P.textFaint }]}>
-              Analysed by RIS · {CORRELATIONS.length} confirmed correlations
-            </Text>
-
-            <View style={{ marginTop: 14, gap: 10 }}>
-              {CORRELATIONS.map((c, i) => {
-                const tint = P[c.tint];
-                const soft = P[`${c.tint}Soft` as keyof ReturnType<typeof usePalette>] as string;
-                return (
-                  <View key={i} style={styles.correlRow}>
-                    <View style={[styles.correlIcon, { backgroundColor: soft }]}>
-                      <Ionicons name={c.icon} size={12} color={tint} />
-                    </View>
-                    <Text style={[styles.correlRowLabel, { color: P.text }]} numberOfLines={1}>
-                      {c.label}
-                    </Text>
-                    <View style={[styles.correlBar, { backgroundColor: P.sunken }]}>
-                      <View
-                        style={{
-                          width:           `${c.strength * 100}%`,
-                          height:          '100%',
-                          backgroundColor: tint,
-                          opacity:         c.direction === 'negative' ? 0.5 : 1,
-                          borderRadius:    3,
-                        }}
-                      />
-                    </View>
-                    <Text style={[styles.correlPct, { color: P.textDim }]}>
-                      {Math.round(c.strength * 100)}%
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          </AnimatedCard>
-
-          {/* ── Biggest improvement ────────────────────────────── */}
-          <AnimatedCard delay={340} style={{ overflow: 'hidden' }}>
-            <View pointerEvents="none" style={[styles.glow, { backgroundColor: P.proteinSoft, top: -60, right: -60 }]} />
-
-            <View style={styles.improveHead}>
-              <View style={[styles.iconTile, { backgroundColor: P.proteinSoft }]}>
-                <Ionicons name="trophy" size={16} color={P.protein} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.miniLabel, { color: P.protein }]}>BIGGEST IMPROVEMENT</Text>
-                <Text style={[styles.improveMeta, { color: P.textFaint }]}>vs. previous 30-day window</Text>
-              </View>
-            </View>
-
-            <View style={styles.improveBigRow}>
-              <Text style={[styles.improveTitle, { color: P.text }]}>{BIGGEST_IMPROVEMENT.metric}</Text>
-              <View style={styles.improveDeltaBlock}>
-                <Text style={[styles.improveFrom, { color: P.textFaint }]}>
-                  {BIGGEST_IMPROVEMENT.from}{BIGGEST_IMPROVEMENT.unit}
-                </Text>
-                <Ionicons name="arrow-forward" size={14} color={P.textFaint} />
-                <Text style={[styles.improveTo, { color: P.protein }]}>
-                  {BIGGEST_IMPROVEMENT.to}{BIGGEST_IMPROVEMENT.unit}
-                </Text>
-              </View>
-            </View>
-
-            {/* mini grid of other improvements */}
-            <View style={styles.improveGrid}>
-              {IMPROVEMENTS.filter(m => m.metric !== BIGGEST_IMPROVEMENT.metric).map((m, i) => (
+              <Text style={[styles.correlTitle, { color: P.text }]}>
+                {STRONGEST.label}
+              </Text>
+              <View style={[styles.strengthTrack, { backgroundColor: P.hair }]}>
                 <View
-                  key={m.metric}
                   style={[
-                    styles.improveCell,
-                    { borderColor: P.hair },
-                    i < 2 && styles.improveCellBottomBorder,
-                    i % 2 === 0 && styles.improveCellRightBorder,
+                    styles.strengthFill,
+                    {
+                      width: `${STRONGEST.strength * 100}%`,
+                      backgroundColor: P.sleep,
+                    },
                   ]}
-                >
-                  <Text style={[styles.improveCellLabel, { color: P.textFaint }]}>
-                    {m.metric.toUpperCase()}
-                  </Text>
-                  <View style={styles.improveCellRow}>
-                    <Text style={[styles.improveCellFrom, { color: P.textFaint }]}>
-                      {m.from}
-                    </Text>
-                    <Ionicons name="arrow-forward" size={10} color={P.textFaint} />
-                    <Text style={[styles.improveCellTo, { color: P.text }]}>
-                      {m.to}
-                      <Text style={{ color: P.textFaint, fontSize: 11 }}>{m.unit}</Text>
-                    </Text>
-                  </View>
-                </View>
-              ))}
+                />
+              </View>
+              <Text style={[styles.correlCaption, { color: P.textFaint }]}>
+                Analysed by RIS · {CORRELATIONS.length} confirmed correlations
+              </Text>
+              <View style={{ marginTop: 14, gap: 10 }}>
+                {CORRELATIONS.map((c, i) => {
+                  const tint = P[c.tint];
+                  const soft = P[`${c.tint}Soft` as keyof typeof P] as string;
+                  return (
+                    <View key={i} style={styles.correlRow}>
+                      <View style={[styles.correlIcon, { backgroundColor: soft }]}>
+                        <Ionicons name={c.icon} size={12} color={tint} />
+                      </View>
+                      <Text
+                        style={[styles.correlRowLabel, { color: P.text }]}
+                        numberOfLines={1}
+                      >
+                        {c.label}
+                      </Text>
+                      <View style={[styles.correlBar, { backgroundColor: P.hair }]}>
+                        <View
+                          style={{
+                            width: `${c.strength * 100}%`,
+                            height: '100%',
+                            backgroundColor: tint,
+                            opacity: c.direction === 'negative' ? 0.5 : 1,
+                            borderRadius: 3,
+                          }}
+                        />
+                      </View>
+                      <Text style={[styles.correlPct, { color: P.textDim }]}>
+                        {Math.round(c.strength * 100)}%
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
             </View>
-          </AnimatedCard>
+          </GradientCard>
 
-          {/* ── Share + save ───────────────────────────────────── */}
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
-            <Pressable style={({ pressed }) => [
-              styles.secondaryCta,
-              { borderColor: P.cardEdge, backgroundColor: P.card },
-              pressed && { opacity: 0.85 },
-            ]}>
+          <GradientCard variant="protein" palette={cardPalette} delay={340}>
+            <View style={[CARD_PAD, { paddingTop: 16 }]}>
+              <MirrorSectionHeader
+                accent={getCardAccent('protein', P.isDark)}
+                icon="trophy-outline"
+                label="Biggest improvement"
+                meta="vs. previous 30-day window"
+                textDim={P.textDim}
+                textFaint={P.textFaint}
+              />
+              <View style={styles.improveBigRow}>
+                <Text style={[styles.improveTitle, { color: P.text }]}>
+                  {BIGGEST_IMPROVEMENT.metric}
+                </Text>
+                <View style={styles.improveDeltaBlock}>
+                  <Text style={[styles.improveFrom, { color: P.textFaint }]}>
+                    {BIGGEST_IMPROVEMENT.from}
+                    {BIGGEST_IMPROVEMENT.unit}
+                  </Text>
+                  <Ionicons name="arrow-forward" size={14} color={P.textFaint} />
+                  <Text style={[styles.improveTo, { color: P.protein }]}>
+                    {BIGGEST_IMPROVEMENT.to}
+                    {BIGGEST_IMPROVEMENT.unit}
+                  </Text>
+                </View>
+              </View>
+              <View style={[styles.improveGrid, { borderColor: P.hair }]}>
+                {IMPROVEMENTS.filter((m) => m.metric !== BIGGEST_IMPROVEMENT.metric).map(
+                  (m, i) => (
+                    <View
+                      key={m.metric}
+                      style={[
+                        styles.improveCell,
+                        i < 2 && styles.improveCellBottomBorder,
+                        i % 2 === 0 && styles.improveCellRightBorder,
+                        { borderColor: P.hair },
+                      ]}
+                    >
+                      <Text style={[styles.improveCellLabel, { color: P.textFaint }]}>
+                        {m.metric.toUpperCase()}
+                      </Text>
+                      <View style={styles.improveCellRow}>
+                        <Text style={[styles.improveCellFrom, { color: P.textFaint }]}>
+                          {m.from}
+                        </Text>
+                        <Ionicons name="arrow-forward" size={10} color={P.textFaint} />
+                        <Text style={[styles.improveCellTo, { color: P.text }]}>
+                          {m.to}
+                          <Text style={{ color: P.textFaint, fontSize: 11 }}>
+                            {m.unit}
+                          </Text>
+                        </Text>
+                      </View>
+                    </View>
+                  ),
+                )}
+              </View>
+            </View>
+          </GradientCard>
+
+          <View style={styles.ctaRow}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.secondaryCta,
+                { borderColor: P.cardEdge, backgroundColor: P.card },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
               <Ionicons name="bookmark-outline" size={16} color={P.text} />
               <Text style={[styles.secondaryCtaText, { color: P.text }]}>Save</Text>
             </Pressable>
-            <Pressable style={({ pressed }) => [
-              styles.primaryCta,
-              { backgroundColor: P.fat },
-              pressed && { opacity: 0.92, transform: [{ scale: 0.99 }] },
-            ]}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.primaryCta,
+                { backgroundColor: insightAccent.iconBg },
+                pressed && { opacity: 0.92 },
+              ]}
+            >
               <Ionicons name="share-outline" size={16} color="#fff" />
               <Text style={styles.primaryCtaText}>Share mirror</Text>
             </Pressable>
@@ -300,6 +326,53 @@ export default function MirrorScreen() {
         </View>
       </ScrollView>
     </View>
+  );
+}
+
+function OptimalMetricCard({
+  cardVariant,
+  accent: accentProp,
+  icon: iconProp,
+  palette,
+  delay,
+  label,
+  value,
+  note,
+  P,
+}: {
+  cardVariant: CardAccentVariant;
+  accent?: CardAccent;
+  icon?: IoniconName;
+  palette: { card: string; cardEdge: string; isDark: boolean };
+  delay: number;
+  label: string;
+  value: string;
+  note: string;
+  P: ReturnType<typeof usePalette>;
+}) {
+  const accent = accentProp ?? getCardAccent(cardVariant, P.isDark);
+  const icon: IoniconName =
+    iconProp ?? (cardVariant === 'protein' ? 'nutrition-outline' : 'sparkles');
+
+  return (
+    <GradientCard
+      variant={cardVariant}
+      palette={palette}
+      delay={delay}
+      style={styles.optimalCard}
+    >
+      <View style={[CARD_PAD, { paddingTop: 14 }]}>
+        <MirrorSectionHeader
+          accent={accent}
+          icon={icon}
+          label={label}
+          textDim={P.textDim}
+          textFaint={P.textFaint}
+        />
+        <Text style={[styles.optimalValue, { color: P.text }]}>{value}</Text>
+        <Text style={[styles.optimalNote, { color: P.textDim }]}>{note}</Text>
+      </View>
+    </GradientCard>
   );
 }
 
@@ -313,16 +386,19 @@ function TrainingRow({
 }) {
   const P     = usePalette();
   const color = variant === 'best' ? P.protein : P.danger;
-  const soft  = variant === 'best' ? P.proteinSoft : P.dangerSoft;
+
+  const accent = getCardAccent(variant === 'best' ? 'protein' : 'calories', P.isDark);
 
   return (
     <View style={styles.trainRow}>
-      <View style={[styles.trainTile, { backgroundColor: soft }]}>
-        <Ionicons
-          name={variant === 'best' ? 'trending-up' : 'trending-down'}
-          size={16}
-          color={color}
-        />
+      <View style={[styles.trainIconRing, { backgroundColor: accent.iconSoft }]}>
+        <View style={[styles.trainIconBox, { backgroundColor: accent.iconBg }]}>
+          <Ionicons
+            name={variant === 'best' ? 'trending-up' : 'trending-down'}
+            size={16}
+            color="#FFF"
+          />
+        </View>
       </View>
       <View style={{ flex: 1, gap: 3 }}>
         <Text style={[styles.trainTopLine, { color: P.textFaint }]}>
@@ -351,24 +427,18 @@ const styles = StyleSheet.create({
     borderWidth:    StyleSheet.hairlineWidth,
   },
 
-  glow: {
-    position:     'absolute',
-    width:        240,
-    height:       240,
-    borderRadius: 120,
-  },
-
   rangeHead: {
     flexDirection: 'row',
     alignItems:    'center',
-    gap:           10,
+    flexWrap:      'wrap',
+    gap:           8,
   },
   rangePill: {
     flexDirection:     'row',
     alignItems:        'center',
     gap:               6,
     paddingHorizontal: 10,
-    paddingVertical:   5,
+    paddingVertical:   6,
     borderRadius:      999,
   },
   rangeText: {
@@ -376,35 +446,13 @@ const styles = StyleSheet.create({
     fontWeight:    '800',
     letterSpacing: 1.2,
   },
-  aiBadge: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               4,
-    paddingHorizontal: 8,
-    paddingVertical:   4,
-    borderRadius:      8,
-    marginLeft:        'auto',
-  },
-  aiBadgeText: {
-    fontSize:      9,
-    fontWeight:    '800',
-    letterSpacing: 0.6,
-  },
 
-  // ─── Quote ──
-  quoteMark: {
-    fontSize:      56,
-    fontWeight:    '800',
-    lineHeight:    52,
-    marginTop:     -10,
-    marginBottom:  -18,
-  },
   quoteBody: {
-    fontSize:      17,
+    fontSize:      16,
     fontWeight:    '600',
-    letterSpacing: -0.3,
-    lineHeight:    25,
-    marginTop:     14,
+    letterSpacing: -0.25,
+    lineHeight:    24,
+    marginTop:     12,
   },
   quoteAttrib: {
     fontSize:   11,
@@ -420,54 +468,36 @@ const styles = StyleSheet.create({
   },
   optimalCard: {
     flex: 1,
-    gap:  8,
-  },
-  iconTile: {
-    width: 36, height: 36, borderRadius: 12,
-    alignItems:     'center',
-    justifyContent: 'center',
-  },
-  optimalLabel: {
-    fontSize:      9,
-    fontWeight:    '800',
-    letterSpacing: 1.2,
-    marginTop:     2,
+    minWidth: 0,
   },
   optimalValue: {
-    fontSize:      28,
+    fontSize:      26,
     fontWeight:    '800',
-    letterSpacing: -1.0,
-  },
-  optimalUnit: {
-    fontSize:   14,
-    fontWeight: '600',
+    letterSpacing: -0.8,
+    marginTop:     10,
   },
   optimalNote: {
-    fontSize:   11,
+    fontSize:   12,
     fontWeight: '500',
-    lineHeight: 16,
+    lineHeight: 17,
+    marginTop:  4,
   },
 
-  // ─── Training ──
-  cardTitle: {
-    fontSize:      16,
-    fontWeight:    '800',
-    letterSpacing: -0.4,
-    marginBottom:  2,
-  },
-  cardSub: {
-    fontSize:   11,
-    fontWeight: '500',
-  },
   trainRow: {
     flexDirection: 'row',
     alignItems:    'center',
     gap:           14,
     paddingVertical: 14,
   },
-  trainTile: {
-    width: 40, height: 40, borderRadius: 12,
-    alignItems:     'center',
+  trainIconRing: {
+    padding: 4,
+    borderRadius: 14,
+  },
+  trainIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
     justifyContent: 'center',
   },
   trainTopLine: {
@@ -491,26 +521,10 @@ const styles = StyleSheet.create({
     letterSpacing: -1.2,
   },
   trainDivider: {
-    height:     StyleSheet.hairlineWidth,
-    marginLeft: 54,
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 64,
   },
 
-  // ─── Correlations ──
-  correlHead: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           12,
-    marginBottom:  12,
-  },
-  miniLabel: {
-    fontSize:      10,
-    fontWeight:    '800',
-    letterSpacing: 1.4,
-  },
-  correlMeta: {
-    fontSize:   11,
-    fontWeight: '500',
-  },
   correlTitle: {
     fontSize:      16,
     fontWeight:    '700',
@@ -560,18 +574,6 @@ const styles = StyleSheet.create({
     textAlign:  'right',
   },
 
-  // ─── Improvements ──
-  improveHead: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           12,
-    marginBottom:  14,
-  },
-  improveMeta: {
-    fontSize:   11,
-    fontWeight: '500',
-    marginTop:  1,
-  },
   improveBigRow: {
     flexDirection: 'row',
     alignItems:    'center',
@@ -601,7 +603,16 @@ const styles = StyleSheet.create({
 
   improveGrid: {
     flexDirection: 'row',
-    flexWrap:      'wrap',
+    flexWrap: 'wrap',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginTop: 4,
+  },
+  ctaRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
   },
   improveCell: {
     width:          '50%',

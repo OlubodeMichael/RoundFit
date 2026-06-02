@@ -30,6 +30,11 @@ import { Image } from 'expo-image';
 import { persistCameraPhoto, prunePhotoCache } from '@/utils/photo-cache';
 import { useToast } from '@/components/ui/Toast';
 import { DayNavigator, usePalette, type Palette } from '@/lib/log-theme';
+import {
+  MEAL_ROW_MIN_HEIGHT,
+  mealLogThumbStyles,
+  mealRowDividerInset,
+} from '@/lib/meal-log-row';
 
 type IoniconsName = ComponentProps<typeof Ionicons>['name'];
 type CameraMode = 'photo' | 'scan';
@@ -864,10 +869,7 @@ function MealGroup({
       <View style={{ borderRadius: 24, overflow: 'hidden' }}>
         {/* Header */}
         <View style={[styles.groupHead, { borderBottomColor: P.hair }]}>
-          <View style={[styles.groupIcon, { backgroundColor: accentSoft }]}>
-            <Text style={{ fontSize: 18 }}>{meta.emoji}</Text>
-          </View>
-          <View style={{ flex: 1, gap: 2 }}>
+          <View style={styles.groupHeadCopy}>
             <Text style={[styles.groupTitle, { color: P.text }]}>{meta.title}</Text>
             <Text style={[styles.groupSub, { color: P.textFaint }]}>
               {items.length === 0
@@ -966,21 +968,23 @@ function MealRow({
         onPress={onEdit}
         style={({ pressed }) => [styles.mealRow, { backgroundColor: P.card }, pressed && { backgroundColor: P.sunken }]}
       >
-        <View style={[styles.thumb, { backgroundColor: accentSoft, overflow: 'hidden' }]}>
+        <View style={[mealLogThumbStyles.thumb, { backgroundColor: accentSoft }]}>
           {item.imageUrl ? (
             <Image
               source={item.imageUrl}
-              style={{ width: '100%', height: '100%' }}
+              style={mealLogThumbStyles.thumbImage}
               contentFit="cover"
               cachePolicy="memory-disk"
               transition={150}
             />
           ) : (
-            <Text style={{ fontSize: 18 }}>{emoji}</Text>
+            <Text style={mealLogThumbStyles.emoji} allowFontScaling={false}>
+              {emoji}
+            </Text>
           )}
         </View>
 
-        <View style={{ flex: 1, gap: 3 }}>
+        <View style={styles.mealCopy}>
           <Text style={[styles.mealName, { color: P.text }]} numberOfLines={1}>
             {firstFood}
           </Text>
@@ -998,8 +1002,10 @@ function MealRow({
           </Text>
         </View>
 
-        <View style={{ alignItems: 'flex-end', gap: 1 }}>
-          <Text style={[styles.mealCals, { color: P.text }]}>{item.cals}</Text>
+        <View style={styles.mealStat}>
+          <Text style={[styles.mealCals, { color: P.text }]}>
+            {item.cals.toLocaleString()}
+          </Text>
           <Text style={[styles.mealUnit, { color: P.textFaint }]}>kcal</Text>
         </View>
       </Pressable>
@@ -1137,9 +1143,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18, paddingVertical: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  groupIcon: {
-    width: 36, height: 36, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
+  groupHeadCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
   },
   groupTitle: {
     fontSize: 15, fontWeight: '800', letterSpacing: -0.3,
@@ -1156,7 +1163,7 @@ const styles = StyleSheet.create({
   // Meal row
   rowDivider: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 70, // 18 (row padding) + 38 (thumb) + 14 (gap) = under text
+    marginLeft: mealRowDividerInset(18),
   },
   mealRow: {
     flexDirection: 'row',
@@ -1164,22 +1171,40 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingHorizontal: 18,
     paddingVertical: 14,
+    minHeight: MEAL_ROW_MIN_HEIGHT,
   },
-  thumb: {
-    width: 38, height: 38, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
+  mealCopy: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+    justifyContent: 'center',
   },
   mealName: {
-    fontSize: 14, fontWeight: '700', letterSpacing: -0.2,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.25,
+    lineHeight: 20,
   },
   mealMeta: {
-    fontSize: 11, fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  mealStat: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 3,
   },
   mealCals: {
-    fontSize: 16, fontWeight: '800', letterSpacing: -0.4,
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    fontVariant: ['tabular-nums'],
   },
   mealUnit: {
-    fontSize: 9, fontWeight: '700', letterSpacing: 0.8,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
   },
 
   // Delete action (revealed on swipe)

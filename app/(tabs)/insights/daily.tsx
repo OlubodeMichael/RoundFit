@@ -14,6 +14,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ComponentProps } from 'react';
 
 import { AnimatedCard, DayNavigator, usePalette, useScreenPadding } from '@/lib/log-theme';
+import { DailyGoalsSummaryCard } from '@/components/insights/DailyGoalsSummaryCard';
+import { DailyMetricsCard } from '@/components/insights/DailyMetricsCard';
+import { GradientCard } from '@/components/ui/GradientCard';
 import { useDailyInsights } from '@/hooks/use-daily-insights';
 import { useFood } from '@/context/food-context';
 import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
@@ -196,7 +199,7 @@ export default function DailyInsightScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: P.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
         <Ionicons name="cloud-offline-outline" size={36} color={P.textFaint} />
-        <Text style={{ color: P.textDim, fontSize: 14, textAlign: 'center', marginTop: 12, lineHeight: 20 }}>{error}</Text>
+        <Text style={{ color: P.textDim, fontSize: 16, textAlign: 'center', marginTop: 12, lineHeight: 24 }}>{error}</Text>
         <Pressable
           onPress={refresh}
           style={({ pressed }) => [
@@ -204,7 +207,7 @@ export default function DailyInsightScreen() {
             pressed && { opacity: 0.8 },
           ]}
         >
-          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Try again</Text>
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Try again</Text>
         </Pressable>
       </View>
     );
@@ -301,93 +304,42 @@ export default function DailyInsightScreen() {
             onPrev={() => goTo(prevDay(date))}
             onNext={() => goTo(nextDay(date))}
             accentColor={P.calories}
+            large
           />
           <View style={{ width: 40 }} />
         </View>
 
         <View style={styles.stack}>
 
-          {/* ── Goals summary ────────────────────────────── */}
-          <AnimatedCard delay={60} padding={24}>
-            <Text style={[styles.dateLabel, { color: P.textFaint }]}>{formatCardDate(date)}</Text>
+          <DailyGoalsSummaryCard
+            P={P}
+            delay={60}
+            large
+            dateLabel={formatCardDate(date)}
+            goalsMetCount={goalsMetCount}
+            miniGoals={miniGoals}
+          />
 
-            <View style={styles.goalsRow}>
-              <Text style={[styles.goalsBigNum, { color: P.text }]}>{goalsMetCount}</Text>
-              <Text style={[styles.goalsOfText, { color: P.text }]}> of 4 goals met</Text>
-            </View>
+          <DailyMetricsCard P={P} delay={140} metrics={metrics} />
 
-            <View style={styles.miniGoalsRow}>
-              {miniGoals.map(g => (
-                <View key={g.label} style={styles.miniGoalCol}>
-                  <View style={[styles.miniGoalTrack, { backgroundColor: P.sunken }]}>
-                    {g.pct > 0 && (
-                      <View style={[
-                        styles.miniGoalFill,
-                        { width: `${g.pct}%`, backgroundColor: g.met ? P.calories : P.text },
-                      ]} />
-                    )}
-                  </View>
-                  <Text style={[styles.miniGoalLabel, {
-                    color:      g.met ? P.text : P.textFaint,
-                    fontWeight: g.met ? '700' : '400',
-                  }]}>{g.label}</Text>
-                </View>
-              ))}
-            </View>
-          </AnimatedCard>
-
-          {/* ── Metric rows ──────────────────────────────── */}
-          <AnimatedCard delay={140} padding={0}>
-            {metrics.map((m, i) => (
-              <View key={m.key}>
-                {i > 0 && <View style={[styles.divider, { backgroundColor: P.hair }]} />}
-                <View style={styles.metricRow}>
-
-                  <View style={styles.metricTopRow}>
-                    <View style={styles.metricLabelRow}>
-                      <Ionicons name={m.icon} size={16} color={P.textFaint} />
-                      <Text style={[styles.metricName, { color: P.text }]}>{m.label}</Text>
-                    </View>
-                    <Text style={[styles.metricValueText, { color: P.text }]}>
-                      {m.value}
-                      {!m.noData && (
-                        <Text style={[styles.metricTargetText, { color: P.textFaint }]}> / {m.target}</Text>
-                      )}
-                    </Text>
-                  </View>
-
-                  {!m.noData && (
-                    <View style={styles.metricBarRow}>
-                      <View style={[styles.metricBarTrack, { backgroundColor: P.sunken, flex: 1 }]}>
-                        <View style={[styles.metricBarFill, {
-                          width: `${m.pct}%`,
-                          backgroundColor: m.met ? P.calories : P.text,
-                        }]} />
-                      </View>
-                      <Text style={[styles.metricPct, { color: m.met ? P.calories : P.textFaint }]}>
-                        {Math.round(m.pct)}%
-                      </Text>
-                    </View>
-                  )}
-
-                </View>
-              </View>
-            ))}
-          </AnimatedCard>
-
-          {/* ── Empty state ──────────────────────────────── */}
-          {day?.is_partial && (
-            <AnimatedCard delay={220}>
+          {day?.is_partial ? (
+            <GradientCard
+              variant="insightGrey"
+              palette={{ card: P.card, cardEdge: P.cardEdge, isDark: P.isDark }}
+              corner="top-right"
+              delay={220}
+              contentStyle={{ paddingVertical: 24, paddingHorizontal: 20 }}
+            >
               <View style={styles.emptyState}>
-                <Ionicons name="journal-outline" size={28} color={P.textFaint} />
+                <Ionicons name="journal-outline" size={32} color={P.textFaint} />
                 <Text style={[styles.emptyText, { color: P.textDim }]}>
                   {isToday
                     ? 'No meals logged yet today. Start logging to see your daily score.'
                     : 'No data was logged for this day.'}
                 </Text>
               </View>
-            </AnimatedCard>
-          )}
+            </GradientCard>
+          ) : null}
 
         </View>
       </ScrollView>
@@ -412,31 +364,7 @@ const styles = StyleSheet.create({
     gap:               16,
   },
 
-  // ── Goals summary ──
-  dateLabel:     { fontSize: 13, fontWeight: '500', letterSpacing: 0.6, marginBottom: 16 },
-  goalsRow:      { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 28 },
-  goalsBigNum:   { fontSize: 72, fontWeight: '800', letterSpacing: -3, lineHeight: 74 },
-  goalsOfText:   { fontSize: 18, fontWeight: '500', paddingBottom: 12 },
-  miniGoalsRow:  { flexDirection: 'row', gap: 12 },
-  miniGoalCol:   { flex: 1, gap: 8 },
-  miniGoalTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
-  miniGoalFill:  { height: '100%', borderRadius: 2 },
-  miniGoalLabel: { fontSize: 11, letterSpacing: 0.2 },
-
-  // ── Metric rows ──
-  divider:          { height: StyleSheet.hairlineWidth },
-  metricRow:        { paddingHorizontal: 22, paddingVertical: 20, gap: 10 },
-  metricTopRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  metricLabelRow:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  metricName:       { fontSize: 16, fontWeight: '600' },
-  metricValueText:  { fontSize: 15, fontWeight: '700' },
-  metricTargetText: { fontSize: 14, fontWeight: '400' },
-  metricBarRow:     { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  metricBarTrack:   { height: 5, borderRadius: 3, overflow: 'hidden' },
-  metricBarFill:    { height: '100%', borderRadius: 3 },
-  metricPct:        { fontSize: 13, fontWeight: '600', minWidth: 38, textAlign: 'right' },
-
   // ── Empty state ──
   emptyState: { alignItems: 'center', paddingVertical: 24, gap: 12 },
-  emptyText:  { fontSize: 14, fontWeight: '400', textAlign: 'center', lineHeight: 22 },
+  emptyText:  { fontSize: 16, fontWeight: '400', textAlign: 'center', lineHeight: 24 },
 });

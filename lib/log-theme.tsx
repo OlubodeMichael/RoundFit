@@ -444,25 +444,29 @@ export function DayNavigator({
   onPrev,
   onNext,
   accentColor,
+  large = false,
 }: {
   label:       string;
   isToday:     boolean;
   onPrev:      () => void;
   onNext:      () => void;
   accentColor?: string;
+  /** Slightly larger label and arrows (e.g. insights daily). */
+  large?: boolean;
 }) {
   const P      = usePalette();
   const accent = accentColor ?? P.calories;
+  const arrowSize = large ? 18 : 16;
 
   return (
     <View style={[dn.pill, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
       <TouchableOpacity onPress={onPrev} hitSlop={8} activeOpacity={0.6} style={dn.arrow}>
-        <Ionicons name="chevron-back" size={16} color={P.textDim} />
+        <Ionicons name="chevron-back" size={arrowSize} color={P.textDim} />
       </TouchableOpacity>
 
       <View style={dn.labelWrap}>
         {isToday && <View style={[dn.dot, { backgroundColor: accent }]} />}
-        <Text style={[dn.label, { color: P.text }]}>{label}</Text>
+        <Text style={[large ? dn.labelLarge : dn.label, { color: P.text }]}>{label}</Text>
       </View>
 
       <TouchableOpacity
@@ -472,7 +476,7 @@ export function DayNavigator({
         disabled={isToday}
         style={dn.arrow}
       >
-        <Ionicons name="chevron-forward" size={16} color={isToday ? P.cardEdge : P.textDim} />
+        <Ionicons name="chevron-forward" size={arrowSize} color={isToday ? P.cardEdge : P.textDim} />
       </TouchableOpacity>
     </View>
   );
@@ -510,6 +514,11 @@ const dn = StyleSheet.create({
   },
   label: {
     fontSize:      15,
+    fontWeight:    '700',
+    letterSpacing: -0.3,
+  },
+  labelLarge: {
+    fontSize:      17,
     fontWeight:    '700',
     letterSpacing: -0.3,
   },

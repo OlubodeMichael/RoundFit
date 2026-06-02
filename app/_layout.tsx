@@ -35,7 +35,7 @@ import "react-native-reanimated";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ToastProvider } from "@/components/ui/Toast";
-import { AuthProvider } from "@/context/auth-context";
+import { AuthProvider, hasActiveUserSession } from "@/context/auth-context";
 import { CheckinProvider } from "@/context/checkin-context";
 import { CycleProvider } from "@/context/cycle-context";
 import { EngineProvider } from "@/context/engine-context";
@@ -52,7 +52,6 @@ import { WeightProvider } from "@/context/weight-context";
 import { WorkoutProvider } from "@/context/workout-context";
 import { WorkoutSessionLiveActivityProvider } from "@/hooks/use-workout-session-live-activity";
 import { useAuth } from "@/hooks/use-auth";
-import { hasActiveUserSession } from "@/context/auth-context";
 import { useTheme } from "@/hooks/use-theme";
 
 export const unstable_settings = {

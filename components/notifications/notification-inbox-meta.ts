@@ -1,8 +1,9 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import type { ComponentProps } from 'react';
 
 import type { NotificationScreenKey } from '@/types/notification-inbox';
 
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
+type IoniconsName = ComponentProps<typeof Ionicons>['name'];
 
 interface NotificationMeta {
   icon: IoniconsName;
@@ -15,7 +16,7 @@ export const NOTIFICATION_INBOX_META: Record<NotificationScreenKey, Notification
   workout:  { icon: 'barbell-outline',     iconBg: '#34D399' },
   sleep:    { icon: 'moon-outline',        iconBg: '#818CF8' },
   summary:  { icon: 'stats-chart-outline', iconBg: '#60A5FA' },
-  water:    { icon: 'water-outline',         iconBg: '#0EA5E9' },
+  water:    { icon: 'water-outline',       iconBg: '#0EA5E9' },
 };
 
 export const DEFAULT_NOTIFICATION_META: NotificationMeta = {
