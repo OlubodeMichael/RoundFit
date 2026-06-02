@@ -172,8 +172,13 @@ export default function RevealScreen() {
   // Chart width = screen - horizontal padding (20×2) - card padding (16×2)
   const chartW = scrW - 72;
 
-  const calorieTarget = plan.calorieBudget;
-  const [displayCals, setDisplayCals] = useState(calorieTarget);
+  // Guard against any non-finite/zero budget so the hero never renders blank
+  // or "NaN" (e.g. if upstream params arrive malformed).
+  const calorieTarget =
+    Number.isFinite(plan.calorieBudget) && plan.calorieBudget > 0
+      ? Math.round(plan.calorieBudget)
+      : 0;
+  const [displayCals, setDisplayCals] = useState(0);
   const [chartReady, setChartReady]   = useState(false);
 
   // ── Animations ────────────────────────────────────────────────────────
@@ -248,8 +253,6 @@ export default function RevealScreen() {
     };
   }, [calorieTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const calorieDisplay = displayCals > 0 ? displayCals : calorieTarget;
-
   return (
     <View style={[s.root, { paddingTop: insets.top + 16 }]}>
       <ScrollView
@@ -278,9 +281,14 @@ export default function RevealScreen() {
         </Animated.View>
 
         {/* ── Hero number ──────────────────────────────────── */}
-        <Animated.View style={[s.heroBlock, { transform: [{ translateY: heroY }] }]}>
+        {/* Render the COUNTING value (grows from 0). Mounting the full target
+            number immediately under `adjustsFontSizeToFit` blanks the text on
+            iOS — growing from "0" avoids that. The fade-in hides the brief "0"
+            before the count starts; the 1200ms fallback guarantees the final
+            target shows even if the count interval never runs. */}
+        <Animated.View style={[s.heroBlock, { opacity: heroFade, transform: [{ translateY: heroY }] }]}>
           <Text style={s.calNumber} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
-            {calorieDisplay.toLocaleString()}
+            {displayCals.toLocaleString()}
           </Text>
           <Text style={s.calLabel}>kcal / day</Text>
         </Animated.View>
