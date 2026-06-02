@@ -3,6 +3,7 @@ import type { EnergyLevel } from '@/context/checkin-context';
 import type { SleepQuality } from '@/context/recovery-context';
 import type { WorkoutIntensity } from '@/context/workout-context';
 import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
+import { sleepDurationScore } from '@/utils/sleep-quality';
 import type {
   ComputedReadiness,
   FactorStatus,
@@ -129,17 +130,7 @@ export function computeSleepScore(input: SleepScoreInput): number | null {
 
   let durationScore = 50;
   if (hasDuration && sleep_hours !== null) {
-    if (sleep_hours >= 7 && sleep_hours <= 9) {
-      durationScore = 100;
-    } else if (sleep_hours < 5) {
-      durationScore = 20;
-    } else if (sleep_hours > 10) {
-      durationScore = 80;
-    } else if (sleep_hours < 7) {
-      durationScore = 20 + ((sleep_hours - 5) / 2) * 80;
-    } else {
-      durationScore = 100 - ((sleep_hours - 9) / 1) * 20;
-    }
+    durationScore = sleepDurationScore(sleep_hours);
   }
 
   if (!hasDeepRem) {

@@ -1,8 +1,6 @@
-import * as SecureStore from 'expo-secure-store';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import { Platform } from 'react-native';
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
+import { apiFetch } from '@/utils/api';
 
 function imagePickerRebuildHint(): string {
   if (Platform.OS === 'ios') {
@@ -27,34 +25,22 @@ function resolveAvatarUrl(body: UploadAvatarResponse): string | null {
 }
 
 async function uploadBase64(base64: string): Promise<string | null> {
-  const token = await SecureStore.getItemAsync('access_token');
-  const apiKey = process.env.EXPO_PUBLIC_API_KEY;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(apiKey ? { 'x-api-key': apiKey } : {}),
-  };
-
-  const res = await fetch(`${API_BASE}/auth/avatar`, {
+  const { ok, status, body } = await apiFetch('/auth/avatar', {
     method: 'POST',
-    headers,
     body: JSON.stringify({ base64Image: base64, mimeType: 'image/jpeg' }),
   });
 
-  if (!res.ok) {
+  if (!ok) {
     let msg = 'Something went wrong. Please try again.';
-    try {
-      const errBody = (await res.json()) as { error?: string };
-      // Only surface non-auth errors — auth errors are never the user's fault
-      if (errBody.error && res.status !== 401 && res.status !== 403) {
-        msg = errBody.error;
-      }
-    } catch { /* ignore */ }
+    const errBody = body as { error?: string };
+    // Only surface non-auth errors — auth errors are never the user's fault
+    if (errBody.error && status !== 401 && status !== 403) {
+      msg = errBody.error;
+    }
     throw new Error(msg);
   }
 
-  const body = (await res.json()) as UploadAvatarResponse;
-  return resolveAvatarUrl(body);
+  return resolveAvatarUrl(body as UploadAvatarResponse);
 }
 
 type ImagePickerModule = {
@@ -113,20 +99,12 @@ export async function takeAndUploadAvatar(): Promise<string | null> {
 }
 
 export async function deleteAvatar(): Promise<void> {
-  const token = await SecureStore.getItemAsync('access_token');
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+  const { ok, status, body } = await apiFetch('/auth/avatar', { method: 'DELETE' });
 
-  const res = await fetch(`${API_BASE}/auth/avatar`, { method: 'DELETE', headers });
-
-  if (!res.ok) {
-    let msg = `Delete failed (${res.status})`;
-    try {
-      const errBody = (await res.json()) as { error?: string };
-      if (errBody.error) msg = errBody.error;
-    } catch { /* ignore */ }
+  if (!ok) {
+    let msg = `Delete failed (${status})`;
+    const errBody = body as { error?: string };
+    if (errBody.error) msg = errBody.error;
     throw new Error(msg);
   }
 }
