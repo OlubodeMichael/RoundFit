@@ -1,22 +1,37 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import Svg, { Path, Circle } from 'react-native-svg';
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useRouter } from "expo-router";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import Svg, { Circle, Path } from "react-native-svg";
 
-import { AnimatedCard, usePalette } from '@/lib/log-theme';
-import type { ReadinessFactor } from '@/types/readiness';
-import { useHomeReadiness } from '@/hooks/use-home-readiness';
-import { useRecovery } from '@/hooks/use-recovery';
-import { useHealth } from '@/context/health-context';
-import { scoreTint, scoreSoft } from '@/components/recovery/recovery-trend-utils';
+import { GradientCard, getCardAccent } from "@/components/ui/GradientCard";
+import { scoreTint } from "@/components/recovery/recovery-trend-utils";
+import { useHealth } from "@/context/health-context";
+import { useHomeReadiness } from "@/hooks/use-home-readiness";
+import { useRecovery } from "@/hooks/use-recovery";
+import { usePalette } from "@/lib/log-theme";
+import type { ReadinessFactor } from "@/types/readiness";
 
-const G   = 88;
-const GC  = G / 2;
-const GR  = G * 0.41;
-const GSW = 7.5;
+const G = 80;
+const GC = G / 2;
+const GR = G * 0.41;
+const GSW = 7;
 const GAS = 225;
 const GAT = 270;
-const GH  = Math.round(G * 0.78);
+const GH = Math.round(G * 0.78);
+
+const HEADLINES: Record<string, string> = {
+  "Train hard": "Push it today",
+  Moderate: "Steady effort",
+  "Light workout": "Take it easy",
+  Rest: "Rest up today",
+};
+
+const LOAD_SHORT: Record<string, string> = {
+  "Train hard": "High",
+  Moderate: "Mod.",
+  "Light workout": "Light",
+  Rest: "Rest",
+};
 
 function degXY(deg: number) {
   const rad = deg * (Math.PI / 180);
@@ -29,60 +44,46 @@ function arc(start: number, span: number) {
   return `M${s.x.toFixed(2)} ${s.y.toFixed(2)} A${GR} ${GR} 0 ${span > 180 ? 1 : 0} 1 ${e.x.toFixed(2)} ${e.y.toFixed(2)}`;
 }
 
-const HEADLINES: Record<string, string> = {
-  'Train hard':    'Push it today',
-  'Moderate':      'Steady effort',
-  'Light workout': 'Take it easy',
-  'Rest':          'Rest up today',
-};
-
-const LOAD_SHORT: Record<string, string> = {
-  'Train hard':    'High',
-  'Moderate':      'Mod.',
-  'Light workout': 'Light',
-  'Rest':          'Rest',
-};
-
 function proteinGrams(factor: ReadinessFactor | undefined): string {
-  if (!factor?.value || factor.value === '—') return '–';
+  if (!factor?.value || factor.value === "—") return "–";
   const match = factor.value.match(/(\d+)\s*g/);
   if (match) return `${match[1]}g`;
   return factor.value.length > 8 ? factor.value.slice(0, 8) : factor.value;
 }
 
-interface StatColumnProps {
+interface StatCellProps {
   label: string;
   value: string;
-  unit?: string;
-  badge?: string | null;
-  badgeColor?: string;
+  detail?: string;
+  detailColor?: string;
   textColor: string;
   faintColor: string;
 }
 
-function StatColumn({
+function StatCell({
   label,
   value,
-  unit,
-  badge,
-  badgeColor,
+  detail,
+  detailColor,
   textColor,
   faintColor,
-}: StatColumnProps) {
+}: StatCellProps) {
   return (
     <View style={s.stat}>
       <Text style={[s.statLabel, { color: faintColor }]}>{label}</Text>
       <Text style={[s.statValue, { color: textColor }]} numberOfLines={1}>
         {value}
       </Text>
-      <Text style={[s.statUnit, { color: unit ? faintColor : 'transparent' }]} numberOfLines={1}>
-        {unit ?? ' '}
-      </Text>
       <Text
-        style={[s.statBadge, { color: badge != null ? (badgeColor ?? faintColor) : 'transparent' }]}
+        style={[
+          s.statDetail,
+          {
+            color: detail != null ? (detailColor ?? faintColor) : "transparent",
+          },
+        ]}
         numberOfLines={1}
       >
-        {badge ?? ' '}
+        {detail ?? " "}
       </Text>
     </View>
   );
@@ -94,52 +95,62 @@ export interface ReadinessWidgetProps {
    * `home` — local compute only (no recovery API bundle).
    * `passive` — show recovery context after Progress tab has loaded it.
    */
-  mode?: 'home' | 'passive';
+  mode?: "home" | "passive";
 }
 
-export function ReadinessWidget({ delay = 0, mode = 'passive' }: ReadinessWidgetProps) {
+export function ReadinessWidget({
+  delay = 0,
+  mode = "passive",
+}: ReadinessWidgetProps) {
   const router = useRouter();
   const P = usePalette();
   const homeDisplay = useHomeReadiness();
   const { display: recoveryDisplay, today } = useRecovery();
   const { today: healthToday } = useHealth();
 
-  const display = mode === 'home' ? homeDisplay : recoveryDisplay;
-
+  const display = mode === "home" ? homeDisplay : recoveryDisplay;
   const score = display.score;
   if (score === null) return null;
 
+  const accent = getCardAccent('readiness', P.isDark, { readinessScore: score });
+  const palette = { card: P.card, cardEdge: P.cardEdge, isDark: P.isDark };
   const ringColor = scoreTint(score, P);
-  const ringGlow  = scoreSoft(score, P);
+  const trackClr = P.isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)";
 
-  const TRACK_CLR = P.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.07)';
-
-  const sleepFactor = display.factors.find((f) => f.pillar === 'sleep');
-  const fuelFactor = display.factors.find((f) => f.pillar === 'nutrition');
+  const sleepFactor = display.factors.find((f) => f.pillar === "sleep");
+  const fuelFactor = display.factors.find((f) => f.pillar === "nutrition");
 
   const hrv = today?.hrv ?? healthToday?.hrv ?? null;
-  const rhr = today?.resting_heart_rate ?? healthToday?.resting_heart_rate ?? null;
+  const rhr =
+    today?.resting_heart_rate ?? healthToday?.resting_heart_rate ?? null;
   const hrvTxt = hrv != null ? `HRV ${Math.round(hrv)} ms` : null;
   const rhrTxt = rhr != null ? `RHR ${Math.round(rhr)} bpm` : null;
-  const subtitle = [hrvTxt, rhrTxt].filter(Boolean).join(' · ') || (display.reason ?? '');
+  const subtitle =
+    [hrvTxt, rhrTxt].filter(Boolean).join(" · ") || (display.reason ?? "");
 
   const headline = display.recommendation
     ? (HEADLINES[display.recommendation] ?? display.recommendation)
-    : '–';
+    : "–";
 
   const sleepHr = today?.sleep_hours ?? healthToday?.sleep_hours ?? null;
-  const sleepLbl = sleepHr != null
-    ? `${sleepHr % 1 === 0 ? sleepHr : sleepHr.toFixed(1)}h`
-    : (sleepFactor?.value ?? '–');
-  const sleepScr = display.sleepScore != null ? Math.round(display.sleepScore) : null;
+  const sleepLbl =
+    sleepHr != null
+      ? `${sleepHr % 1 === 0 ? sleepHr : sleepHr.toFixed(1)}h`
+      : (sleepFactor?.value ?? "–");
+  const sleepScr =
+    display.sleepScore != null ? Math.round(display.sleepScore) : null;
 
-  const loadLbl = display.recommendation ? (LOAD_SHORT[display.recommendation] ?? '–') : '–';
-  const strainScr = display.strainScore != null ? Math.round(display.strainScore) : null;
+  const loadLbl = display.recommendation
+    ? (LOAD_SHORT[display.recommendation] ?? "–")
+    : "–";
+  const strainScr =
+    display.strainScore != null ? Math.round(display.strainScore) : null;
 
   const fuelGrams = proteinGrams(fuelFactor);
   const fuelScr = fuelFactor != null ? Math.round(fuelFactor.score) : null;
-  const fuelBad = fuelFactor?.status === 'poor';
-  const fuelBadge = fuelScr != null ? (fuelBad ? `↓ ${fuelScr}` : String(fuelScr)) : null;
+  const fuelBad = fuelFactor?.status === "poor";
+  const fuelDetail =
+    fuelScr != null ? (fuelBad ? `↓ ${fuelScr}` : String(fuelScr)) : undefined;
 
   const fillDeg = (score / 100) * GAT;
   const trackD = arc(GAS, GAT);
@@ -147,33 +158,56 @@ export function ReadinessWidget({ delay = 0, mode = 'passive' }: ReadinessWidget
   const tipPt = fillDeg > 1 ? degXY(GAS + fillDeg) : null;
 
   return (
-    <AnimatedCard delay={delay} padding={0} style={{ overflow: 'hidden' }}>
+    <GradientCard
+      variant="readiness"
+      palette={palette}
+      accentOptions={{ readinessScore: score }}
+      delay={delay}
+    >
       <Pressable
-        onPress={() => router.push('/(tabs)/progress/recovery')}
-        style={({ pressed }) => [{ borderRadius: 24 }, pressed && { opacity: 0.88 }]}
+        onPress={() => router.push("/(tabs)/progress/recovery")}
+        accessibilityRole="button"
+        accessibilityLabel={`Readiness score ${score}, ${headline}`}
+        style={({ pressed }) => [pressed && s.pressed]}
       >
-        <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            top: -22,
-            right: -22,
-            width: 120,
-            height: 120,
-            borderRadius: 60,
-            backgroundColor: ringGlow,
-          }}
-        />
+        <View style={s.header}>
+          <View style={s.headerMain}>
+            <View style={[s.iconRing, { backgroundColor: accent.iconSoft }]}>
+              <View style={[s.iconBox, { backgroundColor: accent.iconBg }]}>
+                <Ionicons name="pulse" size={14} color="#FFF" />
+              </View>
+            </View>
+            <Text style={[s.headerLabel, { color: P.textDim }]}>Readiness</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
+        </View>
 
-        <View style={s.top}>
-          <View style={{ width: G, height: GH, overflow: 'hidden' }}>
-            <Svg width={G} height={G} style={{ position: 'absolute', top: 0 }}>
-              <Path d={trackD} fill="none" stroke={TRACK_CLR} strokeWidth={GSW} strokeLinecap="round" />
+        <View style={s.main}>
+          <View style={{ width: G, height: GH, overflow: "hidden" }}>
+            <Svg width={G} height={G} style={s.gaugeSvg}>
+              <Path
+                d={trackD}
+                fill="none"
+                stroke={trackClr}
+                strokeWidth={GSW}
+                strokeLinecap="round"
+              />
               {fillD != null && (
-                <Path d={fillD} fill="none" stroke={ringColor} strokeWidth={GSW} strokeLinecap="round" />
+                <Path
+                  d={fillD}
+                  fill="none"
+                  stroke={ringColor}
+                  strokeWidth={GSW}
+                  strokeLinecap="round"
+                />
               )}
               {tipPt != null && (
-                <Circle cx={tipPt.x} cy={tipPt.y} r={GSW / 2} fill={ringColor} />
+                <Circle
+                  cx={tipPt.x}
+                  cy={tipPt.y}
+                  r={GSW / 2}
+                  fill={ringColor}
+                />
               )}
             </Svg>
             <View style={s.gaugeCenter}>
@@ -183,162 +217,167 @@ export function ReadinessWidget({ delay = 0, mode = 'passive' }: ReadinessWidget
           </View>
 
           <View style={s.copy}>
-            <View style={s.labelRow}>
-              <View style={s.liveRow}>
-                <View style={[s.liveDot, { backgroundColor: ringColor }]} />
-                <Text style={[s.liveText, { color: ringColor }]}>READINESS · LIVE</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={14} color={P.textFaint} />
-            </View>
-            <Text style={[s.headline, { color: P.text }]} numberOfLines={1}>{headline}</Text>
+            <Text style={[s.headline, { color: P.text }]} numberOfLines={1}>
+              {headline}
+            </Text>
             {!!subtitle && (
-              <Text style={[s.subtitle, { color: P.textFaint }]} numberOfLines={2}>{subtitle}</Text>
+              <Text
+                style={[s.subtitle, { color: P.textFaint }]}
+                numberOfLines={2}
+              >
+                {subtitle}
+              </Text>
             )}
           </View>
         </View>
 
         <View style={[s.divider, { backgroundColor: P.hair }]} />
 
-        <View style={s.bottom}>
-          <StatColumn
-            label="SLEEP"
+        <View style={s.stats}>
+          <StatCell
+            label="Sleep"
             value={sleepLbl}
-            badge={sleepScr != null ? String(sleepScr) : null}
-            badgeColor={ringColor}
+            detail={sleepScr != null ? String(sleepScr) : undefined}
+            detailColor={ringColor}
             textColor={P.text}
             faintColor={P.textFaint}
           />
           <View style={[s.vDivider, { backgroundColor: P.hair }]} />
-          <StatColumn
-            label="LOAD"
+          <StatCell
+            label="Load"
             value={loadLbl}
-            badge={strainScr != null ? String(strainScr) : null}
+            detail={strainScr != null ? String(strainScr) : undefined}
             textColor={P.text}
             faintColor={P.textFaint}
           />
           <View style={[s.vDivider, { backgroundColor: P.hair }]} />
-          <StatColumn
-            label="FUEL"
+          <StatCell
+            label="Fuel"
             value={fuelGrams}
-            unit="protein"
-            badge={fuelBadge}
-            badgeColor={fuelBad ? P.calories : P.textFaint}
+            detail={fuelDetail}
+            detailColor={fuelBad ? P.calories : P.textFaint}
             textColor={P.text}
             faintColor={P.textFaint}
           />
         </View>
       </Pressable>
-    </AnimatedCard>
+    </GradientCard>
   );
 }
 
 const s = StyleSheet.create({
-  top: {
-    flexDirection:     'row',
-    alignItems:        'center',
+  pressed: {
+    opacity: 0.88,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop:        16,
-    paddingBottom:     14,
-    gap:               14,
+    paddingTop: 14,
+    paddingBottom: 4,
+  },
+  headerMain: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  iconRing: {
+    padding: 3,
+    borderRadius: 12,
+  },
+  iconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: -0.1,
+  },
+  main: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 14,
+    gap: 14,
+  },
+  gaugeSvg: {
+    position: "absolute",
+    top: 0,
   },
   gaugeCenter: {
-    position:       'absolute',
-    top:            0,
-    left:           0,
-    right:          0,
-    bottom:         0,
-    alignItems:     'center',
-    justifyContent: 'center',
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
   },
   gaugeNum: {
-    fontSize:      22,
-    fontWeight:    '800',
+    fontSize: 22,
+    fontWeight: "800",
     letterSpacing: -0.5,
+    fontVariant: ["tabular-nums"],
   },
   gaugeOf: {
-    fontSize:   9,
-    fontWeight: '700',
-    marginTop:  -3,
+    fontSize: 9,
+    fontWeight: "700",
+    marginTop: -3,
   },
   copy: {
-    flex:    1,
-    gap:     3,
+    flex: 1,
+    gap: 4,
     minWidth: 0,
   },
-  labelRow: {
-    flexDirection:  'row',
-    alignItems:     'center',
-    justifyContent: 'space-between',
-  },
-  liveRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           5,
-    flexShrink:    1,
-  },
-  liveText: {
-    fontSize:      10,
-    fontWeight:    '700',
-    letterSpacing: 1.2,
-  },
-  liveDot: {
-    width:        6,
-    height:       6,
-    borderRadius: 3,
-  },
   headline: {
-    fontSize:      21,
-    fontWeight:    '800',
-    letterSpacing: -0.5,
-    lineHeight:    25,
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+    lineHeight: 24,
   },
   subtitle: {
-    fontSize:   11,
+    fontSize: 11,
     lineHeight: 15,
+    fontWeight: "500",
   },
   divider: {
-    height:           StyleSheet.hairlineWidth,
+    height: StyleSheet.hairlineWidth,
     marginHorizontal: 16,
   },
-  bottom: {
-    flexDirection:     'row',
-    alignItems:        'stretch',
+  stats: {
+    flexDirection: "row",
+    alignItems: "stretch",
     paddingHorizontal: 12,
-    paddingVertical:   12,
+    paddingVertical: 12,
   },
   stat: {
-    flex:           1,
-    alignItems:     'center',
-    justifyContent: 'flex-start',
-    minWidth:       0,
+    flex: 1,
+    alignItems: "center",
+    gap: 2,
+    minWidth: 0,
     paddingHorizontal: 2,
-    gap:            2,
   },
   statLabel: {
-    fontSize:      9,
-    fontWeight:    '700',
-    letterSpacing: 1.1,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: -0.1,
   },
   statValue: {
-    fontSize:      17,
-    fontWeight:    '800',
+    fontSize: 16,
+    fontWeight: "800",
     letterSpacing: -0.3,
-    textAlign:     'center',
+    fontVariant: ["tabular-nums"],
   },
-  statUnit: {
-    fontSize:   10,
-    fontWeight: '600',
-    textAlign:  'center',
-    minHeight:  13,
-  },
-  statBadge: {
-    fontSize:   11,
-    fontWeight: '700',
-    textAlign:  'center',
-    minHeight:  14,
+  statDetail: {
+    fontSize: 11,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+    minHeight: 14,
   },
   vDivider: {
-    width:          StyleSheet.hairlineWidth,
+    width: StyleSheet.hairlineWidth,
     marginVertical: 2,
   },
 });

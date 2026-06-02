@@ -15,6 +15,10 @@ import type { ComponentProps } from 'react';
 
 import Svg, { Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 
+import {
+  DistanceMetricCard,
+  StepsMetricCard,
+} from '@/components/home/ActivityCard';
 import { AnimatedCard, usePalette } from '@/lib/log-theme';
 import { ReadinessWidget } from '@/components/home/ReadinessWidget';
 import { useHealth } from '@/hooks/use-health';
@@ -22,10 +26,7 @@ import { useUnits } from '@/hooks/use-units';
 import { useSummary } from '@/hooks/use-summary';
 import { useWeight } from '@/hooks/use-weight';
 import { useProfile } from '@/hooks/use-profile';
-import { useStepsTarget } from '@/hooks/use-steps-target';
 import { getLocalDateString } from '@/utils/date';
-import { formatDistance } from '@/utils/units';
-import type { DistanceUnit } from '@/utils/units';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -68,129 +69,34 @@ function buildWeekDates(todayStr: string): string[] {
   });
 }
 
+const movementSectionStyles = StyleSheet.create({
+  metricsRow: { flexDirection: 'row', gap: 10 },
+  notConnected: {
+    fontSize: 11,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+});
+
 function StepsCard({ delay = 0 }: { delay?: number }) {
   const P = usePalette();
   const { today, isConnected } = useHealth();
-  const { profileUnit } = useUnits();
-  const stepsGoal = useStepsTarget();
-
-  const steps       = today?.steps ?? 0;
-  const activeCals  = today?.active_calories ?? 0;
-  const pct         = Math.min(steps / stepsGoal, 1);
-  const remaining   = Math.max(stepsGoal - steps, 0);
-
-  const fillAnim = useRef(new Animated.Value(0)).current;
-  const [displayedSteps, setDisplayedSteps] = useState(0);
-
-  useEffect(() => {
-    const countAnim = new Animated.Value(0);
-    const id = countAnim.addListener(({ value }) => setDisplayedSteps(Math.round(value)));
-    Animated.parallel([
-      Animated.timing(fillAnim, {
-        toValue: pct,
-        duration: 900,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }),
-      Animated.timing(countAnim, {
-        toValue: steps,
-        duration: 900,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }),
-    ]).start(() => countAnim.removeListener(id));
-    return () => countAnim.removeListener(id);
-  }, [steps, pct]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const fillWidth = fillAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
-  const pctLabel  = Math.round(pct * 100);
 
   return (
-    <AnimatedCard delay={delay}>
-      <View style={stepsStyles.headRow}>
-        <View style={[stepsStyles.iconTile, { backgroundColor: P.waterSoft }]}>
-          <Ionicons name="footsteps" size={16} color={P.water} />
-        </View>
-        <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={[stepsStyles.eyebrow, { color: P.textFaint }]}>TODAY&apos;S STEPS</Text>
-          <Text style={[stepsStyles.title, { color: P.text }]}>
-            {displayedSteps.toLocaleString()}
-            <Text style={[stepsStyles.goal, { color: P.textFaint }]}> / {stepsGoal.toLocaleString()}</Text>
-          </Text>
-        </View>
-        <View style={[stepsStyles.pctPill, { backgroundColor: pct >= 1 ? P.proteinSoft : P.waterSoft }]}>
-          {pct >= 1
-            ? <Ionicons name="checkmark" size={11} color={P.protein} />
-            : null}
-          <Text style={[stepsStyles.pctText, { color: pct >= 1 ? P.protein : P.water }]}>
-            {pct >= 1 ? 'Done!' : `${pctLabel}%`}
-          </Text>
-        </View>
+    <View>
+      <View style={movementSectionStyles.metricsRow}>
+        <StepsMetricCard P={P} delay={delay} data={today} />
+        <DistanceMetricCard P={P} delay={delay + 20} data={today} />
       </View>
-
-      <View style={[stepsStyles.track, { backgroundColor: P.hair }]}>
-        <Animated.View
-          style={[
-            stepsStyles.fill,
-            {
-              width: fillWidth,
-              backgroundColor: pct >= 1 ? P.protein : P.water,
-            },
-          ]}
-        />
-      </View>
-
-      <View style={stepsStyles.footRow}>
-        <View style={stepsStyles.footCell}>
-          <Text style={[stepsStyles.footVal, { color: P.text }]}>
-            {remaining > 0 ? remaining.toLocaleString() : '0'}
-          </Text>
-          <Text style={[stepsStyles.footLbl, { color: P.textFaint }]}>steps left</Text>
-        </View>
-        <View style={[stepsStyles.footDivider, { backgroundColor: P.hair }]} />
-        <View style={stepsStyles.footCell}>
-          <Text style={[stepsStyles.footVal, { color: P.text }]}>
-            {activeCals.toLocaleString()}
-          </Text>
-          <Text style={[stepsStyles.footLbl, { color: P.textFaint }]}>active cal</Text>
-        </View>
-        <View style={[stepsStyles.footDivider, { backgroundColor: P.hair }]} />
-        <View style={stepsStyles.footCell}>
-          <Text style={[stepsStyles.footVal, { color: P.text }]}>
-            {today?.distance != null
-              ? formatDistance(today.distance, (today.distance_unit as DistanceUnit) ?? 'km', profileUnit)
-              : '—'}
-          </Text>
-          <Text style={[stepsStyles.footLbl, { color: P.textFaint }]}>distance</Text>
-        </View>
-      </View>
-
       {!isConnected && (
-        <Text style={[stepsStyles.notConnected, { color: P.textFaint }]}>
+        <Text style={[movementSectionStyles.notConnected, { color: P.textFaint }]}>
           Connect Apple Health to see live steps
         </Text>
       )}
-    </AnimatedCard>
+    </View>
   );
 }
-
-const stepsStyles = StyleSheet.create({
-  headRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
-  iconTile: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  eyebrow: { fontSize: 9, fontWeight: '800', letterSpacing: 1.4, marginBottom: 3 },
-  title: { fontSize: 22, fontWeight: '800', letterSpacing: -0.6 },
-  goal: { fontSize: 14, fontWeight: '600' },
-  pctPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
-  pctText: { fontSize: 11, fontWeight: '800' },
-  track: { height: 6, borderRadius: 3, overflow: 'hidden', marginBottom: 16 },
-  fill: { height: '100%', borderRadius: 3 },
-  footRow: { flexDirection: 'row', alignItems: 'center' },
-  footCell: { flex: 1, alignItems: 'center', gap: 3 },
-  footDivider: { width: 1, height: 28, marginHorizontal: 4 },
-  footVal: { fontSize: 15, fontWeight: '800', letterSpacing: -0.4, fontVariant: ['tabular-nums'] },
-  footLbl: { fontSize: 10, fontWeight: '600', letterSpacing: 0.2 },
-  notConnected: { fontSize: 11, fontWeight: '500', textAlign: 'center', marginTop: 12 },
-});
 
 export default function ProgressScreen() {
   const P      = usePalette();
