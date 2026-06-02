@@ -1,8 +1,18 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  KeyboardAvoidingView, Modal, Platform, Pressable, View, Text,
-  TouchableWithoutFeedback, Animated, StyleSheet, PanResponder,
-  Dimensions, Easing,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  View,
+  Text,
+  TouchableWithoutFeedback,
+  Animated,
+  StyleSheet,
+  PanResponder,
+  Dimensions,
+  Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/use-theme';
@@ -29,7 +39,7 @@ export interface AppModalProps {
   /**
    * Height of the sheet.
    * - number 0–1 → fraction of screen height (default 0.55)
-   * - 'full'     → 92 % of screen height
+   * - 'full'     → from below status bar to bottom of screen
    */
   sheetHeight?: number | 'full';
   /** Use "ease" for smooth bottom-up timing animation instead of spring. */
@@ -55,7 +65,11 @@ export function AppModal({
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
 
-  const resolvedH = sheetHeight === 'full' ? SCREEN_H * 0.92 : SCREEN_H * (sheetHeight as number);
+  const FULL_SHEET_TOP_GAP = 8;
+  const resolvedH =
+    sheetHeight === 'full'
+      ? SCREEN_H - insets.top - FULL_SHEET_TOP_GAP
+      : SCREEN_H * (sheetHeight as number);
 
   // ── Animation values ──────────────────────────────────────────────────
   const slideY      = useRef(new Animated.Value(resolvedH)).current;
@@ -136,6 +150,7 @@ export function AppModal({
       onPanResponderRelease: (_, { dy, vy }) => {
         if (dy > DISMISS_THRESHOLD || vy > 1.2) {
           onCloseRef.current();
+          Keyboard.dismiss();
           dragY.setValue(0);
         } else {
           Animated.spring(dragY, {
@@ -153,26 +168,29 @@ export function AppModal({
   const lo   = isDark ? '#2A2A32' : '#EBEBEB';
   const mid  = isDark ? '#707078' : '#BBBBBB';
 
-  const OverlayRoot = keyboardAvoiding ? KeyboardAvoidingView : View;
-  const overlayRootProps = keyboardAvoiding
-    ? {
-        style: s.overlay,
-        behavior: Platform.OS === 'ios' ? 'padding' as const : 'height' as const,
-      }
-    : { style: s.overlay };
+  const dismissModal = () => {
+    onClose();
+    Keyboard.dismiss();
+  };
+
+  const modalBody = (
+    <ModalScrollContext.Provider value={{ onScroll: (y) => { sheetScrollY.current = y; } }}>
+      {children}
+    </ModalScrollContext.Provider>
+  );
 
   return (
     <Modal
       transparent
       visible={visible}
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={dismissModal}
       statusBarTranslucent
     >
-      <OverlayRoot {...overlayRootProps}>
+      <View style={s.overlay}>
 
         {/* Backdrop */}
-        <TouchableWithoutFeedback onPress={onClose}>
+        <TouchableWithoutFeedback onPress={dismissModal}>
           <Animated.View style={[s.backdrop, { opacity: backdropOp }]} />
         </TouchableWithoutFeedback>
 
@@ -194,14 +212,16 @@ export function AppModal({
             <View style={[s.handle, { backgroundColor: mid }]} />
           </View>
 
-          {/* ── Header ── */}
+          {/* Header stays outside KeyboardAvoidingView so ✕ closes in one tap */}
           {title ? (
             <View style={[s.header, { borderBottomColor: lo }]}>
               <View style={[s.headerAccent, { backgroundColor: '#F97316' }]} />
               <Text style={[s.headerTitle, { color: hi }]}>{title}</Text>
               <Pressable
-                onPress={onClose}
+                onPress={dismissModal}
                 hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
                 style={[s.closeBtn, { backgroundColor: lo }]}
               >
                 <Text style={[s.closeBtnText, { color: mid }]}>✕</Text>
@@ -209,15 +229,21 @@ export function AppModal({
             </View>
           ) : null}
 
-          {/* ── Content ── */}
-          <View style={s.content}>
-            <ModalScrollContext.Provider value={{ onScroll: (y) => { sheetScrollY.current = y; } }}>
-              {children}
-            </ModalScrollContext.Provider>
-          </View>
+          {/* ── Content (keyboard shift only affects scrollable body) ── */}
+          {keyboardAvoiding ? (
+            <KeyboardAvoidingView
+              style={s.content}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+            >
+              {modalBody}
+            </KeyboardAvoidingView>
+          ) : (
+            <View style={s.content}>{modalBody}</View>
+          )}
         </Animated.View>
 
-      </OverlayRoot>
+      </View>
     </Modal>
   );
 }

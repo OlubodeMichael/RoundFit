@@ -80,10 +80,10 @@ export function SectionCard({
         ]}
       >
         {/* Icon */}
-        <View style={s.iconWrap}>
+        <View style={[s.iconWrap, icon ? { backgroundColor: accentSoft } : undefined]}>
           {emoji
             ? <Text style={{ fontSize: 28 }}>{emoji}</Text>
-            : <Ionicons name={icon!} size={20} color={accent} />
+            : <Ionicons name={icon!} size={22} color={accent} />
           }
         </View>
 

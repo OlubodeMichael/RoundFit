@@ -1,228 +1,167 @@
-import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import * as Haptics from 'expo-haptics';
-import { usePalette } from '@/lib/log-theme';
-import { WaterCustomAmountModal } from '@/components/log/WaterCustomAmountModal';
-import { waterIconForMl } from '@/utils/water-volume-icon';
+import * as Haptics from "expo-haptics";
+import {
+  BottleWine,
+  CupSoda,
+  GlassWater,
+  Plus,
+  type LucideIcon,
+} from "lucide-react-native";
+import { useState } from "react";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+
+import { WaterCustomAmountModal } from "@/components/log/WaterCustomAmountModal";
+import { usePalette } from "@/lib/log-theme";
 
 const OZ_TO_ML = 29.5735;
+const CARD_RADIUS = 16;
+const ICON_SIZE = 20;
+const ICON_STROKE = 2;
 
 const PRESETS = [
-  { id: 'sip',    label: 'Sip',    oz: 5  },
-  { id: 'glass',  label: 'Glass',  oz: 8  },
-  { id: 'bottle', label: 'Bottle', oz: 16 },
+  { id: "sip", label: "Sip", oz: 5, Icon: CupSoda },
+  { id: "glass", label: "Glass", oz: 8, Icon: GlassWater },
+  { id: "bottle", label: "Bottle", oz: 16, Icon: BottleWine },
 ] as const;
 
 interface Props {
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-  onAdd:    (ml: number) => void;
+  onAdd: (ml: number) => void;
   usualMl?: number;
+  variant?: "inline" | "dock";
+  disabled?: boolean;
 }
 
-export function WaterQuickAdd({ onAdd, usualMl = 237 }: Props) {
+interface PresetButtonProps {
+  label: string;
+  oz?: number;
+  Icon: LucideIcon;
+  isUsual: boolean;
+  isCustom?: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}
+
+function PresetButton({
+  label,
+  oz,
+  Icon,
+  isUsual,
+  isCustom = false,
+  disabled,
+  onPress,
+}: PresetButtonProps) {
   const P = usePalette();
   const acc = P.water;
 
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={
+        isCustom ? "Add custom amount" : `Add ${oz} fluid ounces, ${label}`
+      }
+      accessibilityState={{ disabled }}
+      style={({ pressed }) => [
+        s.btn,
+        isUsual && {
+          backgroundColor: P.isDark ? "rgba(56,189,248,0.08)" : acc + "0A",
+        },
+        pressed &&
+          !disabled && {
+            backgroundColor: P.isDark ? P.sunken : "rgba(15,23,42,0.05)",
+          },
+        disabled && s.btnDisabled,
+      ]}
+    >
+      <View style={[s.iconWell, { backgroundColor: P.waterSoft }]}>
+        <Icon size={ICON_SIZE} color={acc} strokeWidth={ICON_STROKE} />
+      </View>
+      {isCustom ? (
+        <Text style={[s.btnLabel, { color: P.textDim }]}>{label}</Text>
+      ) : (
+        <>
+          <Text style={[s.btnAmount, { color: P.text }]}>
+            {oz}
+            <Text style={[s.btnUnit, { color: P.textDim }]}> oz</Text>
+          </Text>
+          <Text style={[s.btnLabel, { color: P.textFaint }]}>{label}</Text>
+        </>
+      )}
+      {isUsual && <View style={[s.usualDot, { backgroundColor: acc }]} />}
+    </Pressable>
+  );
+}
+
+export function WaterQuickAdd({
+  onAdd,
+  usualMl = 237,
+  variant = "inline",
+  disabled = false,
+}: Props) {
+  const P = usePalette();
+  const isDock = variant === "dock";
   const [showCustom, setShowCustom] = useState(false);
 
   const press = (oz: number) => {
+    if (disabled) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onAdd(Math.round(oz * OZ_TO_ML));
   };
 
+  const presetTiles = PRESETS.map((p) => {
+    const presetMl = Math.round(p.oz * OZ_TO_ML);
+    return {
+      ...p,
+      isUsual: Math.abs(presetMl - usualMl) < 30,
+      onPress: () => press(p.oz),
+    };
+  });
+
   return (
     <>
-      <Text style={[s.sectionLabel, { color: P.textFaint }]}>QUICK ADD</Text>
+      {isDock && (
+        <Text style={[s.sectionLabel, { color: P.textFaint }]}>Quick add</Text>
+      )}
 
-      <View style={s.row}>
-        {PRESETS.map((preset) => {
-          const presetMl = Math.round(preset.oz * OZ_TO_ML);
-          const isUsual = Math.abs(presetMl - usualMl) < 30;
-          const icon = waterIconForMl(presetMl);
-
-          return (
-            <Pressable
-              key={preset.id}
-              onPress={() => press(preset.oz)}
-              style={({ pressed }) => [
-                s.btn,
-                {
-                  backgroundColor: isUsual
-                    ? (P.isDark ? '#0A1E32' : acc + '12')
-                    : (P.isDark ? P.sunken : P.raised),
-                  borderColor: isUsual ? acc + '60' : P.cardEdge,
-                  opacity: pressed ? 0.7 : 1,
-                },
-              ]}
-            >
-              {isUsual && (
-                <View style={[s.usualBadge, { backgroundColor: acc }]}>
-                  <Text style={s.usualText}>USUAL</Text>
-                </View>
+      <View
+        style={[
+          s.card,
+          {
+            backgroundColor: P.card,
+            borderColor: P.cardEdge,
+            shadowOpacity: P.isDark ? 0.35 : 0.06,
+          },
+          Platform.OS === "android" && { elevation: P.isDark ? 0 : 2 },
+        ]}
+      >
+        <View style={s.row}>
+          {presetTiles.map((tile, index) => (
+            <View key={tile.id} style={s.cellWrap}>
+              {index > 0 && (
+                <View style={[s.divider, { backgroundColor: P.hair }]} />
               )}
-              <View
-                style={[
-                  s.iconBox,
-                  {
-                    backgroundColor: isUsual
-                      ? acc + '20'
-                      : P.isDark
-                        ? 'rgba(255,255,255,0.06)'
-                        : 'rgba(0,0,0,0.04)',
-                  },
-                ]}
-              >
-                <Ionicons
-                  name={icon}
-                  size={22}
-                  color={isUsual ? acc : P.textDim}
-                />
-              </View>
-              <Text style={[s.btnName, { color: P.text }]}>{preset.label}</Text>
-              <Text style={[s.btnAmt, { color: isUsual ? acc : P.textFaint }]}>
-                +{preset.oz} oz
-              </Text>
-            </Pressable>
-          );
-        })}
-
-        <Pressable
-          onPress={() => setShowCustom(true)}
-          style={({ pressed }) => [
-            s.btn,
-            s.customBtn,
-            {
-              backgroundColor: P.isDark ? P.sunken : P.raised,
-              borderColor: P.cardEdge,
-              opacity: pressed ? 0.7 : 1,
-            },
-          ]}
-        >
-          <View
-            style={[
-              s.iconBox,
-              {
-                backgroundColor: P.isDark
-                  ? 'rgba(255,255,255,0.06)'
-                  : 'rgba(0,0,0,0.04)',
-              },
-            ]}
-          >
-            <Ionicons name="add-circle-outline" size={22} color={P.textDim} />
+              <PresetButton
+                label={tile.label}
+                oz={tile.oz}
+                Icon={tile.Icon}
+                isUsual={tile.isUsual}
+                disabled={disabled}
+                onPress={tile.onPress}
+              />
+            </View>
+          ))}
+          <View style={s.cellWrap}>
+            <View style={[s.divider, { backgroundColor: P.hair }]} />
+            <PresetButton
+              label="Custom"
+              Icon={Plus}
+              isUsual={false}
+              isCustom
+              disabled={disabled}
+              onPress={() => !disabled && setShowCustom(true)}
+            />
           </View>
-          <Text style={[s.btnName, { color: P.text }]}>Custom</Text>
-          <Text style={[s.btnAmt, { color: P.textFaint }]}>any ml</Text>
-        </Pressable>
+        </View>
       </View>
 
       <WaterCustomAmountModal
@@ -236,47 +175,73 @@ export function WaterQuickAdd({ onAdd, usualMl = 237 }: Props) {
 
 const s = StyleSheet.create({
   sectionLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.4,
-    marginBottom: 10,
+    fontSize: 13,
+    fontWeight: "600",
+    letterSpacing: -0.08,
+    paddingHorizontal: 4,
+    marginBottom: 8,
   },
-
-  row: { flexDirection: 'row', gap: 9 },
-
+  card: {
+    borderRadius: CARD_RADIUS,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  cellWrap: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "stretch",
+    minWidth: 0,
+  },
+  divider: {
+    width: StyleSheet.hairlineWidth,
+  },
   btn: {
     flex: 1,
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 6,
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    gap: 6,
-    overflow: 'visible',
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    gap: 5,
+    minHeight: 76,
   },
-  customBtn: {
-    borderStyle: 'dashed',
+  iconWell: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
-
-  usualBadge: {
-    position: 'absolute',
-    top: -9,
-    alignSelf: 'center',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    zIndex: 2,
+  btnDisabled: {
+    opacity: 0.45,
   },
-  usualText: { fontSize: 7, fontWeight: '900', letterSpacing: 0.8, color: '#fff' },
-
-  iconBox: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 4,
+  btnAmount: {
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: -0.5,
+    fontVariant: ["tabular-nums"],
   },
-  btnName: { fontSize: 13, fontWeight: '700', letterSpacing: -0.2 },
-  btnAmt: { fontSize: 11, fontWeight: '600' },
+  btnUnit: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  btnLabel: {
+    fontSize: 11,
+    fontWeight: "500",
+    letterSpacing: 0.05,
+  },
+  usualDot: {
+    position: "absolute",
+    top: 8,
+    right: 10,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
 });

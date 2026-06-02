@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -7,6 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -87,7 +89,16 @@ export default function DailyLogScreen() {
     [],
   );
 
-  const stats: { key: string; emoji: string; value: string; unit: string; accent: string }[] = [
+  type IoniconName = ComponentProps<typeof Ionicons>['name'];
+
+  const stats: {
+    key: string;
+    emoji?: string;
+    icon?: IoniconName;
+    value: string;
+    unit: string;
+    accent: string;
+  }[] = [
     {
       key:    'food',
       emoji:  '🍽️',
@@ -118,7 +129,7 @@ export default function DailyLogScreen() {
     },
     {
       key:    'water',
-      emoji:  '💧',
+      icon:   'water-outline' as const,
       value:  totalMl > 0 ? String(totalMl) : '0',
       unit:   'ml',
       accent: P.water,
@@ -173,8 +184,18 @@ export default function DailyLogScreen() {
                     },
                   ]}
                 >
-                  {/* Emoji */}
-                  <Text style={{ fontSize: 28 }}>{st.emoji}</Text>
+                  {st.icon ? (
+                    <View
+                      style={[
+                        s.glanceIcon,
+                        { backgroundColor: st.accent + (P.isDark ? '22' : '14') },
+                      ]}
+                    >
+                      <Ionicons name={st.icon} size={20} color={st.accent} />
+                    </View>
+                  ) : (
+                    <Text style={{ fontSize: 28 }}>{st.emoji}</Text>
+                  )}
 
                   {/* Value */}
                   <Text
@@ -285,7 +306,7 @@ export default function DailyLogScreen() {
             delay={340}
             accent={P.water}
             accentSoft={P.waterSoft}
-            emoji="💧"
+            icon="water-outline"
             title="Water"
             eyebrow="HYDRATION"
             valueBig={totalMl > 0 ? String(totalMl) : 'Log'}
