@@ -88,7 +88,6 @@ export function SleepLogScreenContent({ view, actions }: SleepLogScreenContentPr
           readOnly={view.qualityDisplay.readOnly}
           expanded={view.qualityExpanded}
           onToggleExpand={() => actions.setQualityExpanded((v) => !v)}
-          onSelectQuality={actions.selectQuality}
         />
 
         <SleepNotesCard

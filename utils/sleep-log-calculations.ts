@@ -1,11 +1,10 @@
 import type { HealthData } from '@/context/health-context';
-import type { RecoveryLog, SleepQuality } from '@/context/recovery-context';
+import type { RecoveryLog, RecoverySource, SleepQuality } from '@/context/recovery-context';
+import { getLocalDateString } from '@/utils/date';
 import type { SleepSegment } from '@/utils/healthkit';
-import type { SleepStageSummaryRow } from '@/types/sleep-log';
-import type { SleepFormFields } from '@/types/sleep-log';
+import type { SleepStageSummaryRow, SleepFormFields } from '@/types/sleep-log';
 import {
   deriveSleepQuality,
-  qualityPctFromUi,
   type SleepQualityUi,
 } from '@/utils/sleep-quality';
 import {
@@ -17,10 +16,10 @@ import {
   type SleepHoursResult,
 } from '@/utils/sleep-time';
 
-export const SLEEP_FORM_DEFAULTS = {
+export const SLEEP_FORM_DEFAULTS: { bedtime: string; wakeup: string } = {
   bedtime: '11:00 PM',
   wakeup:  '7:00 AM',
-} as const;
+};
 
 export interface StageSummaryColors {
   sleep: string;
@@ -268,14 +267,38 @@ export function buildSleepSavePayload(input: SleepSaveInput) {
   };
 }
 
+/**
+ * Sleep log dates are wake-up calendar days. Match health rows by `date`,
+ * `wakeup_iso`, or the date used in GET /health/today?date=.
+ */
+export function healthDataForSleepDate(
+  data: HealthData | null,
+  wakeDate: string,
+): HealthData | null {
+  if (!data) return null;
+
+  if (data.date) {
+    return data.date === wakeDate ? data : null;
+  }
+
+  if (data.wakeup_iso) {
+    const wake = getLocalDateString(new Date(data.wakeup_iso));
+    if (wake === wakeDate) return data;
+    return null;
+  }
+
+  // Row was fetched with ?date=wakeDate — no explicit date fields to contradict it.
+  return data;
+}
+
 export function isPersistedManualLog(
-  savedSource: string | null,
-  recovery: RecoveryLog | null,
+  savedSource: RecoverySource | null,
+  health: HealthData | null,
   activeDate: string,
 ): boolean {
   if (savedSource === 'manual') return true;
-  if (!recovery || recovery.source !== 'manual') return false;
-  return recovery.recorded_at.split('T')[0] === activeDate;
+  const row = healthDataForSleepDate(health, activeDate);
+  return row?.source === 'manual' && (row.sleep_hours ?? 0) > 0;
 }
 
 export function recoveryLogForDate(
@@ -283,5 +306,6 @@ export function recoveryLogForDate(
   activeDate: string,
 ): RecoveryLog | null {
   if (!recovery) return null;
-  return recovery.recorded_at.split('T')[0] === activeDate ? recovery : null;
+  if (recovery.recorded_at.split('T')[0] === activeDate) return recovery;
+  return null;
 }

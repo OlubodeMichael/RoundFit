@@ -27,6 +27,7 @@ import {
   getResourceCached,
   setResourceCached,
   invalidateResourceCache,
+  ttlForDate,
 } from '@/utils/resource-cache';
 
 const TTL_BASELINES = 4 * 60 * 60 * 1000; // 30-day history: 4-hour TTL
@@ -98,6 +99,8 @@ export interface RecoveryContextValue {
   hrvBaseline: number | null;
   restingHrBaseline: number | null;
   logRecovery: (input: LogRecoveryInput, options?: { notifyListeners?: boolean }) => Promise<RecoveryLog>;
+  /** Recovery log for a wake-up calendar day (sleep log date picker). */
+  fetchRecoveryByDate: (date: string, force?: boolean) => Promise<RecoveryLog | null>;
   /** Loads recovery bundle; uses AsyncStorage unless `force` is true. */
   refresh: (options?: { force?: boolean }) => Promise<void>;
 }
@@ -225,6 +228,21 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
       { force },
     );
     setToday(result ?? null);
+  }, [user?.id]);
+
+  const fetchRecoveryByDate = useCallback(async (date: string, force = false): Promise<RecoveryLog | null> => {
+    if (!user?.id) return null;
+    const key = buildResourceKey('recovery-today', user.id, date);
+    return fetchWithResourceCache<RecoveryLog | null>(
+      key,
+      ttlForDate(date),
+      async () => {
+        const { ok, body } = await apiFetch(`/recovery/today?date=${date}`);
+        if (ok && body.data) return fromApiLog(body.data as Record<string, unknown>);
+        return null;
+      },
+      { force },
+    );
   }, [user?.id]);
 
   const fetchReadiness = useCallback(async (force = false) => {
@@ -621,6 +639,7 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
       hrvBaseline,
       restingHrBaseline,
       logRecovery,
+      fetchRecoveryByDate,
       refresh,
     }}>
       {children}

@@ -288,6 +288,10 @@ function fromApiData(row: Record<string, unknown>): HealthData {
 
 function isHealthDataForDate(data: HealthData, targetDate: string): boolean {
   if (data.date) return data.date === targetDate;
+  if (data.wakeup_iso) {
+    const wakeDate = getLocalDateString(new Date(data.wakeup_iso));
+    if (wakeDate === targetDate) return true;
+  }
   const recordedDate = new Date(data.recorded_at);
   if (Number.isNaN(recordedDate.getTime())) return false;
   return getLocalDateString(recordedDate) === targetDate;

@@ -5,14 +5,14 @@ import { useToast } from '@/components/ui/Toast';
 import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
 import type { HealthData } from '@/context/health-context';
-import type { RecoverySource } from '@/context/recovery-context';
+import type { RecoveryLog, RecoverySource } from '@/context/recovery-context';
 import type { SleepLogScreenViewModel } from '@/types/sleep-log';
 import {
   getHealthKitModule,
   readSleepSegmentsForNight,
   type SleepSegment,
 } from '@/utils/healthkit';
-import { qualityPctFromUi, type SleepQualityUi } from '@/utils/sleep-quality';
+import { type SleepQualityUi } from '@/utils/sleep-quality';
 import { formatSleepNavDate, localSleepDateString, offsetSleepDate } from '@/utils/sleep-date';
 import {
   buildInitialFormFields,
@@ -22,6 +22,7 @@ import {
   deriveQualityFromForm,
   deriveQualityFromHealthKit,
   hasHypnogramSegments,
+  healthDataForSleepDate,
   hypnogramWindow,
   isHealthKitDisplayMode,
   isPersistedManualLog,
@@ -41,7 +42,6 @@ export interface SleepLogActions {
   setNotes: (v: string) => void;
   setPickerVisible: (v: boolean) => void;
   confirmTimePicker: (bedtime: string, wakeup: string) => void;
-  selectQuality: (q: SleepQualityUi) => void;
   handleSave: () => void;
   setNoSleepModalVisible: (v: boolean) => void;
   enterManualMode: () => void;
@@ -52,7 +52,12 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   const toast   = useToast();
   const health  = useHealth();
   const posthog = usePostHog();
-  const { logRecovery, refresh: refreshRecovery, today: recoveryToday } = useRecovery();
+  const {
+    logRecovery,
+    refresh: refreshRecovery,
+    today: recoveryToday,
+    fetchRecoveryByDate,
+  } = useRecovery();
   const { fetchForDate: fetchHealthForDate } = health;
 
   const today = localSleepDateString();
@@ -60,10 +65,10 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   const isToday = activeDate === today;
 
   const segmentCache   = useRef<Map<string, SleepSegment[]>>(new Map());
-  const qualityUserSet = useRef(false);
 
-  const [dateHealthData, setDateHealthData] = useState<HealthData | null>(null);
-  const [loadingDate, setLoadingDate]       = useState(false);
+  const [dateHealthData, setDateHealthData]     = useState<HealthData | null>(null);
+  const [dateRecoveryLog, setDateRecoveryLog]   = useState<RecoveryLog | null>(null);
+  const [loadingDate, setLoadingDate]         = useState(false);
 
   const [bedtime, setBedtime]           = useState(SLEEP_FORM_DEFAULTS.bedtime);
   const [wakeup, setWakeup]             = useState(SLEEP_FORM_DEFAULTS.wakeup);
@@ -89,34 +94,50 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   }, [activeDate, today]);
 
   const hkSleep = useMemo(() => {
-    const hk = isToday ? health.today : dateHealthData;
-    return hk && typeof hk.sleep_hours === 'number' && hk.sleep_hours > 0 ? hk : null;
-  }, [isToday, health.today, dateHealthData]);
+    const raw = isToday ? health.today : dateHealthData;
+    const row = healthDataForSleepDate(raw, activeDate);
+    return row && typeof row.sleep_hours === 'number' && row.sleep_hours > 0 ? row : null;
+  }, [isToday, health.today, dateHealthData, activeDate]);
 
-  const recoveryForDate = useMemo(
-    () => recoveryLogForDate(recoveryToday, activeDate),
-    [recoveryToday, activeDate],
-  );
+  const recoveryForDate = useMemo(() => {
+    if (isToday) return recoveryLogForDate(recoveryToday, activeDate);
+    return dateRecoveryLog;
+  }, [isToday, recoveryToday, activeDate, dateRecoveryLog]);
 
   const persistedManualLog = useMemo(
-    () => isPersistedManualLog(savedSource, recoveryToday, activeDate),
-    [savedSource, recoveryToday, activeDate],
+    () => isPersistedManualLog(savedSource, hkSleep ?? (isToday ? health.today : dateHealthData), activeDate),
+    [savedSource, hkSleep, isToday, health.today, dateHealthData, activeDate],
   );
 
   useEffect(() => {
     if (isToday) {
       setDateHealthData(null);
+      setDateRecoveryLog(null);
       setLoadingDate(false);
       return;
     }
     let cancelled = false;
+    setDateHealthData(null);
+    setDateRecoveryLog(null);
     setLoadingDate(true);
-    fetchHealthForDate(activeDate, false)
-      .then((data) => { if (!cancelled) setDateHealthData(data); })
-      .catch(() => { if (!cancelled) setDateHealthData(null); })
+    Promise.all([
+      fetchHealthForDate(activeDate, false),
+      fetchRecoveryByDate(activeDate, false),
+    ])
+      .then(([healthRow, recoveryRow]) => {
+        if (cancelled) return;
+        setDateHealthData(healthDataForSleepDate(healthRow, activeDate));
+        setDateRecoveryLog(recoveryRow);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDateHealthData(null);
+          setDateRecoveryLog(null);
+        }
+      })
       .finally(() => { if (!cancelled) setLoadingDate(false); });
     return () => { cancelled = true; };
-  }, [activeDate, isToday, fetchHealthForDate]);
+  }, [activeDate, isToday, fetchHealthForDate, fetchRecoveryByDate]);
 
   const isHealthKitView = useMemo(
     () => isHealthKitDisplayMode(hkSleep, persistedManualLog, manualMode),
@@ -124,7 +145,6 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   );
 
   useEffect(() => {
-    qualityUserSet.current = false;
     setQualityExpanded(false);
     setNotesExpanded(false);
     setSavedSource(null);
@@ -137,8 +157,10 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
     setDeepM(initial.deepM);
     setNotes(initial.notes);
 
+    // A previously-saved manual log keeps the quality it was stored with (it was
+    // already derived from the sleep input at save time). For everything else the
+    // derived-quality effect below fills it in from the entered bedtime/wake-up.
     if (recoveryForDate?.source === 'manual') {
-      qualityUserSet.current = true;
       setQuality(initial.quality);
       setQualityScore(initial.qualityScore);
     } else {
@@ -193,12 +215,16 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
     [hours.rawHours, parsedDeepHours],
   );
 
+  // Manual sleep quality is always derived from the entered sleep (duration +
+  // optional deep), never chosen by the user. Keep the editable form's quality
+  // in sync with what they've entered. Skip HealthKit (scored separately) and
+  // already-saved manual logs (read-only).
   useEffect(() => {
-    if (isHealthKitView || qualityUserSet.current) return;
+    if (isHealthKitView || persistedManualLog) return;
     if ((hours.rawHours ?? 0) <= 0) return;
     setQuality(derivedSleepQuality.quality);
     setQualityScore(derivedSleepQuality.score);
-  }, [derivedSleepQuality, hours.rawHours, isHealthKitView]);
+  }, [derivedSleepQuality, hours.rawHours, isHealthKitView, persistedManualLog]);
 
   const stageSummary = useMemo(
     () => computeStageSummary(sleepSegments, { sleep: P.sleep, water: P.water, fat: P.fat, carbs: P.carbs }),
@@ -219,13 +245,24 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
         readOnly:       true,
       };
     }
+    // Already-saved manual log: show what was stored (derived at save time).
+    if (persistedManualLog) {
+      return {
+        quality,
+        qualityScore: qualityScore ?? derivedSleepQuality.score,
+        sleepEfficiency: null,
+        readOnly: true,
+      };
+    }
+    // New manual entry: quality is computed from the entered sleep, not
+    // user-selectable — always read-only.
     return {
-      quality,
-      qualityScore: qualityScore ?? derivedSleepQuality.score,
+      quality: derivedSleepQuality.quality,
+      qualityScore: derivedSleepQuality.score,
       sleepEfficiency: null,
-      readOnly: false,
+      readOnly: true,
     };
-  }, [isHealthKitView, hkSleep, quality, qualityScore, derivedSleepQuality.score]);
+  }, [isHealthKitView, hkSleep, persistedManualLog, quality, qualityScore, derivedSleepQuality]);
 
   const view: SleepLogScreenViewModel = useMemo(() => ({
     activeDate,
@@ -270,6 +307,8 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   const performSave = useCallback(async () => {
     setSaving(true);
     try {
+      // Manual saves always persist the quality derived from the entered sleep
+      // — never a user-picked value.
       const payload = buildSleepSavePayload({
         activeDate,
         isToday,
@@ -277,8 +316,8 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
         wakeup,
         deepH,
         deepM,
-        quality,
-        qualityScore,
+        quality: derivedSleepQuality.quality,
+        qualityScore: derivedSleepQuality.score,
         derivedScore: derivedSleepQuality.score,
         notes,
         hours,
@@ -301,14 +340,18 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
       if (isToday) {
         await health.refresh();
       } else {
-        const updated = await fetchHealthForDate(activeDate, true);
-        setDateHealthData(updated);
+        const [updatedHealth, updatedRecovery] = await Promise.all([
+          fetchHealthForDate(activeDate, true),
+          fetchRecoveryByDate(activeDate, true),
+        ]);
+        setDateHealthData(healthDataForSleepDate(updatedHealth, activeDate));
+        setDateRecoveryLog(updatedRecovery);
       }
       await refreshRecovery({ force: true });
 
       posthog.capture('sleep_logged', {
         sleep_hours: payload.sleepH,
-        quality,
+        quality: derivedSleepQuality.quality,
         source: 'manual',
         is_today: isToday,
       });
@@ -330,8 +373,8 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
       setSaving(false);
     }
   }, [
-    activeDate, bedtime, wakeup, deepH, deepM, derivedSleepQuality.score, fetchHealthForDate,
-    health, hkSleep, hours, isToday, logRecovery, notes, posthog, quality, qualityScore,
+    activeDate, bedtime, wakeup, deepH, deepM, derivedSleepQuality, fetchHealthForDate,
+    fetchRecoveryByDate, health, hkSleep, hours, isToday, logRecovery, notes, posthog,
     refreshRecovery, toast,
   ]);
 
@@ -347,11 +390,6 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
       setBedtime(b);
       setWakeup(w);
       setPickerVisible(false);
-    },
-    selectQuality: (q) => {
-      qualityUserSet.current = true;
-      setQuality(q);
-      setQualityScore(qualityPctFromUi(q));
     },
     handleSave: () => { void performSave(); },
     setNoSleepModalVisible,

@@ -15,7 +15,8 @@ export interface SleepQualityCardProps {
   readOnly?: boolean;
   expanded: boolean;
   onToggleExpand: () => void;
-  onSelectQuality: (q: SleepQualityUi) => void;
+  /** Optional — only used when the card is editable (`readOnly` false). */
+  onSelectQuality?: (q: SleepQualityUi) => void;
 }
 
 export function SleepQualityCard({
@@ -64,7 +65,7 @@ export function SleepQualityCard({
               return (
                 <Pressable
                   key={q.id}
-                  onPress={() => onSelectQuality(q.id)}
+                  onPress={() => onSelectQuality?.(q.id)}
                   style={({ pressed }) => [
                     sleepStyles.qualityPill,
                     {
