@@ -16,7 +16,9 @@ export interface CalorieBudgetPalette {
   cardEdge:     string;
   sunken:       string;
   text:         string;
+  textDim:      string;
   textFaint:    string;
+  hair:         string;
   calories:     string;
   caloriesSoft: string;
   protein:      string;
@@ -32,7 +34,9 @@ export const LIGHT_CALORIE_PALETTE: CalorieBudgetPalette = {
   cardEdge:     'rgba(15,23,42,0.06)',
   sunken:       '#F1F1F4',
   text:         '#09090B',
+  textDim:      '#52525B',
   textFaint:    '#A1A1AA',
+  hair:         'rgba(15,23,42,0.08)',
   calories:     '#EA580C',
   caloriesSoft: 'rgba(234,88,12,0.10)',
   protein:      '#10B981',
@@ -134,8 +138,6 @@ export function CalorieBudgetCard({
   delay = 0,
   eaten,
   goal,
-  burned,
-  stepsToday,
   remaining,
   earnedFromActivity = 0,
   dateLabel,
@@ -144,8 +146,6 @@ export function CalorieBudgetCard({
   delay?: number;
   eaten: number;
   goal: number;
-  burned: number;
-  stepsToday?: number;
   remaining: number;
   earnedFromActivity?: number;
   dateLabel?: string;
@@ -242,55 +242,6 @@ export function CalorieBudgetCard({
 
         {earnedFromActivity > 0 && <EarnedBonusRow P={P} earnedFromActivity={earnedFromActivity} />}
 
-        {/* Stats */}
-        <View style={[hs.statsPanel, { backgroundColor: P.sunken, marginTop: 14, marginBottom: 14 }]}>
-          <View style={hs.statsRow}>
-
-            <View style={hs.statCell}>
-              <View style={[hs.statIcon, { backgroundColor: P.proteinSoft }]}>
-                <Ionicons name="restaurant" size={14} color={P.protein} />
-              </View>
-              <View>
-                <Text style={[hs.statNum, { color: P.text }]}>{eaten.toLocaleString()}</Text>
-                <Text style={[hs.statLbl, { color: P.textFaint }]}>eaten</Text>
-              </View>
-            </View>
-
-            <View style={hs.statCell}>
-              <View style={[hs.statIcon, { backgroundColor: P.caloriesSoft }]}>
-                <Ionicons name="flame" size={14} color={P.calories} />
-              </View>
-              <View>
-                <Text style={[hs.statNum, { color: P.text }]}>{burned.toLocaleString()}</Text>
-                <Text style={[hs.statLbl, { color: P.textFaint }]}>burned</Text>
-              </View>
-            </View>
-
-            {stepsToday !== undefined ? (
-              <View style={hs.statCell}>
-                <View style={[hs.statIcon, { backgroundColor: P.waterSoft }]}>
-                  <Ionicons name="footsteps" size={14} color={P.water} />
-                </View>
-                <View>
-                  <Text style={[hs.statNum, { color: P.text }]}>{stepsToday.toLocaleString()}</Text>
-                  <Text style={[hs.statLbl, { color: P.textFaint }]}>steps</Text>
-                </View>
-              </View>
-            ) : (
-              <View style={hs.statCell}>
-                <View style={[hs.statIcon, { backgroundColor: isOver ? P.caloriesSoft : P.waterSoft }]}>
-                  <Ionicons name="trending-up" size={14} color={isOver ? P.calories : P.water} />
-                </View>
-                <View>
-                  <Text style={[hs.statNum, { color: P.text }]}>{(eaten - burned).toLocaleString()}</Text>
-                  <Text style={[hs.statLbl, { color: P.textFaint }]}>net</Text>
-                </View>
-              </View>
-            )}
-
-          </View>
-        </View>
-
       </View>
     </Animated.View>
   );
@@ -303,17 +254,11 @@ const hs = StyleSheet.create({
     overflow:     'hidden',
     ...Platform.select({ android: { elevation: 3 } }),
   },
-  body: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 0 },
+  body: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 18 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   dateLabel:    { fontSize: 10, fontWeight: '700', letterSpacing: 1.8 },
   heroNum:      { fontFamily: 'BarlowCondensed_800ExtraBold', fontSize: 62, lineHeight: 62, letterSpacing: -2, textAlign: 'center', marginTop: 2 },
   heroSub:      { fontSize: 12, fontWeight: '600', letterSpacing: 0.2, textAlign: 'center', marginTop: 3 },
   goalPill:     { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 999 },
   goalPillText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
-  statsPanel:   { borderRadius: 14, paddingVertical: 12, paddingHorizontal: 14 },
-  statsRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  statCell:     { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  statIcon:     { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  statNum:      { fontSize: 16, fontWeight: '800', letterSpacing: -0.5, lineHeight: 18 },
-  statLbl:      { fontSize: 10, fontWeight: '600', letterSpacing: 0.2 },
 });

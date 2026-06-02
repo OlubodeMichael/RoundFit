@@ -6,28 +6,35 @@ import {
 import { BurnCoachStrip } from "@/components/home/burn-coach-strip";
 import type { CalorieBudgetPalette } from "@/components/home/CalorieBudgetCard";
 import { CalorieBudgetCard } from "@/components/home/CalorieBudgetCard";
+import { DailyBudgetMetricsRow } from "@/components/home/DailyBudgetMetricsRow";
+import { InsightCard } from "@/components/home/InsightCard";
+import { MacrosCard, type MacroItem } from "@/components/home/MacrosCard";
+import { MealsCard } from "@/components/home/MealsCard";
 import { ReadinessWidget } from "@/components/home/ReadinessWidget";
+import { WorkoutCard } from "@/components/home/WorkoutCard";
 import { UserAvatar } from "@/components/profile/UserAvatar";
 import { AppModal } from "@/components/ui/AppModal";
 import { useToast } from "@/components/ui/Toast";
 import { useCycle } from "@/context/cycle-context";
 import { useFood } from "@/context/food-context";
 import { useInsights } from "@/context/insights-context";
-import type { Workout } from "@/context/workout-context";
 import { useWorkouts } from "@/context/workout-context";
 import { useDayLogs } from "@/hooks/use-day-logs";
 import { useHealth } from "@/hooks/use-health";
 import { useProfile } from "@/hooks/use-profile";
 import { useNotificationInbox } from "@/hooks/use-notification-inbox";
-import { useStepsTarget } from "@/hooks/use-steps-target";
 import { useSummary } from "@/hooks/use-summary";
 import { useTheme } from "@/hooks/use-theme";
-import { useUnits } from "@/hooks/use-units";
 import { useWorkoutLiveActivity } from "@/hooks/use-workout-live-activity";
 import { getLocalDateString } from "@/utils/date";
 import { calculateNutritionPlan } from "@/utils/nutrition";
+<<<<<<< HEAD
 import { distanceUnitLabel, distanceValue } from "@/utils/units";
 import { HydrationCard } from "@/components/home/HydrationCard";
+=======
+import { WaterQuickAdd } from "@/components/log/WaterQuickAdd";
+import { useWater } from "@/hooks/use-water";
+>>>>>>> dev
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -133,128 +140,6 @@ function usePalette() {
 }
 
 type Palette = ReturnType<typeof usePalette>;
-
-const MEAL_EMOJIS: Record<string, string> = {
-  breakfast: "🍳",
-  lunch: "🥗",
-  dinner: "🍽️",
-  snack: "🍎",
-  other: "🍴",
-};
-
-// ───────────────────────────────────────────────────────────────────────────────
-// SegmentedDial — precision-instrument progress indicator.
-//
-// Renders `TICK_COUNT` tick marks radiating around a centre, filled in sequence
-// as progress advances. The "leading" tick (the one currently being filled)
-// is taller and brighter with a soft halo behind it — a live cursor that
-// chases around the ring as the value animates in. This replaces the generic
-// donut ring with something that reads more as an instrument than a gauge.
-// ───────────────────────────────────────────────────────────────────────────────
-const TICK_COUNT = 36;
-const TICK_WIDTH = 2;
-const TICK_HEIGHT = 7;
-const TICK_FILLED_WIDTH = 4;
-const TICK_FILLED_HEIGHT = 9;
-const TICK_RADIUS = 2;
-const LEADING_TICK_WIDTH = 5;
-const LEADING_TICK_HEIGHT = 11;
-const LEADING_HALO_SIZE = 14;
-const LEADING_HALO_OFFSET = -2;
-const TICK_TOP_INSET = 3;
-
-function SegmentedDial({
-  size,
-  progress,
-  trackColor,
-  fillColor,
-  haloColor,
-  tickCount = TICK_COUNT,
-  children,
-}: {
-  size: number;
-  progress: number;
-  trackColor: string;
-  fillColor: string;
-  haloColor: string;
-  tickCount?: number;
-  children?: React.ReactNode;
-}) {
-  const tickAngleStep = 360 / tickCount;
-  const pct = Math.min(Math.max(progress, 0), 1);
-  const fractional = pct * tickCount;
-  const filledCount = Math.floor(fractional);
-  const isComplete = pct >= 1;
-  const leadingIdx = pct > 0 && !isComplete ? filledCount : -1;
-
-  return (
-    <View style={{ width: size, height: size }}>
-      {Array.from({ length: tickCount }).map((_, i) => {
-        const isFilled = i < filledCount || isComplete;
-        const isLeading = i === leadingIdx;
-        const tickColor = isFilled || isLeading ? fillColor : trackColor;
-        const w = isLeading
-          ? LEADING_TICK_WIDTH
-          : isFilled
-            ? TICK_FILLED_WIDTH
-            : TICK_WIDTH;
-        const h = isLeading
-          ? LEADING_TICK_HEIGHT
-          : isFilled
-            ? TICK_FILLED_HEIGHT
-            : TICK_HEIGHT;
-
-        return (
-          <View
-            key={i}
-            pointerEvents="none"
-            style={{
-              position: "absolute",
-              width: size,
-              height: size,
-              alignItems: "center",
-              transform: [{ rotate: `${i * tickAngleStep}deg` }],
-            }}
-          >
-            {isLeading && (
-              <View
-                style={{
-                  position: "absolute",
-                  top: LEADING_HALO_OFFSET,
-                  width: LEADING_HALO_SIZE,
-                  height: LEADING_HALO_SIZE,
-                  borderRadius: LEADING_HALO_SIZE / 2,
-                  backgroundColor: haloColor,
-                }}
-              />
-            )}
-            <View
-              style={{
-                position: "absolute",
-                top: TICK_TOP_INSET,
-                width: w,
-                height: h,
-                borderRadius: TICK_RADIUS,
-                backgroundColor: tickColor,
-                opacity: 1,
-              }}
-            />
-          </View>
-        );
-      })}
-
-      <View
-        style={[
-          StyleSheet.absoluteFill,
-          { alignItems: "center", justifyContent: "center" },
-        ]}
-        pointerEvents="none"
-      >
-        {children}
-      </View>
-    </View>
-  );
-}
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Card — the base container. One shape, three levels of elevation.
@@ -585,926 +470,8 @@ function CyclePhaseCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
   );
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Activity card — steps, distance, active calories from HealthKit (iOS only)
-// ───────────────────────────────────────────────────────────────────────────────
-function ActivityCard({
-  P,
-  delay = 0,
-  data,
-}: {
-  P: Palette;
-  delay?: number;
-  data: import("@/context/health-context").HealthData | null;
-}) {
-  const { profileUnit } = useUnits();
-  const stepsGoal = useStepsTarget();
-  const steps = data?.steps ?? 0;
-  const activeCals = data?.active_calories ?? 0;
-  const distance = data?.distance ?? 0;
-
-  const stepPct = Math.min(steps / stepsGoal, 1);
-  const stepFill = useRef(new Animated.Value(0)).current;
-  const [displayedSteps, setDisplayedSteps] = useState(0);
-
-  useEffect(() => {
-    const countAnim = new Animated.Value(0);
-    const id = countAnim.addListener(({ value }) =>
-      setDisplayedSteps(Math.round(value)),
-    );
-    Animated.parallel([
-      Animated.timing(stepFill, {
-        toValue: stepPct,
-        duration: 900,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }),
-      Animated.timing(countAnim, {
-        toValue: steps,
-        duration: 900,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }),
-    ]).start(() => countAnim.removeListener(id));
-    return () => countAnim.removeListener(id);
-  }, [steps, stepPct]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const fillWidth = stepFill.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0%", "100%"],
-  });
-  const pctLabel = Math.round(stepPct * 100);
-
-  const distNum = distanceValue(
-    distance,
-    (data?.distance_unit as import("@/utils/units").DistanceUnit) ?? "km",
-    profileUnit,
-  );
-  const distUnit = distanceUnitLabel(profileUnit);
-
-  const stepColor = stepPct >= 1 ? P.protein : P.water;
-  const stepsToGo = Math.max(stepsGoal - steps, 0);
-
-  return (
-    <Card delay={delay}>
-      {/* ── Header ───────────────────────────────────────────────────────── */}
-      <View style={actS.header}>
-        <View>
-          <Text style={[actS.eyebrow, { color: P.textFaint }]}>
-            DAILY MOVEMENT
-          </Text>
-          <Text style={[actS.heading, { color: P.text }]}>Activity</Text>
-        </View>
-        <View style={[actS.sourcePill, { backgroundColor: P.waterSoft }]}>
-          <Ionicons name="logo-apple" size={11} color="#EF4444" />
-          <Text style={[actS.sourceLabel, { color: P.water }]}>Health</Text>
-        </View>
-      </View>
-
-      {/* ── Steps hero ───────────────────────────────────────────────────── */}
-      <View style={actS.stepsSection}>
-        <View style={actS.stepsCountRow}>
-          <Text style={[actS.stepsNum, { color: P.text }]}>
-            {displayedSteps.toLocaleString()}
-          </Text>
-          <Text style={[actS.stepsOf, { color: P.textFaint }]}>
-            {" "}
-            / {stepsGoal.toLocaleString()}
-          </Text>
-        </View>
-
-        <View style={actS.barRow}>
-          <View
-            style={[
-              actS.track,
-              {
-                backgroundColor: P.isDark
-                  ? "rgba(255,255,255,0.08)"
-                  : "rgba(0,0,0,0.06)",
-              },
-            ]}
-          >
-            <Animated.View
-              style={[
-                actS.fill,
-                { width: fillWidth, backgroundColor: stepColor },
-              ]}
-            />
-          </View>
-          <View
-            style={[
-              actS.pctChip,
-              { backgroundColor: stepPct >= 1 ? P.proteinSoft : P.waterSoft },
-            ]}
-          >
-            {stepPct >= 1 ? (
-              <Ionicons name="checkmark" size={11} color={P.protein} />
-            ) : (
-              <Text style={[actS.pctText, { color: stepColor }]}>
-                {pctLabel}%
-              </Text>
-            )}
-          </View>
-        </View>
-
-        <Text style={[actS.stepsCaption, { color: P.textFaint }]}>
-          {steps >= stepsGoal
-            ? "Daily step goal complete"
-            : `${stepsToGo.toLocaleString()} steps to go`}
-        </Text>
-      </View>
-
-      {/* ── Distance + Active cal tiles ──────────────────────────────────── */}
-      <View style={[actS.tilesRow, { backgroundColor: P.sunken }]}>
-        <View style={actS.tile}>
-          <View style={[actS.tileIcon, { backgroundColor: P.proteinSoft }]}>
-            <Ionicons name="navigate-outline" size={14} color={P.protein} />
-          </View>
-          <View style={actS.tileFigure}>
-            <Text style={[actS.tileNum, { color: P.text }]}>{distNum}</Text>
-            <Text style={[actS.tileUnit, { color: P.textFaint }]}>
-              {distUnit}
-            </Text>
-          </View>
-          <Text style={[actS.tileLbl, { color: P.textFaint }]}>distance</Text>
-        </View>
-
-        <View style={[actS.vDivider, { backgroundColor: P.hair }]} />
-
-        <View style={actS.tile}>
-          <View style={[actS.tileIcon, { backgroundColor: P.caloriesSoft }]}>
-            <Ionicons name="flame-outline" size={14} color={P.calories} />
-          </View>
-          <View style={actS.tileFigure}>
-            <Text style={[actS.tileNum, { color: P.text }]}>
-              {activeCals.toLocaleString()}
-            </Text>
-            <Text style={[actS.tileUnit, { color: P.textFaint }]}>kcal</Text>
-          </View>
-          <Text style={[actS.tileLbl, { color: P.textFaint }]}>
-            active burn
-          </Text>
-        </View>
-      </View>
-    </Card>
-  );
-}
-
-const actS = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  eyebrow: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 1.8,
-    marginBottom: 3,
-  },
-  heading: {
-    fontSize: 20,
-    fontWeight: "800",
-    letterSpacing: -0.3,
-  },
-  sourcePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
-  sourceLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-
-  stepsSection: {
-    marginBottom: 14,
-  },
-  stepsCountRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    marginBottom: 12,
-  },
-  stepsNum: {
-    fontFamily: "BarlowCondensed_800ExtraBold",
-    fontSize: 56,
-    lineHeight: 56,
-    letterSpacing: -2,
-  },
-  stepsOf: {
-    fontSize: 14,
-    fontWeight: "600",
-    letterSpacing: -0.2,
-    marginBottom: 5,
-  },
-  barRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 8,
-  },
-  track: {
-    flex: 1,
-    height: 10,
-    borderRadius: 5,
-    overflow: "hidden",
-  },
-  fill: {
-    height: "100%",
-    borderRadius: 5,
-  },
-  pctChip: {
-    minWidth: 34,
-    height: 22,
-    borderRadius: 11,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 6,
-  },
-  pctText: {
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  stepsCaption: {
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.1,
-  },
-
-  tilesRow: {
-    flexDirection: "row",
-    borderRadius: 16,
-    overflow: "hidden",
-  },
-  tile: {
-    flex: 1,
-    padding: 14,
-    gap: 3,
-  },
-  tileIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 6,
-  },
-  tileFigure: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 4,
-  },
-  tileNum: {
-    fontFamily: "BarlowCondensed_800ExtraBold",
-    fontSize: 30,
-    lineHeight: 30,
-    letterSpacing: -1,
-  },
-  tileUnit: {
-    fontSize: 12,
-    fontWeight: "600",
-    letterSpacing: 0.1,
-    marginBottom: 1,
-  },
-  tileLbl: {
-    fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 0.3,
-  },
-  vDivider: {
-    width: StyleSheet.hairlineWidth,
-    marginVertical: 14,
-  },
-});
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Macros — three mini rings inside a single card
-// ───────────────────────────────────────────────────────────────────────────────
-type MacroItem = {
-  key: string;
-  label: string;
-  cur: number;
-  goal: number;
-  accent: "protein" | "carbs" | "fat";
-};
-
-const MACRO_DIAL_SIZE = 102;
-
-function MacrosCard({
-  P,
-  delay = 0,
-  macros,
-}: {
-  P: Palette;
-  delay?: number;
-  macros: MacroItem[];
-}) {
-  return (
-    <Card delay={delay}>
-      <SectionHead title="Macros" caption="grams today" P={P} />
-      <View style={styles.macrosRow}>
-        {macros.map((m, i) => (
-          <MacroCell
-            key={m.key}
-            label={m.label}
-            cur={m.cur}
-            goal={m.goal}
-            accent={m.accent}
-            P={P}
-            delay={delay + 200 + i * 100}
-          />
-        ))}
-      </View>
-    </Card>
-  );
-}
-
-function MacroCell({
-  label,
-  cur,
-  goal,
-  accent,
-  P,
-  delay,
-}: {
-  label: string;
-  cur: number;
-  goal: number;
-  accent: MacroItem["accent"];
-  P: Palette;
-  delay: number;
-}) {
-  const fill = P[accent];
-  const track = P[`${accent}Track` as keyof Palette] as string;
-  const soft = P[`${accent}Soft` as keyof Palette] as string;
-
-  const target = goal > 0 ? Math.min(cur / goal, 1) : 0;
-  const animated = useRef(new Animated.Value(0)).current;
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    const id = animated.addListener(({ value }) => setProgress(value));
-    Animated.timing(animated, {
-      toValue: target,
-      duration: 900,
-      delay,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-    return () => animated.removeListener(id);
-  }, [animated, target, delay]);
-
-  const pctLabel = Math.round(progress * 100);
-
-  return (
-    <View style={styles.macroCell}>
-      <SegmentedDial
-        size={MACRO_DIAL_SIZE}
-        progress={progress}
-        trackColor={track}
-        fillColor={fill}
-        haloColor={soft}
-      >
-        <Text style={[styles.macroCur, { color: P.text }]}>{cur}</Text>
-        <View style={[styles.macroDivider, { backgroundColor: fill }]} />
-        <Text style={[styles.macroOf, { color: P.textFaint }]}>OF {goal}G</Text>
-      </SegmentedDial>
-
-      <View style={[styles.macroPill, { backgroundColor: soft }]}>
-        <Text style={[styles.macroPillLabel, { color: fill }]}>
-          {label.toUpperCase()}
-        </Text>
-        <View style={[styles.macroPillDot, { backgroundColor: fill }]} />
-        <Text style={[styles.macroPillPct, { color: fill }]}>{pctLabel}%</Text>
-      </View>
-    </View>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Today's meals — rows in a card
-// ───────────────────────────────────────────────────────────────────────────────
-function MealsCard({
-  P,
-  delay = 0,
-  meals,
-  totalCalories,
-  title = "Today's Meals",
-  onLogMore,
-}: {
-  P: Palette;
-  delay?: number;
-  meals: import("@/context/food-context").MealItem[];
-  totalCalories: number;
-  title?: string;
-  onLogMore?: () => void;
-}) {
-  const TINT_KEYS = ["calories", "protein", "carbs", "fat"] as const;
-
-  return (
-    <Card padding={0} delay={delay}>
-      <View
-        style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 }}
-      >
-        <SectionHead
-          title={title}
-          caption={
-            meals.length === 0
-              ? "Nothing logged yet"
-              : `${meals.length} ${meals.length === 1 ? "entry" : "entries"}  ·  ${totalCalories.toLocaleString()} kcal`
-          }
-          action={onLogMore ? "See all" : undefined}
-          P={P}
-          onAction={onLogMore}
-        />
-      </View>
-
-      {meals.length === 0 ? (
-        onLogMore ? (
-          <Pressable
-            onPress={onLogMore}
-            style={({ pressed }) => [
-              {
-                paddingHorizontal: 20,
-                paddingBottom: 20,
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 10,
-              },
-              pressed && { opacity: 0.7 },
-            ]}
-          >
-            <Ionicons name="add-circle-outline" size={18} color={P.textFaint} />
-            <Text
-              style={{ color: P.textFaint, fontSize: 13, fontWeight: "600" }}
-            >
-              Log your first meal
-            </Text>
-          </Pressable>
-        ) : (
-          <View style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
-            <Text
-              style={{ color: P.textFaint, fontSize: 13, fontWeight: "600" }}
-            >
-              No meals logged this day
-            </Text>
-          </View>
-        )
-      ) : (
-        <View>
-          {meals.slice(0, 5).map((meal, i) => {
-            const tintKey = TINT_KEYS[i % TINT_KEYS.length];
-            const tintSoft = P[`${tintKey}Soft` as keyof Palette] as string;
-            const emoji = MEAL_EMOJIS[meal.meal.toLowerCase()] ?? "🍴";
-
-            return (
-              <View key={meal.id}>
-                {i > 0 && (
-                  <View
-                    style={[styles.mealDivider, { backgroundColor: P.hair }]}
-                  />
-                )}
-                <Pressable
-                  onPress={onLogMore}
-                  style={({ pressed }) => [
-                    styles.mealRow,
-                    onLogMore && pressed && { backgroundColor: P.sunken },
-                  ]}
-                >
-                  <View
-                    style={[styles.mealIcon, { backgroundColor: tintSoft }]}
-                  >
-                    <Text style={{ fontSize: 20 }}>{emoji}</Text>
-                  </View>
-                  <View style={{ flex: 1, gap: 3 }}>
-                    <Text
-                      style={[styles.mealName, { color: P.text }]}
-                      numberOfLines={1}
-                    >
-                      {meal.name}
-                    </Text>
-                    <Text style={[styles.mealMeta, { color: P.textFaint }]}>
-                      {meal.meal} · {meal.time}
-                    </Text>
-                  </View>
-                  <View style={{ alignItems: "flex-end", gap: 2 }}>
-                    <Text style={[styles.mealCals, { color: P.text }]}>
-                      {meal.cals}
-                    </Text>
-                    <Text style={[styles.mealUnit, { color: P.textFaint }]}>
-                      kcal
-                    </Text>
-                  </View>
-                </Pressable>
-              </View>
-            );
-          })}
-        </View>
-      )}
-
-      {onLogMore && (
-        <TouchableOpacity
-          onPress={onLogMore}
-          activeOpacity={0.7}
-          style={[styles.addMealBtn, { borderTopColor: P.hair }]}
-        >
-          <View
-            style={[styles.addMealIcon, { backgroundColor: P.caloriesSoft }]}
-          >
-            <Ionicons name="add" size={16} color={P.calories} />
-          </View>
-          <Text style={[styles.addMealText, { color: P.text }]}>
-            Log another meal
-          </Text>
-          <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
-        </TouchableOpacity>
-      )}
-    </Card>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Workout type icon / accent mapping
-// ───────────────────────────────────────────────────────────────────────────────
-const WORKOUT_CONFIG: Record<string, { icon: IoniconsName; label: string }> = {
-  gym: { icon: "barbell-outline", label: "Strength" },
-  running: { icon: "footsteps-outline", label: "Run" },
-  cycling: { icon: "bicycle-outline", label: "Cycling" },
-  hiit: { icon: "flash-outline", label: "HIIT" },
-  yoga: { icon: "leaf-outline", label: "Yoga" },
-  swimming: { icon: "water-outline", label: "Swimming" },
-  walking: { icon: "footsteps-outline", label: "Walking" },
-  rowing: { icon: "boat-outline", label: "Rowing" },
-  elliptical: { icon: "reload-outline", label: "Elliptical" },
-  other: { icon: "apps-outline", label: "Workout" },
-};
-
-const INTENSITY_DOTS: Record<string, number> = {
-  light: 1,
-  moderate: 2,
-  hard: 3,
-};
-
-function fmtDuration(mins: number): string {
-  if (mins < 60) return `${mins} min`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// WorkoutCard — today's logged workout sessions
-// ───────────────────────────────────────────────────────────────────────────────
-function WorkoutCard({
-  P,
-  delay = 0,
-  workouts,
-  totalCaloriesBurned,
-  onLogMore,
-}: {
-  P: Palette;
-  delay?: number;
-  workouts: Workout[];
-  totalCaloriesBurned: number;
-  onLogMore?: () => void;
-}) {
-  const ACCENT_CYCLE = [
-    { fill: P.protein, soft: P.proteinSoft },
-    { fill: P.water, soft: P.waterSoft },
-    { fill: P.carbs, soft: P.carbsSoft },
-    { fill: P.calories, soft: P.caloriesSoft },
-    { fill: P.fat, soft: P.fatSoft },
-  ] as const;
-
-  return (
-    <Card padding={0} delay={delay}>
-      <View
-        style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 }}
-      >
-        <SectionHead
-          title="Workouts"
-          caption={
-            workouts.length === 0
-              ? "Nothing logged yet"
-              : `${workouts.length} session${workouts.length !== 1 ? "s" : ""}  ·  ${totalCaloriesBurned.toLocaleString()} kcal burned`
-          }
-          P={P}
-        />
-      </View>
-
-      {workouts.length === 0 ? (
-        onLogMore ? (
-          <Pressable
-            onPress={onLogMore}
-            style={({ pressed }) => [
-              {
-                paddingHorizontal: 20,
-                paddingBottom: 20,
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 10,
-              },
-              pressed && { opacity: 0.7 },
-            ]}
-          >
-            <Ionicons name="add-circle-outline" size={18} color={P.textFaint} />
-            <Text
-              style={{ color: P.textFaint, fontSize: 13, fontWeight: "600" }}
-            >
-              Log your first workout
-            </Text>
-          </Pressable>
-        ) : (
-          <View style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
-            <Text
-              style={{ color: P.textFaint, fontSize: 13, fontWeight: "600" }}
-            >
-              No workouts logged this day
-            </Text>
-          </View>
-        )
-      ) : (
-        <View>
-          {workouts.map((w, i) => {
-            const cfg = WORKOUT_CONFIG[w.type] ?? WORKOUT_CONFIG.other;
-            const accent = ACCENT_CYCLE[i % ACCENT_CYCLE.length];
-            const dots = INTENSITY_DOTS[w.intensity ?? "moderate"] ?? 2;
-            const hasSets = w.sets && w.sets.length > 0;
-
-            return (
-              <View key={w.id}>
-                {i > 0 && (
-                  <View
-                    style={[wkStyles.divider, { backgroundColor: P.hair }]}
-                  />
-                )}
-                <Pressable
-                  onPress={onLogMore}
-                  style={({ pressed }) => [
-                    wkStyles.row,
-                    onLogMore && pressed && { backgroundColor: P.sunken },
-                  ]}
-                >
-                  <View
-                    style={[wkStyles.iconBox, { backgroundColor: accent.soft }]}
-                  >
-                    <Ionicons name={cfg.icon} size={18} color={accent.fill} />
-                  </View>
-
-                  <View style={{ flex: 1, gap: 3 }}>
-                    <Text style={[wkStyles.name, { color: P.text }]}>
-                      {cfg.label}
-                    </Text>
-                    <View style={wkStyles.meta}>
-                      <Text style={[wkStyles.metaText, { color: P.textFaint }]}>
-                        {fmtDuration(w.duration_mins)}
-                      </Text>
-                      {w.intensity && (
-                        <>
-                          <View
-                            style={[
-                              wkStyles.metaDot,
-                              { backgroundColor: P.textFaint },
-                            ]}
-                          />
-                          <View style={wkStyles.intensityDots}>
-                            {[1, 2, 3].map((d) => (
-                              <View
-                                key={d}
-                                style={[
-                                  wkStyles.dot,
-                                  {
-                                    backgroundColor:
-                                      d <= dots ? accent.fill : P.cardEdge,
-                                  },
-                                ]}
-                              />
-                            ))}
-                          </View>
-                        </>
-                      )}
-                      {hasSets && (
-                        <>
-                          <View
-                            style={[
-                              wkStyles.metaDot,
-                              { backgroundColor: P.textFaint },
-                            ]}
-                          />
-                          <Text
-                            style={[wkStyles.metaText, { color: P.textFaint }]}
-                          >
-                            {w.sets.length} set{w.sets.length !== 1 ? "s" : ""}
-                          </Text>
-                        </>
-                      )}
-                    </View>
-                  </View>
-
-                  <View style={{ alignItems: "flex-end", gap: 2 }}>
-                    <Text style={[wkStyles.cals, { color: P.text }]}>
-                      {Math.round(w.calories_burned)}
-                    </Text>
-                    <Text style={[wkStyles.calsUnit, { color: P.textFaint }]}>
-                      kcal
-                    </Text>
-                  </View>
-                </Pressable>
-              </View>
-            );
-          })}
-        </View>
-      )}
-
-      {onLogMore && (
-        <TouchableOpacity
-          onPress={onLogMore}
-          activeOpacity={0.7}
-          style={[styles.addMealBtn, { borderTopColor: P.hair }]}
-        >
-          <View
-            style={[styles.addMealIcon, { backgroundColor: P.proteinSoft }]}
-          >
-            <Ionicons name="add" size={16} color={P.protein} />
-          </View>
-          <Text style={[styles.addMealText, { color: P.text }]}>
-            Log a workout
-          </Text>
-          <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
-        </TouchableOpacity>
-      )}
-    </Card>
-  );
-}
-
-const wkStyles = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginHorizontal: 20,
-  },
-  iconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  name: {
-    fontSize: 14,
-    fontWeight: "700",
-    letterSpacing: -0.2,
-  },
-  meta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  metaText: {
-    fontSize: 11,
-    fontWeight: "500",
-  },
-  metaDot: {
-    width: 2,
-    height: 2,
-    borderRadius: 1,
-    opacity: 0.5,
-  },
-  intensityDots: {
-    flexDirection: "row",
-    gap: 3,
-  },
-  dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-  },
-  cals: {
-    fontSize: 16,
-    fontWeight: "800",
-    letterSpacing: -0.4,
-  },
-  calsUnit: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 0.8,
-  },
-});
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Daily Insight — mirrors the Today card in the Insights tab
-// ───────────────────────────────────────────────────────────────────────────────
-function InsightCard({
-  P,
-  delay = 0,
-  onPress,
-}: {
-  P: Palette;
-  delay?: number;
-  onPress: () => void;
-}) {
-  const { todayInsight, claudeInsight } = useInsights();
-  const insight = claudeInsight ?? todayInsight;
-
-  if (!insight) return null;
-
-  const isAi    = insight.type === 'claude';
-  const title   = insight.title || insight.message.split('. ')[0];
-  const eyebrow = isAi ? 'RIS INSIGHT' : 'DAILY INSIGHT';
-
-  return (
-    <Card delay={delay} style={{ overflow: "hidden" }}>
-      <View
-        pointerEvents="none"
-        style={[styles.insightGlow, { backgroundColor: P.fatSoft }]}
-      />
-
-      <View style={styles.insightHead}>
-        <View style={[styles.iconTile, { backgroundColor: P.fatSoft }]}>
-          <Ionicons name="sparkles" size={15} color={P.fat} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.insightEyebrow, { color: P.fat }]}>
-            {eyebrow}
-          </Text>
-          <Text style={[styles.insightMeta, { color: P.textFaint }]}>
-            Personalised for you
-          </Text>
-        </View>
-      </View>
-
-      <Text style={[styles.insightBody, { color: P.text, fontWeight: '700', marginBottom: 6 }]} numberOfLines={2}>
-        {title}
-      </Text>
-      <Text style={[styles.insightBody, { color: P.textDim }]} numberOfLines={3}>
-        {insight.message}
-      </Text>
-
-      <TouchableOpacity
-        activeOpacity={0.8}
-        style={[
-          styles.insightCta,
-          { backgroundColor: P.sunken, borderColor: P.cardEdge },
-        ]}
-        onPress={onPress}
-      >
-        <Text style={[styles.insightCtaText, { color: P.text }]}>
-          View daily insight
-        </Text>
-        <Ionicons name="arrow-forward" size={14} color={P.text} />
-      </TouchableOpacity>
-    </Card>
-  );
-}
 
 type InsightStatusModalKind = "checkin" | "workout" | "ready";
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Shared section heading
-// ───────────────────────────────────────────────────────────────────────────────
-function SectionHead({
-  title,
-  caption,
-  action,
-  onAction,
-  P,
-}: {
-  title: string;
-  caption?: string;
-  action?: string;
-  onAction?: () => void;
-  P: Palette;
-}) {
-  return (
-    <View style={styles.sectionHead}>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={[styles.sectionTitle, { color: P.text }]}>{title}</Text>
-        {caption && (
-          <Text style={[styles.sectionCaption, { color: P.textFaint }]}>
-            {caption}
-          </Text>
-        )}
-      </View>
-      {action && (
-        <TouchableOpacity activeOpacity={0.7} onPress={onAction}>
-          <Text style={[styles.sectionAction, { color: P.calories }]}>
-            {action}
-          </Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-}
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Greeting helper
@@ -1803,10 +770,17 @@ export default function HomeScreen() {
             delay={120}
             eaten={totalCalories}
             goal={mealGoal}
-            burned={burnedToday}
-            stepsToday={isToday ? healthToday?.steps : undefined}
             remaining={remaining}
             earnedFromActivity={burnedToday}
+          />
+          <DailyBudgetMetricsRow
+            P={P}
+            delay={160}
+            eaten={totalCalories}
+            goal={mealGoal}
+            burned={burnedToday}
+            healthData={healthToday}
+            showMovement={isToday && Platform.OS === "ios"}
           />
           {isToday && (
             <BurnCoachStrip
@@ -1840,12 +814,9 @@ export default function HomeScreen() {
           {isToday && (
             <HydrationCard
               P={P}
-              delay={400}
+              delay={430}
               onViewAll={() => router.push("/(tabs)/log/water")}
             />
-          )}
-          {isToday && Platform.OS === "ios" && (
-            <ActivityCard P={P} delay={430} data={healthToday} />
           )}
           <MealsCard
             P={P}
@@ -2124,80 +1095,6 @@ const styles = StyleSheet.create({
 
   coachSlot: { marginTop: 0 },
 
-  // Section heading
-  sectionHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 18,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    letterSpacing: -0.4,
-  },
-  sectionCaption: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  sectionAction: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
-
-  // Macros
-  macrosRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
-  macroCell: {
-    alignItems: "center",
-  },
-  macroCur: {
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-    lineHeight: 26,
-  },
-  macroDivider: {
-    width: 14,
-    height: 1,
-    marginTop: 4,
-    marginBottom: 4,
-    opacity: 0.45,
-  },
-  macroOf: {
-    fontSize: 8.5,
-    fontWeight: "700",
-    letterSpacing: 1.1,
-  },
-  macroPill: {
-    marginTop: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  macroPillLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.7,
-  },
-  macroPillDot: {
-    width: 2,
-    height: 2,
-    borderRadius: 1,
-    opacity: 0.6,
-  },
-  macroPillPct: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-    fontVariant: ["tabular-nums"],
-  },
-
   // Cycle phase
   cycleHead: {
     flexDirection: "row",
@@ -2245,6 +1142,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+<<<<<<< HEAD
   // Meals
   mealRow: {
     flexDirection: "row",
@@ -2352,6 +1250,44 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
+=======
+  hydrationTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  hydrationSub: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  hydrationNum: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 2,
+  },
+  hydrationCount: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.7,
+  },
+  hydrationGoal: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  dropRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  dropCell: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+>>>>>>> dev
   // Quick stats row
   statsGrid: {
     flexDirection: "row",

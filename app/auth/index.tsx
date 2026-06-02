@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
 import { CalorieBudgetCard, LIGHT_CALORIE_PALETTE } from '@/components/home/CalorieBudgetCard';
+import { DailyBudgetMetricsRow } from '@/components/home/DailyBudgetMetricsRow';
 
 const COLORS = {
   bg:         '#FAFAF8',
@@ -108,11 +109,45 @@ export default function AuthLandingScreen() {
             P={LIGHT_CALORIE_PALETTE}
             eaten={DEMO.eaten}
             goal={DEMO.goal}
-            burned={DEMO.burned}
-            stepsToday={DEMO.stepsToday}
             remaining={DEMO.remaining}
             dateLabel={DEMO.dateLabel}
           />
+        <DailyBudgetMetricsRow
+          P={LIGHT_CALORIE_PALETTE}
+          eaten={DEMO.eaten}
+          goal={DEMO.goal}
+          burned={DEMO.burned}
+          showMovement
+          healthData={{
+            id: 'demo',
+            active_calories: DEMO.burned,
+            resting_calories: 0,
+            total_calories_burned: DEMO.burned,
+            steps: DEMO.stepsToday,
+            distance: 3.2,
+            distance_unit: 'km',
+            avg_heart_rate: null,
+            max_heart_rate: null,
+            resting_heart_rate: null,
+            hrv: null,
+            vo2_max: null,
+            active_minutes: null,
+            stand_hours: null,
+            exercise_minutes: null,
+            mindfulness_minutes: null,
+            sleep_hours: null,
+            sleep_quality: null,
+            deep_sleep_hours: null,
+            rem_sleep_hours: null,
+            sleep_efficiency: null,
+            time_in_bed_hours: null,
+            bedtime_iso: null,
+            wakeup_iso: null,
+            stress_score: null,
+            source: 'manual',
+            recorded_at: new Date().toISOString(),
+          }}
+        />
 
         <Animated.View style={[s.livePill, { opacity: liveFade, transform: [{ translateY: liveY }] }]}>
           <Animated.View style={[s.liveDot, { opacity: dotOpac }]} />
