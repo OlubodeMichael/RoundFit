@@ -86,8 +86,6 @@ export interface SyncHealthInput {
   wakeup_iso?:            string;
   stand_hours?:           number;
   exercise_minutes?:      number;
-  avg_heart_rate?:        number;
-  max_heart_rate?:        number;
 }
 
 export interface HealthContextValue {
@@ -138,7 +136,19 @@ function healthFetch(
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
 function num(v: unknown, fallback: number | null = null): number | null {
-  return typeof v === 'number' ? v : fallback;
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') {
+    const parsed = Number(v.trim());
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+/** Steps above this with zero distance usually means a failed HK read or stale server row. */
+const STEPS_WITH_MISSING_DISTANCE = 100;
+
+function hasStepsButNoDistance(steps: number, distance: number): boolean {
+  return steps >= STEPS_WITH_MISSING_DISTANCE && distance <= 0;
 }
 
 /** Only sync if HealthKit returned at least one meaningful reading. */
@@ -158,14 +168,20 @@ function isEmptySummary(s: HealthKitSummary): boolean {
 
 /** Merges fresh device data into a HealthData shape for optimistic UI updates. */
 function applyKitSummary(current: HealthData | null, s: HealthKitSummary, date: string): HealthData {
+  const keepPriorDistance =
+    s.distance <= 0
+    && current !== null
+    && current.distance > 0
+    && hasStepsButNoDistance(s.steps, s.distance);
+
   return {
     id:                    current?.id ?? '',
     active_calories:       s.active_calories,
     resting_calories:      s.resting_calories,
     total_calories_burned: s.total_calories_burned,
     steps:                 s.steps,
-    distance:              s.distance,
-    distance_unit:         s.distance_unit,
+    distance:              keepPriorDistance ? current.distance : s.distance,
+    distance_unit:         keepPriorDistance ? current.distance_unit : s.distance_unit,
     avg_heart_rate:        s.avg_heart_rate ?? current?.avg_heart_rate ?? null,
     max_heart_rate:        s.max_heart_rate ?? current?.max_heart_rate ?? null,
     resting_heart_rate:    s.resting_heart_rate,
@@ -195,12 +211,10 @@ function toSyncInput(s: HealthKitSummary): SyncHealthInput {
   const input: SyncHealthInput = {
     source:                'healthkit',
     date:                  getLocalDateString(),
-    distance_unit:         s.distance_unit,
     steps:                 s.steps,
     active_calories:       s.active_calories,
     resting_calories:      s.resting_calories,
     total_calories_burned: s.total_calories_burned,
-    distance:              s.distance,
     active_minutes:        s.active_minutes,
     exercise_minutes:      s.active_minutes,
     stand_hours:           s.stand_hours,
@@ -210,6 +224,15 @@ function toSyncInput(s: HealthKitSummary): SyncHealthInput {
     rem_sleep_hours:       s.rem_sleep_hours,
     time_in_bed_hours:     s.time_in_bed_hours,
   };
+  // Omit distance when HK returned 0 but steps did not — avoids overwriting a good
+  // server value for users whose distance read failed on an earlier sync.
+  if (s.distance > 0) {
+    input.distance = s.distance;
+    input.distance_unit = s.distance_unit;
+  } else if (!hasStepsButNoDistance(s.steps, s.distance)) {
+    input.distance = s.distance;
+    input.distance_unit = s.distance_unit;
+  }
   if (s.resting_heart_rate !== null) input.resting_heart_rate = s.resting_heart_rate;
   if (s.hrv                !== null) input.hrv                = s.hrv;
   if (s.vo2_max            !== null) input.vo2_max            = s.vo2_max;
@@ -343,19 +366,29 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     });
     if (!ok || !body.health_data) throw new Error('Failed to sync health data');
     const saved = fromApiData(body.health_data as Record<string, unknown>);
+    const merged =
+      typeof input.distance === 'number'
+      && input.distance > 0
+      && hasStepsButNoDistance(saved.steps, saved.distance)
+        ? {
+            ...saved,
+            distance:      input.distance,
+            distance_unit: input.distance_unit ?? saved.distance_unit,
+          }
+        : saved;
     if (applyTodayState) {
-      setToday(saved);
+      setToday(merged);
       if (user?.id) {
         const date = saved.date ?? getLocalDateString();
         void setResourceCached(
           buildResourceKey('health', user.id, date),
-          saved,
+          merged,
           ttlForDate(date),
         );
         void notifyTodayDataChanged(user.id, 'health');
       }
     }
-    return saved;
+    return merged;
   }, [user?.id]);
 
   const syncHealth = useCallback(async (input: SyncHealthInput): Promise<HealthData> => {
@@ -405,9 +438,11 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       let backfillCursor = backfillStartDate;
       while (backfillCursor < todayDate) {
         const dayData = await fetchByDate(backfillCursor);
-        if (!dayData) {
+        const needsDistanceBackfill =
+          !dayData || hasStepsButNoDistance(dayData.steps, dayData.distance);
+        if (needsDistanceBackfill) {
           const daySummary = await readHealthKitForDate(hk, backfillCursor);
-          if (!isEmptySummary(daySummary)) {
+          if (!isEmptySummary(daySummary) && daySummary.distance > 0) {
             const payload = toSyncInput(daySummary);
             payload.date = backfillCursor;
             console.log('[HealthKit] backfill /health/sync payload:', JSON.stringify(payload, null, 2));
@@ -476,13 +511,21 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       try {
         await fetchToday(false);
         if (!cancelled) await syncFromDevice(false);
+        // Some accounts have steps on the server but distance stuck at 0 from an
+        // earlier failed HK read — force one repair sync when that pattern appears.
+        if (!cancelled && todayRef.current && hasStepsButNoDistance(
+          todayRef.current.steps,
+          todayRef.current.distance,
+        )) {
+          await syncFromDevice(true);
+        }
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, fetchToday, syncFromDevice]);
+  }, [status, user, fetchToday, syncFromDevice]);
 
   // ── Check HealthKit connection status ────────────────────────────────────
   useEffect(() => {

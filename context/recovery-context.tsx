@@ -71,6 +71,8 @@ export interface LogRecoveryInput {
   notes?:              string;
   source?:             RecoverySource;
   date?:               string;
+  bedtime_iso?:        string;
+  wakeup_iso?:         string;
 }
 
 export interface RecoveryDisplay {
@@ -95,7 +97,7 @@ export interface RecoveryContextValue {
   hasInsufficientData: boolean;
   hrvBaseline: number | null;
   restingHrBaseline: number | null;
-  logRecovery: (input: LogRecoveryInput) => Promise<RecoveryLog>;
+  logRecovery: (input: LogRecoveryInput, options?: { notifyListeners?: boolean }) => Promise<RecoveryLog>;
   /** Loads recovery bundle; uses AsyncStorage unless `force` is true. */
   refresh: (options?: { force?: boolean }) => Promise<void>;
 }
@@ -504,46 +506,63 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
 
   const hasInsufficientData = computed === null && readiness === null;
 
-  const logRecovery = useCallback(async (input: LogRecoveryInput): Promise<RecoveryLog> => {
+  const logRecovery = useCallback(async (
+    input: LogRecoveryInput,
+    options?: { notifyListeners?: boolean },
+  ): Promise<RecoveryLog> => {
+    const notifyListeners = options?.notifyListeners !== false;
     const { ok, body } = await apiFetch('/recovery/log', {
       method: 'POST',
       body:   JSON.stringify(input),
     });
-    if (!ok || !body.data) throw new Error('Failed to log recovery');
+    if (!ok || !body.data) {
+      const msg = typeof body.error === 'string' ? body.error : 'Failed to log recovery';
+      throw new Error(msg);
+    }
 
     const data = body.data as Record<string, unknown>;
     const saved = fromApiLog(data);
-    setToday(saved);
+    const logDate = input.date ?? getLocalDateString();
+
+    if (logDate === getLocalDateString()) {
+      setToday(saved);
+    }
 
     if (user?.id) {
-      const today = getLocalDateString();
-      const uid   = user.id;
-      void setResourceCached(buildResourceKey('recovery-today', uid, today), saved, TTL_COLD_START_MS);
-      // Always bust the readiness score so the next fetch gets the freshest value.
-      void invalidateResourceCache(buildResourceKey('recovery-readiness', uid, today));
+      const uid = user.id;
+      void setResourceCached(
+        buildResourceKey('recovery-today', uid, logDate),
+        saved,
+        TTL_COLD_START_MS,
+      );
+      void invalidateResourceCache(buildResourceKey('recovery-readiness', uid, logDate));
+      void invalidateResourceCache(buildResourceKey('health', uid, logDate));
     }
 
     if (data.readiness) {
       const newReadiness = fromApiReadiness(data.readiness as Record<string, unknown>);
-      setReadiness(newReadiness);
+      if (logDate === getLocalDateString()) {
+        setReadiness(newReadiness);
+      }
 
-      // Merge today's score into the cached month history so the calendar
-      // reflects it immediately without a full re-fetch.
       if (user?.id) {
-        const today    = getLocalDateString();
-        const histKey  = buildResourceKey('recovery-history', user.id, today.slice(0, 7));
+        const histKey  = buildResourceKey('recovery-history', user.id, logDate.slice(0, 7));
         const cached   = await getResourceCached<ReadinessHistoryPoint[]>(histKey);
         const existing = cached?.data ?? [];
         const merged   = [
-          ...existing.filter((p) => p.date !== today),
-          { date: today, score: newReadiness.score },
+          ...existing.filter((p) => p.date !== logDate),
+          { date: logDate, score: newReadiness.score },
         ];
         void setResourceCached(histKey, merged, TTL_BASELINES);
-        setHistoryScores(merged);
+        if (logDate === getLocalDateString()) {
+          setHistoryScores(merged);
+        }
       }
     }
 
-    if (user?.id) void notifyTodayDataChanged(user.id, 'recovery');
+    if (notifyListeners && user?.id) {
+      void notifyTodayDataChanged(user.id, 'recovery');
+    }
 
     return saved;
   }, [user?.id]);

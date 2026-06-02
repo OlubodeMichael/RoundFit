@@ -40,13 +40,19 @@ function tokenSub(jwt: string): string | null {
 // runs; the rest await the same promise and use its result.
 
 let pendingRefresh: Promise<string | null> | null = null;
+type RefreshFailureReason = 'invalid' | 'transient';
+type RefreshOutcome = { token: string | null; reason: RefreshFailureReason | null };
+let lastRefreshFailureReason: RefreshFailureReason | null = null;
 
 async function executeRefresh(): Promise<string | null> {
   const [storedRefresh, storedSub] = await Promise.all([
     SecureStore.getItemAsync(REFRESH_KEY).catch(() => null),
     SecureStore.getItemAsync(SUB_KEY).catch(() => null),
   ]);
-  if (!storedRefresh) return null;
+  if (!storedRefresh) {
+    lastRefreshFailureReason = 'invalid';
+    return null;
+  }
 
   let res: Response;
   try {
@@ -59,11 +65,19 @@ async function executeRefresh(): Promise<string | null> {
       body:    JSON.stringify({ refresh_token: storedRefresh }),
     });
   } catch {
+    lastRefreshFailureReason = 'transient';
     return null;
   }
 
   if (!res.ok) {
-    await clearTokens();
+    // Only hard-clear on definitive invalid refresh credentials.
+    // Transient outages (5xx/network edge cases) should not force logout.
+    if (res.status === 400 || res.status === 401 || res.status === 403) {
+      await clearTokens();
+      lastRefreshFailureReason = 'invalid';
+    } else {
+      lastRefreshFailureReason = 'transient';
+    }
     return null;
   }
 
@@ -71,6 +85,7 @@ async function executeRefresh(): Promise<string | null> {
   const { access_token, refresh_token } = json;
   if (!access_token) {
     console.error('[api] refresh response missing access_token:', Object.keys(json));
+    lastRefreshFailureReason = 'transient';
     return null;
   }
 
@@ -82,6 +97,7 @@ async function executeRefresh(): Promise<string | null> {
   if (storedSub && newSub && storedSub !== newSub) {
     console.error(`[api] refresh mismatch: stored sub=${storedSub} refreshed sub=${newSub} — clearing tokens`);
     await clearTokens();
+    lastRefreshFailureReason = 'invalid';
     return null;
   }
 
@@ -95,33 +111,43 @@ async function executeRefresh(): Promise<string | null> {
       : Promise.resolve(),
   ]);
   console.log('[api] refresh succeeded, new token stored');
+  lastRefreshFailureReason = null;
   return access_token;
 }
 
-function getOrCreateRefresh(): Promise<string | null> {
+async function getOrCreateRefresh(): Promise<RefreshOutcome> {
   if (!pendingRefresh) {
     pendingRefresh = executeRefresh().finally(() => { pendingRefresh = null; });
   }
-  return pendingRefresh;
+  const token = await pendingRefresh;
+  if (token) return { token, reason: null };
+  return { token: null, reason: lastRefreshFailureReason ?? 'transient' };
 }
 
 // ── Shared fetch ───────────────────────────────────────────────────────────
 
+type ApiFetchOptions = RequestInit & {
+  includeAuthToken?: boolean;
+};
+
 export async function apiFetch(
   path: string,
-  options: RequestInit = {},
+  options: ApiFetchOptions = {},
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
+  const { includeAuthToken = true, ...requestOptions } = options;
+  const token = includeAuthToken
+    ? await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null)
+    : null;
 
   const makeHeaders = (t: string | null): Record<string, string> => ({
     'Content-Type': 'application/json',
     ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
-    ...(options.headers as Record<string, string>),
+    ...(requestOptions.headers as Record<string, string>),
     ...(t ? { Authorization: `Bearer ${t}` } : {}),
   });
 
   const doFetch = (hdrs: Record<string, string>, signal: AbortSignal) =>
-    fetch(`${API_BASE}${path}`, { ...options, headers: hdrs, signal });
+    fetch(`${API_BASE}${path}`, { ...requestOptions, headers: hdrs, signal });
 
   const controller = new AbortController();
   const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -135,17 +161,23 @@ export async function apiFetch(
     }
 
     // ── 401: attempt token refresh ─────────────────────────────────────────
-    const newToken = await getOrCreateRefresh();
-    if (!newToken) {
+    const refresh = includeAuthToken
+      ? await getOrCreateRefresh()
+      : { token: null, reason: 'invalid' as RefreshFailureReason };
+    if (!refresh.token) {
       console.warn('[api] refresh returned null for', path);
-      return { ok: false, status: 401, body: {} };
+      const body =
+        refresh.reason === 'transient'
+          ? { error: 'TRANSIENT_REFRESH_FAILURE' }
+          : {};
+      return { ok: false, status: 401, body };
     }
 
     // Use the token directly from refresh — don't re-read SecureStore
     const retryController = new AbortController();
     const retryTimer      = setTimeout(() => retryController.abort(), TIMEOUT_MS);
     try {
-      const retryRes  = await doFetch(makeHeaders(newToken), retryController.signal);
+      const retryRes  = await doFetch(makeHeaders(refresh.token), retryController.signal);
       const retryBody = await retryRes.json().catch(() => ({}));
       return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
     } finally {
@@ -238,6 +270,13 @@ export async function clearTokens(): Promise<void> {
  * Returns true if the session is still valid, false if it is dead.
  */
 export async function proactiveRefreshIfNeeded(bufferSecs = 300): Promise<boolean> {
+  const state = await proactiveRefreshStateIfNeeded(bufferSecs);
+  return state === 'valid';
+}
+
+export async function proactiveRefreshStateIfNeeded(
+  bufferSecs = 300,
+): Promise<'valid' | 'invalid' | 'transient'> {
   const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
 
   const needsRefresh = !token || (() => {
@@ -245,8 +284,9 @@ export async function proactiveRefreshIfNeeded(bufferSecs = 300): Promise<boolea
     return exp === null || Date.now() / 1000 >= exp - bufferSecs;
   })();
 
-  if (!needsRefresh) return true;
+  if (!needsRefresh) return 'valid';
 
-  const newToken = await getOrCreateRefresh();
-  return newToken !== null;
+  const refresh = await getOrCreateRefresh();
+  if (refresh.token) return 'valid';
+  return refresh.reason === 'invalid' ? 'invalid' : 'transient';
 }

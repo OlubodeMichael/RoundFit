@@ -4,8 +4,8 @@ import {
     apiFetch,
     clearTokens,
     hasStoredAccessToken,
-    isStoredTokenOAuth,
     proactiveRefreshIfNeeded,
+    proactiveRefreshStateIfNeeded,
     storeTokens,
 } from "@/utils/api";
 import { TTL_FOREGROUND_SKIP_MS } from "@/utils/daily-summary-cache";
@@ -127,7 +127,7 @@ interface AuthContextValue {
       UserProfile,
       "id" | "email" | "createdAt" | "tdee" | "calorieBudget"
     >,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 
   /** Signs in with email + password. Resolves to `true` on confirmed success
    *  (token stored AND profile loaded), `false` otherwise. */
@@ -143,6 +143,12 @@ interface AuthContextValue {
 
   /** Re-fetches the current user from GET /auth/me and updates local state. */
   refreshUser: () => Promise<void>;
+
+  /**
+   * Force-checks `/auth/me` and exits `needs-profile` when a profile already exists.
+   * Use on complete-profile when session tokens are valid but routing is stale.
+   */
+  recoverExistingProfile: () => Promise<boolean>;
 
   /** Signs in via Google or Apple OAuth (opens a browser session). */
   signInWithOAuth: (provider: "google" | "apple") => Promise<void>;
@@ -352,21 +358,54 @@ function parseApiError(
   return "UNKNOWN";
 }
 
+/** True when a raw API object looks like a `users` profile row. */
+function looksLikeProfileRow(row: Record<string, unknown>): boolean {
+  const hasId =
+    (typeof row.id === "string" && row.id.length > 0) ||
+    (typeof row.user_id === "string" && row.user_id.length > 0);
+  const hasBodyMetrics =
+    typeof row.height_cm === "number" ||
+    typeof row.weight_kg === "number" ||
+    typeof row.age === "number";
+  return hasId && (hasBodyMetrics || typeof row.goal === "string");
+}
+
+/** Locates a profile row across known `/auth/me` response shapes. */
+function extractProfileRow(
+  body: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const data = (body.data ?? body) as Record<string, unknown>;
+
+  const nested = data.profile;
+  if (nested && typeof nested === "object") {
+    return nested as Record<string, unknown>;
+  }
+
+  if (body.profile && typeof body.profile === "object") {
+    return body.profile as Record<string, unknown>;
+  }
+
+  if (looksLikeProfileRow(data)) {
+    return data;
+  }
+
+  return null;
+}
+
 /**
  * Parses a profile from GET /me, POST /login, or POST /register bodies.
- * Returns null when the server signals profile setup is still required.
+ * Returns null only when no usable profile row exists.
  */
 function profileFromAuthPayload(
   body: Record<string, unknown>,
   emailFallback = "",
 ): UserProfile | null {
-  if (body.needs_profile_setup === true) return null;
+  const profileRecord = extractProfileRow(body);
+  if (!profileRecord) {
+    return null;
+  }
 
   const data = (body.data ?? body) as Record<string, unknown>;
-  const profileRow = data.profile;
-  if (!profileRow || typeof profileRow !== "object") return null;
-
-  const profileRecord = profileRow as Record<string, unknown>;
   const authUser = data.user as Record<string, unknown> | undefined;
   const userMeta = authUser?.user_metadata as
     | Record<string, unknown>
@@ -378,12 +417,18 @@ function profileFromAuthPayload(
     (typeof userMeta?.full_name === "string" && userMeta.full_name) ||
     "";
 
-  return fromApiProfile({
+  const profile = fromApiProfile({
     ...profileRecord,
     name,
     email: (authUser?.email ?? profileRecord.email ?? emailFallback) as string,
     id: (authUser?.id ?? profileRecord.id ?? profileRecord.user_id) as string,
   });
+
+  if (hasValidProfileIdentity(profile)) {
+    return profile;
+  }
+
+  return null;
 }
 
 /**
@@ -414,6 +459,22 @@ function profileFromOAuthSetupBody(
 
 function isNoProfileError(err: unknown): boolean {
   return err instanceof Error && err.message === "no_profile";
+}
+
+function isFetchMeFailedError(err: unknown): boolean {
+  return err instanceof Error && err.message === "fetch_me_failed";
+}
+
+async function wait(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function hasValidProfileIdentity(
+  profile: UserProfile | null,
+): profile is UserProfile {
+  return typeof profile?.id === "string" && profile.id.length > 0;
 }
 
 // ── Context ────────────────────────────────────────────────────────────────
@@ -470,31 +531,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isAuth = status === "authenticated";
 
+  const loadUserWithRetry = useCallback(
+    async (emailFallback = ""): Promise<UserProfile> => {
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          return await loadUserFromServer(emailFallback, true);
+        } catch (err) {
+          lastErr = err;
+          if (isNoProfileError(err)) throw err;
+          if (!isFetchMeFailedError(err) || attempt === 2) throw err;
+          await wait(700 * (attempt + 1));
+        }
+      }
+      throw lastErr ?? new Error("fetch_me_failed");
+    },
+    [loadUserFromServer],
+  );
+
   // ── Restore session on mount ─────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
         // Proactively refresh if expired — this also runs the mismatch guard
         // (different-user tokens) before any data requests fire.
-        const stillValid = await proactiveRefreshIfNeeded(0);
-        if (!stillValid) {
+        const refreshState = await proactiveRefreshStateIfNeeded(0);
+        if (refreshState === "invalid") {
           setStatus("unauthenticated");
           return;
         }
-        setUser(await loadUserFromServer("", true));
+        setUser(await loadUserWithRetry(""));
+        setProfileSetupPending(false);
         setStatus("authenticated");
       } catch (err) {
         if (isNoProfileError(err)) {
           setProfileSetupPending(true);
           setStatus("needs-profile");
         } else {
-          await clearTokens();
           lastMeFetchAtRef.current = 0;
-          setStatus("unauthenticated");
+          const hasToken = await hasStoredAccessToken();
+          if (!hasToken) {
+            setStatus("unauthenticated");
+            return;
+          }
+
+          // Give transient backend/network failures one delayed retry on boot.
+          await wait(1200);
+          try {
+            const retryRefreshState = await proactiveRefreshStateIfNeeded(0);
+            if (retryRefreshState === "invalid") {
+              setStatus("unauthenticated");
+              return;
+            }
+            setUser(await loadUserWithRetry(""));
+            setProfileSetupPending(false);
+            setStatus("authenticated");
+          } catch (retryErr) {
+            if (isNoProfileError(retryErr)) {
+              setProfileSetupPending(true);
+              setStatus("needs-profile");
+            } else {
+              setStatus("unauthenticated");
+            }
+          }
         }
       }
     })();
-  }, [loadUserFromServer]);
+  }, [loadUserWithRetry]);
 
   // ── Proactive token refresh on foreground ─────────────────────────────────
   // Refresh the access token when needed; only re-fetch /auth/me if the last
@@ -507,10 +610,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         appStateRef.current = next;
 
         if (!prev.match(/inactive|background/) || next !== "active") return;
-        if (statusRef.current !== "authenticated") return;
+        const currentStatus = statusRef.current;
+        if (currentStatus !== "authenticated" && currentStatus !== "needs-profile") {
+          return;
+        }
 
-        const stillValid = await proactiveRefreshIfNeeded();
-        if (!stillValid) {
+        const refreshState = await proactiveRefreshStateIfNeeded();
+        if (refreshState === "invalid") {
           setUser(null);
           lastMeFetchAtRef.current = 0;
           setStatus("unauthenticated");
@@ -522,15 +628,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         try {
-          setUser(
-            await loadUserFromServer(userRef.current?.email ?? "", false),
+          const fresh = await loadUserFromServer(
+            userRef.current?.email ?? "",
+            false,
           );
+          setUser(fresh);
+          // If a profile now exists while we were in needs-profile, recover the
+          // normal authenticated state so routing leaves complete-profile.
+          if (currentStatus === "needs-profile" && hasValidProfileIdentity(fresh)) {
+            setProfileSetupPending(false);
+            setStatus("authenticated");
+          }
         } catch (err) {
           if (isNoProfileError(err)) {
             try {
-              setUser(
-                await loadUserFromServer(userRef.current?.email ?? "", true),
+              const retried = await loadUserFromServer(
+                userRef.current?.email ?? "",
+                true,
               );
+              setUser(retried);
+              if (currentStatus === "needs-profile" && hasValidProfileIdentity(retried)) {
+                setProfileSetupPending(false);
+                setStatus("authenticated");
+              }
             } catch (retryErr) {
               if (isNoProfileError(retryErr)) {
                 setProfileSetupPending(true);
@@ -551,6 +671,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(id);
   }, [error]);
 
+  // Repair stale `needs-profile` when `user` was hydrated but status was not updated.
+  useEffect(() => {
+    if (status === "needs-profile" && hasValidProfileIdentity(user)) {
+      setProfileSetupPending(false);
+      setStatus("authenticated");
+    }
+  }, [status, user]);
+
   // ── Sign up ──────────────────────────────────────────────────────────────
   const signUp = useCallback(
     async (
@@ -560,7 +688,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         UserProfile,
         "id" | "email" | "createdAt" | "tdee" | "calorieBudget"
       >,
-    ) => {
+    ): Promise<boolean> => {
       setError(null);
       setIsLoading(true);
 
@@ -572,11 +700,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } = await apiFetch("/auth/register", {
           method: "POST",
           body: JSON.stringify({ email, password, ...toApiBody(profile) }),
+          includeAuthToken: false,
         });
 
         if (!ok) {
           setError(parseApiError(s, body));
-          return;
+          return false;
         }
 
         if (
@@ -586,7 +715,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Account may have been created but the server couldn't issue a session.
           // Surface the error so the user knows to log in manually.
           setError("UNKNOWN");
-          return;
+          return false;
         }
 
         await storeTokens(body.access_token, body.refresh_token);
@@ -594,37 +723,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (body.needs_profile_setup === true) {
           setProfileSetupPending(true);
           setStatus("needs-profile");
-          return;
+          return false;
         }
 
         const inlineProfile = profileFromAuthPayload(body, email);
         if (inlineProfile) {
+          if (!hasValidProfileIdentity(inlineProfile)) {
+            await clearTokens();
+            setUser(null);
+            setStatus("unauthenticated");
+            setError("UNKNOWN");
+            return false;
+          }
           lastMeFetchAtRef.current = Date.now();
           setUser(inlineProfile);
           setStatus("authenticated");
-          return;
+          return true;
         }
 
         try {
           setUser(await loadUserFromServer(email, true));
           setStatus("authenticated");
+          return true;
         } catch (err) {
           if (isNoProfileError(err)) {
             setProfileSetupPending(true);
             setStatus("needs-profile");
+            return false;
           } else {
-            // /me failed for a reason other than missing profile (network,
-            // 5xx, etc). Don't claim "authenticated" — we have a user-less
-            // session that the rest of the app can't work with. Clear and
-            // surface an error.
-            await clearTokens();
+            // Keep session tokens on transient /me failures so users can recover
+            // on retry instead of being forcibly logged out.
+            if (!isFetchMeFailedError(err)) {
+              await clearTokens();
+            }
             setUser(null);
             setStatus("unauthenticated");
             setError("UNKNOWN");
+            return false;
           }
         }
       } catch {
         setError("UNKNOWN");
+        return false;
       } finally {
         setIsLoading(false);
       }
@@ -645,6 +785,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } = await apiFetch("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
+        includeAuthToken: false,
       });
 
       if (!ok) {
@@ -674,6 +815,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const inlineProfile = profileFromAuthPayload(body, email);
       if (inlineProfile) {
+        if (!hasValidProfileIdentity(inlineProfile)) {
+          await clearTokens();
+          setUser(null);
+          setStatus("unauthenticated");
+          setError("UNKNOWN");
+          return false;
+        }
         lastMeFetchAtRef.current = Date.now();
         setUser(inlineProfile);
         setStatus("authenticated");
@@ -690,8 +838,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setStatus("needs-profile");
           return false;
         }
-        // /me failed for a non-no_profile reason — don't claim authenticated.
-        await clearTokens();
+        // Keep tokens for transient /me failures; clear only on non-transient.
+        if (!isFetchMeFailedError(err)) {
+          await clearTokens();
+        }
         setUser(null);
         setStatus("unauthenticated");
         setError("UNKNOWN");
@@ -849,7 +999,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // the backend, so retry once with a short delay on transient failures.
       let fetchedUser = null;
       let fetchErr: Error | null = null;
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) await new Promise<void>(r => setTimeout(r, 1000));
         try {
           fetchedUser = await loadUserFromServer("", true);
@@ -874,7 +1024,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // data on next /me success). Surface an error and keep them at the
         // auth-options screen so they can retry.
         console.error("[auth] OAuth fetchMe failed after retry:", fetchErr?.message);
-        await clearTokens();
+        if (!isFetchMeFailedError(fetchErr)) {
+          await clearTokens();
+        }
         setUser(null);
         setProfileSetupPending(false);
         setStatus("unauthenticated");
@@ -901,8 +1053,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true);
 
       try {
-        const sessionOk = await proactiveRefreshIfNeeded(0);
-        if (!sessionOk) {
+        const refreshState = await proactiveRefreshStateIfNeeded(0);
+        if (refreshState === "invalid") {
           setError("UNKNOWN");
           return false;
         }
@@ -1027,9 +1179,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!ok) {
           setUser(previous); // rollback
           if (s === 401) {
-            // Refresh already failed inside apiFetch — session is dead
-            setUser(null);
-            setStatus("unauthenticated");
+            const hasToken = await hasStoredAccessToken();
+            // Only force unauthenticated if refresh handling already cleared tokens.
+            if (!hasToken) {
+              setUser(null);
+              setStatus("unauthenticated");
+            }
           }
           return false;
         }
@@ -1075,6 +1230,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const fresh = await loadUserFromServer(userRef.current?.email ?? "", true);
       setUser(fresh);
+      if (hasValidProfileIdentity(fresh)) {
+        setProfileSetupPending(false);
+        setStatus("authenticated");
+      }
     } catch (err) {
       if (__DEV__) {
         console.warn(
@@ -1084,6 +1243,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [loadUserFromServer]);
+
+  const recoverExistingProfile = useCallback(async (): Promise<boolean> => {
+    const hasToken = await hasStoredAccessToken();
+    if (!hasToken) return false;
+
+    try {
+      const refreshState = await proactiveRefreshStateIfNeeded(0);
+      if (refreshState === "invalid") return false;
+
+      const fresh = await loadUserWithRetry(userRef.current?.email ?? "");
+      setUser(fresh);
+      setProfileSetupPending(false);
+      setStatus("authenticated");
+      return true;
+    } catch (err) {
+      if (isNoProfileError(err)) {
+        return false;
+      }
+      if (__DEV__) {
+        console.warn(
+          "[auth] recoverExistingProfile failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+      return false;
+    }
+  }, [loadUserWithRetry]);
 
   // ── Clear error ──────────────────────────────────────────────────────────
   const clearError = useCallback(() => setError(null), []);
@@ -1105,6 +1291,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         deleteAccount,
         updateProfile,
         refreshUser,
+        recoverExistingProfile,
         clearError,
       }}
     >

@@ -91,7 +91,8 @@ export default function SignUpScreen() {
     clearError();
 
     try {
-      await signUp(email.trim(), password, buildOnboardingProfile(params));
+      const success = await signUp(email.trim(), password, buildOnboardingProfile(params));
+      if (!success) return;
       posthog.identify(email.trim(), {
         $set: { email: email.trim(), name: params.name ?? '', goal: params.goal ?? '' },
         $set_once: { sign_up_date: new Date().toISOString() },

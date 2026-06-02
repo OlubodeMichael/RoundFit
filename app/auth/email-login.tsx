@@ -58,7 +58,7 @@ export default function LoginScreen() {
     if (hasActiveUserSession(status, user)) router.replace('/(tabs)');
   }, [status, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canSubmit = email.trim().length > 4 && password.length >= 6 && !isLoading;
+  const canSubmit = email.trim().length > 4 && password.length >= 8 && !isLoading;
 
   const ERROR_LABELS: Record<string, string> = {
     INVALID_CREDENTIALS: 'Incorrect email or password.',

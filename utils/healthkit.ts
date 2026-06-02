@@ -1,5 +1,8 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import type { DistanceUnit } from '@/utils/units';
+
+const DISTANCE_WALKING_RUNNING_ID = 'HKQuantityTypeIdentifierDistanceWalkingRunning';
 
 /** True in the Expo Go client — Nitro/native HealthKit cannot load there. */
 export function isExpoGoEnvironment(): boolean {
@@ -76,6 +79,7 @@ interface SourceLike {
 
 interface QuantitySampleLike {
   quantity:        number;
+  unit?:           string;
   startDate?:      Date | string;
   endDate?:        Date | string;
   device?:         DeviceLike | null;
@@ -115,7 +119,8 @@ export function getHealthKitModule(): HealthKitModule | null {
   if (isExpoGoEnvironment()) return null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('@kingstinct/react-native-healthkit');
+    const mod = require('@kingstinct/react-native-healthkit');
+    return mod?.default ?? mod;
   } catch {
     return null;
   }
@@ -139,8 +144,14 @@ export async function ensureHealthKitAuthorized(
     const reqStatus = await hk.getRequestStatusForAuthorization({
       toRead: HEALTHKIT_READ_IDENTIFIERS,
     });
-    if (reqStatus === AUTH_UNNECESSARY)    return true;
-    if (reqStatus !== AUTH_SHOULD_REQUEST) return false;
+
+    let distanceDenied = false;
+    if (typeof hk.authorizationStatusFor === 'function') {
+      distanceDenied = hk.authorizationStatusFor(DISTANCE_WALKING_RUNNING_ID) === 1;
+    }
+
+    if (reqStatus === AUTH_UNNECESSARY && !distanceDenied) return true;
+    if (reqStatus !== AUTH_SHOULD_REQUEST && !distanceDenied) return false;
 
     await hk.requestAuthorization({ toRead: HEALTHKIT_READ_IDENTIFIERS });
     return true;
@@ -171,6 +182,116 @@ function queryOptionsForInterval(
   };
 }
 
+function asFiniteNumber(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function extractQuantityFromStatEntry(entry: unknown): { qty: number; unit: string } | null {
+  if (entry === null || entry === undefined) return null;
+
+  const direct = asFiniteNumber(entry);
+  if (direct !== null && direct > 0) return { qty: direct, unit: '' };
+
+  if (typeof entry !== 'object') return null;
+  const nested = entry as Record<string, unknown>;
+  const qty = asFiniteNumber(nested.quantity ?? nested.value ?? nested.count);
+  if (qty === null || qty <= 0) return null;
+  const unit = typeof nested.unit === 'string' ? nested.unit.toLowerCase() : '';
+  return { qty, unit };
+}
+
+function extractCumulativeFromStatResult(result: unknown): number {
+  if (!result || typeof result !== 'object') return 0;
+  const raw = result as Record<string, unknown>;
+  for (const key of ['sumQuantity', 'cumulativeSum', 'value', 'sum']) {
+    const parsed = extractQuantityFromStatEntry(raw[key]);
+    if (parsed) return Math.round(parsed.qty);
+  }
+  return 0;
+}
+
+function normaliseDistanceQuantity(qty: number, unit: string): { value: number; unit: DistanceUnit } {
+  const u = unit.toLowerCase();
+  if (u === 'm' || u === 'meter' || u === 'meters') {
+    return { value: Math.round((qty / 1000) * 100) / 100, unit: 'km' };
+  }
+  if (u === 'mi' || u === 'mile' || u === 'miles') {
+    return { value: Math.round(qty * 100) / 100, unit: 'mi' };
+  }
+  if (u === 'km' || u === 'kilometer' || u === 'kilometers') {
+    return { value: Math.round(qty * 100) / 100, unit: 'km' };
+  }
+  if (u === 'ft' || u === 'foot' || u === 'feet') {
+    return { value: Math.round((qty / 5280) * 100) / 100, unit: 'mi' };
+  }
+  if (u === 'in' || u === 'inch' || u === 'inches') {
+    return { value: Math.round((qty / 63360) * 100) / 100, unit: 'mi' };
+  }
+  if (u === 'yd' || u === 'yard' || u === 'yards') {
+    return { value: Math.round((qty / 1760) * 100) / 100, unit: 'mi' };
+  }
+  // HealthKit's SI default for distance is meters when unit is omitted.
+  if (!u && qty >= 100) {
+    return { value: Math.round((qty / 1000) * 100) / 100, unit: 'km' };
+  }
+  return { value: Math.round(qty * 100) / 100, unit: 'km' };
+}
+
+/** Official v14 shape: { sumQuantity: { quantity, unit } }. */
+function parseSumQuantityFromStatistics(result: unknown): { qty: number; unit: string } | null {
+  if (!result || typeof result !== 'object') return null;
+  const raw = result as Record<string, unknown>;
+
+  const fromSum = extractQuantityFromStatEntry(raw.sumQuantity);
+  if (fromSum) return fromSum;
+
+  for (const key of ['cumulativeSum', 'value', 'sum']) {
+    const parsed = extractQuantityFromStatEntry(raw[key]);
+    if (parsed) return parsed;
+  }
+
+  return extractQuantityFromStatEntry(result);
+}
+
+async function preferredDistanceQueryUnits(hk: HealthKitModule): Promise<string[]> {
+  const units: string[] = [];
+  try {
+    if (typeof hk.getPreferredUnit === 'function') {
+      const preferred = await hk.getPreferredUnit(DISTANCE_WALKING_RUNNING_ID);
+      if (typeof preferred === 'string' && preferred.length > 0) {
+        units.push(preferred);
+      }
+    }
+  } catch {
+    // fall through to defaults
+  }
+  for (const u of ['mi', 'km', 'm']) {
+    if (!units.includes(u)) units.push(u);
+  }
+  return units;
+}
+
+function warnIfDistanceReadDenied(hk: HealthKitModule): void {
+  try {
+    if (typeof hk.authorizationStatusFor !== 'function') return;
+    const status = hk.authorizationStatusFor(DISTANCE_WALKING_RUNNING_ID);
+    // 1 = sharingDenied — user disabled this type in Health › Apps › RoundFit
+    if (status === 1) {
+      console.warn(
+        '[HealthKit] Walking + Running Distance read access denied. '
+        + 'Enable it in Settings › Health › Data Access & Devices › RoundFit.',
+      );
+    }
+  } catch {
+    // non-fatal
+  }
+}
+
 /**
  * Queries a cumulative metric via queryStatisticsForQuantity (cumulativeSum).
  * This is what the Health app uses — it deduplicates overlapping samples from
@@ -186,37 +307,26 @@ async function queryCumulativeStat(
   startDate: Date,
   endDate:   Date,
 ): Promise<number> {
-  const statsOpts = { filter: { date: { startDate, endDate } } };
-  try {
-    const result = await hk.queryStatisticsForQuantity(id, ['cumulativeSum'], statsOpts);
-    console.log(`[HealthKit] stat raw ${id}:`, JSON.stringify(result));
+  const filter = { date: { startDate, endDate } };
+  const optionVariants = [
+    { filter },
+    { unit: 'count', filter },
+    { unit: 'count()', filter },
+    { startDate, endDate },
+  ];
 
-    if (result && typeof result === 'object') {
-      const raw = result as Record<string, unknown>;
-
-      // Try all known result keys — the library has used different names across versions.
-      // Each value may be a flat number or a HKQuantity { quantity: N, unit: '...' }.
-      for (const key of ['sumQuantity', 'cumulativeSum', 'value', 'sum']) {
-        const entry = raw[key];
-        if (entry === null || entry === undefined) continue;
-
-        if (typeof entry === 'number' && entry > 0) {
-          console.log(`[HealthKit] stat ${id} [${key}]:`, entry);
-          return Math.round(entry);
-        }
-
-        if (typeof entry === 'object') {
-          const nested = entry as Record<string, unknown>;
-          const qty = nested.quantity ?? nested.value;
-          if (typeof qty === 'number' && qty > 0) {
-            console.log(`[HealthKit] stat ${id} [${key}.quantity]:`, qty);
-            return Math.round(qty);
-          }
-        }
+  for (const statsOpts of optionVariants) {
+    try {
+      const result = await hk.queryStatisticsForQuantity(id, ['cumulativeSum'], statsOpts);
+      console.log(`[HealthKit] stat raw ${id}:`, JSON.stringify(result));
+      const value = extractCumulativeFromStatResult(result);
+      if (value > 0) {
+        console.log(`[HealthKit] stat ${id}:`, value);
+        return value;
       }
+    } catch (e) {
+      console.log(`[HealthKit] queryStatisticsForQuantity ${id} failed:`, e);
     }
-  } catch (e) {
-    console.log(`[HealthKit] queryStatisticsForQuantity ${id} failed:`, e);
   }
 
   return 0;
@@ -228,54 +338,119 @@ async function queryCumulativeStat(
  * preference controls display. Meters (HealthKit SI default) are normalised to
  * km since that is not a user-facing preference, but mi stays as mi.
  */
+async function queryDistanceFromSamples(
+  hk:        HealthKitModule,
+  startDate: Date,
+  endDate:   Date,
+  queryUnits: string[],
+): Promise<{ value: number; unit: DistanceUnit }> {
+  const filter = { date: { startDate, endDate } };
+  const unitAttempts = [...queryUnits, undefined];
+
+  for (const unit of unitAttempts) {
+    const opts = {
+      ...queryOptionsForInterval(startDate, endDate),
+      ...(unit ? { unit } : {}),
+    };
+    try {
+      const samples: QuantitySampleLike[] = await hk
+        .queryQuantitySamples(DISTANCE_WALKING_RUNNING_ID, opts)
+        .catch(() => []);
+      let totalMeters = 0;
+      let totalKm = 0;
+      let totalMi = 0;
+      for (const s of samples) {
+        const qty = asFiniteNumber(s.quantity);
+        if (qty === null || qty <= 0) continue;
+        const sampleUnit = s.unit?.toLowerCase() ?? unit?.toLowerCase() ?? '';
+        if (sampleUnit === 'mi' || sampleUnit === 'mile' || sampleUnit === 'miles') {
+          totalMi += qty;
+        } else if (sampleUnit === 'km' || sampleUnit === 'kilometer' || sampleUnit === 'kilometers') {
+          totalKm += qty;
+        } else if (
+          sampleUnit === 'ft' || sampleUnit === 'foot' || sampleUnit === 'feet'
+          || sampleUnit === 'in' || sampleUnit === 'inch' || sampleUnit === 'inches'
+          || sampleUnit === 'yd' || sampleUnit === 'yard' || sampleUnit === 'yards'
+        ) {
+          totalMi += sampleUnit.startsWith('in')
+            ? qty / 63360
+            : sampleUnit.startsWith('yd')
+              ? qty / 1760
+              : qty / 5280;
+        } else {
+          totalMeters += qty;
+        }
+      }
+      if (totalMi > 0) {
+        return { value: Math.round(totalMi * 100) / 100, unit: 'mi' };
+      }
+      if (totalKm > 0) {
+        return { value: Math.round(totalKm * 100) / 100, unit: 'km' };
+      }
+      if (totalMeters > 0) {
+        return { value: Math.round((totalMeters / 1000) * 100) / 100, unit: 'km' };
+      }
+    } catch (e) {
+      console.log('[HealthKit] queryQuantitySamples distance failed:', e);
+    }
+  }
+
+  return { value: 0, unit: 'km' };
+}
+
 async function queryDistanceStat(
   hk:        HealthKitModule,
   startDate: Date,
   endDate:   Date,
-): Promise<{ value: number; unit: string }> {
-  const id        = 'HKQuantityTypeIdentifierDistanceWalkingRunning';
-  const statsOpts = { filter: { date: { startDate, endDate } } };
+): Promise<{ value: number; unit: DistanceUnit }> {
+  warnIfDistanceReadDenied(hk);
+  const queryUnits = await preferredDistanceQueryUnits(hk);
+  const filter = { date: { startDate, endDate } };
+
+  for (const unit of queryUnits) {
+    try {
+      const result = await hk.queryStatisticsForQuantity(
+        DISTANCE_WALKING_RUNNING_ID,
+        ['cumulativeSum'],
+        { unit, filter },
+      );
+      console.log(`[HealthKit] stat raw distance (unit=${unit}):`, JSON.stringify(result));
+
+      const parsed = parseSumQuantityFromStatistics(result);
+      if (!parsed) continue;
+
+      const normalised = normaliseDistanceQuantity(parsed.qty, parsed.unit || unit);
+      if (normalised.value > 0) {
+        console.log(`[HealthKit] distance ${normalised.value} ${normalised.unit}`);
+        return normalised;
+      }
+    } catch (e) {
+      console.log(`[HealthKit] queryStatisticsForQuantity distance (unit=${unit}) failed:`, e);
+    }
+  }
+
+  // User's preferred unit (no explicit unit — HealthKit default, usually meters → mi/km).
   try {
-    const result = await hk.queryStatisticsForQuantity(id, ['cumulativeSum'], statsOpts);
-    console.log(`[HealthKit] stat raw ${id}:`, JSON.stringify(result));
-
-    if (result && typeof result === 'object') {
-      const raw = result as Record<string, unknown>;
-
-      for (const key of ['sumQuantity', 'cumulativeSum', 'value', 'sum']) {
-        const entry = raw[key];
-        if (entry === null || entry === undefined) continue;
-
-        let qty: number | null = null;
-        let unit = '';
-
-        if (typeof entry === 'number' && entry > 0) {
-          qty = entry;
-        } else if (typeof entry === 'object') {
-          const nested = entry as Record<string, unknown>;
-          const q = nested.quantity ?? nested.value;
-          if (typeof q === 'number') qty = q;
-          if (typeof nested.unit === 'string') unit = nested.unit.toLowerCase();
-        }
-
-        if (qty === null || qty <= 0) continue;
-
-        // Normalise meters → km (not a user preference, just a scale issue)
-        if (unit === 'm' || unit === 'meter' || unit === 'meters') {
-          const km = Math.round((qty / 1000) * 100) / 100;
-          console.log(`[HealthKit] distance ${qty} m → ${km} km`);
-          return { value: km, unit: 'km' };
-        }
-
-        const normUnit = (unit === 'mi' || unit === 'mile' || unit === 'miles') ? 'mi' : 'km';
-        const normVal  = Math.round(qty * 100) / 100;
-        console.log(`[HealthKit] distance ${normVal} ${normUnit}`);
-        return { value: normVal, unit: normUnit };
+    const result = await hk.queryStatisticsForQuantity(
+      DISTANCE_WALKING_RUNNING_ID,
+      ['cumulativeSum'],
+      { filter },
+    );
+    console.log('[HealthKit] stat raw distance (preferred):', JSON.stringify(result));
+    const parsed = parseSumQuantityFromStatistics(result);
+    if (parsed) {
+      const normalised = normaliseDistanceQuantity(parsed.qty, parsed.unit);
+      if (normalised.value > 0) {
+        console.log(`[HealthKit] distance ${normalised.value} ${normalised.unit}`);
+        return normalised;
       }
     }
   } catch (e) {
-    console.log(`[HealthKit] queryStatisticsForQuantity ${id} failed:`, e);
+    console.log('[HealthKit] queryStatisticsForQuantity distance (preferred) failed:', e);
   }
+
+  const fromSamples = await queryDistanceFromSamples(hk, startDate, endDate, queryUnits);
+  if (fromSamples.value > 0) return fromSamples;
   return { value: 0, unit: 'km' };
 }
 

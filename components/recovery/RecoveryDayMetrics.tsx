@@ -70,10 +70,17 @@ function fmtDelta(diff: number, unit: string): string {
   return `${sign}${diff} ${unit} vs avg`;
 }
 
-function fmtSleep(h: number): string {
-  const hrs  = Math.floor(h);
-  const mins = Math.round((h - hrs) * 60);
-  return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+/** Split hours into value + unit so "0" never sits next to "hrs" (reads as "oh hrs"). */
+function formatSleepDisplay(hours: number | null): { value: string; unit: string } {
+  if (hours === null || hours <= 0) {
+    return { value: '—', unit: '' };
+  }
+  const hrs = Math.floor(hours);
+  const mins = Math.round((hours - hrs) * 60);
+  if (mins > 0) {
+    return { value: String(hrs), unit: `hr ${mins}m` };
+  }
+  return { value: String(hrs), unit: hrs === 1 ? 'hr' : 'hrs' };
 }
 
 function strainZone(s: number): { tag: string; sub: string } {
@@ -94,11 +101,11 @@ export function RecoveryDayMetrics({
   rhr, hrv, sleepHours, rhrDelta, hrvDelta, sleepScore, strain, sorenessLevel, palette,
 }: RecoveryDayMetricsProps) {
   // ── SLEEP ────────────────────────────────────────────────────────────────────
+  const hasSleepData = sleepHours != null && sleepHours > 0;
+  const { value: sleepVal, unit: sleepUnit } = formatSleepDisplay(sleepHours);
   const sleepColor  = sleepScore != null ? scoreTint(sleepScore, palette) : palette.textFaint;
-  const sleepVal    = sleepHours != null ? fmtSleep(sleepHours) : '—';
-  const sleepUnit   = sleepHours != null ? 'hrs' : '';
   const sleepTag    = sleepScore != null ? String(Math.round(sleepScore)) : '—';
-  const sleepSub    = sleepScore != null
+  const sleepSub    = hasSleepData && sleepScore != null
     ? (sleepScore >= 70 ? 'Good quality' : sleepScore >= 40 ? 'Fair quality' : 'Poor quality')
     : 'No data';
 
@@ -230,6 +237,7 @@ const styles = StyleSheet.create({
     fontWeight:    '800',
     letterSpacing: -1,
     lineHeight:    30,
+    fontVariant:   ['tabular-nums'],
   },
   unit: {
     fontSize:     11,

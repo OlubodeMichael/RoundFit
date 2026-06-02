@@ -21,18 +21,13 @@ import { useProfile } from '@/hooks/use-profile';
 import { useUnits } from '@/hooks/use-units';
 import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
+import { formatSleepDuration } from '@/utils/sleep-quality';
 
 function localCalendarToday(): string {
   const d  = new Date();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${mm}-${dd}`;
-}
-
-function formatSleepHours(h: number): string {
-  const hh = Math.floor(h);
-  const mm = Math.round((h % 1) * 60);
-  return mm === 0 ? `${hh}h` : `${hh}h ${String(mm).padStart(2, '0')}m`;
 }
 
 function capital(s: string): string {
@@ -110,8 +105,8 @@ export default function DailyLogScreen() {
     {
       key:    'sleep',
       emoji:  '🌙',
-      value:  sleepHours !== null ? sleepHours.toFixed(1) : '—',
-      unit:   'hrs',
+      value:  formatSleepDuration(sleepHours),
+      unit:   '',
       accent: P.sleep,
     },
     {
@@ -253,18 +248,17 @@ export default function DailyLogScreen() {
             emoji="🌙"
             title="Sleep"
             eyebrow="LAST NIGHT"
-            valueBig={sleepHours !== null ? sleepHours.toFixed(1) : 'Log'}
-            valueSmall="hrs"
+            valueBig={sleepHours !== null ? formatSleepDuration(sleepHours) : 'Log'}
+            valueSmall=""
             caption={
               sleepHours === null
                 ? 'Not logged · tap to add'
                 : [
-                    formatSleepHours(sleepHours),
                     sleepQuality
                       ? capital(sleepQuality) + ' quality'
                       : sleepFromHK
                         ? 'from Apple Health'
-                        : null,
+                        : 'Logged',
                   ].filter(Boolean).join(' · ')
             }
             onPress={() => router.push('/(tabs)/log/sleep')}

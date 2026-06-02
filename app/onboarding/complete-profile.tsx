@@ -12,6 +12,8 @@ import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { hasActiveUserSession } from '@/context/auth-context';
 import { useAuth } from '@/hooks/use-auth';
+import { hasStoredAccessToken } from '@/utils/api';
+import { safeBack } from '@/utils/navigation';
 
 const BG = '#FAFAF8';
 const INK = '#111110';
@@ -37,7 +39,7 @@ const STEPS = [
 export default function CompleteProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { status, user, signOut } = useAuth();
+  const { status, user, recoverExistingProfile } = useAuth();
 
   const fade = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(16)).current;
@@ -57,10 +59,19 @@ export default function CompleteProfileScreen() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (status === 'needs-profile' || status === 'loading') {
+      void recoverExistingProfile();
+    }
+  }, [status, recoverExistingProfile]);
+
+  useEffect(() => {
     if (hasActiveUserSession(status, user)) {
       router.replace('/(tabs)');
     } else if (status === 'unauthenticated') {
-      router.replace('/auth');
+      void (async () => {
+        const hasToken = await hasStoredAccessToken();
+        if (!hasToken) router.replace('/auth');
+      })();
     }
   }, [status, user, router]);
 
@@ -75,7 +86,7 @@ export default function CompleteProfileScreen() {
 
       <TouchableOpacity
         style={s.backBtn}
-        onPress={() => void signOut()}
+        onPress={() => safeBack(router, '/auth/auth-options')}
         activeOpacity={0.7}
       >
         <Ionicons name="chevron-back" size={20} color={INK} />
