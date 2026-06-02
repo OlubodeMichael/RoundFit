@@ -1,13 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
+  ActivityIndicator, Pressable, ScrollView,
   StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppModal } from '@/components/ui/AppModal';
 import { useToast } from '@/components/ui/Toast';
 import { useProfile } from '@/hooks/use-profile';
 import { setLocalTargets } from '@/utils/local-targets';
@@ -184,12 +183,16 @@ const tc = StyleSheet.create({
   },
 });
 
-// ── Screen ─────────────────────────────────────────────────────────────────
+// ── Modal ────────────────────────────────────────────────────────────────────
 
-export default function TargetsScreen() {
+export interface DailyTargetsModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSaved?: () => void;
+}
+
+export function DailyTargetsModal({ visible, onClose, onSaved }: DailyTargetsModalProps) {
   const P = usePalette();
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { profile, updateProfile } = useProfile();
   const toast = useToast();
 
@@ -205,23 +208,29 @@ export default function TargetsScreen() {
   const [loaded,        setLoaded]        = useState(false);
 
   useEffect(() => {
+    if (!visible) setLoaded(false);
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
     (async () => {
       const [sleepRaw, stepsRaw] = await Promise.all([
         AsyncStorage.getItem(SLEEP_KEY),
         AsyncStorage.getItem(STEPS_KEY),
       ]);
-      // Prefer the server value; fall back to AsyncStorage, then default
       const sleepVal = profile?.sleepTarget
         ?? (sleepRaw !== null ? parseFloat(sleepRaw) : 8);
       const stepsVal = profile?.stepsTarget
         ?? (stepsRaw !== null ? parseInt(stepsRaw, 10) : 10000);
+      setCalories(profile?.calorieBudget ?? profile?.tdee ?? 2000);
+      setWater(profile?.waterGoalMl ?? 2000);
       setSleep(sleepVal);
       setSteps(stepsVal);
       setSavedSleep(sleepVal);
       setSavedSteps(stepsVal);
       setLoaded(true);
     })();
-  }, [profile?.stepsTarget, profile?.sleepTarget]);
+  }, [visible, profile?.calorieBudget, profile?.stepsTarget, profile?.sleepTarget, profile?.tdee, profile?.waterGoalMl]);
 
   const originalCalories = profile?.calorieBudget ?? tdee;
   const originalWater    = profile?.waterGoalMl ?? 2000;
@@ -244,7 +253,8 @@ export default function TargetsScreen() {
       await setLocalTargets(sleep, steps);
       notifyTodayTargetsChanged();
       toast.success('Targets saved', 'Your daily goals were updated.');
-      router.back();
+      onSaved?.();
+      onClose();
     } catch {
       toast.error('Could not save targets', 'Please try again.');
     } finally {
@@ -264,45 +274,38 @@ export default function TargetsScreen() {
 
   if (!loaded) {
     return (
-      <View style={{ flex: 1, backgroundColor: P.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={O} />
-      </View>
+      <AppModal visible={visible} onClose={onClose} sheetHeight="full" dismissGestureArea="sheet">
+        <View style={s.loadingWrap}>
+          <ActivityIndicator color={O} />
+        </View>
+      </AppModal>
     );
   }
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <View style={[s.root, { backgroundColor: P.bg }]}>
-
-        {/* ── Header ── */}
-        <View style={[s.header, { paddingTop: insets.top + 14, borderBottomColor: P.lo }]}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            activeOpacity={0.6}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+    <AppModal
+      visible={visible}
+      onClose={onClose}
+      sheetHeight="full"
+      dismissGestureArea="sheet"
+    >
+      <ScrollView
+        contentContainerStyle={s.scroll}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={s.modalHeader}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.eyebrow}>GOALS</Text>
+            <Text style={[s.modalTitle, { color: P.hi }]}>Daily targets</Text>
+          </View>
+          <Pressable
+            onPress={onClose}
+            hitSlop={10}
+            style={[s.closeBtn, { backgroundColor: P.isDark ? '#252530' : '#ECEAE6' }]}
           >
-            <Text style={[s.headerAction, { color: P.mid }]}>Cancel</Text>
-          </TouchableOpacity>
-
-          <Text style={[s.headerTitle, { color: P.hi }]}>Daily Targets</Text>
-
-          <TouchableOpacity
-            onPress={handleSave}
-            disabled={!isDirty || saving}
-            activeOpacity={0.7}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            {saving
-              ? <ActivityIndicator size="small" color={O} />
-              : <Text style={[s.headerAction, { color: isDirty ? O : P.mid, fontFamily: 'Syne_700Bold' }]}>Save</Text>
-            }
-          </TouchableOpacity>
+            <Text style={[s.closeBtnText, { color: P.mid }]}>✕</Text>
+          </Pressable>
         </View>
-
-        <ScrollView
-          contentContainerStyle={[s.scroll, { paddingBottom: insets.bottom + 96 }]}
-          showsVerticalScrollIndicator={false}
-        >
           <SectionLabel label="Calories" color={P.mid} />
           <TargetCard
             icon="flame"
@@ -368,12 +371,32 @@ export default function TargetsScreen() {
             isDark={P.isDark}
           />
 
-          <Text style={[s.footer, { color: P.mid }]}>
+          <Text style={[s.footerNote, { color: P.mid }]}>
             Targets are personal goals; they guide your progress, not hard limits.
           </Text>
         </ScrollView>
+
+      <View style={[s.footer, { borderTopColor: P.lo }]}>
+        <TouchableOpacity
+          style={[s.cancelBtn, { borderColor: P.lo }]}
+          onPress={onClose}
+          activeOpacity={0.8}
+        >
+          <Text style={[s.cancelText, { color: P.hi }]}>Cancel</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.submitBtn, (!isDirty || saving) && s.submitBtnDisabled]}
+          onPress={handleSave}
+          disabled={!isDirty || saving}
+          activeOpacity={0.85}
+        >
+          {saving
+            ? <ActivityIndicator size="small" color="#FFF" />
+            : <Text style={s.submitText}>Save targets</Text>
+          }
+        </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+    </AppModal>
   );
 }
 
@@ -390,23 +413,82 @@ function SectionLabel({ label, color }: { label: string; color: string }) {
 // ── Styles ─────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  root: { flex: 1 },
-
-  header: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    justifyContent:    'space-between',
-    paddingHorizontal: 20,
-    paddingBottom:     14,
-    borderBottomWidth: 1,
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 200,
   },
-  headerTitle:  { fontFamily: 'Syne_700Bold', fontSize: 16 },
-  headerAction: { fontSize: 15 },
-
   scroll: {
     paddingHorizontal: 20,
-    paddingTop:        8,
-    gap:               6,
+    paddingTop: 4,
+    paddingBottom: 20,
+    gap: 6,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+    color: O,
+    marginBottom: 4,
+  },
+  modalTitle: {
+    fontFamily: 'Syne_700Bold',
+    fontSize: 26,
+    letterSpacing: -0.6,
+  },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  footer: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  cancelBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  submitBtn: {
+    flex: 1.4,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: O,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  submitBtnDisabled: {
+    opacity: 0.45,
+  },
+  submitText: {
+    color: '#FFF',
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
 
   sectionLabel: {
@@ -418,7 +500,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 4,
   },
 
-  footer: {
+  footerNote: {
     textAlign:  'center',
     fontSize:   12,
     lineHeight: 17,

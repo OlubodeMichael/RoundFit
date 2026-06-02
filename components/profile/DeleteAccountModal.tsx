@@ -1,11 +1,9 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
-  Dimensions,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,8 +11,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppModal } from '@/components/ui/AppModal';
 import { useTheme } from '@/hooks/use-theme';
 import {
   ACCOUNT_DELETION_REASONS,
@@ -23,7 +21,7 @@ import {
   DELETION_REASON_LABELS,
 } from '@/types/account-deletion';
 
-const SHEET_MAX_H = Dimensions.get('window').height * 0.88;
+const DANGER = '#FF453A';
 
 export interface DeleteAccountModalProps {
   visible: boolean;
@@ -33,32 +31,90 @@ export interface DeleteAccountModalProps {
 
 type Step = 'survey' | 'confirm';
 
-function usePalette() {
-  const { isDark } = useTheme();
-  return isDark
-    ? {
-        card: '#1C1D23',
-        sunken: '#0E0F13',
-        edge: 'rgba(255,255,255,0.08)',
-        hair: 'rgba(255,255,255,0.06)',
-        text: '#F4F4F5',
-        dim: '#909096',
-        faint: '#505058',
-      }
-    : {
-        card: '#FFFFFF',
-        sunken: '#F7F7F9',
-        edge: 'rgba(0,0,0,0.06)',
-        hair: 'rgba(0,0,0,0.05)',
-        text: '#09090B',
-        dim: '#6B7280',
-        faint: '#C0C0C8',
-      };
+interface Palette {
+  hi: string;
+  mid: string;
+  lo: string;
+  sunken: string;
+  surface: string;
+  edge: string;
+  isDark: boolean;
+}
+
+function useModalPalette(isDark: boolean): Palette {
+  return {
+    hi:      isDark ? '#F4F4F5' : '#111111',
+    mid:     isDark ? '#909096' : '#6B7280',
+    lo:      isDark ? '#2A2A32' : '#EBEBEB',
+    sunken:  isDark ? '#141519' : '#F3F3F5',
+    surface: isDark ? '#1C1D23' : '#FFFFFF',
+    edge:    isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+    isDark,
+  };
+}
+
+function SectionLabel({ label, color }: { label: string; color: string }) {
+  return (
+    <Text style={[s.sectionLabel, { color }]}>
+      {label.toUpperCase()}
+    </Text>
+  );
+}
+
+function ReasonRow({
+  label,
+  selected,
+  onPress,
+  disabled,
+  P,
+  showDivider,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  disabled: boolean;
+  P: Palette;
+  showDivider: boolean;
+}) {
+  return (
+    <>
+      <Pressable
+        onPress={onPress}
+        disabled={disabled}
+        accessibilityRole="radio"
+        accessibilityState={{ selected }}
+        style={({ pressed }) => [
+          s.reasonRow,
+          pressed && !disabled && { opacity: 0.88 },
+        ]}
+      >
+        <Text
+          style={[
+            s.reasonLabel,
+            { color: selected ? P.hi : P.mid, fontWeight: selected ? '600' : '500' },
+          ]}
+        >
+          {label}
+        </Text>
+        <View
+          style={[
+            s.radio,
+            { borderColor: selected ? DANGER : P.lo },
+            selected && { backgroundColor: DANGER },
+          ]}
+        >
+          {selected && <Ionicons name="checkmark" size={11} color="#FFF" />}
+        </View>
+      </Pressable>
+      {showDivider && <View style={[s.rowDivider, { backgroundColor: P.lo }]} />}
+    </>
+  );
 }
 
 export function DeleteAccountModal({ visible, onClose, onDelete }: DeleteAccountModalProps) {
-  const P = usePalette();
-  const insets = useSafeAreaInsets();
+  const { isDark } = useTheme();
+  const P = useModalPalette(isDark);
+
   const [step, setStep] = useState<Step>('survey');
   const [reason, setReason] = useState<AccountDeletionReason | null>(null);
   const [details, setDetails] = useState('');
@@ -97,213 +153,338 @@ export function DeleteAccountModal({ visible, onClose, onDelete }: DeleteAccount
   }
 
   return (
-    <Modal
+    <AppModal
       visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={handleClose}
-      statusBarTranslucent
+      onClose={handleClose}
+      sheetHeight={0.88}
+      keyboardAvoiding
+      dismissGestureArea="sheet"
     >
-      <KeyboardAvoidingView
-        style={styles.overlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      <ScrollView
+        contentContainerStyle={s.scroll}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={handleClose} />
-        <View style={[styles.sheet, { backgroundColor: P.card, maxHeight: SHEET_MAX_H, paddingBottom: insets.bottom + 16 }]}>
-          <View style={styles.handleRow}>
-            <View style={[styles.handle, { backgroundColor: P.faint }]} />
+        <View style={s.modalHeader}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.eyebrow}>DANGER ZONE</Text>
+            <Text style={[s.modalTitle, { color: P.hi }]}>Delete account</Text>
+            <Text style={[s.stepHint, { color: P.mid }]}>
+              {step === 'survey' ? 'Step 1 of 2 — Tell us why' : 'Step 2 of 2 — Confirm'}
+            </Text>
           </View>
+          <Pressable
+            onPress={handleClose}
+            disabled={deleting}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            hitSlop={10}
+            style={[s.closeBtn, { backgroundColor: P.isDark ? '#252530' : '#ECEAE6' }]}
+          >
+            <Text style={[s.closeBtnText, { color: P.mid }]}>✕</Text>
+          </Pressable>
+        </View>
 
-          <View style={[styles.header, { borderBottomColor: P.hair }]}>
-            <View style={styles.headerAccent} />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={[styles.headerTitle, { color: P.text }]}>Delete Account</Text>
-              <Text style={[styles.stepLabel, { color: P.dim }]}>
-                {step === 'survey' ? 'Step 1 of 2 — Tell us why' : 'Step 2 of 2 — Confirm'}
+        {step === 'survey' ? (
+          <View style={s.block}>
+            <SectionLabel label="Why are you leaving?" color={P.mid} />
+            <View style={[s.group, { backgroundColor: P.surface, borderColor: P.edge }]}>
+              {ACCOUNT_DELETION_REASONS.map((r, index) => (
+                <ReasonRow
+                  key={r}
+                  label={DELETION_REASON_LABELS[r]}
+                  selected={reason === r}
+                  onPress={() => setReason(r)}
+                  disabled={deleting}
+                  P={P}
+                  showDivider={index < ACCOUNT_DELETION_REASONS.length - 1}
+                />
+              ))}
+            </View>
+
+            {reason !== null && (
+              <View style={s.fieldBlock}>
+                <SectionLabel
+                  label={reason === 'other' ? 'Tell us more' : 'Anything else? (optional)'}
+                  color={P.mid}
+                />
+                <TextInput
+                  style={[
+                    s.input,
+                    s.inputMultiline,
+                    {
+                      backgroundColor: P.sunken,
+                      borderColor: P.edge,
+                      color: P.hi,
+                    },
+                  ]}
+                  placeholder={reason === 'other' ? 'Required' : 'Share feedback…'}
+                  placeholderTextColor={P.mid}
+                  multiline
+                  value={details}
+                  onChangeText={setDetails}
+                  editable={!deleting}
+                />
+              </View>
+            )}
+          </View>
+        ) : (
+          <View style={s.block}>
+            <View style={[s.noticeCard, { backgroundColor: P.sunken, borderColor: P.edge }]}>
+              <View style={[s.noticeIcon, { backgroundColor: P.isDark ? 'rgba(255,69,58,0.16)' : 'rgba(255,69,58,0.10)' }]}>
+                <Ionicons name="trash-outline" size={18} color={DANGER} />
+              </View>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={[s.noticeTitle, { color: P.hi }]}>This cannot be undone</Text>
+                <Text style={[s.noticeBody, { color: P.mid }]}>
+                  Your account, progress, history, and personal data will be permanently deleted.
+                </Text>
+              </View>
+            </View>
+
+            <View style={s.fieldBlock}>
+              <Text style={[s.confirmLabel, { color: P.mid }]}>
+                Type{' '}
+                <Text style={{ color: DANGER, fontWeight: '700' }}>DELETE</Text>
+                {' '}to confirm
               </Text>
+              <TextInput
+                style={[
+                  s.input,
+                  {
+                    backgroundColor: P.sunken,
+                    borderColor: confirmText === 'DELETE' ? DANGER : P.edge,
+                    color: P.hi,
+                  },
+                ]}
+                placeholder="DELETE"
+                placeholderTextColor={P.mid}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                value={confirmText}
+                onChangeText={setConfirmText}
+                editable={!deleting}
+              />
             </View>
           </View>
+        )}
+      </ScrollView>
 
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {step === 'survey' ? (
-              <View style={styles.block}>
-                <Text style={[styles.label, { color: P.text }]}>Why are you leaving?</Text>
-                <View style={styles.reasonList}>
-                  {ACCOUNT_DELETION_REASONS.map((r) => {
-                    const selected = reason === r;
-                    return (
-                      <TouchableOpacity
-                        key={r}
-                        style={[
-                          styles.chip,
-                          {
-                            backgroundColor: selected ? 'rgba(239,68,68,0.12)' : P.sunken,
-                            borderColor: selected ? '#EF4444' : P.edge,
-                          },
-                        ]}
-                        onPress={() => setReason(r)}
-                        disabled={deleting}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[styles.chipText, { color: selected ? '#EF4444' : P.dim }]}>
-                          {DELETION_REASON_LABELS[r]}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                {reason !== null && (
-                  <View style={{ gap: 8 }}>
-                    <Text style={[styles.label, { color: P.text }]}>
-                      {reason === 'other' ? 'Tell us more' : 'Anything else? (optional)'}
-                    </Text>
-                    <TextInput
-                      style={[styles.input, styles.inputMultiline, { backgroundColor: P.sunken, borderColor: P.edge, color: P.text }]}
-                      placeholder={reason === 'other' ? 'Required' : 'Share feedback…'}
-                      placeholderTextColor={P.faint}
-                      multiline
-                      value={details}
-                      onChangeText={setDetails}
-                      editable={!deleting}
-                    />
-                  </View>
-                )}
-              </View>
-            ) : (
-              <View style={styles.block}>
-                <View style={[styles.dangerBox, { borderColor: 'rgba(239,68,68,0.2)', backgroundColor: 'rgba(239,68,68,0.08)' }]}>
-                  <Ionicons name="warning" size={18} color="#EF4444" />
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <Text style={styles.dangerTitle}>This cannot be undone</Text>
-                    <Text style={[styles.dangerBody, { color: P.dim }]}>
-                      Your account, progress, history, and personal data will be permanently deleted.
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={{ gap: 8 }}>
-                  <Text style={[styles.label, { color: P.text }]}>
-                    Type <Text style={{ color: '#EF4444', fontWeight: '700' }}>DELETE</Text> to confirm
+      <View style={[s.footer, { borderTopColor: P.lo }]}>
+        {step === 'survey' ? (
+          <>
+            <TouchableOpacity
+              style={[s.cancelBtn, { borderColor: P.lo }]}
+              onPress={handleClose}
+              disabled={deleting}
+              activeOpacity={0.8}
+            >
+              <Text style={[s.cancelText, { color: P.hi }]}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                s.dangerBtn,
+                { backgroundColor: canContinue && !deleting ? DANGER : P.sunken },
+              ]}
+              onPress={() => setStep('confirm')}
+              disabled={!canContinue || deleting}
+              activeOpacity={0.85}
+            >
+              <Text style={[s.dangerBtnText, { color: canContinue ? '#FFF' : P.mid }]}>
+                Continue
+              </Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={[s.cancelBtn, { borderColor: P.lo }]}
+              onPress={() => { setStep('survey'); setConfirmText(''); }}
+              disabled={deleting}
+              activeOpacity={0.8}
+            >
+              <Text style={[s.cancelText, { color: P.hi }]}>Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                s.dangerBtn,
+                { backgroundColor: canDelete && !deleting ? DANGER : P.sunken },
+              ]}
+              onPress={handleDelete}
+              disabled={!canDelete || deleting}
+              activeOpacity={0.85}
+            >
+              {deleting
+                ? <ActivityIndicator size="small" color="#FFF" />
+                : (
+                  <Text style={[s.dangerBtnText, { color: canDelete ? '#FFF' : P.mid }]}>
+                    Delete account
                   </Text>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: P.sunken,
-                        borderColor: confirmText === 'DELETE' ? '#EF4444' : P.edge,
-                        color: P.text,
-                      },
-                    ]}
-                    placeholder="DELETE"
-                    placeholderTextColor={P.faint}
-                    autoCapitalize="characters"
-                    autoCorrect={false}
-                    value={confirmText}
-                    onChangeText={setConfirmText}
-                    editable={!deleting}
-                  />
-                </View>
-              </View>
-            )}
-          </ScrollView>
-
-          <View style={[styles.footer, { borderTopColor: P.hair }]}>
-            {step === 'survey' ? (
-              <>
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: canContinue ? '#EF4444' : P.sunken }]}
-                  onPress={() => setStep('confirm')}
-                  disabled={!canContinue || deleting}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.primaryBtnText, { color: canContinue ? '#FFF' : P.faint }]}>Continue</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.secondaryBtn, { borderColor: P.edge }]} onPress={handleClose} activeOpacity={0.7}>
-                  <Text style={[styles.secondaryBtnText, { color: P.dim }]}>Cancel</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={[styles.primaryBtn, { backgroundColor: canDelete ? '#EF4444' : P.sunken, opacity: deleting ? 0.6 : 1 }]}
-                  onPress={handleDelete}
-                  disabled={!canDelete || deleting}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.primaryBtnText, { color: canDelete ? '#FFF' : P.faint }]}>
-                    {deleting ? 'Deleting…' : 'Permanently Delete Account'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.secondaryBtn, { borderColor: P.edge }]}
-                  onPress={() => { setStep('survey'); setConfirmText(''); }}
-                  disabled={deleting}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.secondaryBtnText, { color: P.dim }]}>Back</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+                )
+              }
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
+    </AppModal>
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end' },
-  sheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    elevation: 24,
+const s = StyleSheet.create({
+  scroll: {
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 24,
   },
-  handleRow: { alignItems: 'center', paddingTop: 14, paddingBottom: 6 },
-  handle: { width: 36, height: 4, borderRadius: 2 },
-  header: {
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+    color: DANGER,
+    marginBottom: 4,
+  },
+  modalTitle: {
+    fontFamily: 'Syne_700Bold',
+    fontSize: 26,
+    letterSpacing: -0.6,
+  },
+  stepHint: {
+    fontSize: 13,
+    marginTop: 4,
+  },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  block: {
+    gap: 14,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.9,
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  group: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  reasonRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
   },
-  headerAccent: { width: 3, height: 28, borderRadius: 2, backgroundColor: '#EF4444' },
-  headerTitle: { fontSize: 17, fontWeight: '700', letterSpacing: -0.2 },
-  stepLabel: { fontSize: 13 },
-  scroll: { flexGrow: 0 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
-  block: { gap: 16 },
-  label: { fontSize: 14, fontWeight: '500' },
-  reasonList: { gap: 8 },
-  chip: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12 },
-  chipText: { fontSize: 14, fontWeight: '500' },
-  input: {
+  reasonLabel: {
+    flex: 1,
+    fontSize: 15,
+    letterSpacing: -0.2,
+  },
+  radio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 1.5,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 16,
+  },
+  fieldBlock: {
+    gap: 8,
+  },
+  input: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     fontSize: 15,
     fontWeight: '600',
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
   },
-  inputMultiline: { minHeight: 80, textAlignVertical: 'top', fontWeight: '400', letterSpacing: 0 },
-  dangerBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1 },
-  dangerTitle: { fontSize: 13, fontWeight: '700', color: '#EF4444' },
-  dangerBody: { fontSize: 13, lineHeight: 18 },
-  footer: { gap: 10, paddingHorizontal: 20, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
-  primaryBtn: { borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
-  primaryBtnText: { fontSize: 15, fontWeight: '700' },
-  secondaryBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1 },
-  secondaryBtnText: { fontSize: 15, fontWeight: '500' },
+  inputMultiline: {
+    minHeight: 96,
+    textAlignVertical: 'top',
+    fontWeight: '400',
+    letterSpacing: 0,
+    lineHeight: 21,
+  },
+  noticeCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  noticeIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noticeTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  noticeBody: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  confirmLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    paddingHorizontal: 2,
+  },
+  footer: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  cancelBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  dangerBtn: {
+    flex: 1.4,
+    height: 52,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dangerBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
 });

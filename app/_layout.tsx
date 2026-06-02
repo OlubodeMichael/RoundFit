@@ -140,7 +140,7 @@ function AppNavigator() {
           <Stack.Screen name="modal" options={{ presentation: "modal" }} />
           <Stack.Screen
             name="edit-profile"
-            options={{ presentation: "modal" }}
+            options={{ presentation: 'transparentModal', animation: 'fade' }}
           />
           <Stack.Screen
             name="notifications"

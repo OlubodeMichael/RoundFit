@@ -345,6 +345,25 @@ Comments refer to cookie-based session; mobile uses Bearer + SecureStore only.
 
 ---
 
+## Profile linking — prevent auth/users mismatch (deploy once)
+
+Run these in **Supabase SQL Editor** on the project your API uses (in order):
+
+1. `roundfit-backend/supabase/migrations/users_email_column.sql`
+2. `roundfit-backend/supabase/migrations/users_id_on_update_cascade.sql`
+3. `roundfit-backend/supabase/migrations/users_profile_link_rpc.sql`
+
+The RPC `link_profile_for_auth_user` runs on every `/auth/me`, login, and oauth-setup:
+
+- Backfills `public.users.email` when missing but `users.id` matches `auth.users.id`
+- Re-links a profile row when another auth id or stored email matches (OAuth / email on same address)
+
+**Supabase Dashboard → Authentication → Providers / Settings:** enable linking identities that share the same email so Apple/Google/email do not create unrelated auth UUIDs when possible.
+
+**Still manual / edge cases:** profile with `users.email` NULL and a deleted auth user (no email to match); Apple “Hide My Email” vs original signup email.
+
+---
+
 ## Test plan (after fixes)
 
 - [ ] Email sign-up → lands in tabs with profile and correct TDEE.
