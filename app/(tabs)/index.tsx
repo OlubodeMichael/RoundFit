@@ -570,7 +570,7 @@ export default function HomeScreen() {
         key: "protein",
         label: "Protein",
         cur: Math.round(totalProtein),
-        goal: nutritionPlan?.macros.proteinG ?? 140,
+        goal: profile?.proteinTarget ?? nutritionPlan?.macros.proteinG ?? 140,
         accent: "protein",
       },
       {
@@ -588,7 +588,7 @@ export default function HomeScreen() {
         accent: "fat",
       },
     ],
-    [totalProtein, totalCarbs, totalFat, nutritionPlan],
+    [totalProtein, totalCarbs, totalFat, nutritionPlan, profile?.proteinTarget],
   );
 
   const weightKg = profile?.weightKg ?? 70;

@@ -3,7 +3,6 @@ import React, {
 } from 'react';
 import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { apiFetch } from '@/utils/api';
-import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
 import {
   buildResourceKey,
   fetchWithResourceCache,
@@ -14,7 +13,11 @@ import {
 // ── Config ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_LIMIT = 30;
-const TTL_WEIGHT_HISTORY = TTL_COLD_START_MS;
+// Weight history only changes when the user logs a new weight, and logWeight
+// write-throughs that change into the cache. So treat the cache as effectively
+// permanent — it never goes stale on its own and is never refetched unless a new
+// entry is logged or the user pull-to-refreshes (force, which bypasses the TTL).
+const TTL_WEIGHT_HISTORY = 365 * 24 * 60 * 60 * 1000; // ~1 year
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

@@ -5,6 +5,7 @@ const PREFIXES = [
   'daily-summary:',
   'insights:',
   '@roundfit/day_cache/',
+  '@roundfit/auth_user',
 ] as const
 
 /** Drop persisted API caches on logout (memory layers clear on process restart). */

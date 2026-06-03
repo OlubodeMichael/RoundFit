@@ -162,6 +162,22 @@ export function calculateMacros(
 }
 
 /**
+ * The user's effective daily protein target in grams — single source of truth
+ * shared by the home macros and the profile daily-targets so they never
+ * disagree. Uses a manually-set target when present, otherwise the goal-aware
+ * calculated value (`calculateMacros`).
+ */
+export function resolveProteinTargetG(
+  input: NutritionInput,
+  proteinTarget?: number | null,
+): number {
+  if (typeof proteinTarget === 'number' && proteinTarget > 0) {
+    return Math.round(proteinTarget);
+  }
+  return calculateMacros(input).proteinG;
+}
+
+/**
  * One-shot: BMR + TDEE + calorie budget + macros.
  * This is the function the onboarding reveal screen should call.
  */

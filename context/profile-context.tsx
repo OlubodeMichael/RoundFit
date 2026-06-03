@@ -1,7 +1,8 @@
 import React, { createContext, useCallback, useContext, useMemo } from 'react';
 import { useAuth } from '@/context/auth-context';
 import type { UserProfile } from '@/context/auth-context';
-import { formatHeightForStats, formatWeightForStats, LB_PER_KG } from '@/utils/body-units';
+import { formatHeightForStats, formatWeightForStats } from '@/utils/body-units';
+import { resolveProteinTargetG } from '@/utils/nutrition';
 
 // ── Derived / display types ────────────────────────────────────────────────
 
@@ -53,9 +54,19 @@ function computeStats(profile: UserProfile | null): ProfileStats {
 
   const dailyCalories = calorieBudget ?? tdee ?? null;
 
-  // 0.8 g protein per lb of bodyweight (common default)
-  const weightLbs    = weightKg * LB_PER_KG;
-  const proteinGrams = Math.round(weightLbs * 0.8);
+  // Single source of truth with the home screen: a manually-set protein target
+  // if present, else the goal-aware calculated value.
+  const proteinGrams = resolveProteinTargetG(
+    {
+      sex:           profile.sex,
+      age:           profile.age,
+      heightCm:      profile.heightCm,
+      weightKg:      profile.weightKg,
+      activityLevel: profile.activityLevel,
+      goal:          profile.goal,
+    },
+    profile.proteinTarget,
+  );
 
   const weightDisplay  = formatWeightForStats(weightKg, unit);
   const heightDisplay  = formatHeightForStats(heightCm, unit);

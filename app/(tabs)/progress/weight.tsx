@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -9,7 +9,6 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import Svg, { Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 
 import {
   AnimatedCard,
@@ -20,57 +19,25 @@ import {
 import { useWeight } from '@/hooks/use-weight';
 import { useUnits } from '@/hooks/use-units';
 import { useProfile } from '@/hooks/use-profile';
+import { WeightTrendChart } from '@/components/weight/WeightTrendChart';
+import { GradientCard } from '@/components/ui/GradientCard';
+import { formatMonthDayLocal, localCalendarDaysAgo, localWeekdayLong } from '@/utils/date';
 
-
-type RangeKey = '1W' | '1M' | '3M' | 'ALL';
-const RANGES: RangeKey[] = ['1W', '1M', '3M', 'ALL'];
-
-const CHART_H  = 160;
-const CHART_PX = 12;
-const CHART_PY = 14;
-
-function svgLine(pts: { x: number; y: number }[]): string {
-  if (pts.length < 2) return '';
-  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
-  for (let i = 1; i < pts.length; i++) {
-    const cpX = ((pts[i - 1].x + pts[i].x) / 2).toFixed(1);
-    d += ` C ${cpX} ${pts[i - 1].y.toFixed(1)},${cpX} ${pts[i].y.toFixed(1)},${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
-  }
-  return d;
-}
-
-function svgFill(pts: { x: number; y: number }[]): string {
-  if (pts.length < 2) return '';
-  let d = `M ${pts[0].x.toFixed(1)} ${CHART_H} L ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
-  for (let i = 1; i < pts.length; i++) {
-    const cpX = ((pts[i - 1].x + pts[i].x) / 2).toFixed(1);
-    d += ` C ${cpX} ${pts[i - 1].y.toFixed(1)},${cpX} ${pts[i].y.toFixed(1)},${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
-  }
-  d += ` L ${pts[pts.length - 1].x.toFixed(1)} ${CHART_H} Z`;
-  return d;
-}
-
-function daysAgo(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString();
-}
 
 function histLabel(iso: string): string {
-  const d    = new Date(iso);
-  const now  = new Date();
-  const diff = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
+  // Calendar-day difference in LOCAL time — avoids both the 24h-rolling bug and
+  // Hermes' toLocaleDateString UTC skew that showed an evening log a day ahead.
+  const diff = localCalendarDaysAgo(iso);
   if (diff === 0) return 'Today';
   if (diff === 1) return 'Yesterday';
-  if (diff < 7)  return d.toLocaleDateString(undefined, { weekday: 'long' });
+  if (diff < 7)  return localWeekdayLong(iso);
   if (diff < 30) return `${diff}d ago`;
   if (diff < 90) return `${Math.round(diff / 7)}w ago`;
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return formatMonthDayLocal(iso);
 }
 
 function xLabel(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return formatMonthDayLocal(iso);
 }
 
 export default function WeightLogScreen() {
@@ -83,17 +50,8 @@ export default function WeightLogScreen() {
   const { weightUnit, toDisplayWeight } = useUnits();
   const { profile } = useProfile();
 
-  const [range, setRange] = useState<RangeKey>('1M');
-
-  // entries are newest-first; reverse for chart (oldest → newest)
+  // entries are newest-first; reverse so the oldest entry is the "starting" value
   const allAsc = useMemo(() => [...entries].reverse(), [entries]);
-
-  const series = useMemo(() => {
-    if (range === '1W') return allAsc.filter(e => e.logged_at >= daysAgo(7));
-    if (range === '1M') return allAsc.filter(e => e.logged_at >= daysAgo(30));
-    if (range === '3M') return allAsc.filter(e => e.logged_at >= daysAgo(90));
-    return allAsc;
-  }, [allAsc, range]);
 
   const currentKg  = latest?.weight_kg ?? profile?.weightKg ?? null;
   const startingKg = allAsc.length > 0 ? allAsc[0].weight_kg : currentKg;
@@ -102,25 +60,6 @@ export default function WeightLogScreen() {
   const currentDisplay  = currentKg  !== null ? toDisplayWeight(currentKg).toFixed(1)  : '—';
   const startingDisplay = startingKg !== null ? toDisplayWeight(startingKg).toFixed(1) : '—';
   const deltaDisplay    = toDisplayWeight(Math.abs(deltaKg)).toFixed(1);
-
-  // Chart bounds
-  const kgs  = series.map(e => e.weight_kg);
-  const yMin = kgs.length ? Math.min(...kgs) : 0;
-  const yMax = kgs.length ? Math.max(...kgs) : 1;
-  const weightRange = yMax - yMin || 1;
-
-  const [chartW, setChartW] = useState(0);
-  const chartPoints = useMemo(() => {
-    if (!chartW || series.length < 2) return [];
-    const n  = series.length;
-    const cW = chartW - CHART_PX * 2;
-    const cH = CHART_H - CHART_PY * 2;
-    return series.map((e, i) => ({
-      x: CHART_PX + (i / (n - 1)) * cW,
-      y: CHART_PY + (1 - (e.weight_kg - yMin) / weightRange) * cH,
-      isLatest: i === n - 1,
-    }));
-  }, [chartW, series, yMin, weightRange]);
 
   const isEmpty = entries.length === 0;
 
@@ -169,7 +108,13 @@ export default function WeightLogScreen() {
             </AnimatedCard>
           ) : (
             /* ── Hero card ─────────────────────────────────────── */
-            <AnimatedCard delay={60} style={{ overflow: 'hidden' }}>
+            <GradientCard
+              variant="weight"
+              palette={P}
+              delay={60}
+              corner="top-right"
+              contentStyle={{ padding: 20, borderRadius: 24 }}
+            >
               <View pointerEvents="none" style={[styles.glow, { backgroundColor: P.weightSoft, top: -80, right: -60 }]} />
 
               <Text style={[styles.heroEyebrow, { color: P.textFaint }]}>CURRENT</Text>
@@ -193,92 +138,8 @@ export default function WeightLogScreen() {
                 )}
               </View>
 
-              {/* Range segment */}
-              <View style={[styles.segment, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}>
-                {RANGES.map(r => {
-                  const active = r === range;
-                  return (
-                    <Pressable
-                      key={r}
-                      onPress={() => setRange(r)}
-                      style={({ pressed }) => [
-                        styles.segCell,
-                        active && { backgroundColor: P.card },
-                        pressed && { opacity: 0.9 },
-                      ]}
-                    >
-                      <Text style={[styles.segText, { color: active ? P.text : P.textFaint }]}>
-                        {r}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              {/* SVG line chart */}
-              {series.length >= 2 ? (
-                <>
-                  <View
-                    style={styles.chartWrap}
-                    onLayout={e => setChartW(e.nativeEvent.layout.width)}
-                  >
-                    {chartW > 0 && (
-                      <Svg width={chartW} height={CHART_H}>
-                        <Defs>
-                          <LinearGradient id="wgFill" x1="0" y1="0" x2="0" y2="1">
-                            <Stop offset="0" stopColor={P.weight} stopOpacity={0.28} />
-                            <Stop offset="1" stopColor={P.weight} stopOpacity={0} />
-                          </LinearGradient>
-                        </Defs>
-                        {chartPoints.length >= 2 && (
-                          <>
-                            <Path d={svgFill(chartPoints)} fill="url(#wgFill)" />
-                            <Path
-                              d={svgLine(chartPoints)}
-                              fill="none"
-                              stroke={P.weight}
-                              strokeWidth={2.5}
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </>
-                        )}
-                        {chartPoints.map((p, i) => (
-                          <Circle
-                            key={i}
-                            cx={p.x}
-                            cy={p.y}
-                            r={p.isLatest ? 6 : 4}
-                            fill={p.isLatest ? P.weight : P.card}
-                            stroke={P.weight}
-                            strokeWidth={p.isLatest ? 0 : 2}
-                          />
-                        ))}
-                      </Svg>
-                    )}
-                  </View>
-
-                  <View style={styles.xLabels}>
-                    {series.filter((_, i) => {
-                      const maxLabels = 7;
-                      if (series.length <= maxLabels) return true;
-                      const step = Math.ceil(series.length / maxLabels);
-                      return i % step === 0 || i === series.length - 1;
-                    }).map((pt, i) => (
-                      <Text key={i} style={[styles.xLabel, { color: P.textFaint, flex: 1, textAlign: 'center' }]}>
-                        {xLabel(pt.logged_at).split(' ')[1]}
-                      </Text>
-                    ))}
-                  </View>
-                </>
-              ) : (
-                <View style={{ paddingVertical: 20, alignItems: 'center' }}>
-                  <Text style={{ color: P.textFaint, fontSize: 13, fontWeight: '500' }}>
-                    Log at least 2 entries to see a chart
-                  </Text>
-                </View>
-              )}
-            </AnimatedCard>
+              <WeightTrendChart entries={entries} accent={P.weight} palette={P} />
+            </GradientCard>
           )}
 
           {/* ── Stat quad ──────────────────────────────────────── */}
@@ -434,25 +295,6 @@ const styles = StyleSheet.create({
   },
   trendText: {
     fontSize: 10, fontWeight: '800',
-  },
-  segment: {
-    flexDirection: 'row', padding: 3, borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth, marginBottom: 20,
-  },
-  segCell: {
-    flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: 10,
-  },
-  segText: {
-    fontSize: 11, fontWeight: '800', letterSpacing: 0.3,
-  },
-  chartWrap: {
-    height: 160,
-  },
-  xLabels: {
-    flexDirection: 'row', marginTop: 10,
-  },
-  xLabel: {
-    fontSize: 10, fontWeight: '600',
   },
   statGrid: {
     flexDirection: 'row',

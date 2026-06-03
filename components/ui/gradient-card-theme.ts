@@ -17,6 +17,7 @@ export type CardAccentVariant =
   | 'carbs'
   | 'fat'
   | 'water'
+  | 'weight'
   | 'calories';
 
 export interface CardAccentOptions {
@@ -113,6 +114,12 @@ export function waterAccent(isDark: boolean): CardAccent {
   return accentFromRgb(isDark, '56,189,248', '#38BDF8');
 }
 
+export function weightAccent(isDark: boolean): CardAccent {
+  return isDark
+    ? accentFromRgb(true, '96,165,250', '#60A5FA')
+    : accentFromRgb(false, '37,99,235', '#2563EB');
+}
+
 export function caloriesAccent(isDark: boolean): CardAccent {
   return mealsAccent(isDark);
 }
@@ -149,6 +156,8 @@ export function getCardAccent(
       return fatAccent(isDark);
     case 'water':
       return waterAccent(isDark);
+    case 'weight':
+      return weightAccent(isDark);
     default: {
       const _exhaustive: never = variant;
       return _exhaustive;

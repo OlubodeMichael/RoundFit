@@ -308,11 +308,14 @@ async function queryCumulativeStat(
   endDate:   Date,
 ): Promise<number> {
   const filter = { date: { startDate, endDate } };
+  // Every variant MUST carry `filter.date`. A bare `{ startDate, endDate }` leaves
+  // the predicate empty, so HealthKit sums the user's ENTIRE history and returns a
+  // lifetime total (e.g. ~11M steps) — which then ratchets in via the backend's
+  // Math.max merge. A genuine 0 (no steps yet today) must stay 0, not fall back.
   const optionVariants = [
     { filter },
     { unit: 'count', filter },
     { unit: 'count()', filter },
-    { startDate, endDate },
   ];
 
   for (const statsOpts of optionVariants) {

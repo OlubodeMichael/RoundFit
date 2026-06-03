@@ -16,6 +16,11 @@ import {
   parseOAuthCallbackUrl,
 } from "@/utils/oauth";
 import { notifyTodayTargetsChanged } from "@/utils/today-sync";
+import {
+  clearCachedAuthUser,
+  readCachedAuthUser,
+  writeCachedAuthUser,
+} from "@/utils/auth-user-cache";
 import { createAppleSignInNonce } from "@/utils/apple-sign-in-nonce";
 import * as AppleAuthentication from "expo-apple-authentication";
 import Constants from "expo-constants";
@@ -82,6 +87,7 @@ export interface UserProfile {
   avatarUrl?: string | null;
   tdee?: number;
   calorieBudget?: number;
+  proteinTarget?: number;
   stepsTarget?: number;
   sleepTarget?: number;
   waterGoalMl?: number;
@@ -265,7 +271,9 @@ function toApiBody(
     out.goal = toApiGoal(normaliseGoal(profile.goal));
   }
   if (profile.unit !== undefined) out.unit = profile.unit;
+  if (profile.avatarUrl !== undefined) out.avatar_url = profile.avatarUrl;
   if (profile.calorieBudget !== undefined) out.calorie_budget = profile.calorieBudget;
+  if (profile.proteinTarget !== undefined) out.protein_target = profile.proteinTarget;
   if (profile.stepsTarget !== undefined) out.steps_target = profile.stepsTarget;
   if (profile.sleepTarget !== undefined) out.sleep_target = profile.sleepTarget;
   if (profile.waterGoalMl !== undefined) out.water_goal_ml = profile.waterGoalMl;
@@ -298,6 +306,10 @@ function fromApiProfile(row: Record<string, unknown>): UserProfile {
     tdee: typeof row.tdee === "number" ? row.tdee : undefined,
     calorieBudget:
       typeof row.calorie_budget === "number" ? row.calorie_budget : undefined,
+    proteinTarget:
+      typeof row.protein_target === "number" && row.protein_target > 0
+        ? row.protein_target
+        : undefined,
     stepsTarget:
       typeof row.steps_target === "number" ? row.steps_target : undefined,
     sleepTarget:
@@ -549,10 +561,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [loadUserFromServer],
   );
 
+  // Persist the profile so the next launch can restore the session from cache
+  // without blocking the splash on /auth/me. Only writes valid profiles; never
+  // removes on null (boot starts null before the cache is read) — logout and an
+  // invalid-token refresh clear it explicitly.
+  useEffect(() => {
+    if (user && hasValidProfileIdentity(user)) {
+      void writeCachedAuthUser(user);
+    }
+  }, [user]);
+
   // ── Restore session on mount ─────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Cache-first: if a stored token and a cached profile both exist, paint
+      // the authenticated session immediately and revalidate in the background.
+      // This avoids re-fetching /auth/me (and blocking the splash) on every
+      // reload. The full validation flow below still runs and stays
+      // authoritative.
+      const [cachedUser, tokenPresent] = await Promise.all([
+        readCachedAuthUser(),
+        hasStoredAccessToken(),
+      ]);
+      if (cancelled) return;
+
+      const paintedFromCache = !!(cachedUser && tokenPresent);
+      if (paintedFromCache) {
+        setUser(cachedUser);
+        setProfileSetupPending(false);
+        setStatus("authenticated");
+      }
+
       // Bounded retries so a transient backend/network blip at cold start does
       // NOT bounce a user with valid tokens to the auth screen. Only a
       // definitive "invalid" refresh (or a missing token) ends in
@@ -569,6 +609,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const refreshState = await proactiveRefreshStateIfNeeded(0);
           if (cancelled) return;
           if (refreshState === "invalid") {
+            // Genuinely bad token — drop any cached session we painted.
+            if (paintedFromCache) await clearCachedAuthUser();
             setStatus("unauthenticated");
             return;
           }
@@ -579,6 +621,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setStatus("unauthenticated");
               return;
             }
+            // A cached session is already on screen — keep it rather than
+            // bouncing a logged-in user offline.
+            if (paintedFromCache) return;
             if (attempt < MAX_ATTEMPTS - 1) continue;
             setStatus("unauthenticated"); // last resort after exhausting retries
             return;
@@ -605,6 +650,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setStatus("unauthenticated");
             return;
           }
+          // Keep a cached session on screen through a transient /me failure.
+          if (paintedFromCache) return;
           if (attempt < MAX_ATTEMPTS - 1) continue;
           // Exhausted transient retries — surface auth as a last resort, but
           // tokens remain so a later launch can restore the session.
@@ -1232,7 +1279,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         const touchesDerivedTargets = Object.keys(patch).some((key) =>
-          ['calorieBudget', 'stepsTarget', 'sleepTarget', 'goal', 'activityLevel', 'weightKg', 'heightCm', 'sex', 'age'].includes(key),
+          ['calorieBudget', 'proteinTarget', 'stepsTarget', 'sleepTarget', 'goal', 'activityLevel', 'weightKg', 'heightCm', 'sex', 'age'].includes(key),
         );
         if (touchesDerivedTargets) notifyTodayTargetsChanged();
         return true;

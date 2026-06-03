@@ -14,6 +14,18 @@ interface CacheEntry<T> {
 const mem = new Map<string, CacheEntry<unknown>>()
 const inflight = new Map<string, Promise<unknown>>()
 
+// ── Observability ───────────────────────────────────────────────────────────
+// Flip on (e.g. from a dev menu or temporarily in code) to trace every cache
+// decision and confirm reloads are served from cache, not the network.
+let cacheDebug = false
+export function setResourceCacheDebug(on: boolean): void {
+  cacheDebug = on
+}
+type CacheEvent = 'hit' | 'stale-serve' | 'stale-network' | 'miss-network' | 'store'
+function logCache(event: CacheEvent, key: string): void {
+  if (cacheDebug) console.log(`[resource-cache] ${event.padEnd(13)} ${key}`)
+}
+
 // v2: weekly summary resource cache now stores the raw API body (not the trimmed WeeklySummary shape).
 const CACHE_VERSION = 'v2'
 
@@ -116,9 +128,13 @@ export async function fetchWithResourceCache<T>(
   if (!force) {
     const cached = await getResourceCached<T>(key)
     if (cached) {
-      if (!cached.isStale) return cached.data
+      if (!cached.isStale) {
+        logCache('hit', key)
+        return cached.data
+      }
 
       if (allowStale) {
+        logCache('stale-serve', key)
         const pending = inflight.get(key) as Promise<T | null> | undefined
         if (!pending) {
           const refresh = fetcher()
@@ -133,6 +149,9 @@ export async function fetchWithResourceCache<T>(
         }
         return cached.data
       }
+      logCache('stale-network', key)
+    } else {
+      logCache('miss-network', key)
     }
 
     const pending = inflight.get(key) as Promise<T | null> | undefined
@@ -143,7 +162,10 @@ export async function fetchWithResourceCache<T>(
 
   const request = fetcher()
     .then(async (data) => {
-      if (data !== null) await setResourceCached(key, data, ttlMs)
+      if (data !== null) {
+        await setResourceCached(key, data, ttlMs)
+        logCache('store', key)
+      }
       return data
     })
     .finally(() => {

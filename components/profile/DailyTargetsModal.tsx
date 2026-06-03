@@ -9,6 +9,7 @@ import {
 import { AppModal } from '@/components/ui/AppModal';
 import { useToast } from '@/components/ui/Toast';
 import { useProfile } from '@/hooks/use-profile';
+import { resolveProteinTargetG } from '@/utils/nutrition';
 import { setLocalTargets } from '@/utils/local-targets';
 import { notifyTodayTargetsChanged } from '@/utils/today-sync';
 import { useTheme } from '@/hooks/use-theme';
@@ -198,7 +199,24 @@ export function DailyTargetsModal({ visible, onClose, onSaved }: DailyTargetsMod
 
   const tdee = profile?.tdee ?? profile?.calorieBudget ?? 2000;
 
+  // Effective protein target = manual value if set, else the goal-aware calc —
+  // same source of truth the home screen uses, so the two always agree.
+  const proteinDefault = profile
+    ? resolveProteinTargetG(
+        {
+          sex:           profile.sex,
+          age:           profile.age,
+          heightCm:      profile.heightCm,
+          weightKg:      profile.weightKg,
+          activityLevel: profile.activityLevel,
+          goal:          profile.goal,
+        },
+        profile.proteinTarget,
+      )
+    : 140;
+
   const [calories,      setCalories]      = useState<number>(profile?.calorieBudget ?? tdee);
+  const [protein,       setProtein]       = useState<number>(proteinDefault);
   const [sleep,         setSleep]         = useState<number>(8);
   const [steps,         setSteps]         = useState<number>(10000);
   const [water,         setWater]         = useState<number>(profile?.waterGoalMl ?? 2000);
@@ -223,6 +241,7 @@ export function DailyTargetsModal({ visible, onClose, onSaved }: DailyTargetsMod
       const stepsVal = profile?.stepsTarget
         ?? (stepsRaw !== null ? parseInt(stepsRaw, 10) : 10000);
       setCalories(profile?.calorieBudget ?? profile?.tdee ?? 2000);
+      setProtein(proteinDefault);
       setWater(profile?.waterGoalMl ?? 2000);
       setSleep(sleepVal);
       setSteps(stepsVal);
@@ -230,12 +249,13 @@ export function DailyTargetsModal({ visible, onClose, onSaved }: DailyTargetsMod
       setSavedSteps(stepsVal);
       setLoaded(true);
     })();
-  }, [visible, profile?.calorieBudget, profile?.stepsTarget, profile?.sleepTarget, profile?.tdee, profile?.waterGoalMl]);
+  }, [visible, proteinDefault, profile?.calorieBudget, profile?.stepsTarget, profile?.sleepTarget, profile?.tdee, profile?.waterGoalMl]);
 
   const originalCalories = profile?.calorieBudget ?? tdee;
   const originalWater    = profile?.waterGoalMl ?? 2000;
   const isDirty = loaded && (
     calories !== originalCalories ||
+    protein  !== proteinDefault   ||
     sleep    !== savedSleep       ||
     steps    !== savedSteps       ||
     water    !== originalWater
@@ -245,7 +265,7 @@ export function DailyTargetsModal({ visible, onClose, onSaved }: DailyTargetsMod
     if (saving) return;
     setSaving(true);
     try {
-      const saved = await updateProfile({ calorieBudget: calories, stepsTarget: steps, sleepTarget: sleep, waterGoalMl: water });
+      const saved = await updateProfile({ calorieBudget: calories, proteinTarget: protein, stepsTarget: steps, sleepTarget: sleep, waterGoalMl: water });
       if (!saved) {
         toast.error('Could not save targets', 'Please try again.');
         return;
@@ -267,6 +287,7 @@ export function DailyTargetsModal({ visible, onClose, onSaved }: DailyTargetsMod
     : undefined;
 
   const calorieDisplay = calories.toLocaleString();
+  const proteinDisplay = String(protein);
   const sleepDisplay   = sleep.toFixed(1);
   const stepsDisplay   = steps.toLocaleString();
   const waterDisplay   = (water / 1000).toFixed(2).replace(/0$/, '').replace(/\.$/, '.0');
@@ -316,6 +337,22 @@ export function DailyTargetsModal({ visible, onClose, onSaved }: DailyTargetsMod
             hint={calorieHint}
             onIncrement={() => setCalories(c => clamp(c + 50, 1200, 5000))}
             onDecrement={() => setCalories(c => clamp(c - 50, 1200, 5000))}
+            card={P.card}
+            lo={P.lo}
+            mid={P.mid}
+            hi={P.hi}
+            isDark={P.isDark}
+          />
+
+          <SectionLabel label="Protein" color={P.mid} />
+          <TargetCard
+            icon="barbell"
+            iconBg="#F43F5E"
+            label="PROTEIN TARGET"
+            value={proteinDisplay}
+            unit="grams"
+            onIncrement={() => setProtein(p => clamp(p + 5, 30, 400))}
+            onDecrement={() => setProtein(p => clamp(p - 5, 30, 400))}
             card={P.card}
             lo={P.lo}
             mid={P.mid}
