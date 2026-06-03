@@ -31,8 +31,8 @@ function accentFromRgb(
 ): CardAccent {
   return {
     gradient: isDark
-      ? [`rgba(${rgb},0.10)`, `rgba(${rgb},0.02)`, 'transparent']
-      : [`rgba(${rgb},0.08)`, `rgba(${rgb},0.02)`, 'transparent'],
+      ? [`rgba(${rgb},0.06)`, `rgba(${rgb},0.01)`, 'transparent']
+      : [`rgba(${rgb},0.05)`, `rgba(${rgb},0.01)`, 'transparent'],
     iconBg: main,
     iconSoft: isDark ? `rgba(${rgb},0.22)` : `rgba(${rgb},0.10)`,
   };

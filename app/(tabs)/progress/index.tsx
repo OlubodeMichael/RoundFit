@@ -5,13 +5,19 @@ import {
   StyleSheet,
   Text,
   View,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import type { ComponentProps } from 'react';
+} from "react-native";
+import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import type { ComponentProps } from "react";
 
-import Svg, { Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, {
+  Path,
+  Circle,
+  Defs,
+  LinearGradient,
+  Stop,
+} from "react-native-svg";
 
 import {
   DistanceMetricCard,
@@ -27,14 +33,14 @@ import { useWeight } from '@/hooks/use-weight';
 import { useProfile } from '@/hooks/use-profile';
 import { getLocalDateString } from '@/utils/date';
 
-type IoniconName = ComponentProps<typeof Ionicons>['name'];
+type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
-const W_H    = 100;
-const W_PX   = 10;
-const W_PY   = 10;
+const W_H = 100;
+const W_PX = 10;
+const W_PY = 10;
 
 function wLine(pts: { x: number; y: number }[]): string {
-  if (pts.length < 2) return '';
+  if (pts.length < 2) return "";
   let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
   for (let i = 1; i < pts.length; i++) {
     const cpX = ((pts[i - 1].x + pts[i].x) / 2).toFixed(1);
@@ -44,7 +50,7 @@ function wLine(pts: { x: number; y: number }[]): string {
 }
 
 function wFill(pts: { x: number; y: number }[]): string {
-  if (pts.length < 2) return '';
+  if (pts.length < 2) return "";
   let d = `M ${pts[0].x.toFixed(1)} ${W_H} L ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
   for (let i = 1; i < pts.length; i++) {
     const cpX = ((pts[i - 1].x + pts[i].x) / 2).toFixed(1);
@@ -55,25 +61,25 @@ function wFill(pts: { x: number; y: number }[]): string {
 }
 
 function buildWeekDates(todayStr: string): string[] {
-  const d   = new Date(todayStr + 'T12:00:00');
+  const d = new Date(todayStr + "T12:00:00");
   const dow = d.getDay(); // 0=Sun … 6=Sat
   const monday = new Date(d);
   monday.setDate(d.getDate() - ((dow + 6) % 7)); // rewind to Monday
   return Array.from({ length: 7 }, (_, i) => {
     const day = new Date(monday);
     day.setDate(monday.getDate() + i);
-    const mm = String(day.getMonth() + 1).padStart(2, '0');
-    const dd = String(day.getDate()).padStart(2, '0');
+    const mm = String(day.getMonth() + 1).padStart(2, "0");
+    const dd = String(day.getDate()).padStart(2, "0");
     return `${day.getFullYear()}-${mm}-${dd}`;
   });
 }
 
 const movementSectionStyles = StyleSheet.create({
-  metricsRow: { flexDirection: 'row', gap: 10 },
+  metricsRow: { flexDirection: "row", gap: 10 },
   notConnected: {
     fontSize: 11,
-    fontWeight: '500',
-    textAlign: 'center',
+    fontWeight: "500",
+    textAlign: "center",
     marginTop: 4,
   },
 });
@@ -89,7 +95,9 @@ function StepsCard({ delay = 0 }: { delay?: number }) {
         <DistanceMetricCard P={P} delay={delay + 20} data={today} />
       </View>
       {!isConnected && (
-        <Text style={[movementSectionStyles.notConnected, { color: P.textFaint }]}>
+        <Text
+          style={[movementSectionStyles.notConnected, { color: P.textFaint }]}
+        >
           Connect Apple Health to see live steps
         </Text>
       )}
@@ -98,21 +106,24 @@ function StepsCard({ delay = 0 }: { delay?: number }) {
 }
 
 export default function ProgressScreen() {
-  const P      = usePalette();
+  const P = usePalette();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const { weekly }                       = useSummary();
-  const { entries }                      = useWeight();
-  const { weightUnit, toDisplayWeight }  = useUnits();
-  const { profile }                      = useProfile();
-  const todayStr                         = getLocalDateString();
+  const { weekly } = useSummary();
+  const { entries } = useWeight();
+  const { weightUnit, toDisplayWeight } = useUnits();
+  const { profile } = useProfile();
+  const todayStr = getLocalDateString();
 
   // ── Streak: prefer cached value from profile, fall back to computed ───────
   const streak = useMemo(() => {
-    if (typeof profile?.currentStreak === 'number') return profile.currentStreak;
+    if (typeof profile?.currentStreak === "number")
+      return profile.currentStreak;
     if (!weekly?.days?.length) return 0;
-    const sorted = [...weekly.days].sort((a, b) => b.date.localeCompare(a.date));
+    const sorted = [...weekly.days].sort((a, b) =>
+      b.date.localeCompare(a.date),
+    );
     let count = 0;
     for (const d of sorted) {
       if (d.calories_consumed > 0) count++;
@@ -141,79 +152,104 @@ export default function ProgressScreen() {
   // "logged anything" check if the API doesn't return `met_targets` yet
   // (e.g. cached responses from an older server).
   const consistencyDays = useMemo(() => {
-    const dayMap = new Map((weekly?.days ?? []).map(d => [d.date, d]));
-    return buildWeekDates(todayStr).map(date => {
+    const dayMap = new Map((weekly?.days ?? []).map((d) => [d.date, d]));
+    return buildWeekDates(todayStr).map((date) => {
       const day = dayMap.get(date);
       const onTarget =
         day?.met_targets !== undefined
           ? day.met_targets
           : (day?.calories_consumed ?? 0) > 0;
       return {
-        label: new Date(date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })[0],
-        on:    onTarget,
+        label: new Date(date + "T12:00:00").toLocaleDateString(undefined, {
+          weekday: "short",
+        })[0],
+        on: onTarget,
         today: date === todayStr,
       };
     });
   }, [weekly, todayStr]);
 
   // ── Calories chart — always 7 days (Mon → Sun) ───────────────────────────
-  const calsGoal = profile?.calorieBudget ?? profile?.tdee
-    ?? weekly?.days.find(d => d.calorie_budget > 0)?.calorie_budget
-    ?? 2000;
+  const calsGoal =
+    profile?.calorieBudget ??
+    profile?.tdee ??
+    weekly?.days.find((d) => d.calorie_budget > 0)?.calorie_budget ??
+    2000;
   const calsWeek = useMemo(() => {
-    const dayMap = new Map((weekly?.days ?? []).map(d => [d.date, d]));
-    return buildWeekDates(todayStr).map(date => ({
-      day:   new Date(date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })[0],
-      cals:  dayMap.get(date)?.calories_consumed ?? 0,
+    const dayMap = new Map((weekly?.days ?? []).map((d) => [d.date, d]));
+    return buildWeekDates(todayStr).map((date) => ({
+      day: new Date(date + "T12:00:00").toLocaleDateString(undefined, {
+        weekday: "short",
+      })[0],
+      cals: dayMap.get(date)?.calories_consumed ?? 0,
       today: date === todayStr,
     }));
   }, [weekly, todayStr]);
 
-  const avgCals  = Math.round(weekly?.avg_calories ?? 0);
-  const maxCals  = useMemo(
-    () => Math.max(...calsWeek.map(d => d.cals), calsGoal, 1),
+  const avgCals = Math.round(weekly?.avg_calories ?? 0);
+  const maxCals = useMemo(
+    () => Math.max(...calsWeek.map((d) => d.cals), calsGoal, 1),
     [calsWeek, calsGoal],
   );
 
   // ── Weight chart (up to 7 most recent entries, oldest→newest) ────────────
   const weightEntries = useMemo(() => entries.slice(0, 7).reverse(), [entries]);
 
-  const weightMin   = useMemo(() => weightEntries.length ? Math.min(...weightEntries.map(e => e.weight_kg)) : 0, [weightEntries]);
-  const weightMax   = useMemo(() => weightEntries.length ? Math.max(...weightEntries.map(e => e.weight_kg)) : 0, [weightEntries]);
+  const weightMin = useMemo(
+    () =>
+      weightEntries.length
+        ? Math.min(...weightEntries.map((e) => e.weight_kg))
+        : 0,
+    [weightEntries],
+  );
+  const weightMax = useMemo(
+    () =>
+      weightEntries.length
+        ? Math.max(...weightEntries.map((e) => e.weight_kg))
+        : 0,
+    [weightEntries],
+  );
   const weightRange = weightMax - weightMin || 1;
 
   const [wChartW, setWChartW] = useState(0);
   const weightPoints = useMemo(() => {
     if (!wChartW || !weightEntries.length) return [];
-    const n  = weightEntries.length;
+    const n = weightEntries.length;
     const cW = wChartW - W_PX * 2;
     const cH = W_H - W_PY * 2;
     return weightEntries.map((w, i) => ({
       x: W_PX + (n === 1 ? cW / 2 : (i / (n - 1)) * cW),
-      y: W_PY + (n === 1 ? cH / 2 : (1 - (w.weight_kg - weightMin) / weightRange) * cH),
+      y:
+        W_PY +
+        (n === 1 ? cH / 2 : (1 - (w.weight_kg - weightMin) / weightRange) * cH),
       date: w.logged_at,
       isLatest: i === n - 1,
     }));
   }, [wChartW, weightEntries, weightMin, weightRange]);
 
-  const weightDeltaKg   = weightEntries.length >= 2
-    ? weightEntries[weightEntries.length - 1].weight_kg - weightEntries[0].weight_kg
-    : 0;
+  const weightDeltaKg =
+    weightEntries.length >= 2
+      ? weightEntries[weightEntries.length - 1].weight_kg -
+        weightEntries[0].weight_kg
+      : 0;
   const profileWeightKg = profile?.weightKg ?? null;
-  const currentKg       = weightEntries.length
+  const currentKg = weightEntries.length
     ? weightEntries[weightEntries.length - 1].weight_kg
     : profileWeightKg;
-  const weightTrend = weightEntries.length === 0
-    ? 'Your weight'
-    : weightDeltaKg < -0.1 ? 'Trending down'
-    : weightDeltaKg > 0.1  ? 'Trending up'
-    : 'Stable';
+  const weightTrend =
+    weightEntries.length === 0
+      ? "Your weight"
+      : weightDeltaKg < -0.1
+        ? "Trending down"
+        : weightDeltaKg > 0.1
+          ? "Trending up"
+          : "Stable";
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <ScrollView
         contentContainerStyle={{
-          paddingTop:    insets.top + 12,
+          paddingTop: insets.top + 12,
           paddingBottom: insets.bottom + 100,
         }}
         showsVerticalScrollIndicator={false}
@@ -221,12 +257,13 @@ export default function ProgressScreen() {
         {/* ── Header ──────────────────────────────────────────── */}
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.eyebrow, { color: P.textFaint }]}>THIS WEEK</Text>
+            <Text style={[styles.eyebrow, { color: P.textFaint }]}>
+              THIS WEEK
+            </Text>
             <Text style={[styles.title, { color: P.text }]}>
               Progress<Text style={{ color: P.calories }}>.</Text>
             </Text>
           </View>
-          
         </View>
 
         <View style={styles.stack}>
@@ -264,14 +301,21 @@ export default function ProgressScreen() {
           <AnimatedCard delay={220}>
             <View style={styles.headRow}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>CONSISTENCY INDEX</Text>
+                <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>
+                  CONSISTENCY INDEX
+                </Text>
                 <Text style={[styles.cardTitle, { color: P.text }]}>
-                  {consistencyDays.filter(d => d.on).length} of 7 days on target
+                  {consistencyDays.filter((d) => d.on).length} of 7 days on
+                  target
                 </Text>
               </View>
-              <View style={[styles.trendPill, { backgroundColor: P.proteinSoft }]}>
+              <View
+                style={[styles.trendPill, { backgroundColor: P.proteinSoft }]}
+              >
                 <Ionicons name="checkmark-circle" size={11} color={P.protein} />
-                <Text style={[styles.trendText, { color: P.protein }]}>{consistency}/100</Text>
+                <Text style={[styles.trendText, { color: P.protein }]}>
+                  {consistency}/100
+                </Text>
               </View>
             </View>
 
@@ -287,8 +331,8 @@ export default function ProgressScreen() {
                         styles.consistencyCell,
                         {
                           backgroundColor: bg,
-                          borderColor:     isToday ? P.calories : border,
-                          borderWidth:     isToday ? 2 : StyleSheet.hairlineWidth,
+                          borderColor: isToday ? P.calories : border,
+                          borderWidth: isToday ? 2 : StyleSheet.hairlineWidth,
                         },
                       ]}
                     >
@@ -299,7 +343,10 @@ export default function ProgressScreen() {
                     <Text
                       style={[
                         styles.consistencyLabel,
-                        { color: isToday ? P.calories : P.textFaint, fontWeight: isToday ? '800' : '700' },
+                        {
+                          color: isToday ? P.calories : P.textFaint,
+                          fontWeight: isToday ? "800" : "700",
+                        },
                       ]}
                     >
                       {d.label}
@@ -317,9 +364,13 @@ export default function ProgressScreen() {
           <AnimatedCard delay={340}>
             <View style={styles.headRow}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>CALORIES</Text>
+                <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>
+                  CALORIES
+                </Text>
                 <Text style={[styles.cardTitle, { color: P.text }]}>
-                  {avgCals > 0 ? `Avg ${avgCals.toLocaleString()}` : 'No data yet'}
+                  {avgCals > 0
+                    ? `Avg ${avgCals.toLocaleString()}`
+                    : "No data yet"}
                 </Text>
               </View>
               <View style={styles.goalLegend}>
@@ -332,11 +383,15 @@ export default function ProgressScreen() {
 
             <View style={styles.barChart}>
               {calsWeek.map((d, i) => {
-                const pct     = d.cals > 0 ? d.cals / maxCals : 0;
+                const pct = d.cals > 0 ? d.cals / maxCals : 0;
                 const goalPct = calsGoal / maxCals;
                 const isToday = d.today;
-                const over    = d.cals > calsGoal;
-                const color   = isToday ? P.calories : over ? P.danger : P.protein;
+                const over = d.cals > calsGoal;
+                const color = isToday
+                  ? P.calories
+                  : over
+                    ? P.danger
+                    : P.protein;
                 return (
                   <View key={i} style={styles.barCol}>
                     <View style={styles.barWrap}>
@@ -349,14 +404,23 @@ export default function ProgressScreen() {
                         ]}
                       />
                       {/* Goal line */}
-                      <View style={[styles.goalLine, { bottom: `${goalPct * 100}%`, borderColor: P.calories, opacity: 0.4 }]} />
+                      <View
+                        style={[
+                          styles.goalLine,
+                          {
+                            bottom: `${goalPct * 100}%`,
+                            borderColor: P.calories,
+                            opacity: 0.4,
+                          },
+                        ]}
+                      />
                       {/* Data fill */}
                       {d.cals > 0 && (
                         <View
                           style={[
                             styles.bar,
                             {
-                              height:          `${pct * 100}%`,
+                              height: `${pct * 100}%`,
                               backgroundColor: color,
                             },
                           ]}
@@ -367,8 +431,8 @@ export default function ProgressScreen() {
                       style={[
                         styles.barDay,
                         {
-                          color:      isToday ? P.calories : P.textFaint,
-                          fontWeight: isToday ? '800' : '600',
+                          color: isToday ? P.calories : P.textFaint,
+                          fontWeight: isToday ? "800" : "600",
                         },
                       ]}
                     >
@@ -383,35 +447,73 @@ export default function ProgressScreen() {
           {/* ── Weight card ────────────────────────────────────── */}
           <AnimatedCard delay={400} padding={0}>
             <Pressable
-              onPress={() => router.push('/(tabs)/progress/weight')}
+              onPress={() => router.push("/(tabs)/progress/weight")}
               style={({ pressed }) => [
                 { padding: 20, borderRadius: 24 },
                 pressed && { opacity: 0.9 },
               ]}
             >
               <View style={styles.headRow}>
-                <View style={[styles.iconTile, { backgroundColor: P.weightSoft }]}>
+                <View
+                  style={[styles.iconTile, { backgroundColor: P.weightSoft }]}
+                >
                   <Ionicons name="scale" size={16} color={P.weight} />
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>WEIGHT OVER TIME</Text>
-                  <Text style={[styles.cardTitle, { color: P.text }]}>{weightTrend}</Text>
+                  <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>
+                    WEIGHT OVER TIME
+                  </Text>
+                  <Text style={[styles.cardTitle, { color: P.text }]}>
+                    {weightTrend}
+                  </Text>
                 </View>
                 {weightEntries.length >= 2 && (
-                  <View style={[
-                    styles.trendPill,
-                    { backgroundColor: weightDeltaKg <= -0.1 ? P.proteinSoft : weightDeltaKg >= 0.1 ? P.caloriesSoft : P.sunken },
-                  ]}>
+                  <View
+                    style={[
+                      styles.trendPill,
+                      {
+                        backgroundColor:
+                          weightDeltaKg <= -0.1
+                            ? P.proteinSoft
+                            : weightDeltaKg >= 0.1
+                              ? P.caloriesSoft
+                              : P.sunken,
+                      },
+                    ]}
+                  >
                     <Ionicons
-                      name={weightDeltaKg <= -0.1 ? 'trending-down' : weightDeltaKg >= 0.1 ? 'trending-up' : 'remove'}
+                      name={
+                        weightDeltaKg <= -0.1
+                          ? "trending-down"
+                          : weightDeltaKg >= 0.1
+                            ? "trending-up"
+                            : "remove"
+                      }
                       size={11}
-                      color={weightDeltaKg <= -0.1 ? P.protein : weightDeltaKg >= 0.1 ? P.calories : P.textFaint}
+                      color={
+                        weightDeltaKg <= -0.1
+                          ? P.protein
+                          : weightDeltaKg >= 0.1
+                            ? P.calories
+                            : P.textFaint
+                      }
                     />
-                    <Text style={[
-                      styles.trendText,
-                      { color: weightDeltaKg <= -0.1 ? P.protein : weightDeltaKg >= 0.1 ? P.calories : P.textFaint },
-                    ]}>
-                      {weightDeltaKg > 0 ? '+' : ''}{toDisplayWeight(Math.abs(weightDeltaKg)).toFixed(1)} {weightUnit}
+                    <Text
+                      style={[
+                        styles.trendText,
+                        {
+                          color:
+                            weightDeltaKg <= -0.1
+                              ? P.protein
+                              : weightDeltaKg >= 0.1
+                                ? P.calories
+                                : P.textFaint,
+                        },
+                      ]}
+                    >
+                      {weightDeltaKg > 0 ? "+" : ""}
+                      {toDisplayWeight(Math.abs(weightDeltaKg)).toFixed(1)}{" "}
+                      {weightUnit}
                     </Text>
                   </View>
                 )}
@@ -420,14 +522,28 @@ export default function ProgressScreen() {
               {weightEntries.length === 0 ? (
                 <View style={styles.weightFoot}>
                   <View>
-                    <Text style={[styles.weightNum, { color: currentKg !== null ? P.text : P.textFaint }]}>
-                      {currentKg !== null ? toDisplayWeight(currentKg).toFixed(1) : '—'}
+                    <Text
+                      style={[
+                        styles.weightNum,
+                        { color: currentKg !== null ? P.text : P.textFaint },
+                      ]}
+                    >
+                      {currentKg !== null
+                        ? toDisplayWeight(currentKg).toFixed(1)
+                        : "—"}
                       {currentKg !== null && (
-                        <Text style={[styles.weightUnit, { color: P.textFaint }]}> {weightUnit}</Text>
+                        <Text
+                          style={[styles.weightUnit, { color: P.textFaint }]}
+                        >
+                          {" "}
+                          {weightUnit}
+                        </Text>
                       )}
                     </Text>
                     <Text style={[styles.weightNote, { color: P.textFaint }]}>
-                      {currentKg !== null ? 'From your profile · log to track changes' : 'No weight data · tap to log'}
+                      {currentKg !== null
+                        ? "From your profile · log to track changes"
+                        : "No weight data · tap to log"}
                     </Text>
                   </View>
                 </View>
@@ -436,14 +552,22 @@ export default function ProgressScreen() {
                   {/* Line chart — oldest → newest */}
                   <View
                     style={{ height: W_H, marginBottom: 6 }}
-                    onLayout={e => setWChartW(e.nativeEvent.layout.width)}
+                    onLayout={(e) => setWChartW(e.nativeEvent.layout.width)}
                   >
                     {wChartW > 0 && (
                       <Svg width={wChartW} height={W_H}>
                         <Defs>
                           <LinearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
-                            <Stop offset="0" stopColor={P.weight} stopOpacity={0.28} />
-                            <Stop offset="1" stopColor={P.weight} stopOpacity={0} />
+                            <Stop
+                              offset="0"
+                              stopColor={P.weight}
+                              stopOpacity={0.28}
+                            />
+                            <Stop
+                              offset="1"
+                              stopColor={P.weight}
+                              stopOpacity={0}
+                            />
                           </LinearGradient>
                         </Defs>
                         {weightPoints.length >= 2 && (
@@ -475,10 +599,12 @@ export default function ProgressScreen() {
                   </View>
 
                   {/* Date labels */}
-                  <View style={{ flexDirection: 'row', marginBottom: 14 }}>
+                  <View style={{ flexDirection: "row", marginBottom: 14 }}>
                     {weightEntries.map((w, i) => (
-                      <View key={i} style={{ flex: 1, alignItems: 'center' }}>
-                        <Text style={[styles.weightDate, { color: P.textFaint }]}>
+                      <View key={i} style={{ flex: 1, alignItems: "center" }}>
+                        <Text
+                          style={[styles.weightDate, { color: P.textFaint }]}
+                        >
                           {new Date(w.logged_at).getDate().toString()}
                         </Text>
                       </View>
@@ -488,20 +614,51 @@ export default function ProgressScreen() {
                   <View style={styles.weightFoot}>
                     <View>
                       <Text style={[styles.weightNum, { color: P.text }]}>
-                        {currentKg !== null ? toDisplayWeight(currentKg).toFixed(1) : '—'}
-                        <Text style={[styles.weightUnit, { color: P.textFaint }]}> {weightUnit}</Text>
+                        {currentKg !== null
+                          ? toDisplayWeight(currentKg).toFixed(1)
+                          : "—"}
+                        <Text
+                          style={[styles.weightUnit, { color: P.textFaint }]}
+                        >
+                          {" "}
+                          {weightUnit}
+                        </Text>
                       </Text>
-                      <Text style={[styles.weightNote, { color: P.textFaint }]}>Current</Text>
+                      <Text style={[styles.weightNote, { color: P.textFaint }]}>
+                        Current
+                      </Text>
                     </View>
                     {weightEntries.length >= 2 && (
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={[styles.weightNum, {
-                          color: weightDeltaKg <= -0.1 ? P.protein : weightDeltaKg >= 0.1 ? P.calories : P.textFaint,
-                        }]}>
-                          {weightDeltaKg > 0 ? '+' : weightDeltaKg < 0 ? '−' : ''}{toDisplayWeight(Math.abs(weightDeltaKg)).toFixed(1)}
-                          <Text style={[styles.weightUnit, { color: P.textFaint }]}> {weightUnit}</Text>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text
+                          style={[
+                            styles.weightNum,
+                            {
+                              color:
+                                weightDeltaKg <= -0.1
+                                  ? P.protein
+                                  : weightDeltaKg >= 0.1
+                                    ? P.calories
+                                    : P.textFaint,
+                            },
+                          ]}
+                        >
+                          {weightDeltaKg > 0
+                            ? "+"
+                            : weightDeltaKg < 0
+                              ? "−"
+                              : ""}
+                          {toDisplayWeight(Math.abs(weightDeltaKg)).toFixed(1)}
+                          <Text
+                            style={[styles.weightUnit, { color: P.textFaint }]}
+                          >
+                            {" "}
+                            {weightUnit}
+                          </Text>
                         </Text>
-                        <Text style={[styles.weightNote, { color: P.textFaint }]}>
+                        <Text
+                          style={[styles.weightNote, { color: P.textFaint }]}
+                        >
                           {weightEntries.length}-entry change
                         </Text>
                       </View>
@@ -521,31 +678,48 @@ export default function ProgressScreen() {
 
 // ─── Headline stat tile ─────────────────────────────────────────────────────
 function StatTile({
-  icon, label, value, valueSuffix, tone, accentColor, delay,
+  icon,
+  label,
+  value,
+  valueSuffix,
+  tone,
+  accentColor,
+  delay,
 }: {
-  icon:         IoniconName;
-  label:        string;
-  value:        string;
+  icon: IoniconName;
+  label: string;
+  value: string;
   valueSuffix?: string;
-  tone?:        'accent';
+  tone?: "accent";
   accentColor?: string;
-  delay:        number;
+  delay: number;
 }) {
   const P = usePalette();
 
-  if (tone === 'accent') {
+  if (tone === "accent") {
     return (
-      <AnimatedCard delay={delay} padding={14} style={[styles.statTile, { backgroundColor: P.calories, borderColor: P.calories }]}>
+      <AnimatedCard
+        delay={delay}
+        padding={14}
+        style={[
+          styles.statTile,
+          { backgroundColor: P.calories, borderColor: P.calories },
+        ]}
+      >
         <Ionicons name={icon} size={20} color="rgba(255,255,255,0.95)" />
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
-          <Text style={[styles.statValue, { color: '#fff' }]}>{value}</Text>
+        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 3 }}>
+          <Text style={[styles.statValue, { color: "#fff" }]}>{value}</Text>
           {!!valueSuffix && (
-            <Text style={[styles.statSuffix, { color: 'rgba(255,255,255,0.75)' }]}>{valueSuffix}</Text>
+            <Text
+              style={[styles.statSuffix, { color: "rgba(255,255,255,0.75)" }]}
+            >
+              {valueSuffix}
+            </Text>
           )}
         </View>
         <View style={styles.statLabelWrap}>
           <Text
-            style={[styles.statLabel, { color: 'rgba(255,255,255,0.85)' }]}
+            style={[styles.statLabel, { color: "rgba(255,255,255,0.85)" }]}
             numberOfLines={1}
             adjustsFontSizeToFit
             minimumFontScale={0.78}
@@ -560,10 +734,12 @@ function StatTile({
   return (
     <AnimatedCard delay={delay} padding={14} style={styles.statTile}>
       <Ionicons name={icon} size={20} color={accentColor ?? P.text} />
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
+      <View style={{ flexDirection: "row", alignItems: "baseline", gap: 3 }}>
         <Text style={[styles.statValue, { color: P.text }]}>{value}</Text>
         {!!valueSuffix && (
-          <Text style={[styles.statSuffix, { color: P.textFaint }]}>{valueSuffix}</Text>
+          <Text style={[styles.statSuffix, { color: P.textFaint }]}>
+            {valueSuffix}
+          </Text>
         )}
       </View>
       <View style={styles.statLabelWrap}>
@@ -582,216 +758,220 @@ function StatTile({
 
 const styles = StyleSheet.create({
   header: {
-    flexDirection:     'row',
-    alignItems:        'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 20,
-    paddingTop:        4,
-    paddingBottom:     18,
-    gap:               12,
+    paddingTop: 4,
+    paddingBottom: 18,
+    gap: 12,
   },
   eyebrow: {
-    fontSize:      10,
-    fontWeight:    '700',
+    fontSize: 10,
+    fontWeight: "700",
     letterSpacing: 1.8,
-    marginBottom:  4,
+    marginBottom: 4,
   },
   title: {
-    fontSize:      30,
-    fontWeight:    '800',
+    fontSize: 30,
+    fontWeight: "800",
     letterSpacing: -0.8,
   },
   iconBtn: {
-    width: 42, height: 42, borderRadius: 21,
-    alignItems:     'center',
-    justifyContent: 'center',
-    borderWidth:    StyleSheet.hairlineWidth,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
   },
 
   stack: {
     paddingHorizontal: 20,
-    gap:               14,
+    gap: 14,
   },
 
   // ─── Stat tiles ──
   statsRow: {
-    flexDirection: 'row',
-    gap:           10,
+    flexDirection: "row",
+    gap: 10,
   },
   statTile: {
-    flex:       1,
-    alignItems: 'flex-start',
-    gap:        10,
+    flex: 1,
+    alignItems: "flex-start",
+    gap: 10,
   },
   statLabelWrap: {
-    alignSelf: 'stretch',
-    width:     '100%',
+    alignSelf: "stretch",
+    width: "100%",
   },
   statValue: {
-    fontSize:      24,
-    fontWeight:    '800',
+    fontSize: 24,
+    fontWeight: "800",
     letterSpacing: -0.8,
   },
   statSuffix: {
-    fontSize:   11,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: "700",
   },
   statLabel: {
-    fontSize:      9,
-    fontWeight:    '800',
+    fontSize: 9,
+    fontWeight: "800",
     letterSpacing: 0.75,
-    maxWidth:      '100%',
+    maxWidth: "100%",
   },
 
   // ─── Card chrome ──
   headRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    marginBottom:  16,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
   },
   cardEyebrow: {
-    fontSize:      9,
-    fontWeight:    '800',
+    fontSize: 9,
+    fontWeight: "800",
     letterSpacing: 1.4,
-    marginBottom:  4,
+    marginBottom: 4,
   },
   cardTitle: {
-    fontSize:      16,
-    fontWeight:    '800',
+    fontSize: 16,
+    fontWeight: "800",
     letterSpacing: -0.4,
   },
   trendPill: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     paddingHorizontal: 8,
-    paddingVertical:   4,
-    borderRadius:      999,
+    paddingVertical: 4,
+    borderRadius: 999,
   },
   trendText: {
-    fontSize:   10,
-    fontWeight: '800',
+    fontSize: 10,
+    fontWeight: "800",
   },
   iconTile: {
-    width: 36, height: 36, borderRadius: 12,
-    alignItems:     'center',
-    justifyContent: 'center',
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   // ─── Consistency row ──
   consistencyRow: {
-    flexDirection: 'row',
-    gap:           8,
+    flexDirection: "row",
+    gap: 8,
   },
   consistencyCol: {
-    flex:       1,
-    alignItems: 'center',
-    gap:        8,
+    flex: 1,
+    alignItems: "center",
+    gap: 8,
   },
   consistencyCell: {
-    width:           '100%',
-    aspectRatio:     0.85,
-    borderRadius:    12,
-    alignItems:      'center',
-    justifyContent:  'center',
+    width: "100%",
+    aspectRatio: 0.85,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   consistencyLabel: {
-    fontSize:   11,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: "700",
   },
 
   // ─── Calories bar chart ──
   goalLegend: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   dashLine: {
-    width:          16,
+    width: 16,
     borderTopWidth: 1,
-    borderStyle:    'dashed',
+    borderStyle: "dashed",
   },
   goalLegendText: {
-    fontSize:   10,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: "700",
   },
   barChart: {
-    flexDirection: 'row',
-    height:        128,
-    gap:           6,
-    alignItems:    'flex-end',
+    flexDirection: "row",
+    height: 128,
+    gap: 6,
+    alignItems: "flex-end",
   },
   barCol: {
-    flex:       1,
-    alignItems: 'center',
-    gap:        8,
+    flex: 1,
+    alignItems: "center",
+    gap: 8,
   },
   barWrap: {
-    flex:           1,
-    width:          '100%',
-    justifyContent: 'flex-end',
-    position:       'relative',
+    flex: 1,
+    width: "100%",
+    justifyContent: "flex-end",
+    position: "relative",
   },
   bar: {
-    width:        '100%',
+    width: "100%",
     borderRadius: 5,
-    minHeight:    4,
+    minHeight: 4,
   },
   goalLine: {
-    position:      'absolute',
-    left:          0,
-    right:         0,
-    borderTopWidth:1,
-    borderStyle:   'dashed',
+    position: "absolute",
+    left: 0,
+    right: 0,
+    borderTopWidth: 1,
+    borderStyle: "dashed",
   },
   barDay: {
-    fontSize:   11,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: "600",
   },
 
   // ─── Weight card ──
   weightChart: {
-    flexDirection: 'row',
-    height:        72,
-    alignItems:    'flex-end',
-    gap:           2,
-    marginBottom:  14,
+    flexDirection: "row",
+    height: 72,
+    alignItems: "flex-end",
+    gap: 2,
+    marginBottom: 14,
   },
   weightCol: {
-    flex:       1,
-    alignItems: 'center',
+    flex: 1,
+    alignItems: "center",
   },
   weightColInner: {
-    width:  '100%',
+    width: "100%",
     height: 60,
-    position: 'relative',
+    position: "relative",
   },
   weightDot: {
-    position: 'absolute',
-    left:     '50%',
+    position: "absolute",
+    left: "50%",
     marginLeft: -5,
   },
   weightDate: {
-    fontSize:   9,
-    fontWeight: '600',
-    marginTop:  4,
+    fontSize: 9,
+    fontWeight: "600",
+    marginTop: 4,
   },
   weightFoot: {
-    flexDirection:  'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   weightNum: {
-    fontSize:      22,
-    fontWeight:    '800',
+    fontSize: 22,
+    fontWeight: "800",
     letterSpacing: -0.7,
   },
   weightUnit: {
-    fontSize:   13,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: "600",
   },
   weightNote: {
-    fontSize:   11,
-    fontWeight: '500',
-    marginTop:  2,
+    fontSize: 11,
+    fontWeight: "500",
+    marginTop: 2,
   },
 
 });

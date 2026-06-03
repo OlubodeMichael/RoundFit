@@ -1,21 +1,18 @@
 import { useMemo, useState } from 'react';
-import { LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
+import { LayoutChangeEvent, Platform, StyleSheet, Text, View } from 'react-native';
 import {
   timelineBubbleForMl,
   timelineBubbleRange,
 } from '@/utils/water-timeline-bubble';
 
-const LAST_SIP_ORANGE = '#F4A261';
-const LAST_SIP_RING = 'rgba(244,162,97,0.20)';
+/** Y-center of the horizontal axis (dots + now marker align here) */
+const AXIS_Y = 36;
+const TRACK_HEIGHT = AXIS_Y + 24;
 
-const NOW_DOT_SIZE = 8;
+const NOW_RING = 14;
+const NOW_CORE = 6;
 const NOW_STEM_WIDTH = 2;
-const NOW_STEM_BELOW_LINE = 4;
-
-/** Vertical space above the axis for the now-marker dot */
-const TIMELINE_TOP_PAD = 10;
-const TRACK_LINE_Y = 38;
-const TRACK_HEIGHT = TRACK_LINE_Y + 14;
+const NOW_STEM_HEIGHT = 42;
 
 /** Hours on the 6 AM → midnight axis */
 const TIMELINE_AXIS_HOURS = [6, 12, 18, 24] as const;
@@ -69,21 +66,46 @@ function formatAxisTime(hour: number, compact = false): string {
 const TIME_LABELS = TIMELINE_AXIS_HOURS.map((h) => formatAxisTime(h));
 const RANGE_LABEL = `${formatAxisTime(6, true)} — ${formatAxisTime(24, true)}`;
 
-interface NowTimeMarkerProps {
+interface NowMarkerProps {
   centerX: number;
+  accentColor: string;
+  surfaceColor: string;
 }
 
-function NowTimeMarker({ centerX }: NowTimeMarkerProps) {
-  const stemTop = TIMELINE_TOP_PAD + NOW_DOT_SIZE + 3;
-  const stemHeight = TRACK_LINE_Y - stemTop + NOW_STEM_BELOW_LINE;
-
+/** Vertical now-line through the axis with dot centered on the intersection */
+function NowMarker({ centerX, accentColor, surfaceColor }: NowMarkerProps) {
   return (
-    <View
-      style={[s.nowMarker, { left: centerX - NOW_STEM_WIDTH / 2 }]}
-      pointerEvents="none"
-    >
-      <View style={s.nowDot} />
-      <View style={[s.nowStem, { height: stemHeight }]} />
+    <View pointerEvents="none" style={s.nowMarkerRoot}>
+      <View
+        style={[
+          s.nowStem,
+          {
+            left: centerX - NOW_STEM_WIDTH / 2,
+            top: AXIS_Y - NOW_STEM_HEIGHT / 2,
+            backgroundColor: accentColor,
+          },
+        ]}
+      />
+      <View
+        style={[
+          s.nowWrap,
+          {
+            left: centerX - NOW_RING / 2,
+            top: AXIS_Y - NOW_RING / 2,
+          },
+        ]}
+      >
+        <View
+          style={[
+            s.nowRing,
+            {
+              borderColor: accentColor,
+              backgroundColor: surfaceColor,
+            },
+          ]}
+        />
+        <View style={[s.nowCore, { backgroundColor: accentColor }]} />
+      </View>
     </View>
   );
 }
@@ -101,12 +123,18 @@ export function WaterTimeline({
   const [trackWidth, setTrackWidth] = useState(0);
   const { minMl, maxMl } = useMemo(() => timelineBubbleRange(entries), [entries]);
 
-  const lastEntry = entries[0];
+  const lastEntry = useMemo(() => {
+    if (entries.length === 0) return null;
+    return [...entries].sort(
+      (a, b) => new Date(b.logged_at).getTime() - new Date(a.logged_at).getTime(),
+    )[0]!;
+  }, [entries]);
+
   if (!lastEntry) return null;
 
   const { h, m, justNow } = timeAgoParts(lastEntry.logged_at);
-  const trackColor = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)';
-  const tickColor = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)';
+  const trackColor = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.07)';
+  const tickColor = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.10)';
 
   const nowCx =
     trackWidth > 0 && showNowMarker
@@ -114,187 +142,185 @@ export function WaterTimeline({
       : 0;
 
   return (
-    <View
-      style={[
-        s.card,
-        { backgroundColor: cardBackground, borderColor: cardBorder },
-      ]}
-    >
-      <View style={s.headerRow}>
-        <View style={s.lastSipIconWrap}>
-          <View style={s.lastSipRing} />
-          <View style={s.lastSipDot} />
+    <View style={s.section}>
+      <Text style={[s.sectionLabel, { color: textFaint }]}>Day rhythm</Text>
+      <View
+        style={[
+          s.card,
+          {
+            backgroundColor: cardBackground,
+            borderColor: cardBorder,
+            shadowOpacity: isDark ? 0.35 : 0.06,
+          },
+          Platform.OS === 'android' && { elevation: isDark ? 0 : 2 },
+        ]}
+        accessibilityLabel={`Hydration timeline. Last sip ${
+          justNow ? 'just now' : `${h > 0 ? `${h} hours ${m} minutes` : `${m} minutes`} ago`
+        }.`}
+      >
+        <View style={s.headerRow}>
+          <Text style={[s.lastSipText, { color: textColor }]} numberOfLines={1}>
+            Last sip{' '}
+            {justNow ? (
+              <Text style={[s.lastSipAccent, { color: accentColor }]}>just now</Text>
+            ) : (
+              <>
+                <Text style={[s.lastSipAccent, { color: accentColor }]}>
+                  {h > 0 ? `${h}h ${m}m` : `${m}m`}
+                </Text>
+                {' ago'}
+              </>
+            )}
+          </Text>
+          <Text style={[s.rangeLabel, { color: textFaint }]} numberOfLines={1}>
+            {RANGE_LABEL}
+          </Text>
         </View>
 
-        <Text style={[s.lastSipText, { color: textColor }]} numberOfLines={1}>
-          Last sip{' '}
-          {justNow ? (
-            <Text style={s.lastSipTime}>just now</Text>
-          ) : (
-            <>
-              <Text style={s.lastSipTime}>
-                {h > 0 ? `${h}h ${m}m` : `${m}m`}
-              </Text>
-              {' ago'}
-            </>
-          )}
-        </Text>
-
-        <Text style={[s.rangeLabel, { color: textFaint }]} numberOfLines={1}>
-          {RANGE_LABEL}
-        </Text>
-      </View>
-
-      <View
-        style={s.timelineOuter}
-        onLayout={(ev: LayoutChangeEvent) =>
-          setTrackWidth(ev.nativeEvent.layout.width)
-        }
-      >
         <View
-          style={[
-            s.trackLine,
-            { backgroundColor: trackColor, top: TRACK_LINE_Y - 1 },
-          ]}
-        />
+          style={s.timelineOuter}
+          onLayout={(ev: LayoutChangeEvent) =>
+            setTrackWidth(ev.nativeEvent.layout.width)
+          }
+        >
+          <View
+            style={[
+              s.trackLine,
+              { backgroundColor: trackColor, top: AXIS_Y - 1 },
+            ]}
+          />
 
-        {trackWidth > 0 &&
-          TICK_FRACTIONS.map((frac) => (
-            <View
-              key={frac}
-              style={[
-                s.tick,
-                {
-                  left: frac * trackWidth - 0.5,
-                  top: TRACK_LINE_Y - 4,
-                  backgroundColor: tickColor,
-                },
-              ]}
-            />
-          ))}
-
-        {trackWidth > 0 &&
-          entries.map((e) => {
-            const { inner, halo } = timelineBubbleForMl(
-              e.amount_ml,
-              minMl,
-              maxMl,
-            );
-            const cx = timeOfDayFraction(new Date(e.logged_at)) * trackWidth;
-            const inset = (halo - inner) / 2;
-            const haloAlpha = 0.18 + (inner / 26) * 0.12;
-            const entryHaloColor = isDark
-              ? `rgba(30,80,120,${haloAlpha + 0.08})`
-              : `rgba(56,189,248,${haloAlpha})`;
-
-            return (
+          {trackWidth > 0 &&
+            TICK_FRACTIONS.map((frac) => (
               <View
-                key={e.id}
+                key={frac}
                 style={[
-                  s.dotWrap,
+                  s.tick,
                   {
-                    left: cx - halo / 2,
-                    top: TRACK_LINE_Y - halo / 2,
-                    width: halo,
-                    height: halo,
-                    zIndex: 1,
+                    left: frac * trackWidth - 0.5,
+                    top: AXIS_Y - 5,
+                    backgroundColor: tickColor,
                   },
                 ]}
-              >
-                <View
-                  style={{
-                    width: halo,
-                    height: halo,
-                    borderRadius: halo / 2,
-                    backgroundColor: entryHaloColor,
-                  }}
-                />
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: inset,
-                    top: inset,
-                    width: inner,
-                    height: inner,
-                    borderRadius: inner / 2,
-                    backgroundColor: accentColor,
-                  }}
-                />
-              </View>
-            );
-          })}
+              />
+            ))}
 
-        {trackWidth > 0 && showNowMarker && (
-          <NowTimeMarker centerX={nowCx} />
-        )}
-      </View>
+          {trackWidth > 0 &&
+            entries.map((e) => {
+              const { inner, halo } = timelineBubbleForMl(
+                e.amount_ml,
+                minMl,
+                maxMl,
+              );
+              const cx = timeOfDayFraction(new Date(e.logged_at)) * trackWidth;
+              const inset = (halo - inner) / 2;
+              const haloAlpha = 0.18 + (inner / 26) * 0.12;
+              const entryHaloColor = isDark
+                ? `rgba(30,80,120,${haloAlpha + 0.08})`
+                : `rgba(56,189,248,${haloAlpha})`;
 
-      <View style={s.timeLabels}>
-        {TIME_LABELS.map((label, i) => (
-          <Text
-            key={TIMELINE_AXIS_HOURS[i]}
-            style={[s.timeLabel, { color: textFaint }]}
-            numberOfLines={1}
-          >
-            {label}
-          </Text>
-        ))}
+              return (
+                <View
+                  key={e.id}
+                  style={[
+                    s.dotWrap,
+                    {
+                      left: cx - halo / 2,
+                      top: AXIS_Y - halo / 2,
+                      width: halo,
+                      height: halo,
+                    },
+                  ]}
+                >
+                  <View
+                    style={{
+                      width: halo,
+                      height: halo,
+                      borderRadius: halo / 2,
+                      backgroundColor: entryHaloColor,
+                    }}
+                  />
+                  <View
+                    style={{
+                      position: 'absolute',
+                      left: inset,
+                      top: inset,
+                      width: inner,
+                      height: inner,
+                      borderRadius: inner / 2,
+                      backgroundColor: accentColor,
+                    }}
+                  />
+                </View>
+              );
+            })}
+
+          {trackWidth > 0 && showNowMarker && (
+            <NowMarker
+              centerX={nowCx}
+              accentColor={accentColor}
+              surfaceColor={cardBackground}
+            />
+          )}
+        </View>
+
+        <View style={s.timeLabels}>
+          {TIME_LABELS.map((label, i) => (
+            <Text
+              key={TIMELINE_AXIS_HOURS[i]}
+              style={[s.timeLabel, { color: textFaint }]}
+              numberOfLines={1}
+            >
+              {label}
+            </Text>
+          ))}
+        </View>
       </View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
+  section: { gap: 8 },
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: -0.08,
+    paddingHorizontal: 4,
+  },
   card: {
-    borderRadius: 20,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 18,
+    padding: 16,
+    shadowColor: '#000',
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 18,
-  },
-  lastSipIconWrap: {
-    width: 22,
-    height: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  lastSipRing: {
-    position: 'absolute',
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: LAST_SIP_RING,
-  },
-  lastSipDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: LAST_SIP_ORANGE,
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 16,
   },
   lastSipText: {
     flex: 1,
     fontSize: 15,
     fontWeight: '600',
-    letterSpacing: -0.2,
+    letterSpacing: -0.25,
   },
-  lastSipTime: {
-    color: LAST_SIP_ORANGE,
+  lastSipAccent: {
     fontWeight: '700',
   },
   rangeLabel: {
     fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 0.2,
-    maxWidth: '28%',
-    textAlign: 'right',
+    letterSpacing: 0.1,
+    flexShrink: 0,
   },
   timelineOuter: {
     height: TRACK_HEIGHT,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   trackLine: {
     position: 'absolute',
@@ -306,29 +332,40 @@ const s = StyleSheet.create({
   tick: {
     position: 'absolute',
     width: 1,
-    height: 8,
+    height: 10,
     borderRadius: 0.5,
   },
   dotWrap: {
     position: 'absolute',
+    zIndex: 2,
   },
-  nowMarker: {
-    position: 'absolute',
-    top: TIMELINE_TOP_PAD,
-    alignItems: 'center',
-    zIndex: 5,
-  },
-  nowDot: {
-    width: NOW_DOT_SIZE,
-    height: NOW_DOT_SIZE,
-    borderRadius: NOW_DOT_SIZE / 2,
-    backgroundColor: LAST_SIP_ORANGE,
+  nowMarkerRoot: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 4,
   },
   nowStem: {
+    position: 'absolute',
     width: NOW_STEM_WIDTH,
-    marginTop: 3,
+    height: NOW_STEM_HEIGHT,
     borderRadius: 1,
-    backgroundColor: LAST_SIP_ORANGE,
+    opacity: 0.88,
+  },
+  nowWrap: {
+    position: 'absolute',
+    width: NOW_RING,
+    height: NOW_RING,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nowRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: NOW_RING / 2,
+    borderWidth: 2,
+  },
+  nowCore: {
+    width: NOW_CORE,
+    height: NOW_CORE,
+    borderRadius: NOW_CORE / 2,
   },
   timeLabels: {
     flexDirection: 'row',
@@ -337,6 +374,7 @@ const s = StyleSheet.create({
   timeLabel: {
     fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 0.1,
+    letterSpacing: 0.05,
+    fontVariant: ['tabular-nums'],
   },
 });

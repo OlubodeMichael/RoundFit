@@ -28,8 +28,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useWorkoutLiveActivity } from "@/hooks/use-workout-live-activity";
 import { getLocalDateString } from "@/utils/date";
 import { calculateNutritionPlan } from "@/utils/nutrition";
-import { WaterQuickAdd } from "@/components/log/WaterQuickAdd";
-import { useWater } from "@/hooks/use-water";
+import { HydrationCard } from "@/components/home/HydrationCard";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -476,84 +475,6 @@ function greetingFor(h = new Date().getHours()) {
   if (h < 17) return "Good afternoon";
   return "Good evening";
 }
-
-// ───────────────────────────────────────────────────────────────────────────────
-// HydrationCard — water progress + quick-add on the home screen
-// ───────────────────────────────────────────────────────────────────────────────
-const ML_PER_OZ = 29.5735;
-
-function HydrationCard({
-  P,
-  delay = 0,
-  onViewAll,
-}: {
-  P: Palette;
-  delay?: number;
-  onViewAll?: () => void;
-}) {
-  const { totalMl, goalMl, logWater } = useWater();
-  const toast = useToast();
-
-  const totalOz  = totalMl / ML_PER_OZ;
-  const goalOz   = goalMl  / ML_PER_OZ;
-  const progress = Math.min(totalMl / Math.max(goalMl, 1), 1);
-  const pct      = Math.round(progress * 100);
-
-  const handleAdd = async (ml: number) => {
-    try {
-      await logWater(ml);
-    } catch {
-      toast.error("Could not save", "Please try again.");
-    }
-  };
-
-  return (
-    <Card delay={delay}>
-      {/* Header row */}
-      <View style={hydS.header}>
-        <View style={[hydS.iconTile, { backgroundColor: P.waterSoft }]}>
-          <Ionicons name="water" size={16} color={P.water} />
-        </View>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={[hydS.title, { color: P.text }]}>Hydration</Text>
-          <Text style={[hydS.sub, { color: P.textFaint }]}>
-            {totalOz.toFixed(0)} oz of {goalOz.toFixed(0)} oz · {pct}%
-          </Text>
-        </View>
-        {onViewAll && (
-          <TouchableOpacity onPress={onViewAll} activeOpacity={0.7} hitSlop={8}>
-            <Ionicons name="arrow-forward" size={16} color={P.textFaint} />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Progress bar */}
-      <View style={[hydS.track, { backgroundColor: P.isDark ? "rgba(56,189,248,0.12)" : P.waterSoft }]}>
-        <View style={[hydS.fill, { width: `${pct}%` as any, backgroundColor: P.water }]} />
-      </View>
-
-      {/* Quick Add */}
-      <WaterQuickAdd onAdd={handleAdd} />
-    </Card>
-  );
-}
-
-const hydS = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems:    "center",
-    gap:           12,
-    marginBottom:  16,
-  },
-  iconTile: {
-    width: 36, height: 36, borderRadius: 12,
-    alignItems: "center", justifyContent: "center",
-  },
-  title: { fontSize: 17, fontWeight: "800", letterSpacing: -0.4 },
-  sub:   { fontSize: 12, fontWeight: "500" },
-  track: { height: 6, borderRadius: 3, overflow: "hidden", marginBottom: 18 },
-  fill:  { height: "100%", borderRadius: 3 },
-});
 
 function offsetDateString(iso: string, days: number): string {
   const d = new Date(`${iso}T12:00:00`);
@@ -1201,13 +1122,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  // Hydration
-  hydrationHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 18,
-  },
   iconTile: {
     width: 36,
     height: 36,
@@ -1222,69 +1136,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  hydrationTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    letterSpacing: -0.3,
-  },
-  hydrationSub: {
-    fontSize: 11,
-    fontWeight: "500",
-  },
-  hydrationNum: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 2,
-  },
-  hydrationCount: {
-    fontSize: 22,
-    fontWeight: "800",
-    letterSpacing: -0.7,
-  },
-  hydrationGoal: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  dropRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 14,
-  },
-  dropCell: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  // Quick stats row
-  statsGrid: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  quickHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 10,
-  },
-  quickLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-  },
-  quickValue: {
-    fontSize: 26,
-    fontWeight: "800",
-    letterSpacing: -1,
-  },
-  quickCaption: {
-    fontSize: 11,
-    fontWeight: "500",
-    marginTop: 2,
-  },
-
   statusModalBody: {
     paddingHorizontal: 24,
     paddingTop: 8,

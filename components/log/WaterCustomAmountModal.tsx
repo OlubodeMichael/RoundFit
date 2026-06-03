@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Keyboard, Platform, ScrollView, StyleSheet, Text, TextInput,
-  TouchableOpacity, View,
+  Keyboard,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Haptics from 'expo-haptics';
@@ -35,27 +40,10 @@ export function WaterCustomAmountModal({ visible, onClose, onAdd }: Props) {
   const acc = P.water;
 
   const [mlInput, setMlInput] = useState('');
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvent, (e) => {
-      setKeyboardHeight(e.endCoordinates.height);
-    });
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setKeyboardHeight(0);
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!visible) setKeyboardHeight(0);
+    if (!visible) setMlInput('');
   }, [visible]);
 
   const parsedMl = useMemo(() => parseMlInput(mlInput), [mlInput]);
@@ -72,16 +60,20 @@ export function WaterCustomAmountModal({ visible, onClose, onAdd }: Props) {
     : 'Amount in milliliters';
 
   const handleClose = () => {
+    inputRef.current?.blur();
     setMlInput('');
     onClose();
+    Keyboard.dismiss();
   };
 
   const handleSubmit = () => {
     if (parsedMl === null) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    inputRef.current?.blur();
     onAdd(parsedMl);
     setMlInput('');
     onClose();
+    Keyboard.dismiss();
   };
 
   return (
@@ -89,82 +81,94 @@ export function WaterCustomAmountModal({ visible, onClose, onAdd }: Props) {
       visible={visible}
       onClose={handleClose}
       title="Custom amount"
-      sheetHeight={0.52}
+      sheetHeight="full"
       keyboardAvoiding
     >
-      <ScrollView
-        style={s.scroll}
-        contentContainerStyle={[
-          s.scrollContent,
-          keyboardHeight > 0 && { paddingBottom: keyboardHeight * 0.35 },
-        ]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-      >
-        <View style={[s.inputWrap, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}>
-          <TextInput
-            value={mlInput}
-            onChangeText={(t) =>
-              setMlInput(t.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))
-            }
-            keyboardType="decimal-pad"
-            placeholder="0"
-            placeholderTextColor={P.textFaint}
-            selectionColor={acc}
-            style={[s.inputField, { color: P.text }]}
-            autoFocus
-            maxLength={5}
-          />
-          <Text style={[s.inputUnit, { color: P.textFaint }]}>ml</Text>
-        </View>
-
-        <View style={s.previewRow}>
-          <View
-            style={[
-              s.previewIcon,
-              { backgroundColor: P.isDark ? 'rgba(56,189,248,0.12)' : acc + '18' },
-            ]}
-          >
-            <Ionicons
-              name={previewIcon}
-              size={previewSize}
-              color={canSubmit ? acc : P.textFaint}
-            />
-          </View>
-          <View style={s.previewTextCol}>
-            <Text style={[s.previewLabel, { color: canSubmit ? P.text : P.textFaint }]}>
-              {previewLabel}
-            </Text>
-            <Text style={[s.previewHint, { color: P.textFaint }]}>{ozHint}</Text>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          onPress={handleSubmit}
-          disabled={!canSubmit}
-          style={[
-            s.addBtn,
-            { backgroundColor: acc, opacity: canSubmit ? 1 : 0.45 },
-          ]}
-          activeOpacity={0.85}
+      <View style={s.body}>
+        <ScrollView
+          style={s.scroll}
+          contentContainerStyle={s.scrollContent}
+          keyboardShouldPersistTaps="always"
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+          contentInsetAdjustmentBehavior="automatic"
         >
-          <Text style={s.addBtnTxt}>Add water</Text>
-        </TouchableOpacity>
-      </ScrollView>
+          <View style={[s.inputWrap, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}>
+            <TextInput
+              ref={inputRef}
+              value={mlInput}
+              onChangeText={(t) =>
+                setMlInput(t.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))
+              }
+              keyboardType="decimal-pad"
+              placeholder="0"
+              placeholderTextColor={P.textFaint}
+              selectionColor={acc}
+              style={[s.inputField, { color: P.text }]}
+              autoFocus
+              maxLength={5}
+            />
+            <Text style={[s.inputUnit, { color: P.textFaint }]}>ml</Text>
+          </View>
+
+          <View style={s.previewRow}>
+            <View
+              style={[
+                s.previewIcon,
+                { backgroundColor: P.isDark ? 'rgba(56,189,248,0.12)' : acc + '18' },
+              ]}
+            >
+              <Ionicons
+                name={previewIcon}
+                size={previewSize}
+                color={canSubmit ? acc : P.textFaint}
+              />
+            </View>
+            <View style={s.previewTextCol}>
+              <Text style={[s.previewLabel, { color: canSubmit ? P.text : P.textFaint }]}>
+                {previewLabel}
+              </Text>
+              <Text style={[s.previewHint, { color: P.textFaint }]}>{ozHint}</Text>
+            </View>
+          </View>
+        </ScrollView>
+
+        <View style={s.footer}>
+          <TouchableOpacity
+            onPress={handleSubmit}
+            disabled={!canSubmit}
+            style={[
+              s.addBtn,
+              { backgroundColor: acc, opacity: canSubmit ? 1 : 0.45 },
+            ]}
+            activeOpacity={0.85}
+          >
+            <Text style={s.addBtnTxt}>Add water</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </AppModal>
   );
 }
 
 const s = StyleSheet.create({
+  body: {
+    flex: 1,
+  },
   scroll: {
     flex: 1,
   },
   scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+    gap: 16,
+  },
+  footer: {
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 8,
-    gap: 16,
   },
   inputWrap: {
     flexDirection: 'row',
