@@ -17,6 +17,7 @@ import {
   fetchWithResourceCache,
   getResourceCached,
   invalidateResourceCache,
+  setResourceCached,
 } from '@/utils/resource-cache';
 
 // ── Config ─────────────────────────────────────────────────────────────────
@@ -27,11 +28,6 @@ const DEFAULT_LIMIT = 30;
 // this is treated as "still night" so the user doesn't get prompted the moment
 // the local date rolls over at midnight.
 const MORNING_HOUR = 5;
-
-// How long to wait before re-prompting after the user taps Skip. The skip
-// reaches the server (so RIS / insights still get a fallback) but we re-open
-// the modal once so it doesn't feel like a one-shot opt-out for the day.
-const SKIP_SNOOZE_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 function msUntilMorning(): number {
   const now    = new Date();
@@ -115,7 +111,7 @@ export interface CheckinContextValue {
   /** True while any fetch is in-flight. */
   isLoading: boolean;
 
-  /** True if today's check-in has been completed or skipped. */
+  /** True if today's check-in has been logged (completed or skipped). */
   hasCheckedInToday: boolean;
 
   /** Convenience flag — true when the check-in modal should be shown. */
@@ -158,6 +154,12 @@ function todayDateString(): string {
 }
 
 function fromApiCheckin(row: Record<string, unknown>): CheckIn {
+  const completed = row.completed === true
+    || row.status === 'completed'
+    || (typeof row.completed_at === 'string' && row.completed_at.length > 0);
+  const skipped = row.skipped === true || row.status === 'skipped';
+  const hasMorningLog = typeof row.sleep_quality === 'number' && typeof row.energy_level === 'string';
+
   return {
     id:              String(row.id ?? ''),
     user_id:         String(row.user_id ?? ''),
@@ -165,10 +167,15 @@ function fromApiCheckin(row: Record<string, unknown>): CheckIn {
     sleep_quality:   typeof row.sleep_quality === 'number' ? row.sleep_quality : null,
     energy_level:    (row.energy_level as EnergyLevel) ?? 'medium',
     planned_workout: row.planned_workout === true,
-    completed:       row.completed === true,
-    skipped:         row.skipped === true,
+    completed:       completed || (hasMorningLog && !skipped),
+    skipped,
     completed_at:    typeof row.completed_at === 'string' ? row.completed_at : null,
   };
+}
+
+function isCheckinLogged(checkin: CheckIn | null): boolean {
+  if (!checkin) return false;
+  return checkin.completed || checkin.skipped;
 }
 
 function fromApiInsight(row: Record<string, unknown>): CheckinInsight {
@@ -213,17 +220,14 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
   const [appStatus,          setAppStatus]          = useState<CheckinStatus | null>(null);
   const [isLoading,          setIsLoading]          = useState(true);
   const [shouldShowCheckin,  setShouldShowCheckin]  = useState(false);
+  const [localLoggedToday,   setLocalLoggedToday]   = useState(false);
+  const localLoggedTodayRef  = useRef(false);
   const appStateRef      = useRef(AppState.currentState);
   const lastFetchDateRef = useRef('');
   const doneThisSession  = useRef(false);
   // Timer that flips `shouldShowCheckin` on at the morning hour if we
   // suppressed the modal because it was still night.
   const morningTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Timer that re-opens the check-in some hours after the user tapped Skip.
-  const skipSnoozeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // True while we're in the "skipped, will re-prompt later" window — keeps
-  // applyCheckinToday from hiding the modal because the server says skipped.
-  const skipSnoozeActiveRef = useRef(false);
 
   const clearMorningTimer = useCallback(() => {
     if (morningTimerRef.current) {
@@ -231,27 +235,6 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
       morningTimerRef.current = null;
     }
   }, []);
-
-  const clearSkipSnoozeTimer = useCallback(() => {
-    if (skipSnoozeTimerRef.current) {
-      clearTimeout(skipSnoozeTimerRef.current);
-      skipSnoozeTimerRef.current = null;
-    }
-    skipSnoozeActiveRef.current = false;
-  }, []);
-
-  const scheduleSkipSnooze = useCallback(() => {
-    clearSkipSnoozeTimer();
-    skipSnoozeActiveRef.current = true;
-    skipSnoozeTimerRef.current = setTimeout(() => {
-      skipSnoozeTimerRef.current = null;
-      // Respect the morning gate — if the snooze rolls past midnight into
-      // pre-morning hours, defer to the morning timer instead.
-      if (isMorningOrLater()) {
-        setShouldShowCheckin(true);
-      }
-    }, SKIP_SNOOZE_MS);
-  }, [clearSkipSnoozeTimer]);
 
   const scheduleMorningShow = useCallback(() => {
     clearMorningTimer();
@@ -266,9 +249,16 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
   }, [clearMorningTimer]);
 
   useEffect(() => clearMorningTimer, [clearMorningTimer]);
-  useEffect(() => clearSkipSnoozeTimer, [clearSkipSnoozeTimer]);
 
-  const hasCheckedInToday       = useMemo(() => today?.completed === true, [today]);
+  const setLoggedToday = useCallback((logged: boolean) => {
+    localLoggedTodayRef.current = logged;
+    setLocalLoggedToday(logged);
+  }, []);
+
+  const hasCheckedInToday = useMemo(
+    () => localLoggedToday || isCheckinLogged(today),
+    [localLoggedToday, today],
+  );
   const shouldShowWorkoutPrompt = useMemo(() => appStatus?.should_show_workout_prompt ?? false, [appStatus]);
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
@@ -276,51 +266,50 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
   // Fetches today's check-in from the DB and derives shouldShowCheckin from
   // the server response — the single source of truth. Local storage is a
   // secondary cache so the modal doesn't flash before the network resolves.
-  const applyCheckinToday = useCallback(async (checkin: CheckIn | null) => {
-    setToday(checkin);
-    const showNow = isMorningOrLater();
-
-    if (!checkin) {
-      const localDone = await storageHasCheckedInToday();
-      if (localDone) {
-        clearMorningTimer();
-        setShouldShowCheckin(false);
-        return;
-      }
-      setShouldShowCheckin(showNow);
-      if (!showNow) scheduleMorningShow();
-      return;
-    }
-
-    // During the post-skip snooze window we deliberately ignore `skipped`
-    // so the modal can re-open even if applyCheckinToday re-runs (e.g. on
-    // foreground resume).
-    const alreadyDone =
-      checkin.completed ||
-      (checkin.skipped && !skipSnoozeActiveRef.current);
-
-    if (alreadyDone) {
+  const applyCheckinToday = useCallback(async (checkin: CheckIn | null, userId: string) => {
+    if (checkin && isCheckinLogged(checkin)) {
+      setToday(checkin);
       doneThisSession.current = true;
       clearMorningTimer();
-      clearSkipSnoozeTimer();
       setShouldShowCheckin(false);
-      void markCheckedInToday();
-    } else {
-      setShouldShowCheckin(showNow);
-      if (!showNow) scheduleMorningShow();
-    }
-  }, [clearMorningTimer, clearSkipSnoozeTimer, scheduleMorningShow]);
-
-  const fetchToday = useCallback(async (force = false) => {
-    if (doneThisSession.current) {
-      setShouldShowCheckin(false);
+      setLoggedToday(true);
+      await markCheckedInToday(userId);
       return;
     }
 
+    const localDone = await storageHasCheckedInToday(userId);
+    if (localDone) {
+      setLoggedToday(true);
+      doneThisSession.current = true;
+      clearMorningTimer();
+      setShouldShowCheckin(false);
+      if (checkin) setToday(checkin);
+      return;
+    }
+
+    setToday(checkin);
+    const showNow = isMorningOrLater();
+    setShouldShowCheckin(showNow);
+    if (!showNow) scheduleMorningShow();
+  }, [clearMorningTimer, scheduleMorningShow, setLoggedToday]);
+
+  const fetchToday = useCallback(async (force = false) => {
     if (!user?.id) return;
 
-    const today = getLocalDateString();
-    const key   = buildResourceKey('checkin-today', user.id, today);
+    if (doneThisSession.current || localLoggedTodayRef.current) {
+      setShouldShowCheckin(false);
+      if (!force) return;
+    }
+
+    const todayDate = getLocalDateString();
+    const key       = buildResourceKey('checkin-today', user.id, todayDate);
+    const localDone = await storageHasCheckedInToday(user.id);
+    if (localDone) {
+      setLoggedToday(true);
+      doneThisSession.current = true;
+      setShouldShowCheckin(false);
+    }
+
     const cached = await fetchWithResourceCache<CheckIn | null>(
       key,
       TTL_COLD_START_MS,
@@ -331,11 +320,11 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
         }
         return null;
       },
-      { force },
+      { force: force || localDone },
     );
 
-    await applyCheckinToday(cached);
-  }, [user?.id, applyCheckinToday]);
+    await applyCheckinToday(cached, user.id);
+  }, [user?.id, applyCheckinToday, setLoggedToday]);
 
   const fetchHistory = useCallback(async () => {
     const { ok, body } = await apiFetch(`/checkin/history?limit=${DEFAULT_LIMIT}`);
@@ -358,8 +347,9 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
       setStats(null);
       setAppStatus(null);
       setShouldShowCheckin(false);
+      setLoggedToday(false);
       doneThisSession.current = false;
-      void clearCheckinStorage();
+      void clearCheckinStorage(user?.id);
       setIsLoading(false);
       return;
     }
@@ -367,18 +357,26 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     (async () => {
-      const today = getLocalDateString();
-      const key   = buildResourceKey('checkin-today', user.id, today);
+      const todayDate = getLocalDateString();
+      const key       = buildResourceKey('checkin-today', user.id, todayDate);
+
+      const localDone = await storageHasCheckedInToday(user.id);
+      if (localDone && !cancelled) {
+        setLoggedToday(true);
+        doneThisSession.current = true;
+        setShouldShowCheckin(false);
+      }
+
       const cached = await getResourceCached<CheckIn | null>(key);
       if (cached && !cancelled) {
-        await applyCheckinToday(cached.data);
+        await applyCheckinToday(cached.data, user.id);
         setIsLoading(false);
       } else if (!cancelled) {
         setIsLoading(true);
       }
 
       try {
-        lastFetchDateRef.current = today;
+        lastFetchDateRef.current = todayDate;
         await fetchToday(false);
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -398,6 +396,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
         if (lastFetchDateRef.current !== todayDate) {
           lastFetchDateRef.current = todayDate;
           doneThisSession.current = false;
+          setLoggedToday(false);
           setToday(null);
           void fetchToday();
         }
@@ -410,6 +409,11 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
   const submitMorningCheckin = useCallback(async (
     input: MorningCheckinInput,
   ): Promise<{ checkin: CheckIn; insight: CheckinInsight | null }> => {
+    const dateStr = todayDateString();
+    if (input.date === dateStr && (localLoggedToday || isCheckinLogged(today))) {
+      throw new Error('Check-in already logged for today');
+    }
+
     const { ok, body } = await apiFetch('/checkin/morning', {
       method: 'POST',
       body:   JSON.stringify({
@@ -428,7 +432,6 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
       ? fromApiInsight(body.insight as Record<string, unknown>)
       : null;
 
-    const dateStr = todayDateString();
     if (checkin.date === dateStr) setToday(checkin);
     setHistory((prev) => {
       const without = prev.filter((c) => c.date !== checkin.date);
@@ -437,21 +440,28 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
 
     doneThisSession.current = true;
     clearMorningTimer();
-    clearSkipSnoozeTimer();
     setShouldShowCheckin(false);
-    void markCheckedInToday();
+    setLoggedToday(true);
     if (user?.id) {
-      await invalidateResourceCache(
+      await markCheckedInToday(user.id);
+      await setResourceCached(
         buildResourceKey('checkin-today', user.id, dateStr),
+        checkin,
+        TTL_COLD_START_MS,
       );
       void notifyTodayDataChanged(user.id, 'checkin');
     }
 
     return { checkin, insight };
-  }, [user?.id, clearMorningTimer, clearSkipSnoozeTimer]);
+  }, [user?.id, today, localLoggedToday, clearMorningTimer, setLoggedToday]);
 
   // ── Skip check-in ────────────────────────────────────────────────────────
   const skipCheckin = useCallback(async (date: string): Promise<CheckIn> => {
+    const todayStr = todayDateString();
+    if (date === todayStr && (localLoggedToday || isCheckinLogged(today))) {
+      throw new Error('Check-in already logged for today');
+    }
+
     const { ok, body } = await apiFetch('/checkin/skip', {
       method: 'POST',
       body:   JSON.stringify({ date }),
@@ -461,27 +471,28 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
     }
 
     const checkin = fromApiCheckin(body.checkin as Record<string, unknown>);
-    if (checkin.date === todayDateString()) setToday(checkin);
+    if (checkin.date === todayStr) setToday(checkin);
     setHistory((prev) => {
       const without = prev.filter((c) => c.date !== checkin.date);
       return [checkin, ...without];
     });
 
-    // Skip is treated as a "snooze, ask again later" rather than a hard
-    // opt-out for the day. We hide the modal now but schedule a re-show.
-    doneThisSession.current = false;
+    doneThisSession.current = true;
     clearMorningTimer();
     setShouldShowCheckin(false);
-    scheduleSkipSnooze();
+    setLoggedToday(true);
     if (user?.id) {
-      await invalidateResourceCache(
-        buildResourceKey('checkin-today', user.id, getLocalDateString()),
+      await markCheckedInToday(user.id);
+      await setResourceCached(
+        buildResourceKey('checkin-today', user.id, todayStr),
+        checkin,
+        TTL_COLD_START_MS,
       );
       void notifyTodayDataChanged(user.id, 'checkin');
     }
 
     return checkin;
-  }, [user?.id, clearMorningTimer, scheduleSkipSnooze]);
+  }, [user?.id, today, localLoggedToday, clearMorningTimer, setLoggedToday]);
 
   // ── Fetch by date ────────────────────────────────────────────────────────
   const fetchByDate = useCallback(async (date: string): Promise<CheckIn | null> => {

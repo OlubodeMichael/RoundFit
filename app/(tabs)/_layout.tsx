@@ -155,9 +155,9 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
 // ── Checkin Gate ──────────────────────────────────────────────────────────────
 function CheckinGate() {
-    const { shouldShowCheckin, isLoading } = useCheckin();
-    const [dismissed, setDismissed]        = useState(false);
-    const visible = !isLoading && shouldShowCheckin && !dismissed;
+    const { shouldShowCheckin, isLoading, hasCheckedInToday } = useCheckin();
+    const [dismissed, setDismissed] = useState(false);
+    const visible = !isLoading && shouldShowCheckin && !hasCheckedInToday && !dismissed;
     return <CheckinModal visible={visible} onClose={() => setDismissed(true)} />;
 }
 

@@ -164,7 +164,7 @@ interface Props {
 export function CheckinModal({ visible, onClose }: Props) {
   const P              = usePalette();
   const { isDark }     = useTheme();
-  const { submitMorningCheckin, skipCheckin } = useCheckin();
+  const { submitMorningCheckin, skipCheckin, hasCheckedInToday } = useCheckin();
 
   const [sleepQuality,   setSleepQuality]   = useState<number | null>(null);
   const [energyLevel,    setEnergyLevel]    = useState<EnergyLevel | null>(null);
@@ -227,7 +227,7 @@ export function CheckinModal({ visible, onClose }: Props) {
   };
 
   const handleSubmit = useCallback(async () => {
-    if (!canSubmit || sleepQuality === null || energyLevel === null) return;
+    if (hasCheckedInToday || !canSubmit || sleepQuality === null || energyLevel === null) return;
     setIsSaving(true);
     try {
       const { insight: returned } = await submitMorningCheckin({
@@ -242,12 +242,16 @@ export function CheckinModal({ visible, onClose }: Props) {
     } finally {
       setIsSaving(false);
     }
-  }, [canSubmit, sleepQuality, energyLevel, plannedWorkout, todayStr, submitMorningCheckin, onClose]);
+  }, [hasCheckedInToday, canSubmit, sleepQuality, energyLevel, plannedWorkout, todayStr, submitMorningCheckin, onClose]);
 
   const handleSkip = useCallback(async () => {
+    if (hasCheckedInToday) {
+      onClose();
+      return;
+    }
     try { await skipCheckin(todayStr); } catch { /* best-effort */ }
     onClose();
-  }, [skipCheckin, todayStr, onClose]);
+  }, [hasCheckedInToday, skipCheckin, todayStr, onClose]);
 
   const selectedSleepLabel  = sleepQuality ? SLEEP_OPTIONS[sleepQuality - 1].label : null;
   const selectedEnergyLabel = energyLevel ? ENERGY_OPTIONS.find((e) => e.value === energyLevel)?.label : null;
@@ -432,7 +436,7 @@ export function CheckinModal({ visible, onClose }: Props) {
                 onPress={handleSkip}
                 style={({ pressed }) => [s.skipBtn, { opacity: pressed ? 0.4 : 1 }]}
               >
-                <Text style={[s.skipText, { color: P.textFaint }]}>Skip for now</Text>
+                <Text style={[s.skipText, { color: P.textFaint }]}>Skip today</Text>
               </Pressable>
             </Animated.View>
           </View>
