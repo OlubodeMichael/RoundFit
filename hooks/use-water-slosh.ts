@@ -1,5 +1,31 @@
-import { Accelerometer } from 'expo-sensors';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import { useEffect, useRef, useState } from 'react';
+
+type AccelerometerMeasurement = { x: number; y: number; z: number };
+type AccelerometerModule = {
+  setUpdateInterval: (intervalMs: number) => void;
+  addListener: (listener: (data: AccelerometerMeasurement) => void) => { remove: () => void };
+};
+
+let accelerometerModule: AccelerometerModule | null | undefined;
+
+/** Avoid barrel import — expo-sensors/index eagerly loads ExponentPedometer. */
+function getAccelerometer(): AccelerometerModule | null {
+  if (accelerometerModule !== undefined) return accelerometerModule;
+  if (!requireOptionalNativeModule('ExponentAccelerometer')) {
+    accelerometerModule = null;
+    return null;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('expo-sensors/build/Accelerometer') as { default?: AccelerometerModule };
+    accelerometerModule = mod.default ?? (mod as unknown as AccelerometerModule);
+    return accelerometerModule;
+  } catch {
+    accelerometerModule = null;
+    return null;
+  }
+}
 
 const MAX_TILT_PX = 48;
 const TILT_GAIN = 92;
@@ -27,10 +53,13 @@ export function useWaterSlosh(active: boolean): WaterSloshState {
       return;
     }
 
-    let mounted = true;
-    Accelerometer.setUpdateInterval(UPDATE_MS);
+    const accelerometer = getAccelerometer();
+    if (!accelerometer) return;
 
-    const sub = Accelerometer.addListener(({ x }) => {
+    let mounted = true;
+    accelerometer.setUpdateInterval(UPDATE_MS);
+
+    const sub = accelerometer.addListener(({ x }) => {
       if (!mounted || !Number.isFinite(x)) return;
       const target = Math.max(-MAX_TILT_PX, Math.min(MAX_TILT_PX, x * TILT_GAIN));
       smoothedTilt.current += (target - smoothedTilt.current) * TILT_LERP;

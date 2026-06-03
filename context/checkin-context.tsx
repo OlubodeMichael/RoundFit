@@ -173,9 +173,15 @@ function fromApiCheckin(row: Record<string, unknown>): CheckIn {
   };
 }
 
-function isCheckinLogged(checkin: CheckIn | null): boolean {
-  if (!checkin) return false;
-  return checkin.completed || checkin.skipped;
+/**
+ * A check-in "locks" the day only when it was actually completed (a real
+ * answer). A *skipped* check-in does NOT lock the day — we re-prompt on the
+ * next app open so the user gets another chance to fill it in ("ask once a day
+ * unless it was skipped"). Guard against the server stamping `completed_at` on
+ * a skip by explicitly excluding skipped rows.
+ */
+function isCheckinCompleted(checkin: CheckIn | null): boolean {
+  return !!checkin && checkin.completed && !checkin.skipped;
 }
 
 function fromApiInsight(row: Record<string, unknown>): CheckinInsight {
@@ -256,7 +262,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const hasCheckedInToday = useMemo(
-    () => localLoggedToday || isCheckinLogged(today),
+    () => localLoggedToday || isCheckinCompleted(today),
     [localLoggedToday, today],
   );
   const shouldShowWorkoutPrompt = useMemo(() => appStatus?.should_show_workout_prompt ?? false, [appStatus]);
@@ -267,7 +273,9 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
   // the server response — the single source of truth. Local storage is a
   // secondary cache so the modal doesn't flash before the network resolves.
   const applyCheckinToday = useCallback(async (checkin: CheckIn | null, userId: string) => {
-    if (checkin && isCheckinLogged(checkin)) {
+    // Only a completed check-in locks the day. A skipped one falls through to
+    // the "show" path below so the user is re-prompted on the next app open.
+    if (checkin && isCheckinCompleted(checkin)) {
       setToday(checkin);
       doneThisSession.current = true;
       clearMorningTimer();
@@ -410,7 +418,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
     input: MorningCheckinInput,
   ): Promise<{ checkin: CheckIn; insight: CheckinInsight | null }> => {
     const dateStr = todayDateString();
-    if (input.date === dateStr && (localLoggedToday || isCheckinLogged(today))) {
+    if (input.date === dateStr && (localLoggedToday || isCheckinCompleted(today))) {
       throw new Error('Check-in already logged for today');
     }
 
@@ -458,7 +466,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
   // ── Skip check-in ────────────────────────────────────────────────────────
   const skipCheckin = useCallback(async (date: string): Promise<CheckIn> => {
     const todayStr = todayDateString();
-    if (date === todayStr && (localLoggedToday || isCheckinLogged(today))) {
+    if (date === todayStr && (localLoggedToday || isCheckinCompleted(today))) {
       throw new Error('Check-in already logged for today');
     }
 
@@ -477,12 +485,13 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
       return [checkin, ...without];
     });
 
+    // A skip only dismisses the modal for THIS session — it must NOT persist
+    // the day as done. We deliberately omit markCheckedInToday()/setLoggedToday()
+    // so the next app open re-prompts. Only a completed check-in locks the day.
     doneThisSession.current = true;
     clearMorningTimer();
     setShouldShowCheckin(false);
-    setLoggedToday(true);
     if (user?.id) {
-      await markCheckedInToday(user.id);
       await setResourceCached(
         buildResourceKey('checkin-today', user.id, todayStr),
         checkin,
@@ -492,7 +501,7 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
     }
 
     return checkin;
-  }, [user?.id, today, localLoggedToday, clearMorningTimer, setLoggedToday]);
+  }, [user?.id, today, localLoggedToday, clearMorningTimer]);
 
   // ── Fetch by date ────────────────────────────────────────────────────────
   const fetchByDate = useCallback(async (date: string): Promise<CheckIn | null> => {
