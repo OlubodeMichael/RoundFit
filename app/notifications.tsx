@@ -70,14 +70,16 @@ export default function NotificationsInboxScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: P.bg }}>
-      <ScrollView
-        contentContainerStyle={{
-          paddingTop: insets.top + 12,
-          paddingBottom: insets.bottom + 32,
-        }}
-        showsVerticalScrollIndicator={false}
-      >
+    <ScrollView
+      style={{ flex: 1, backgroundColor: P.bg }}
+      contentInsetAdjustmentBehavior="never"
+      contentContainerStyle={{
+        paddingTop: insets.top + 10,
+        paddingBottom: insets.bottom + 24,
+      }}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={{ paddingHorizontal: 20, paddingBottom: 12 }}>
         <View style={s.header}>
           <TouchableOpacity
             style={[s.backBtn, { backgroundColor: P.card, borderColor: P.edge }]}
@@ -112,15 +114,14 @@ export default function NotificationsInboxScreen() {
           </View>
         </View>
 
-        <View style={{ paddingHorizontal: 20, paddingBottom: 24 }}>
-          <Text style={[s.eyebrow, { color: P.mid }]}>INBOX</Text>
-          <Text style={[s.title, { color: P.hi }]}>Notifications</Text>
-          <Text style={[s.sub, { color: P.mid }]}>
-            {unreadCount > 0
-              ? `${unreadCount} unread`
-              : 'Everything you have received recently'}
-          </Text>
-        </View>
+        <Text style={[s.eyebrow, { color: P.mid }]}>INBOX</Text>
+        <Text style={[s.title, { color: P.hi }]}>Notifications</Text>
+        <Text style={[s.sub, { color: P.mid }]}>
+          {unreadCount > 0
+            ? `${unreadCount} unread`
+            : 'Everything you have received recently'}
+        </Text>
+      </View>
 
         {!hydrated ? (
           <ActivityIndicator color={P.accent} style={{ marginTop: 40 }} />
@@ -147,8 +148,7 @@ export default function NotificationsInboxScreen() {
             ))}
           </View>
         )}
-      </ScrollView>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -157,8 +157,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    marginBottom: 4,
+    marginBottom: 12,
   },
   backBtn: {
     width: 36,

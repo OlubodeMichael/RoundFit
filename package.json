@@ -12,87 +12,6 @@
     "lint": "expo lint",
     "eas:build:ios": "EXPO_NO_CAPABILITY_SYNC=1 eas build --platform ios",
     "eas:release:ios": "eas build --platform ios --profile production --auto-submit"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   },
   "expo": {
     "autolinking": {
@@ -110,7 +29,6 @@
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.8",
     "@supabase/supabase-js": "^2.105.4",
-    "workout-live-activity": "file:./modules/workout-live-activity",
     "expo": "~54.0.33",
     "expo-apple-authentication": "~8.0.8",
     "expo-application": "~7.0.8",
@@ -153,7 +71,8 @@
     "react-native-svg": "^15.15.4",
     "react-native-web": "~0.21.0",
     "react-native-wheely": "^0.6.0",
-    "react-native-worklets": "0.5.1"
+    "react-native-worklets": "0.5.1",
+    "workout-live-activity": "file:./modules/workout-live-activity"
   },
   "devDependencies": {
     "@types/react": "~19.1.0",

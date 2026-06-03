@@ -322,14 +322,14 @@ export default function NotificationsScreen() {
     <>
       <ScrollView
         style={{ flex: 1, backgroundColor: P.bg }}
+        contentInsetAdjustmentBehavior="never"
         contentContainerStyle={{
-          paddingTop:    insets.top + 12,
-          paddingBottom: insets.bottom + 32,
+          paddingTop: insets.top + 10,
+          paddingBottom: insets.bottom + 24,
         }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Header ── */}
-        <View style={{ paddingHorizontal: 20, paddingBottom: 24 }}>
+        <View style={{ paddingHorizontal: 20, paddingBottom: 12 }}>
           <TouchableOpacity
             style={[s.backBtn, { backgroundColor: P.card, borderColor: P.edge }]}
             onPress={() => router.back()}
@@ -339,7 +339,7 @@ export default function NotificationsScreen() {
             <Ionicons name="chevron-back" size={18} color={P.hi} />
           </TouchableOpacity>
 
-          <Text style={[s.eyebrow, { color: P.mid, marginTop: 20 }]}>PREFERENCES</Text>
+          <Text style={[s.eyebrow, { color: P.mid, marginTop: 12 }]}>PREFERENCES</Text>
           <Text style={[s.title, { color: P.hi }]}>Notifications</Text>
           <Text style={[s.titleSub, { color: P.mid }]}>
             Choose your reminders and when to receive them.

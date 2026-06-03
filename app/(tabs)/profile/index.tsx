@@ -251,7 +251,8 @@ export default function ProfileScreen() {
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: P.bg }}
-      contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 96, gap: 8 }}
+      contentInsetAdjustmentBehavior="never"
+      contentContainerStyle={{ paddingTop: insets.top + 10, paddingBottom: 32, gap: 8 }}
       showsVerticalScrollIndicator={false}
     >
       {/* ── Hero header ─────────────────────────────────────────────── */}

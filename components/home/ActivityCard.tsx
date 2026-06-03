@@ -86,7 +86,6 @@ export function StepsMetricCard({
     outputRange: ["0%", "100%"],
   });
   const pctLabel = Math.round(stepPct * 100);
-  const stepsToGo = Math.max(stepsGoal - steps, 0);
   const valueColor = P.isDark ? P.text : "#3F3F46";
 
   return (
@@ -105,31 +104,21 @@ export function StepsMetricCard({
               <Ionicons name="footsteps" size={14} color="#FFF" />
             </View>
           </View>
-          <Text style={[s.label, { color: P.textDim }]}>Steps</Text>
-        </View>
-        <View style={s.headerTrail}>
-          <Text
-            style={[s.headerMeta, { color: P.textFaint }]}
-            numberOfLines={1}
-          >
-            {goalComplete
-              ? "Goal complete"
-              : `${stepsToGo.toLocaleString()} to go`}
+          <Text style={[s.label, { color: P.textDim }]} numberOfLines={1}>
+            Steps
           </Text>
-          <View
-            style={[
-              s.chip,
-              { backgroundColor: goalComplete ? P.proteinSoft : P.waterSoft },
-            ]}
-          >
-            {goalComplete ? (
-              <Ionicons name="checkmark" size={10} color={P.protein} />
-            ) : (
-              <Text style={[s.chipText, { color: stepColor }]}>
-                {pctLabel}%
-              </Text>
-            )}
-          </View>
+        </View>
+        <View
+          style={[
+            s.chip,
+            { backgroundColor: goalComplete ? P.proteinSoft : P.waterSoft },
+          ]}
+        >
+          {goalComplete ? (
+            <Ionicons name="checkmark" size={10} color={P.protein} />
+          ) : (
+            <Text style={[s.chipText, { color: stepColor }]}>{pctLabel}%</Text>
+          )}
         </View>
       </View>
 
@@ -141,12 +130,19 @@ export function StepsMetricCard({
           ]}
           numberOfLines={1}
           adjustsFontSizeToFit
-          minimumFontScale={0.72}
+          minimumFontScale={0.65}
         >
           {displayedSteps.toLocaleString()}
         </Text>
-        <Text style={[s.sub, { color: P.textFaint }]}>
-          / {stepsGoal.toLocaleString()} goal
+        <Text
+          style={[s.sub, { color: P.textFaint }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.85}
+        >
+          {goalComplete
+            ? "Goal complete"
+            : `/ ${stepsGoal.toLocaleString()} goal`}
         </Text>
       </View>
 
@@ -261,31 +257,20 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 8,
+    gap: 6,
   },
   headerMain: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    flexShrink: 1,
-  },
-  headerTrail: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    flexShrink: 0,
-    maxWidth: "52%",
-  },
-  headerMeta: {
-    fontSize: 10,
-    fontWeight: "600",
-    fontVariant: ["tabular-nums"],
-    textAlign: "right",
+    gap: 8,
+    minWidth: 0,
   },
   cardBody: {
     flex: 1,
     justifyContent: "flex-end",
-    minHeight: 52,
+    minHeight: 44,
+    minWidth: 0,
   },
   bottomSlot: {
     height: METRIC_BOTTOM_SLOT_HEIGHT,
@@ -303,13 +288,14 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   label: {
-    fontSize: 12,
+    flex: 1,
+    fontSize: 11,
     fontWeight: "600",
     letterSpacing: -0.1,
   },
   value: {
-    fontSize: 28,
-    lineHeight: 30,
+    fontSize: 24,
+    lineHeight: 26,
     letterSpacing: -0.8,
     fontVariant: ["tabular-nums"],
   },
@@ -325,9 +311,10 @@ const s = StyleSheet.create({
     letterSpacing: -0.1,
   },
   sub: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "500",
     marginTop: 2,
+    fontVariant: ["tabular-nums"],
   },
   track: {
     height: 5,
@@ -339,15 +326,16 @@ const s = StyleSheet.create({
     borderRadius: 3,
   },
   chip: {
-    minWidth: 30,
-    height: 20,
-    borderRadius: 10,
+    flexShrink: 0,
+    minWidth: 26,
+    height: 18,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 5,
+    paddingHorizontal: 4,
   },
   chipText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "800",
     fontVariant: ["tabular-nums"],
   },
