@@ -252,7 +252,7 @@ export default function ProfileScreen() {
     <ScrollView
       style={{ flex: 1, backgroundColor: P.bg }}
       contentInsetAdjustmentBehavior="never"
-      contentContainerStyle={{ paddingTop: insets.top + 10, paddingBottom: 32, gap: 8 }}
+      contentContainerStyle={{ paddingTop: insets.top + 10, paddingBottom: insets.bottom + 96, gap: 8 }}
       showsVerticalScrollIndicator={false}
     >
       {/* ── Hero header ─────────────────────────────────────────────── */}
@@ -361,8 +361,10 @@ export default function ProfileScreen() {
             <IconBox bg="#EF4444" fg="#FFF" icon="heart" />
             <View style={{ flex: 1 }}>
               <Text style={[s.rowLabel, { color: P.text }]}>Apple Health</Text>
-              <Text style={[s.rowSub, { color: healthConnected ? '#22C55E' : P.dim }]}>
-                {healthConnected ? 'Connected · syncing steps, calories & workouts' : 'Tap to connect your Health data'}
+              <Text style={[s.rowSub, { color: P.dim }]}>
+                {healthConnected
+                  ? 'Syncing steps, calories & workouts'
+                  : 'Tap to connect your Health data'}
               </Text>
             </View>
             {healthConnected ? (
@@ -376,7 +378,6 @@ export default function ProfileScreen() {
               </View>
             )}
           </TouchableOpacity>
-
         </Section>
       )}
 

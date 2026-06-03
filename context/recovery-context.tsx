@@ -20,7 +20,8 @@ import {
 } from '@/utils/readiness';
 import { apiFetch } from '@/utils/api';
 import { fetchDailySummaryBundle, TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
-import { notifyTodayDataChanged } from '@/utils/today-sync';
+import { notifyTodayDataChanged, registerTodayDataSyncListener } from '@/utils/today-sync';
+import { shouldRefetchRecoveryAfterMutation } from '@/utils/cache-invalidation';
 import {
   buildResourceKey,
   fetchWithResourceCache,
@@ -626,6 +627,18 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     fetchWorkoutWindow,
     fetchYesterdayNutrition,
   ]);
+
+  // Refetch when sleep / health / check-in / training data changes elsewhere so
+  // the Recovery screen reflects it without a re-login. Force-refresh bypasses
+  // the 2 h cache; refreshInFlightRef dedupes overlapping triggers. `initialized`
+  // stays true throughout, so no loading flash — cached values stay on screen.
+  useEffect(() => {
+    if (!hasActiveUserSession(status, user)) return;
+    return registerTodayDataSyncListener(({ domain }) => {
+      if (!shouldRefetchRecoveryAfterMutation(domain)) return;
+      void refresh({ force: true });
+    });
+  }, [status, user?.id, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <RecoveryContext.Provider value={{

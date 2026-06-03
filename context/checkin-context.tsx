@@ -322,7 +322,10 @@ export function CheckinProvider({ children }: { children: React.ReactNode }) {
       key,
       TTL_COLD_START_MS,
       async () => {
-        const { ok, body } = await apiFetch('/checkin/today');
+        // Send our LOCAL date so the server resolves "today" the same way we
+        // do — otherwise a UTC-based server day disagrees for non-UTC users and
+        // never reports the completed check-in, re-prompting on every open.
+        const { ok, body } = await apiFetch(`/checkin/today?date=${todayDate}`);
         if (ok && body.checkin) {
           return fromApiCheckin(body.checkin as Record<string, unknown>);
         }

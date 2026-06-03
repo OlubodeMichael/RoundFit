@@ -10,6 +10,7 @@ import {
   buildResourceKey,
   fetchWithResourceCache,
   getResourceCached,
+  setResourceCached,
 } from '@/utils/resource-cache';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -90,8 +91,30 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
   const appStateRef = useRef(AppState.currentState);
   const lastForegroundFetchRef = useRef(0);
   const loadInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
+  // Mirrors `entries` so mutations can compute the post-change list and write it
+  // straight back to the cache without depending on async setState timing.
+  const entriesRef = useRef<WaterEntry[]>([]);
+  // The date currently held in `entries` — write-through targets this key so we
+  // never clobber today's cache while a past day is on screen.
+  const loadedDateRef = useRef<string>(todayString());
 
   useEffect(() => { goalMlRef.current = goalMl; }, [goalMl]);
+  useEffect(() => { entriesRef.current = entries; }, [entries]);
+
+  // Persist the current day's entries back into the resource cache. Mutations
+  // call this AFTER notifyTodayDataChanged (which invalidates the water key) so
+  // the fresh data — not an empty cache — is what a cold start reads.
+  const persistWaterCache = useCallback(async (
+    date: string,
+    nextEntries: WaterEntry[],
+  ): Promise<void> => {
+    if (!user?.id) return;
+    await setResourceCached(
+      buildResourceKey('water', user.id, date),
+      { entries: nextEntries, goal_ml: goalMlRef.current },
+      TTL_WATER_MS,
+    );
+  }, [user?.id]);
 
   const totalMl = entries.reduce((s, e) => s + e.amount_ml, 0);
   const sessionActive = hasActiveUserSession(status, user);
@@ -118,6 +141,7 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
   ): Promise<void> => {
     if (!user?.id) return;
 
+    loadedDateRef.current = date;
     const force = options?.force ?? false;
     const key = buildResourceKey('water', user.id, date);
     const inflightKey = `${key}:${force}`;
@@ -217,6 +241,11 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
     }
   }, [loadDate]);
 
+  const commitEntries = useCallback((next: WaterEntry[]): void => {
+    entriesRef.current = next;
+    setEntries(next);
+  }, []);
+
   const logWater = useCallback(async (amountMl: number): Promise<WaterEntry> => {
     const optimisticId = `opt-${Date.now()}`;
     const optimistic: WaterEntry = {
@@ -224,7 +253,8 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
       amount_ml: amountMl,
       logged_at: new Date().toISOString(),
     };
-    setEntries((prev) => [optimistic, ...prev]);
+    const targetDate = loadedDateRef.current;
+    commitEntries([optimistic, ...entriesRef.current]);
 
     try {
       const { ok, body } = await apiFetch('/water', {
@@ -234,26 +264,33 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
       if (!ok || !body.data) throw new Error('Failed to log water');
 
       const saved = fromApiEntry(body.data as Record<string, unknown>);
-      setEntries((prev) => prev.map((e) => (e.id === optimisticId ? saved : e)));
-      void notifyTodayDataChanged(user?.id, 'water');
+      const next = entriesRef.current.map((e) => (e.id === optimisticId ? saved : e));
+      commitEntries(next);
+      // Invalidate dependent caches (summary/insights), then write the fresh
+      // entries back so the water cache survives the invalidation.
+      await notifyTodayDataChanged(user?.id, 'water');
+      await persistWaterCache(targetDate, next);
       return saved;
     } catch (err) {
-      setEntries((prev) => prev.filter((e) => e.id !== optimisticId));
+      commitEntries(entriesRef.current.filter((e) => e.id !== optimisticId));
       throw err;
     }
-  }, [user?.id]);
+  }, [user?.id, commitEntries, persistWaterCache]);
 
   const deleteEntry = useCallback(async (id: string): Promise<void> => {
-    setEntries((prev) => prev.filter((e) => e.id !== id));
+    const targetDate = loadedDateRef.current;
+    const next = entriesRef.current.filter((e) => e.id !== id);
+    commitEntries(next);
     try {
       const { ok } = await apiFetch(`/water/${id}`, { method: 'DELETE' });
       if (!ok) throw new Error('Failed to delete water entry');
-      void notifyTodayDataChanged(user?.id, 'water');
+      await notifyTodayDataChanged(user?.id, 'water');
+      await persistWaterCache(targetDate, next);
     } catch (err) {
       await loadDate(todayString(), { force: true });
       throw err;
     }
-  }, [user?.id, loadDate]);
+  }, [user?.id, loadDate, commitEntries, persistWaterCache]);
 
   const setGoal = useCallback(async (ml: number): Promise<void> => {
     const saved = await updateProfile({ waterGoalMl: ml });

@@ -9,6 +9,7 @@ import { useHealth } from "@/context/health-context";
 import { useHomeReadiness } from "@/hooks/use-home-readiness";
 import { useRecovery } from "@/hooks/use-recovery";
 import { usePalette } from "@/lib/log-theme";
+import { formatSleepDuration } from "@/utils/sleep-quality";
 import type { ReadinessFactor } from "@/types/readiness";
 
 const G = 80;
@@ -134,8 +135,8 @@ export function ReadinessWidget({
 
   const sleepHr = today?.sleep_hours ?? healthToday?.sleep_hours ?? null;
   const sleepLbl =
-    sleepHr != null
-      ? `${sleepHr % 1 === 0 ? sleepHr : sleepHr.toFixed(1)}h`
+    sleepHr != null && sleepHr > 0
+      ? formatSleepDuration(sleepHr)
       : (sleepFactor?.value ?? "–");
   const sleepScr =
     display.sleepScore != null ? Math.round(display.sleepScore) : null;

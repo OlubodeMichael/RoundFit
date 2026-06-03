@@ -159,6 +159,22 @@ export function shouldRefetchEngineAfterMutation(domain: MutationDomain): boolea
   return domain === 'full' || domain === 'health' || domain === 'recovery'
 }
 
+/**
+ * Domains that change recovery/readiness inputs (sleep, HRV, resting HR, energy,
+ * training strain) and should trigger a recovery-provider refetch. Without this,
+ * sleep logged via HealthKit sync or the sleep screen sits in a 2 h-fresh cache
+ * and never reaches the Recovery screen until a forced refresh / re-login.
+ */
+export function shouldRefetchRecoveryAfterMutation(domain: MutationDomain): boolean {
+  return (
+    domain === 'full' ||
+    domain === 'health' ||
+    domain === 'recovery' ||
+    domain === 'checkin' ||
+    domain === 'workout'
+  )
+}
+
 export function shouldRefetchDailyInsightsAfterMutation(domain: MutationDomain): boolean {
   return (
     domain === 'full' ||
