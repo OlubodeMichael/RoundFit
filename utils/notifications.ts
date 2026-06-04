@@ -257,3 +257,30 @@ export async function cancelAllReminders(): Promise<void> {
 export async function getScheduledReminders(): Promise<Notifications.NotificationRequest[]> {
   return Notifications.getAllScheduledNotificationsAsync();
 }
+
+// ── Workout import (Watch review save) ─────────────────────────────────────
+
+export interface WorkoutImportSavedNotification {
+  label: string;
+  caloriesBurned?: number | null;
+}
+
+/** Immediate local notification after the user saves a Watch import from review. */
+export async function notifyWorkoutImportSaved(
+  { label, caloriesBurned }: WorkoutImportSavedNotification,
+): Promise<void> {
+  const kcalSuffix =
+    caloriesBurned != null && caloriesBurned > 0
+      ? ` — ${Math.round(caloriesBurned)} kcal`
+      : '';
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: 'Workout saved',
+      body:  `${label} saved${kcalSuffix}`,
+      data:  { screen: 'workout_import' },
+      ...(Platform.OS === 'android' && { channelId: 'reminders' }),
+    },
+    trigger: null,
+  });
+}

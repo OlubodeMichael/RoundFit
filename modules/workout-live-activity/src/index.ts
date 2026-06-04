@@ -47,6 +47,9 @@ export interface UpdateSessionActivityParams {
   lastSetReps?:     number | null;
   lastSetWeightKg?: number | null;
   totalVolumeKg?:   number;
+  /** Session-scoped burn when HealthKit / metrics engine provides it. */
+  caloriesBurned?:  number;
+  heartRate?:       number;
   isActive?:        boolean;
   /** ms since epoch. Effective start, shifts forward on resume. */
   startTime?:       number;
@@ -179,6 +182,15 @@ export async function updateSessionLiveActivity(
 ): Promise<void> {
   if (!Native?.updateSessionActivity) return;
   await Native.updateSessionActivity(params);
+}
+
+/**
+ * End every workout-session Live Activity on the lock screen (immediate dismiss).
+ * Safe to call before starting a new session — clears orphaned cards when the
+ * in-process native reference was lost.
+ */
+export async function dismissAllSessionLiveActivities(): Promise<void> {
+  return endSessionLiveActivity();
 }
 
 /** End the active workout session and dismiss the Live Activity. */

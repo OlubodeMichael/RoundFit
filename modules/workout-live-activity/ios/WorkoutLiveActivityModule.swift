@@ -55,6 +55,8 @@ public struct WorkoutSessionAttributes: ActivityAttributes {
         public var lastSetWeightKg: Double?
         /// Cumulative volume in kg (sum of weight × reps across logged sets).
         public var totalVolumeKg: Double
+        public var caloriesBurned: Double
+        public var heartRate: Int?
         public var isActive: Bool
         public var pausedAt: Date?
         /// Effective start used by the widget timer; resumes use this to skip
@@ -67,6 +69,8 @@ public struct WorkoutSessionAttributes: ActivityAttributes {
             lastSetReps: Int? = nil,
             lastSetWeightKg: Double? = nil,
             totalVolumeKg: Double = 0,
+            caloriesBurned: Double = 0,
+            heartRate: Int? = nil,
             isActive: Bool = true,
             pausedAt: Date? = nil,
             startTime: Date? = nil
@@ -76,6 +80,8 @@ public struct WorkoutSessionAttributes: ActivityAttributes {
             self.lastSetReps = lastSetReps
             self.lastSetWeightKg = lastSetWeightKg
             self.totalVolumeKg = totalVolumeKg
+            self.caloriesBurned = caloriesBurned
+            self.heartRate = heartRate
             self.isActive = isActive
             self.pausedAt = pausedAt
             self.startTime = startTime
@@ -101,6 +107,43 @@ public class WorkoutLiveActivityModule: Module {
     private var activity: Any?
     // Workout-session activity (new — set tracker).
     private var sessionActivity: Any?
+
+    @available(iOS 16.1, *)
+    private func endAllBurnActivities() async {
+        for existing in Activity<WorkoutActivityAttributes>.activities {
+            let prev = existing.contentState
+            let finalState = WorkoutActivityAttributes.ContentState(
+                caloriesBurned: prev.caloriesBurned,
+                heartRate:      prev.heartRate,
+                isActive:       false,
+                pausedAt:       prev.pausedAt,
+                startTime:      prev.startTime
+            )
+            await existing.end(using: finalState, dismissalPolicy: .immediate)
+        }
+        self.activity = nil
+    }
+
+    @available(iOS 16.1, *)
+    private func endAllSessionActivities() async {
+        for existing in Activity<WorkoutSessionAttributes>.activities {
+            let prev = existing.contentState
+            let finalState = WorkoutSessionAttributes.ContentState(
+                setCount:        prev.setCount,
+                lastExercise:    prev.lastExercise,
+                lastSetReps:     prev.lastSetReps,
+                lastSetWeightKg: prev.lastSetWeightKg,
+                totalVolumeKg:   prev.totalVolumeKg,
+                caloriesBurned: prev.caloriesBurned,
+                heartRate:       prev.heartRate,
+                isActive:        false,
+                pausedAt:        prev.pausedAt,
+                startTime:       prev.startTime
+            )
+            await existing.end(using: finalState, dismissalPolicy: .immediate)
+        }
+        self.sessionActivity = nil
+    }
 
     public func definition() -> ModuleDefinition {
         Name("WorkoutLiveActivity")
@@ -143,16 +186,20 @@ public class WorkoutLiveActivityModule: Module {
                 startTime:      startTime
             )
 
-            do {
-                let activity = try Activity.request(
-                    attributes:    attributes,
-                    contentState:  initialState,
-                    pushType:      nil
-                )
-                self.activity = activity
-                promise.resolve(["activityId": activity.id])
-            } catch {
-                promise.reject("START_FAILED", error.localizedDescription)
+            Task {
+                await self.endAllBurnActivities()
+
+                do {
+                    let activity = try Activity.request(
+                        attributes:    attributes,
+                        contentState:  initialState,
+                        pushType:      nil
+                    )
+                    self.activity = activity
+                    promise.resolve(["activityId": activity.id])
+                } catch {
+                    promise.reject("START_FAILED", error.localizedDescription)
+                }
             }
         }
 
@@ -207,31 +254,13 @@ public class WorkoutLiveActivityModule: Module {
         }
 
         AsyncFunction("endActivity") {
-            (params: [String: Any], promise: Promise) in
+            (_: [String: Any], promise: Promise) in
             guard #available(iOS 16.1, *) else {
                 promise.resolve(nil); return
             }
-            guard let activity = self.activity as? Activity<WorkoutActivityAttributes> else {
-                promise.resolve(nil); return
-            }
-
-            let prev = activity.contentState
-            let calories  = (params["caloriesBurned"] as? NSNumber)?.doubleValue ?? prev.caloriesBurned
-            let heartRate = (params["heartRate"]      as? NSNumber)?.intValue    ?? prev.heartRate
-            let finalState = WorkoutActivityAttributes.ContentState(
-                caloriesBurned: calories,
-                heartRate:      heartRate,
-                isActive:       false,
-                pausedAt:       prev.pausedAt,
-                startTime:      prev.startTime
-            )
 
             Task {
-                await activity.end(
-                    using:           finalState,
-                    dismissalPolicy: .immediate
-                )
-                self.activity = nil
+                await self.endAllBurnActivities()
                 promise.resolve(nil)
             }
         }
@@ -298,16 +327,20 @@ public class WorkoutLiveActivityModule: Module {
                 startTime:       startTime
             )
 
-            do {
-                let activity = try Activity.request(
-                    attributes:    attributes,
-                    contentState:  initialState,
-                    pushType:      nil
-                )
-                self.sessionActivity = activity
-                promise.resolve(["activityId": activity.id])
-            } catch {
-                promise.reject("START_FAILED", error.localizedDescription)
+            Task {
+                await self.endAllSessionActivities()
+
+                do {
+                    let activity = try Activity.request(
+                        attributes:    attributes,
+                        contentState:  initialState,
+                        pushType:      nil
+                    )
+                    self.sessionActivity = activity
+                    promise.resolve(["activityId": activity.id])
+                } catch {
+                    promise.reject("START_FAILED", error.localizedDescription)
+                }
             }
         }
 
@@ -329,6 +362,8 @@ public class WorkoutLiveActivityModule: Module {
             let setCount: Int = (params["setCount"] as? NSNumber)?.intValue ?? prev.setCount
             let totalVolumeKg: Double =
                 (params["totalVolumeKg"] as? NSNumber)?.doubleValue ?? prev.totalVolumeKg
+            let calories  = (params["caloriesBurned"] as? NSNumber)?.doubleValue ?? prev.caloriesBurned
+            let heartRate = (params["heartRate"]      as? NSNumber)?.intValue    ?? prev.heartRate
 
             // Last-set fields: key present + string/number → set it.
             //                  key present + NSNull       → clear it.
@@ -369,6 +404,8 @@ public class WorkoutLiveActivityModule: Module {
                 lastSetReps:     lastSetReps,
                 lastSetWeightKg: lastSetWeightKg,
                 totalVolumeKg:   totalVolumeKg,
+                caloriesBurned: calories,
+                heartRate:       heartRate,
                 isActive:        isActive,
                 pausedAt:        pausedAt,
                 startTime:       startTime
@@ -381,35 +418,13 @@ public class WorkoutLiveActivityModule: Module {
         }
 
         AsyncFunction("endSessionActivity") {
-            (params: [String: Any], promise: Promise) in
+            (_: [String: Any], promise: Promise) in
             guard #available(iOS 16.1, *) else {
                 promise.resolve(nil); return
             }
-            guard let activity = self.sessionActivity as? Activity<WorkoutSessionAttributes> else {
-                promise.resolve(nil); return
-            }
-
-            let prev = activity.contentState
-            let setCount: Int = (params["setCount"] as? NSNumber)?.intValue ?? prev.setCount
-            let totalVolumeKg: Double =
-                (params["totalVolumeKg"] as? NSNumber)?.doubleValue ?? prev.totalVolumeKg
-            let finalState = WorkoutSessionAttributes.ContentState(
-                setCount:        setCount,
-                lastExercise:    prev.lastExercise,
-                lastSetReps:     prev.lastSetReps,
-                lastSetWeightKg: prev.lastSetWeightKg,
-                totalVolumeKg:   totalVolumeKg,
-                isActive:        false,
-                pausedAt:        prev.pausedAt,
-                startTime:       prev.startTime
-            )
 
             Task {
-                await activity.end(
-                    using:           finalState,
-                    dismissalPolicy: .immediate
-                )
-                self.sessionActivity = nil
+                await self.endAllSessionActivities()
                 promise.resolve(nil)
             }
         }

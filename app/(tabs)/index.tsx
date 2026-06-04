@@ -1,9 +1,6 @@
-import {
-    BURN_ACTIVITIES,
-    BurnActivityPicker,
-    type BurnActivity,
-} from "@/components/home/burn-activity-picker";
 import { BurnCoachStrip } from "@/components/home/burn-coach-strip";
+import { WorkoutLauncher } from "@/components/log/workout/WorkoutLauncher";
+import { WorkoutSessionRecapSheet } from "@/components/log/workout/WorkoutSessionRecapSheet";
 import type { CalorieBudgetPalette } from "@/components/home/CalorieBudgetCard";
 import { CalorieBudgetCard } from "@/components/home/CalorieBudgetCard";
 import { DailyBudgetMetricsRow } from "@/components/home/DailyBudgetMetricsRow";
@@ -12,6 +9,7 @@ import { MacrosCard, type MacroItem } from "@/components/home/MacrosCard";
 import { MealsCard } from "@/components/home/MealsCard";
 import { ReadinessWidget } from "@/components/home/ReadinessWidget";
 import { WorkoutCard } from "@/components/home/WorkoutCard";
+import { WaterQuickAdd } from "@/components/log/WaterQuickAdd";
 import { UserAvatar } from "@/components/profile/UserAvatar";
 import { AppModal } from "@/components/ui/AppModal";
 import { useToast } from "@/components/ui/Toast";
@@ -19,19 +17,34 @@ import { useCycle } from "@/context/cycle-context";
 import { useFood } from "@/context/food-context";
 import { useInsights } from "@/context/insights-context";
 import { useWorkouts } from "@/context/workout-context";
+import { useWorkoutSession } from "@/context/workout-session-context";
+import {
+  getBurnCatalogEntries,
+  getCatalogEntryById,
+  type WorkoutCatalogEntry,
+} from "@/config/workout-catalog";
 import { useDayLogs } from "@/hooks/use-day-logs";
 import { useHealth } from "@/hooks/use-health";
-import { useProfile } from "@/hooks/use-profile";
 import { useNotificationInbox } from "@/hooks/use-notification-inbox";
+import { useProfile } from "@/hooks/use-profile";
 import { useSummary } from "@/hooks/use-summary";
 import { useTheme } from "@/hooks/use-theme";
+import { useWater } from "@/hooks/use-water";
 import { useWorkoutLiveActivity } from "@/hooks/use-workout-live-activity";
+import {
+  catalogEntryToBurnActivity,
+  computeDurationMinutes,
+  formatCatalogPrescription,
+} from "@/utils/burn-prescription";
+import type { SessionRecapData } from "@/types/session-recap";
+import type { WorkoutSelection } from "@/types/workout-session";
 import { getLocalDateString } from "@/utils/date";
+import { finishAndSaveWorkoutSession } from "@/utils/finish-workout-session";
 import { calculateNutritionPlan } from "@/utils/nutrition";
-import { HydrationCard } from "@/components/home/HydrationCard";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { usePostHog } from "posthog-react-native";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
     Animated,
     Easing,
@@ -464,7 +477,6 @@ function CyclePhaseCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
   );
 }
 
-
 type InsightStatusModalKind = "checkin" | "workout" | "ready";
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -475,6 +487,97 @@ function greetingFor(h = new Date().getHours()) {
   if (h < 17) return "Good afternoon";
   return "Good evening";
 }
+
+// ───────────────────────────────────────────────────────────────────────────────
+// HydrationCard — water progress + quick-add on the home screen
+// ───────────────────────────────────────────────────────────────────────────────
+const ML_PER_OZ = 29.5735;
+
+function HydrationCard({
+  P,
+  delay = 0,
+  onViewAll,
+}: {
+  P: Palette;
+  delay?: number;
+  onViewAll?: () => void;
+}) {
+  const { totalMl, goalMl, logWater } = useWater();
+  const toast = useToast();
+
+  const totalOz = totalMl / ML_PER_OZ;
+  const goalOz = goalMl / ML_PER_OZ;
+  const progress = Math.min(totalMl / Math.max(goalMl, 1), 1);
+  const pct = Math.round(progress * 100);
+
+  const handleAdd = async (ml: number) => {
+    try {
+      await logWater(ml);
+    } catch {
+      toast.error("Could not save", "Please try again.");
+    }
+  };
+
+  return (
+    <Card delay={delay}>
+      {/* Header row */}
+      <View style={hydS.header}>
+        <View style={[hydS.iconTile, { backgroundColor: P.waterSoft }]}>
+          <Ionicons name="water" size={16} color={P.water} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={[hydS.title, { color: P.text }]}>Hydration</Text>
+          <Text style={[hydS.sub, { color: P.textFaint }]}>
+            {totalOz.toFixed(0)} oz of {goalOz.toFixed(0)} oz · {pct}%
+          </Text>
+        </View>
+        {onViewAll && (
+          <TouchableOpacity onPress={onViewAll} activeOpacity={0.7} hitSlop={8}>
+            <Ionicons name="arrow-forward" size={16} color={P.textFaint} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Progress bar */}
+      <View
+        style={[
+          hydS.track,
+          { backgroundColor: P.isDark ? "rgba(56,189,248,0.12)" : P.waterSoft },
+        ]}
+      >
+        <View
+          style={[
+            hydS.fill,
+            { width: `${pct}%` as any, backgroundColor: P.water },
+          ]}
+        />
+      </View>
+
+      {/* Quick Add */}
+      <WaterQuickAdd onAdd={handleAdd} />
+    </Card>
+  );
+}
+
+const hydS = StyleSheet.create({
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 16,
+  },
+  iconTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: { fontSize: 17, fontWeight: "800", letterSpacing: -0.4 },
+  sub: { fontSize: 12, fontWeight: "500" },
+  track: { height: 6, borderRadius: 3, overflow: "hidden", marginBottom: 18 },
+  fill: { height: "100%", borderRadius: 3 },
+});
 
 function offsetDateString(iso: string, days: number): string {
   const d = new Date(`${iso}T12:00:00`);
@@ -499,7 +602,9 @@ export default function HomeScreen() {
   const toast = useToast();
   const { unreadCount } = useNotificationInbox();
 
-  const { refreshWorkouts, fetchForDate: fetchWorkoutsForDate } = useWorkouts();
+  const { logWorkout, refreshWorkouts, fetchForDate: fetchWorkoutsForDate } =
+    useWorkouts();
+  const posthog = usePostHog();
 
   const [date, setDate] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
@@ -570,7 +675,7 @@ export default function HomeScreen() {
         key: "protein",
         label: "Protein",
         cur: Math.round(totalProtein),
-        goal: profile?.proteinTarget ?? nutritionPlan?.macros.proteinG ?? 140,
+        goal: nutritionPlan?.macros.proteinG ?? 140,
         accent: "protein",
       },
       {
@@ -588,22 +693,30 @@ export default function HomeScreen() {
         accent: "fat",
       },
     ],
-    [totalProtein, totalCarbs, totalFat, nutritionPlan, profile?.proteinTarget],
+    [totalProtein, totalCarbs, totalFat, nutritionPlan],
   );
 
   const weightKg = profile?.weightKg ?? 70;
-  const [coachActivity, setCoachActivity] = useState<BurnActivity>(
-    () => BURN_ACTIVITIES.find((a) => a.id === "walk") ?? BURN_ACTIVITIES[0],
+  const [coachCatalogEntry, setCoachCatalogEntry] = useState<WorkoutCatalogEntry>(
+    () => getCatalogEntryById("walk") ?? getBurnCatalogEntries()[0],
   );
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [burnRecapVisible, setBurnRecapVisible] = useState(false);
+  const [burnRecapData, setBurnRecapData] = useState<SessionRecapData | null>(
+    null,
+  );
+  const [burnFinishing, setBurnFinishing] = useState(false);
+
+  const { session: workoutSessionSnapshot, start: startWorkoutSession, end: endWorkoutSession } =
+    useWorkoutSession();
 
   // Live Activity (iOS Lock Screen / Dynamic Island workout widget)
   const {
-    active:  liveWorkout,
-    start:   startLiveWorkout,
-    pause:   pauseLiveWorkout,
-    resume:  resumeLiveWorkout,
-    end:     endLiveWorkout,
+    active: liveWorkout,
+    start: startLiveWorkout,
+    pause: pauseLiveWorkout,
+    resume: resumeLiveWorkout,
+    end: endLiveWorkout,
   } = useWorkoutLiveActivity();
 
   // Calories burned during the live workout (delta from baseline at start)
@@ -622,24 +735,97 @@ export default function HomeScreen() {
     const caloriesToBurn = Math.max(base + over, 80);
     const activeBurned = healthToday?.active_calories ?? 0;
     const remaining = Math.max(caloriesToBurn - activeBurned, 0);
-    // minutes based on remaining calories, not total
-    const minutes = Math.max(
-      Math.round(remaining / ((coachActivity.met * weightKg) / 60) / 5) * 5,
-      0,
-    );
+    const met = coachCatalogEntry.met ?? 0;
+    const minutes = computeDurationMinutes(met, weightKg, remaining);
     return {
       caloriesToBurn: remaining,
       activity: {
         label:
           minutes > 0
-            ? `${coachActivity.verb} ${minutes} min`
+            ? formatCatalogPrescription(coachCatalogEntry, minutes)
             : `Goal reached!`,
-        icon: coachActivity.icon,
+        icon: coachCatalogEntry.icon,
       },
       goalProgress:
         caloriesToBurn > 0 ? Math.min(activeBurned / caloriesToBurn, 1) : 0,
     };
-  }, [mealGoal, totalCalories, coachActivity, weightKg, healthToday]);
+  }, [mealGoal, totalCalories, coachCatalogEntry, weightKg, healthToday]);
+
+  const handleBurnLiveStart = useCallback(
+    (selection: WorkoutSelection) => {
+      setCoachCatalogEntry(selection.entry);
+      const goal = selection.calorieGoal ?? coachData.caloriesToBurn;
+      void startWorkoutSession({ ...selection, entrySurface: "home" });
+      void startLiveWorkout(
+        catalogEntryToBurnActivity(selection.entry),
+        goal,
+      );
+    },
+    [startWorkoutSession, startLiveWorkout, coachData.caloriesToBurn],
+  );
+
+  const handleBurnEnd = useCallback(async () => {
+    if (burnFinishing) return;
+
+    const sessionSnapshot = workoutSessionSnapshot;
+    const liveSnapshot = liveWorkout;
+
+    if (!liveSnapshot) {
+      await endLiveWorkout();
+      return;
+    }
+
+    setBurnFinishing(true);
+    try {
+      await endLiveWorkout();
+
+      if (!sessionSnapshot) {
+        await endWorkoutSession();
+        return;
+      }
+
+      const { recapData } = await finishAndSaveWorkoutSession({
+        session: sessionSnapshot,
+        completed: {
+          workoutType: liveSnapshot.activity.id,
+          workoutName: liveSnapshot.activity.label,
+          startedAt: liveSnapshot.startedAt,
+          sets: [],
+        },
+        logWorkout,
+        healthToday,
+        weightKg: profile?.weightKg,
+        userAge: profile?.age,
+        posthog,
+      });
+
+      setBurnRecapData(recapData);
+      setBurnRecapVisible(true);
+      await endWorkoutSession();
+    } catch {
+      toast.error("Could not save", "Workout ended; try logging manually.");
+      await endWorkoutSession();
+    } finally {
+      setBurnFinishing(false);
+    }
+  }, [
+    burnFinishing,
+    workoutSessionSnapshot,
+    liveWorkout,
+    endLiveWorkout,
+    endWorkoutSession,
+    logWorkout,
+    healthToday,
+    profile?.weightKg,
+    profile?.age,
+    posthog,
+    toast,
+  ]);
+
+  const handleBurnRecapDone = useCallback(() => {
+    setBurnRecapVisible(false);
+    setBurnRecapData(null);
+  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -741,7 +927,7 @@ export default function HomeScreen() {
               )}
             </TouchableOpacity>
 
-            <Pressable onPress={() => router.push('/profile')} hitSlop={8}>
+            <Pressable onPress={() => router.push("/profile")} hitSlop={8}>
               <UserAvatar
                 size="sm"
                 avatarUrl={avatarUrl}
@@ -781,7 +967,10 @@ export default function HomeScreen() {
               caloriesToBurn={coachData.caloriesToBurn}
               activity={
                 liveWorkout
-                  ? { label: liveWorkout.activity.label, icon: liveWorkout.activity.icon }
+                  ? {
+                      label: liveWorkout.activity.label,
+                      icon: liveWorkout.activity.icon,
+                    }
                   : coachData.activity
               }
               goalProgress={coachData.goalProgress}
@@ -792,12 +981,16 @@ export default function HomeScreen() {
               onPress={() => setPickerOpen(true)}
               onStart={() => {
                 if (!liveWorkout) {
-                  void startLiveWorkout(coachActivity, coachData.caloriesToBurn);
+                  handleBurnLiveStart({
+                    entry: coachCatalogEntry,
+                    intent: "burn",
+                    calorieGoal: coachData.caloriesToBurn,
+                  });
                 }
               }}
               onPause={() => void pauseLiveWorkout()}
               onResume={() => void resumeLiveWorkout()}
-              onEnd={() => void endLiveWorkout()}
+              onEnd={() => void handleBurnEnd()}
             />
           )}
           {isToday && <ReadinessWidget delay={260} />}
@@ -834,13 +1027,19 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      <BurnActivityPicker
+      <WorkoutLauncher
         visible={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        caloriesToBurn={coachData.caloriesToBurn}
-        weightKg={weightKg}
-        currentId={coachActivity.id}
-        onSelect={(activity) => setCoachActivity(activity)}
+        intent="burn"
+        initialActivityId={coachCatalogEntry.id}
+        initialCalorieGoal={coachData.caloriesToBurn}
+        onLiveStart={handleBurnLiveStart}
+      />
+
+      <WorkoutSessionRecapSheet
+        visible={burnRecapVisible}
+        data={burnRecapData}
+        onDone={handleBurnRecapDone}
       />
 
       <AppModal
@@ -1122,6 +1321,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
+  // Hydration
+  hydrationHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 18,
+  },
   iconTile: {
     width: 36,
     height: 36,
@@ -1136,6 +1342,69 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  hydrationTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  hydrationSub: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  hydrationNum: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 2,
+  },
+  hydrationCount: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.7,
+  },
+  hydrationGoal: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  dropRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  dropCell: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  // Quick stats row
+  statsGrid: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  quickHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  quickLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+  },
+  quickValue: {
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: -1,
+  },
+  quickCaption: {
+    fontSize: 11,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+
   statusModalBody: {
     paddingHorizontal: 24,
     paddingTop: 8,

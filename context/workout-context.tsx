@@ -54,6 +54,12 @@ export interface WorkoutSet {
   weight_unit: WeightUnit;
 }
 
+export interface WorkoutMetrics {
+  strain_score?:     number;
+  hr_zone_minutes?:  Record<string, number>;
+  volume_kg?:        number;
+}
+
 export interface Workout {
   id:              string;
   type:            WorkoutType;
@@ -69,6 +75,8 @@ export interface Workout {
   started_at?:     string;
   ended_at?:       string;
   date?:           string;
+  healthkit_uuid?: string;
+  metrics?:        WorkoutMetrics;
   created_at:      string;
   sets:            WorkoutSet[];
 }
@@ -87,6 +95,8 @@ export interface LogWorkoutInput {
   date?:            string;
   started_at?:      string;
   ended_at?:        string;
+  healthkit_uuid?:  string;
+  metrics?:         WorkoutMetrics;
 }
 
 export interface LogSetInput {
@@ -101,6 +111,7 @@ export interface WorkoutContextValue {
   workouts:            Workout[];
   isLoading:           boolean;
   totalCaloriesBurned: number;
+  historyVersion:      number;
   logWorkout:          (input: LogWorkoutInput) => Promise<Workout>;
   logSets:             (workoutId: string, sets: LogSetInput[]) => Promise<WorkoutSet[]>;
   deleteWorkout:       (id: string) => Promise<void>;
@@ -113,6 +124,10 @@ export interface WorkoutContextValue {
 
 function todayDateString(): string {
   return getLocalDateString();
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function fromApiSet(row: Record<string, unknown>): WorkoutSet {
@@ -143,6 +158,8 @@ function fromApiWorkout(row: Record<string, unknown>): Workout {
     started_at:      typeof row.started_at === 'string' ? row.started_at : undefined,
     ended_at:        typeof row.ended_at   === 'string' ? row.ended_at   : undefined,
     date:            typeof row.date       === 'string' ? row.date       : undefined,
+    healthkit_uuid:  typeof row.healthkit_uuid === 'string' ? row.healthkit_uuid : undefined,
+    metrics:         isPlainObject(row.metrics) ? row.metrics as WorkoutMetrics : undefined,
     created_at:      typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
     sets:            rawSets.map(fromApiSet),
   };
@@ -159,7 +176,12 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
 
   const [workouts,   setWorkouts]   = useState<Workout[]>([]);
   const [isLoading,  setIsLoading]  = useState(true);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const [activeDate, setActiveDate] = useState(todayDateString);
+
+  const bumpHistory = useCallback(() => {
+    setHistoryVersion((version) => version + 1);
+  }, []);
   const appStateRef = useRef(AppState.currentState);
   const lastForegroundFetchRef = useRef(0);
 
@@ -263,9 +285,10 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     const saved = fromApiWorkout(body.workout as Record<string, unknown>);
     setWorkouts((prev) => [saved, ...prev]);
     applyTodayOptimistic({ caloriesBurned: saved.calories_burned });
+    bumpHistory();
     void syncToday();
     return saved;
-  }, [syncToday]);
+  }, [bumpHistory, syncToday]);
 
   // ── Log sets ─────────────────────────────────────────────────────────────
   const logSets = useCallback(async (workoutId: string, sets: LogSetInput[]): Promise<WorkoutSet[]> => {
@@ -304,8 +327,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       }
       throw new Error((body.error as string) ?? 'Failed to delete workout');
     }
+    bumpHistory();
     void syncToday();
-  }, [workouts, syncToday]);
+  }, [bumpHistory, syncToday, workouts]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refreshWorkouts = useCallback(async (date?: string) => {
@@ -341,7 +365,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <WorkoutContext.Provider value={{
-      workouts, isLoading, totalCaloriesBurned,
+      workouts, isLoading, totalCaloriesBurned, historyVersion,
       logWorkout, logSets, deleteWorkout, refreshWorkouts, fetchForDate,
     }}>
       {children}

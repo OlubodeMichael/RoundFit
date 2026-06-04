@@ -1,6 +1,13 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import type {
+  DistanceUnit as WorkoutDistanceUnit,
+  LogWorkoutInput,
+  WorkoutIntensity,
+  WorkoutType,
+} from '@/context/workout-context';
 import type { DistanceUnit } from '@/utils/units';
+import { getLocalDateString } from '@/utils/date';
 
 const DISTANCE_WALKING_RUNNING_ID = 'HKQuantityTypeIdentifierDistanceWalkingRunning';
 
@@ -32,6 +39,23 @@ const CATEGORY_READ_IDS = [
 ] as const;
 
 const WORKOUT_READ_IDS = ['HKWorkoutTypeIdentifier'] as const;
+
+const WORKOUT_SHARE_IDS = ['HKWorkoutTypeIdentifier'] as const;
+
+/** HKWorkoutTypeIdentifier — used for observer + background delivery. */
+export const HEALTHKIT_WORKOUT_TYPE_ID = 'HKWorkoutTypeIdentifier';
+
+/** UpdateFrequency.immediate in @kingstinct/react-native-healthkit. */
+const HK_UPDATE_FREQUENCY_IMMEDIATE = 1;
+
+const HK_WORKOUT_ACTIVITY_OTHER = 3000;
+
+interface PendingPhoneHealthKitWorkout {
+  activityType: number;
+  startDate:    Date;
+}
+
+let pendingPhoneHealthKitWorkout: PendingPhoneHealthKitWorkout | null = null;
 
 /** Every HealthKit type we ask the user to grant read access to. */
 export const HEALTHKIT_READ_IDENTIFIERS: readonly string[] = [
@@ -128,8 +152,14 @@ export function getHealthKitModule(): HealthKitModule | null {
 
 // ── Authorization ──────────────────────────────────────────────────────────
 
-const AUTH_UNNECESSARY   = 2; // permission already granted
-const AUTH_SHOULD_REQUEST = 1; // need to prompt the user
+/** getRequestStatusForAuthorization — already granted for requested types. */
+const HK_REQUEST_STATUS_SHOULD_REQUEST = 1;
+const HK_REQUEST_STATUS_UNNECESSARY = 2;
+/**
+ * authorizationStatusFor sharingDenied — only reliable for write/share on a type.
+ * Do not use for HKWorkout read gating: read is allowed in Health while write stays denied.
+ */
+const HK_AUTH_SHARING_DENIED = 1;
 
 /**
  * Ensures the user has granted read access to the HealthKit types we care
@@ -147,13 +177,14 @@ export async function ensureHealthKitAuthorized(
 
     let distanceDenied = false;
     if (typeof hk.authorizationStatusFor === 'function') {
-      distanceDenied = hk.authorizationStatusFor(DISTANCE_WALKING_RUNNING_ID) === 1;
+      distanceDenied = hk.authorizationStatusFor(DISTANCE_WALKING_RUNNING_ID) === HK_AUTH_SHARING_DENIED;
     }
 
-    if (reqStatus === AUTH_UNNECESSARY && !distanceDenied) return true;
-    if (reqStatus !== AUTH_SHOULD_REQUEST && !distanceDenied) return false;
+    if (reqStatus === HK_REQUEST_STATUS_UNNECESSARY && !distanceDenied) return true;
+    if (reqStatus !== HK_REQUEST_STATUS_SHOULD_REQUEST && !distanceDenied) return false;
 
     await hk.requestAuthorization({ toRead: HEALTHKIT_READ_IDENTIFIERS });
+
     return true;
   } catch (err) {
     console.log('[HealthKit] authorization check failed:', err);
@@ -863,4 +894,620 @@ function logHealthKitRawSamples(label: string, samples: readonly unknown[]): voi
     source:    s.sourceRevision?.source?.name ?? s.sourceRevision?.source?.bundleIdentifier ?? 'unknown source',
   }));
   console.log(`[HealthKit] ${label}: ${n} sample(s), preview (up to ${HK_LOG_PREVIEW}):`, jsonSafe(preview));
+}
+
+// ── Workout import ─────────────────────────────────────────────────────────
+
+interface WorkoutQuantityLike {
+  quantity?: number;
+  unit?:     string;
+}
+
+interface WorkoutSampleLike {
+  uuid?:                 string;
+  id?:                   string;
+  workoutActivityType?:  number | string;
+  startDate?:            Date | string;
+  endDate?:              Date | string;
+  duration?:             WorkoutQuantityLike;
+  totalEnergyBurned?:    WorkoutQuantityLike;
+  totalDistance?:        WorkoutQuantityLike;
+  sourceRevision?:       { source?: SourceLike } | null;
+  device?:               DeviceLike | null;
+  getStatistic?:         (
+    quantityType: string,
+    unitOverride?: string,
+  ) => Promise<{
+    averageQuantity?: WorkoutQuantityLike;
+    maximumQuantity?: WorkoutQuantityLike;
+  } | undefined>;
+}
+
+/** Normalised HK workout sample used by the import pipeline. */
+export interface HealthKitWorkoutSample {
+  uuid:                 string;
+  workoutActivityType:  number;
+  startDate:            Date;
+  endDate:              Date;
+  durationSeconds:      number;
+  caloriesBurned?:      number;
+  distance?:            number;
+  distanceUnit?:        WorkoutDistanceUnit;
+  avgHeartRate?:        number;
+  maxHeartRate?:        number;
+  sourceName?:          string;
+}
+
+/** Default look-back when no import cursor exists yet. */
+export const HEALTHKIT_WORKOUT_DEFAULT_LOOKBACK_DAYS = 30;
+
+/** Start of the standard HealthKit workout scan window (today − lookback days). */
+export function buildHealthKitLookbackStart(
+  days: number = HEALTHKIT_WORKOUT_DEFAULT_LOOKBACK_DAYS,
+): Date {
+  const cursor = new Date();
+  cursor.setDate(cursor.getDate() - days);
+  cursor.setHours(0, 0, 0, 0);
+  return cursor;
+}
+
+/** Formats duration like Apple Fitness: `0:47:52`. */
+export function formatHealthKitWorkoutDurationHms(totalSeconds: number): string {
+  const sec = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${h}:${pad(m)}:${pad(s)}`;
+}
+
+export interface HealthKitHeartRatePoint {
+  timestamp: Date;
+  bpm:       number;
+}
+
+export interface HealthKitWorkoutEnergy {
+  activeCalories: number;
+  totalCalories:  number;
+}
+
+/** Finds a normalised HK workout within the lookback window. */
+export async function fetchHealthKitWorkoutByUuid(
+  uuid: string,
+  lookbackDays: number = HEALTHKIT_WORKOUT_DEFAULT_LOOKBACK_DAYS,
+): Promise<HealthKitWorkoutSample | null> {
+  const workouts = await fetchWorkoutsSince(buildHealthKitLookbackStart(lookbackDays));
+  return workouts.find((workout) => workout.uuid === uuid) ?? null;
+}
+
+/** Active + total (active + basal) energy during a workout window. */
+export async function fetchWorkoutEnergyDuringWindow(
+  startDate: Date,
+  endDate: Date,
+): Promise<HealthKitWorkoutEnergy> {
+  const hk = getHealthKitModule();
+  if (!hk) return { activeCalories: 0, totalCalories: 0 };
+
+  const authorized = await ensureHealthKitAuthorized(hk);
+  if (!authorized) return { activeCalories: 0, totalCalories: 0 };
+
+  const [active, basal] = await Promise.all([
+    queryCumulativeStat(hk, 'HKQuantityTypeIdentifierActiveEnergyBurned', startDate, endDate),
+    queryCumulativeStat(hk, 'HKQuantityTypeIdentifierBasalEnergyBurned', startDate, endDate),
+  ]);
+
+  const activeCalories = Math.round(active);
+  const totalCalories = Math.round(active + basal);
+  return { activeCalories, totalCalories };
+}
+
+/** Heart-rate samples during a workout window (for detail chart). */
+export async function fetchHeartRateSamplesDuringWindow(
+  startDate: Date,
+  endDate: Date,
+): Promise<HealthKitHeartRatePoint[]> {
+  const hk = getHealthKitModule();
+  if (!hk) return [];
+
+  const authorized = await ensureHealthKitAuthorized(hk);
+  if (!authorized) return [];
+
+  try {
+    const samples = await hk.queryQuantitySamples(
+      'HKQuantityTypeIdentifierHeartRate',
+      queryOptionsForInterval(startDate, endDate),
+    ) as QuantitySampleLike[];
+
+    return samples
+      .map((sample) => {
+        const start = parseHealthKitDate(sample.startDate);
+        const bpm = asFiniteNumber(sample.quantity);
+        if (!start || bpm === null || bpm <= 0) return null;
+        return { timestamp: start, bpm: Math.round(bpm) };
+      })
+      .filter((point): point is HealthKitHeartRatePoint => point != null)
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  } catch (err) {
+    console.log('[HealthKit] fetchHeartRateSamplesDuringWindow failed:', err);
+    return [];
+  }
+}
+
+const HK_ACTIVITY_TO_WORKOUT_TYPE: Record<number, WorkoutType> = {
+  13:  'cycling',   // cycling
+  16:  'elliptical',
+  24:  'walking',   // hiking → walking
+  35:  'rowing',
+  37:  'running',
+  46:  'swimming',
+  50:  'gym',       // traditionalStrengthTraining
+  20:  'gym',       // functionalStrengthTraining
+  52:  'walking',
+  57:  'yoga',
+  63:  'hiit',      // highIntensityIntervalTraining
+};
+
+function parseHealthKitDate(value: Date | string | undefined): Date | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function workoutActivityTypeToNumber(value: number | string | undefined): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 3000; // WorkoutActivityType.other
+}
+
+function durationSecondsFromWorkout(sample: WorkoutSampleLike): number {
+  const durationQty = asFiniteNumber(sample.duration?.quantity);
+  if (durationQty !== null && durationQty > 0) {
+    const unit = sample.duration?.unit?.toLowerCase() ?? 's';
+    if (unit === 'min' || unit === 'minute' || unit === 'minutes') {
+      return durationQty * 60;
+    }
+    if (unit === 'h' || unit === 'hr' || unit === 'hour' || unit === 'hours') {
+      return durationQty * 3600;
+    }
+    return durationQty;
+  }
+
+  const start = parseHealthKitDate(sample.startDate);
+  const end   = parseHealthKitDate(sample.endDate);
+  if (!start || !end) return 0;
+  return Math.max(0, (end.getTime() - start.getTime()) / 1000);
+}
+
+function energyKcalFromWorkout(sample: WorkoutSampleLike): number | undefined {
+  const qty = asFiniteNumber(sample.totalEnergyBurned?.quantity);
+  if (qty === null || qty <= 0) return undefined;
+
+  const unit = sample.totalEnergyBurned?.unit?.toLowerCase() ?? 'kcal';
+  if (unit === 'cal' || unit === 'kilocalorie' || unit === 'kilocalories') {
+    return Math.round(qty);
+  }
+  if (unit === 'kj' || unit === 'kilojoule' || unit === 'kilojoules') {
+    return Math.round(qty / 4.184);
+  }
+  return Math.round(qty);
+}
+
+function distanceFromWorkout(
+  sample: WorkoutSampleLike,
+): { distance?: number; distanceUnit?: WorkoutDistanceUnit } {
+  const qty = asFiniteNumber(sample.totalDistance?.quantity);
+  if (qty === null || qty <= 0) return {};
+
+  const unit = sample.totalDistance?.unit?.toLowerCase() ?? '';
+  const normalised = normaliseDistanceQuantity(qty, unit);
+  const distanceUnit: WorkoutDistanceUnit = normalised.unit === 'mi' ? 'miles' : 'km';
+  return { distance: normalised.value, distanceUnit };
+}
+
+function heartRateFromStatistic(
+  stats: { averageQuantity?: WorkoutQuantityLike; maximumQuantity?: WorkoutQuantityLike } | undefined,
+): { avgHeartRate?: number; maxHeartRate?: number } {
+  if (!stats) return {};
+
+  const avg = asFiniteNumber(stats.averageQuantity?.quantity);
+  const max = asFiniteNumber(stats.maximumQuantity?.quantity);
+  return {
+    avgHeartRate: avg !== null && avg > 0 ? Math.round(avg) : undefined,
+    maxHeartRate: max !== null && max > 0 ? Math.round(max) : undefined,
+  };
+}
+
+async function heartRateStatsForWorkout(
+  sample: WorkoutSampleLike,
+): Promise<{ avgHeartRate?: number; maxHeartRate?: number }> {
+  if (typeof sample.getStatistic !== 'function') return {};
+
+  try {
+    const stats = await sample.getStatistic(
+      'HKQuantityTypeIdentifierHeartRate',
+      'count/min',
+    );
+    return heartRateFromStatistic(stats);
+  } catch {
+    return {};
+  }
+}
+
+function sourceNameFromWorkout(sample: WorkoutSampleLike): string | undefined {
+  return sample.sourceRevision?.source?.name
+    ?? sample.device?.name
+    ?? sample.device?.model
+    ?? undefined;
+}
+
+function mapActivityTypeToWorkoutType(activityType: number): WorkoutType {
+  return HK_ACTIVITY_TO_WORKOUT_TYPE[activityType] ?? 'other';
+}
+
+function inferWorkoutIntensity(sample: HealthKitWorkoutSample): WorkoutIntensity {
+  if (sample.avgHeartRate !== undefined && sample.avgHeartRate >= 150) return 'hard';
+  if (sample.avgHeartRate !== undefined && sample.avgHeartRate >= 120) return 'moderate';
+  return 'light';
+}
+
+function workoutUuidFromRaw(raw: WorkoutSampleLike): string {
+  if (typeof raw.uuid === 'string' && raw.uuid.length > 0) return raw.uuid;
+  if (typeof raw.id === 'string' && raw.id.length > 0) return raw.id;
+
+  const record = raw as Record<string, unknown>;
+  for (const key of ['UUID', 'workoutUuid', 'identifier'] as const) {
+    const value = record[key];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+
+  const start = parseHealthKitDate(raw.startDate);
+  const end = parseHealthKitDate(raw.endDate);
+  if (start && end) {
+    return `hk-${start.getTime()}-${end.getTime()}`;
+  }
+
+  return '';
+}
+
+async function normalizeWorkoutSample(
+  raw: WorkoutSampleLike,
+): Promise<HealthKitWorkoutSample | null> {
+  const uuid = workoutUuidFromRaw(raw);
+  const startDate = parseHealthKitDate(raw.startDate);
+  const endDate = parseHealthKitDate(raw.endDate);
+  if (!uuid || !startDate || !endDate) return null;
+
+  const durationSeconds = Math.max(1, durationSecondsFromWorkout(raw));
+
+  const heartRate = await heartRateStatsForWorkout(raw);
+  const distance = distanceFromWorkout(raw);
+
+  return {
+    uuid,
+    workoutActivityType: workoutActivityTypeToNumber(raw.workoutActivityType),
+    startDate,
+    endDate,
+    durationSeconds,
+    caloriesBurned: energyKcalFromWorkout(raw),
+    distance: distance.distance,
+    distanceUnit: distance.distanceUnit,
+    avgHeartRate: heartRate.avgHeartRate,
+    maxHeartRate: heartRate.maxHeartRate,
+    sourceName: sourceNameFromWorkout(raw),
+  };
+}
+
+/**
+ * Queries HKWorkout samples with `startDate >= cursor`, ascending.
+ * Enriches each sample with heart-rate statistics when the native proxy supports it.
+ */
+export async function fetchWorkoutsSince(cursor: Date): Promise<HealthKitWorkoutSample[]> {
+  const hk = getHealthKitModule();
+  if (!hk) return [];
+
+  const authorized = await ensureHealthKitAuthorized(hk);
+  if (!authorized) return [];
+
+  const queryWorkoutSamples = hk.queryWorkoutSamples;
+  if (typeof queryWorkoutSamples !== 'function') {
+    console.log('[HealthKit] queryWorkoutSamples unavailable on native module');
+    return [];
+  }
+
+  const endDate = new Date();
+  let rawWorkouts: WorkoutSampleLike[] = [];
+  try {
+    rawWorkouts = await queryWorkoutSamples({
+      filter: {
+        date: {
+          startDate: cursor,
+          endDate,
+        },
+      },
+      limit:     0,
+      ascending: true,
+    });
+  } catch (err) {
+    console.log('[HealthKit] queryWorkoutSamples failed:', err);
+    return [];
+  }
+
+  console.log(`[HealthKit] fetchWorkoutsSince: ${rawWorkouts.length} workout(s) since ${cursor.toISOString()}`);
+  if (rawWorkouts.length === 0) {
+    console.log('[HealthKit] No workouts returned. Check Health → RoundFit → Workouts is enabled.');
+  }
+
+  const normalized: HealthKitWorkoutSample[] = [];
+  for (const raw of rawWorkouts) {
+    const sample = await normalizeWorkoutSample(raw);
+    if (sample) normalized.push(sample);
+  }
+
+  if (rawWorkouts.length > 0 && normalized.length === 0) {
+    const preview = rawWorkouts[0] as Record<string, unknown>;
+    console.log(
+      '[HealthKit] fetchWorkoutsSince: raw samples did not normalize — keys:',
+      Object.keys(preview).join(', '),
+    );
+  }
+  console.log(
+    `[HealthKit] fetchWorkoutsSince: ${rawWorkouts.length} raw → ${normalized.length} normalized`,
+  );
+
+  return normalized;
+}
+
+const SESSION_WORKOUT_OVERLAP_SLACK_MS = 2 * 60 * 1000;
+
+function workoutOverlapsSessionWindow(
+  workout: HealthKitWorkoutSample,
+  sessionStartedAt: Date,
+  now: Date,
+): boolean {
+  const sessionStartMs = sessionStartedAt.getTime() - SESSION_WORKOUT_OVERLAP_SLACK_MS;
+  const nowMs = now.getTime();
+  const workoutStartMs = workout.startDate.getTime();
+  const workoutEndMs = workout.endDate.getTime();
+  return workoutStartMs <= nowMs && workoutEndMs >= sessionStartMs;
+}
+
+function pickBestOverlappingWorkout(
+  workouts: HealthKitWorkoutSample[],
+  sessionStartedAt: Date,
+  now: Date,
+): HealthKitWorkoutSample | null {
+  const overlapping = workouts.filter((w) =>
+    workoutOverlapsSessionWindow(w, sessionStartedAt, now),
+  );
+  if (overlapping.length === 0) return null;
+
+  overlapping.sort((a, b) => {
+    const aDelta = Math.abs(a.startDate.getTime() - sessionStartedAt.getTime());
+    const bDelta = Math.abs(b.startDate.getTime() - sessionStartedAt.getTime());
+    return aDelta - bDelta;
+  });
+
+  return overlapping[0] ?? null;
+}
+
+/**
+ * Finds an HKWorkout bound to the live session — by stored uuid or time overlap.
+ * Used by the session metrics engine (Phase C) to prefer workout-scoped kcal / HR.
+ */
+export async function getActiveHealthKitWorkout(
+  sessionStartedAt: Date,
+  boundUuid?: string | null,
+): Promise<HealthKitWorkoutSample | null> {
+  const hk = getHealthKitModule();
+  if (!hk) return null;
+
+  const authorized = await ensureHealthKitAuthorized(hk);
+  if (!authorized) return null;
+
+  const cursor = new Date(sessionStartedAt.getTime() - SESSION_WORKOUT_OVERLAP_SLACK_MS);
+  const workouts = await fetchWorkoutsSince(cursor);
+  if (workouts.length === 0) return null;
+
+  if (boundUuid) {
+    const bound = workouts.find((w) => w.uuid === boundUuid);
+    if (bound) return bound;
+  }
+
+  return pickBestOverlappingWorkout(workouts, sessionStartedAt, new Date());
+}
+
+/** Extracts live metrics from a normalised HK workout sample. */
+export function metricsFromHealthKitWorkout(
+  workout: HealthKitWorkoutSample,
+): {
+  caloriesBurned: number;
+  avgHeartRate?: number;
+  maxHeartRate?: number;
+} {
+  return {
+    caloriesBurned: workout.caloriesBurned ?? 0,
+    ...(workout.avgHeartRate != null && workout.avgHeartRate > 0
+      ? { avgHeartRate: workout.avgHeartRate }
+      : {}),
+    ...(workout.maxHeartRate != null && workout.maxHeartRate > 0
+      ? { maxHeartRate: workout.maxHeartRate }
+      : {}),
+  };
+}
+
+function resolveWorkoutActivityType(
+  activityType: number | string,
+  hk: HealthKitModule,
+): number {
+  if (typeof activityType === 'number' && Number.isFinite(activityType)) {
+    return activityType;
+  }
+
+  if (typeof activityType === 'string' && activityType.trim() !== '') {
+    const numeric = Number(activityType);
+    if (Number.isFinite(numeric)) return numeric;
+
+    const enumName = activityType.replace(/^HKWorkoutActivityType/, '');
+    const camelKey = enumName.charAt(0).toLowerCase() + enumName.slice(1);
+    const enumValue = hk?.WorkoutActivityType?.[camelKey];
+    if (typeof enumValue === 'number') return enumValue;
+  }
+
+  return HK_WORKOUT_ACTIVITY_OTHER;
+}
+
+async function ensureHealthKitWorkoutWriteAuthorized(
+  hk: HealthKitModule,
+): Promise<boolean> {
+  try {
+    await hk.requestAuthorization({
+      toRead:  HEALTHKIT_READ_IDENTIFIERS,
+      toShare: WORKOUT_SHARE_IDS,
+    });
+    return ensureHealthKitAuthorized(hk);
+  } catch (err) {
+    console.log('[HealthKit] workout write authorization failed:', err);
+    return false;
+  }
+}
+
+/**
+ * Registers a phone live session with HealthKit.
+ *
+ * @kingstinct/react-native-healthkit v14 does not expose HKWorkoutSession
+ * (live phone workout). We store pending start metadata and bind to an
+ * overlapping Watch workout when present; the HK sample is written on end via
+ * {@link saveWorkoutSample}.
+ */
+export async function startPhoneHealthKitWorkout(
+  activityType: number | string,
+  startDate: Date,
+): Promise<string | null> {
+  const hk = getHealthKitModule();
+  if (!hk) return null;
+
+  const authorized = await ensureHealthKitAuthorized(hk);
+  if (!authorized) return null;
+
+  pendingPhoneHealthKitWorkout = {
+    activityType: resolveWorkoutActivityType(activityType, hk),
+    startDate,
+  };
+
+  try {
+    const overlapping = await getActiveHealthKitWorkout(startDate);
+    if (overlapping?.uuid) return overlapping.uuid;
+  } catch {
+    // Non-fatal — metrics fall back to delta / MET until end or Watch bind.
+  }
+
+  return null;
+}
+
+/**
+ * Finalises a phone session HKWorkout via saveWorkoutSample (best-effort).
+ * Returns the saved workout UUID when HealthKit write succeeds.
+ */
+export async function endPhoneHealthKitWorkout(endDate: Date): Promise<string | null> {
+  const pending = pendingPhoneHealthKitWorkout;
+  pendingPhoneHealthKitWorkout = null;
+  if (!pending) return null;
+
+  const hk = getHealthKitModule();
+  if (!hk || typeof hk.saveWorkoutSample !== 'function') return null;
+
+  const writeOk = await ensureHealthKitWorkoutWriteAuthorized(hk);
+  if (!writeOk) return null;
+
+  let resolvedEnd = endDate;
+  if (resolvedEnd.getTime() <= pending.startDate.getTime()) {
+    resolvedEnd = new Date(pending.startDate.getTime() + 1000);
+  }
+
+  try {
+    const saved = await hk.saveWorkoutSample(
+      pending.activityType,
+      [],
+      pending.startDate,
+      resolvedEnd,
+    );
+    const uuid = typeof saved?.uuid === 'string' ? saved.uuid : null;
+    if (uuid) {
+      console.log('[HealthKit] phone workout saved:', uuid);
+    }
+    return uuid;
+  } catch (err) {
+    console.log('[HealthKit] endPhoneHealthKitWorkout failed:', err);
+    return null;
+  }
+}
+
+/** Clears pending phone workout metadata without writing to HealthKit. */
+export function cancelPhoneHealthKitWorkout(): void {
+  pendingPhoneHealthKitWorkout = null;
+}
+
+/**
+ * Observer for new HKWorkout samples. Uses subscribeToChanges on
+ * HKWorkoutTypeIdentifier when the native module is available.
+ */
+export function subscribeToWorkoutUpdates(
+  onChange: () => void,
+): { remove: () => void } | null {
+  const hk = getHealthKitModule();
+  if (!hk || typeof hk.subscribeToChanges !== 'function') return null;
+
+  return hk.subscribeToChanges(HEALTHKIT_WORKOUT_TYPE_ID, () => {
+    onChange();
+  });
+}
+
+/**
+ * Best-effort background delivery for HKWorkoutTypeIdentifier.
+ * Requires UIBackgroundModes healthkit + observer entitlement in the native app.
+ */
+export async function enableWorkoutBackgroundDelivery(): Promise<boolean> {
+  const hk = getHealthKitModule();
+  if (!hk || typeof hk.enableBackgroundDelivery !== 'function') return false;
+
+  const authorized = await ensureHealthKitAuthorized(hk);
+  if (!authorized) return false;
+
+  try {
+    return await hk.enableBackgroundDelivery(
+      HEALTHKIT_WORKOUT_TYPE_ID,
+      HK_UPDATE_FREQUENCY_IMMEDIATE,
+    );
+  } catch (err) {
+    console.log('[HealthKit] enableWorkoutBackgroundDelivery failed:', err);
+    return false;
+  }
+}
+
+/** Maps a normalised HK workout sample to {@link LogWorkoutInput} for POST /workouts. */
+export function mapHealthKitWorkoutToLogInput(
+  sample: HealthKitWorkoutSample,
+): LogWorkoutInput {
+  const durationMins = Math.max(1, Math.round(sample.durationSeconds / 60));
+  const sourceLabel = sample.sourceName ?? 'Apple Watch';
+
+  return {
+    type:            mapActivityTypeToWorkoutType(sample.workoutActivityType),
+    duration_mins:   durationMins,
+    intensity:       inferWorkoutIntensity(sample),
+    source:          'healthkit',
+    calories_burned: sample.caloriesBurned,
+    distance:        sample.distance,
+    distance_unit:   sample.distanceUnit,
+    avg_heart_rate:  sample.avgHeartRate,
+    max_heart_rate:  sample.maxHeartRate,
+    started_at:      sample.startDate.toISOString(),
+    ended_at:        sample.endDate.toISOString(),
+    date:            getLocalDateString(sample.startDate),
+    healthkit_uuid:  sample.uuid,
+    notes:           `Imported from ${sourceLabel}`,
+  };
 }

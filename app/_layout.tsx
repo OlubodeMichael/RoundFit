@@ -50,6 +50,8 @@ import { ThemeProvider } from "@/context/theme-context";
 import { WaterProvider } from "@/context/water-context";
 import { WeightProvider } from "@/context/weight-context";
 import { WorkoutProvider } from "@/context/workout-context";
+import { WorkoutSessionProvider } from "@/context/workout-session-context";
+import { WorkoutImportReviewProvider } from "@/context/workout-import-review-context";
 import { WorkoutSessionLiveActivityProvider } from "@/hooks/use-workout-session-live-activity";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
@@ -188,11 +190,13 @@ export default function RootLayout() {
               <ProfileProvider>
                 <FoodProvider>
                   <WorkoutProvider>
-                    <WorkoutSessionLiveActivityProvider>
+                    <WorkoutImportReviewProvider>
                     <CycleProvider>
                       <WeightProvider>
                         <WaterProvider>
                         <HealthProvider>
+                          <WorkoutSessionProvider>
+                          <WorkoutSessionLiveActivityProvider>
                           <CheckinProvider>
                             <SummaryProvider>
                               <RecoveryProvider>
@@ -206,11 +210,13 @@ export default function RootLayout() {
                               </RecoveryProvider>
                             </SummaryProvider>
                           </CheckinProvider>
+                          </WorkoutSessionLiveActivityProvider>
+                          </WorkoutSessionProvider>
                         </HealthProvider>
                         </WaterProvider>
                       </WeightProvider>
                     </CycleProvider>
-                    </WorkoutSessionLiveActivityProvider>
+                    </WorkoutImportReviewProvider>
                   </WorkoutProvider>
                 </FoodProvider>
               </ProfileProvider>

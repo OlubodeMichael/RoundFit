@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -15,15 +15,24 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { usePostHog } from 'posthog-react-native';
 
 import { useToast } from '@/components/ui/Toast';
-import { usePalette } from '@/lib/log-theme';
-import { UI_WORKOUT_TYPE_MAP, useWorkouts, type WorkoutType as BackendWorkoutType } from '@/context/workout-context';
+import { getCatalogEntryById } from '@/config/workout-catalog';
+import { useAuth } from '@/context/auth-context';
+import { useWorkoutSession } from '@/context/workout-session-context';
+import { useWorkouts } from '@/context/workout-context';
+import { useHealth } from '@/hooks/use-health';
+import { useSessionMetrics } from '@/hooks/use-session-metrics';
 import { useWorkoutSessionLiveActivity, type SessionSet } from '@/hooks/use-workout-session-live-activity';
 import { useUnits } from '@/hooks/use-units';
+import { usePalette } from '@/lib/log-theme';
+import type { SessionRecapData } from '@/types/session-recap';
+import type { WorkoutSelection } from '@/types/workout-session';
 import { LB_PER_KG } from '@/utils/body-units';
-import { WORKOUT_TYPES } from './constants';
+import { finishAndSaveWorkoutSession } from '@/utils/finish-workout-session';
 import { ExercisePicker } from './ExercisePicker';
+import { WorkoutSessionRecapSheet } from './WorkoutSessionRecapSheet';
 import type { WorkoutType } from './types';
 
 // ── Small util ───────────────────────────────────────────────────────────────
@@ -46,23 +55,80 @@ function fmtElapsed(ms: number): string {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
+interface ActiveSessionView {
+  workoutType: string;
+  workoutName: string;
+  startedAt: number;
+  pausedAt: number | null;
+  sets: SessionSet[];
+  isStrength: boolean;
+}
+
+function resolveActiveSession(
+  liveActive: ReturnType<typeof useWorkoutSessionLiveActivity>['active'],
+  ctxSession: ReturnType<typeof useWorkoutSession>['session'],
+  ctxStatus: ReturnType<typeof useWorkoutSession>['status'],
+): ActiveSessionView | null {
+  if (liveActive) {
+    const mode = getCatalogEntryById(liveActive.workoutType)?.sessionMode ?? 'strength';
+    return {
+      workoutType: liveActive.workoutType,
+      workoutName: liveActive.workoutName,
+      startedAt: liveActive.startedAt,
+      pausedAt: liveActive.pausedAt,
+      sets: liveActive.sets,
+      isStrength: mode === 'strength',
+    };
+  }
+  if (ctxSession && (ctxStatus === 'active' || ctxStatus === 'paused')) {
+    return {
+      workoutType: ctxSession.workoutType,
+      workoutName: ctxSession.workoutName,
+      startedAt: ctxSession.startedAt,
+      pausedAt: ctxSession.pausedAt,
+      sets: ctxSession.sets,
+      isStrength: ctxSession.mode === 'strength',
+    };
+  }
+  return null;
+}
+
 interface Props {
   visible: boolean;
   onClose: () => void;
+  selection?: WorkoutSelection;
 }
 
-export function LiveSessionSheet({ visible, onClose }: Props) {
+export function LiveSessionSheet({ visible, onClose, selection }: Props) {
   const P       = usePalette();
   const insets  = useSafeAreaInsets();
   const toast   = useToast();
+  const posthog = usePostHog();
+  const { user } = useAuth();
   const session = useWorkoutSessionLiveActivity();
+  const workoutSession = useWorkoutSession();
+  const liveMetrics = useSessionMetrics();
+  const { today: healthToday } = useHealth();
   const { logWorkout, logSets } = useWorkouts();
   const units = useUnits();
 
-  // ── Picker state (when no session is active yet) ─────────────────────────
-  const [chosenType, setChosenType] = useState<WorkoutType | null>(null);
+  const [recapVisible, setRecapVisible] = useState(false);
+  const [recapData, setRecapData] = useState<SessionRecapData | null>(null);
 
-  // ── Add-set form ──────────────────────────────────────────────────────────
+  const activeSession = useMemo(
+    () =>
+      resolveActiveSession(
+        session.active,
+        workoutSession.session,
+        workoutSession.status,
+      ),
+    [session.active, workoutSession.session, workoutSession.status],
+  );
+
+  const timerStartedAt = activeSession?.startedAt;
+  const timerPausedAt = activeSession?.pausedAt ?? null;
+
+  // ── Add-set form (strength only) ──────────────────────────────────────────
   // The user picks one or more exercises from the library; sets are logged
   // against whichever exercise is currently `active`. `chosenExercises`
   // preserves the order the user picked them so the chip strip + grouped
@@ -81,25 +147,47 @@ export function LiveSessionSheet({ visible, onClose }: Props) {
   // ── Ticking timer ─────────────────────────────────────────────────────────
   const [elapsedMs, setElapsedMs] = useState(0);
   useEffect(() => {
-    if (!session.active) return;
-    if (session.active.pausedAt != null) {
-      setElapsedMs(session.active.pausedAt - session.active.startedAt);
+    if (timerStartedAt == null) return;
+    if (timerPausedAt != null) {
+      setElapsedMs(timerPausedAt - timerStartedAt);
       return;
     }
-    const tick = () => setElapsedMs(Date.now() - session.active!.startedAt);
+    const tick = () => setElapsedMs(Date.now() - timerStartedAt);
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [session.active]);
+  }, [timerStartedAt, timerPausedAt]);
+
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // No session when opened — close instead of showing a type picker.
+  useEffect(() => {
+    if (visible && !activeSession && !recapVisible) {
+      onCloseRef.current();
+    }
+  }, [visible, activeSession, recapVisible]);
+
+  // Seed preset exercises from launcher selection or persisted session.
+  useEffect(() => {
+    if (!visible || !activeSession?.isStrength) return;
+    const preset =
+      selection?.presetExercises ??
+      workoutSession.session?.presetExercises ??
+      [];
+    if (preset.length === 0) return;
+    setChosenExercises(preset);
+    setActiveExercise((prev) => prev ?? preset[0] ?? null);
+  }, [visible, activeSession?.isStrength, selection, workoutSession.session?.presetExercises]);
 
   // ── Finish flow ──────────────────────────────────────────────────────────
   const [finishing, setFinishing] = useState(false);
+  const finishingRef = useRef(false);
   const [confirmFinish, setConfirmFinish] = useState(false);
 
   // Reset state when sheet re-opens with no session yet.
   useEffect(() => {
     if (!visible) {
-      setChosenType(null);
       setChosenExercises([]);
       setActiveExercise(null);
       setReps('');
@@ -107,32 +195,27 @@ export function LiveSessionSheet({ visible, onClose }: Props) {
       setWeightUnit(units.weightUnit);
       setPickerOpen(false);
       setConfirmFinish(false);
+      setRecapVisible(false);
+      setRecapData(null);
     }
   }, [visible, units.weightUnit]);
 
-  // Workout type used for the exercise picker. Prefers the live session's
-  // type so the library matches what the user is actually doing.
-  const pickerWorkoutType: WorkoutType = (session.active
-    ? (session.active.workoutType as WorkoutType)
-    : chosenType) ?? 'strength';
+  const handleRecapDone = useCallback(() => {
+    setRecapVisible(false);
+    setRecapData(null);
+    onClose();
+  }, [onClose]);
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
-  const handleStart = useCallback(async (type: WorkoutType) => {
-    const meta = WORKOUT_TYPES.find((t) => t.id === type);
-    await session.start({
-      workoutType: type,
-      workoutName: meta?.label ?? 'Workout',
-      // Reasonable SF Symbol per type; widget falls back to a generic one.
-      workoutIcon:
-        type === 'strength' ? 'dumbbell.fill' :
-        type === 'run'      ? 'figure.run' :
-        type === 'cardio'   ? 'heart.fill' :
-        type === 'hiit'     ? 'bolt.fill' :
-        type === 'yoga'     ? 'figure.yoga' :
-                              'figure.mixed.cardio',
-    });
-    setChosenType(type);
-  }, [session]);
+  const pickerWorkoutType: WorkoutType =
+    (activeSession?.workoutType as WorkoutType) ?? 'strength';
+
+  const handlePauseToggle = useCallback(async () => {
+    if (activeSession?.pausedAt != null) {
+      await session.resume();
+    } else {
+      await session.pause();
+    }
+  }, [activeSession?.pausedAt, session]);
 
   const canAddSet =
     !!activeExercise &&
@@ -171,99 +254,87 @@ export function LiveSessionSheet({ visible, onClose }: Props) {
   }, []);
 
   const handleFinish = useCallback(async () => {
-    if (finishing) return;
+    if (finishingRef.current) return;
+    finishingRef.current = true;
     setFinishing(true);
     try {
+      const sessionSnapshot = workoutSession.session;
       const completed = await session.end();
       if (!completed) {
         onClose();
         return;
       }
 
-      const durationMins = Math.max(1, Math.round((Date.now() - completed.startedAt) / 60000));
-      // Translate the picker's UI type ("strength" | "run" | …) into the
-      // backend's canonical type ("gym" | "running" | …) before persisting.
-      const backendType: BackendWorkoutType =
-        UI_WORKOUT_TYPE_MAP[completed.workoutType] ?? 'other';
-      const workout = await logWorkout({
-        type:          backendType,
-        duration_mins: durationMins,
-        intensity:     'moderate',
-        source:        'manual',
-        started_at:    new Date(completed.startedAt).toISOString(),
-        ended_at:      new Date().toISOString(),
-      });
-
-      if (completed.sets.length > 0) {
-        await logSets(workout.id, completed.sets.map((s) => ({
-          exercise:    s.exercise,
-          reps:        s.reps,
-          weight:      s.weightKg > 0 ? s.weightKg : undefined,
-          weight_unit: 'kg' as const,
-        })));
+      if (!sessionSnapshot) {
+        onClose();
+        return;
       }
 
-      toast.success(
-        'Workout saved',
-        `${completed.sets.length} sets · ${fmtElapsed(Date.now() - completed.startedAt)}`,
-      );
-      onClose();
+      const weightKg =
+        user?.weightKg != null && user.weightKg > 0 ? user.weightKg : undefined;
+
+      const { recapData } = await finishAndSaveWorkoutSession({
+        session: sessionSnapshot,
+        completed: {
+          workoutType: completed.workoutType,
+          workoutName: completed.workoutName,
+          startedAt: completed.startedAt,
+          sets: completed.sets,
+        },
+        logWorkout,
+        logSets,
+        healthToday,
+        weightKg,
+        userAge: user?.age,
+        posthog,
+      });
+
+      setRecapData(recapData);
+      setRecapVisible(true);
+
+      await workoutSession.end();
     } catch (e) {
       console.error('[LiveSession] finish failed', e);
       toast.error('Could not save', 'Workout ended; sets may be lost.');
       onClose();
     } finally {
+      finishingRef.current = false;
       setFinishing(false);
       setConfirmFinish(false);
     }
-  }, [finishing, session, logWorkout, logSets, toast, onClose]);
+  }, [
+    session,
+    workoutSession,
+    healthToday,
+    user?.weightKg,
+    logWorkout,
+    logSets,
+    posthog,
+    toast,
+    onClose,
+  ]);
 
-  // ── Render: picker (no active session yet) ───────────────────────────────
-  if (!session.active) {
+  if (recapVisible && recapData) {
     return (
-      <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-        <View style={{ flex: 1, backgroundColor: P.bg }}>
-          <PickerHeader title="Start a workout" onClose={onClose} P={P} />
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 24 }}>
-            <Text style={[styles.pickerHint, { color: P.textFaint }]}>
-              Pick a workout type to start the timer. Add sets as you go. The session stays on your lock screen until you finish.
-            </Text>
-            <View style={styles.typeGrid}>
-              {WORKOUT_TYPES.map((t) => (
-                <Pressable
-                  key={t.id}
-                  onPress={() => void handleStart(t.id)}
-                  style={({ pressed }) => [
-                    styles.typeCard,
-                    { backgroundColor: P.card, borderColor: P.cardEdge },
-                    pressed && { opacity: 0.7 },
-                  ]}
-                >
-                  <View style={[styles.typeIcon, { backgroundColor: P.workoutSoft }]}>
-                    <Ionicons name={t.icon} size={22} color={P.workout} />
-                  </View>
-                  <Text style={[styles.typeLabel, { color: P.text }]}>{t.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </ScrollView>
-        </View>
-      </Modal>
+      <WorkoutSessionRecapSheet
+        visible={recapVisible}
+        data={recapData}
+        onDone={handleRecapDone}
+      />
     );
   }
 
-  // ── Render: live session ─────────────────────────────────────────────────
-  const isPaused = session.active.pausedAt != null;
-  const totalVolume = session.active.sets.reduce(
+  if (!activeSession) return null;
+
+  const isPaused = activeSession.pausedAt != null;
+  const isStrength = activeSession.isStrength;
+  const totalVolume = activeSession.sets.reduce(
     (acc, s) => acc + (s.weightKg > 0 ? s.weightKg * s.reps : 0), 0,
   );
 
-  // Group sets by exercise for display. Order: the user's chosen ordering
-  // first, then any exercise present in sets but no longer in chosen
-  // (kept so removed-from-picker sets still appear in history).
   const grouped: { exercise: string; sets: SessionSet[] }[] = (() => {
     const map = new Map<string, SessionSet[]>();
-    for (const s of session.active.sets) {
+    for (const s of activeSession.sets) {
       const arr = map.get(s.exercise) ?? [];
       arr.push(s);
       map.set(s.exercise, arr);
@@ -297,7 +368,7 @@ export function LiveSessionSheet({ visible, onClose }: Props) {
                 {isPaused ? 'PAUSED' : 'LIVE'}
               </Text>
             </View>
-            <Text style={[styles.hdrTitle, { color: P.text }]}>{session.active.workoutName}</Text>
+            <Text style={[styles.hdrTitle, { color: P.text }]}>{activeSession.workoutName}</Text>
           </View>
           <View style={styles.hdrBtn} />
         </View>
@@ -312,23 +383,70 @@ export function LiveSessionSheet({ visible, onClose }: Props) {
             <Text style={[styles.heroLabel, { color: P.textFaint }]}>ELAPSED</Text>
             <Text style={[styles.heroTime, { color: P.text }]}>{fmtElapsed(elapsedMs)}</Text>
             <View style={styles.heroMetrics}>
-              <View style={styles.heroMetricCell}>
-                <Text style={[styles.heroMetricVal, { color: P.text }]}>{session.active.sets.length}</Text>
-                <Text style={[styles.heroMetricLbl, { color: P.textFaint }]}>
-                  {session.active.sets.length === 1 ? 'set' : 'sets'}
-                </Text>
-              </View>
-              <View style={[styles.heroMetricSep, { backgroundColor: P.hair }]} />
-              <View style={styles.heroMetricCell}>
-                <Text style={[styles.heroMetricVal, { color: P.text }]}>{Math.round(totalVolume)}</Text>
-                <Text style={[styles.heroMetricLbl, { color: P.textFaint }]}>kg volume</Text>
-              </View>
+              {isStrength ? (
+                <>
+                  <View style={styles.heroMetricCell}>
+                    <Text style={[styles.heroMetricVal, { color: P.text }]}>
+                      {activeSession.sets.length}
+                    </Text>
+                    <Text style={[styles.heroMetricLbl, { color: P.textFaint }]}>
+                      {activeSession.sets.length === 1 ? 'set' : 'sets'}
+                    </Text>
+                  </View>
+                  <View style={[styles.heroMetricSep, { backgroundColor: P.hair }]} />
+                  <View style={styles.heroMetricCell}>
+                    <Text style={[styles.heroMetricVal, { color: P.text }]}>
+                      {Math.round(totalVolume)}
+                    </Text>
+                    <Text style={[styles.heroMetricLbl, { color: P.textFaint }]}>kg volume</Text>
+                  </View>
+                  {liveMetrics != null && (
+                    <>
+                      <View style={[styles.heroMetricSep, { backgroundColor: P.hair }]} />
+                      <View style={styles.heroMetricCell}>
+                        <Text style={[styles.heroMetricVal, { color: P.text }]}>
+                          {liveMetrics.caloriesBurned}
+                        </Text>
+                        <Text style={[styles.heroMetricLbl, { color: P.textFaint }]}>kcal</Text>
+                      </View>
+                      {liveMetrics.heartRate != null && (
+                        <>
+                          <View style={[styles.heroMetricSep, { backgroundColor: P.hair }]} />
+                          <View style={styles.heroMetricCell}>
+                            <Text style={[styles.heroMetricVal, { color: P.text }]}>
+                              {liveMetrics.heartRate}
+                            </Text>
+                            <Text style={[styles.heroMetricLbl, { color: P.textFaint }]}>bpm</Text>
+                          </View>
+                        </>
+                      )}
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <View style={styles.heroMetricCell}>
+                    <Text style={[styles.heroMetricVal, { color: P.text }]}>
+                      {liveMetrics?.caloriesBurned ?? 0}
+                    </Text>
+                    <Text style={[styles.heroMetricLbl, { color: P.textFaint }]}>kcal</Text>
+                  </View>
+                  <View style={[styles.heroMetricSep, { backgroundColor: P.hair }]} />
+                  <View style={styles.heroMetricCell}>
+                    <Text style={[styles.heroMetricVal, { color: P.text }]}>
+                      {liveMetrics?.heartRate != null ? liveMetrics.heartRate : '—'}
+                    </Text>
+                    <Text style={[styles.heroMetricLbl, { color: P.textFaint }]}>bpm</Text>
+                  </View>
+                </>
+              )}
             </View>
           </View>
 
-          {/* Sets list, grouped by exercise */}
+          {isStrength && (
+            <>
           <Text style={[styles.sectionLabel, { color: P.textFaint }]}>EXERCISES</Text>
-          {chosenExercises.length === 0 && session.active.sets.length === 0 ? (
+          {chosenExercises.length === 0 && activeSession.sets.length === 0 ? (
             <View style={[styles.emptyHint, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
               <Ionicons name="add-circle-outline" size={18} color={P.textFaint} />
               <Text style={[styles.emptyHintText, { color: P.textFaint }]}>
@@ -371,6 +489,8 @@ export function LiveSessionSheet({ visible, onClose }: Props) {
               ))}
             </>
           )}
+            </>
+          )}
         </ScrollView>
 
         {/* Sticky add-set form + action row */}
@@ -380,6 +500,8 @@ export function LiveSessionSheet({ visible, onClose }: Props) {
             { backgroundColor: P.bg, borderTopColor: P.cardEdge, paddingBottom: insets.bottom + 12 },
           ]}
         >
+          {isStrength && (
+            <>
           {/* Chosen-exercise chip strip + Add exercises button */}
           <View style={styles.chipRowOuter}>
             <ScrollView
@@ -512,11 +634,13 @@ export function LiveSessionSheet({ visible, onClose }: Props) {
               <Ionicons name="checkmark" size={22} color={canAddSet ? '#fff' : P.textFaint} />
             </Pressable>
           </View>
+            </>
+          )}
 
           {/* Action row */}
           <View style={styles.actions}>
             <Pressable
-              onPress={() => void (isPaused ? session.resume() : session.pause())}
+              onPress={() => void handlePauseToggle()}
               style={({ pressed }) => [
                 styles.pauseBtn,
                 { backgroundColor: P.sunken, borderColor: P.cardEdge },
@@ -544,6 +668,7 @@ export function LiveSessionSheet({ visible, onClose }: Props) {
         {/* Exercise library picker (multi-select). Confirm replaces the
             chosen list; sets logged for an exercise are unaffected even if
             the user removes that exercise from the chips later. */}
+        {isStrength && (
         <ExercisePicker
           visible={pickerOpen}
           workoutType={pickerWorkoutType}
@@ -552,6 +677,7 @@ export function LiveSessionSheet({ visible, onClose }: Props) {
           onConfirm={handlePickerConfirm}
           onClose={() => setPickerOpen(false)}
         />
+        )}
 
         {/* Confirm finish modal */}
         <Modal visible={confirmFinish} transparent animationType="fade">
@@ -559,7 +685,7 @@ export function LiveSessionSheet({ visible, onClose }: Props) {
             <Pressable style={[styles.confirmCard, { backgroundColor: P.card }]} onPress={(e) => e.stopPropagation()}>
               <Text style={[styles.confirmTitle, { color: P.text }]}>Finish workout?</Text>
               <Text style={[styles.confirmSub, { color: P.textFaint }]}>
-                {session.active.sets.length} {session.active.sets.length === 1 ? 'set' : 'sets'} · {fmtElapsed(elapsedMs)}
+                {activeSession.sets.length} {activeSession.sets.length === 1 ? 'set' : 'sets'} · {fmtElapsed(elapsedMs)}
               </Text>
               <View style={styles.confirmActions}>
                 <Pressable
@@ -590,22 +716,6 @@ export function LiveSessionSheet({ visible, onClose }: Props) {
         </Modal>
       </KeyboardAvoidingView>
     </Modal>
-  );
-}
-
-// ── Header for the picker state ──────────────────────────────────────────────
-
-function PickerHeader({
-  title, onClose, P,
-}: { title: string; onClose: () => void; P: ReturnType<typeof usePalette> }) {
-  return (
-    <View style={[styles.header, { paddingTop: 14, borderBottomColor: P.hair }]}>
-      <TouchableOpacity onPress={onClose} hitSlop={10} style={styles.hdrBtn}>
-        <Ionicons name="close" size={22} color={P.text} />
-      </TouchableOpacity>
-      <Text style={[styles.hdrTitle, { color: P.text }]}>{title}</Text>
-      <View style={styles.hdrBtn} />
-    </View>
   );
 }
 
@@ -677,25 +787,6 @@ const styles = StyleSheet.create({
   liveRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   liveDot: { width: 6, height: 6, borderRadius: 3 },
   liveLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
-
-  // Picker
-  pickerHint: { fontSize: 13, lineHeight: 19, marginTop: 16, marginBottom: 18 },
-  typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  typeCard: {
-    width: '47%',
-    aspectRatio: 1.3,
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    padding: 18,
-  },
-  typeIcon: {
-    width: 44, height: 44, borderRadius: 14,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  typeLabel: { fontSize: 14, fontWeight: '800', letterSpacing: -0.2 },
 
   // Hero
   heroCard: {

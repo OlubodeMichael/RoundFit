@@ -10,54 +10,34 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ComponentProps } from 'react';
 
 import { AppModal } from '@/components/ui/AppModal';
+import { getBurnCatalogEntries } from '@/config/workout-catalog';
 import { usePalette } from '@/lib/log-theme';
+import {
+  catalogEntryToBurnActivity,
+  computeDurationMinutes,
+  formatDurationLabel,
+  type BurnActivityShape,
+} from '@/utils/burn-prescription';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
-// ─── Exercise catalogue ─────────────────────────────────────────────────────
-export type BurnActivity = {
-  id:    string;
-  label: string;
-  verb:  string;
-  met:   number;
-  icon:  IoniconName;
-  tint:  'calories' | 'protein' | 'carbs' | 'fat' | 'water' | 'workout';
-};
+/** @deprecated Use `WorkoutCatalogEntry` from `@/config/workout-catalog` instead. */
+export type BurnActivity = BurnActivityShape;
 
-export const BURN_ACTIVITIES: BurnActivity[] = [
-  { id: 'walk',     label: 'Walking (brisk)', verb: 'Walk',  met: 4.3, icon: 'walk',          tint: 'calories' },
-  { id: 'run',      label: 'Running',         verb: 'Run',   met: 8.0, icon: 'speedometer',   tint: 'protein'  },
-  { id: 'cycle',    label: 'Cycling',         verb: 'Cycle', met: 7.5, icon: 'bicycle',       tint: 'workout'  },
-  { id: 'swim',     label: 'Swimming',        verb: 'Swim',  met: 7.0, icon: 'water',         tint: 'water'    },
-  { id: 'rowing',   label: 'Rowing',          verb: 'Row',   met: 7.0, icon: 'boat',          tint: 'fat'      },
-  { id: 'hiit',     label: 'HIIT',            verb: 'HIIT',  met: 9.0, icon: 'flash',         tint: 'calories' },
-  { id: 'strength', label: 'Strength',        verb: 'Lift',  met: 6.0, icon: 'barbell',       tint: 'carbs'    },
-  { id: 'hike',     label: 'Hiking',          verb: 'Hike',  met: 6.0, icon: 'trail-sign',    tint: 'carbs'    },
-  { id: 'dance',    label: 'Dancing',         verb: 'Dance', met: 5.0, icon: 'musical-notes', tint: 'fat'      },
-  { id: 'yoga',     label: 'Yoga',            verb: 'Yoga',  met: 3.0, icon: 'leaf',          tint: 'protein'  },
-];
+export {
+  computeDurationMinutes,
+  formatDurationLabel,
+} from '@/utils/burn-prescription';
+
+/** @deprecated Use `getBurnCatalogEntries()` instead. */
+export const BURN_ACTIVITIES: BurnActivity[] = getBurnCatalogEntries().map(catalogEntryToBurnActivity);
 
 export function formatActivityPrescription(activity: BurnActivity, minutes: number) {
   return `${activity.verb} ${formatDurationLabel(minutes)}`;
 }
 
-export function computeDurationMinutes(met: number, weightKg: number, caloriesToBurn: number) {
-  if (!isFinite(met) || met <= 0) return 0;
-  if (!isFinite(weightKg) || weightKg <= 0) return 0;
-  if (!isFinite(caloriesToBurn) || caloriesToBurn <= 0) return 0;
-  const minutes = (caloriesToBurn / (met * weightKg)) * 60;
-  return Math.max(5, Math.round(minutes / 5) * 5);
-}
-
-export function formatDurationLabel(mins: number) {
-  if (mins < 60) return `${mins} min`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (m === 0) return h === 1 ? '1 hr' : `${h} hrs`;
-  return `${h}h ${m}m`;
-}
-
 // ─── BurnActivityPicker ─────────────────────────────────────────────────────
+/** @deprecated Use `WorkoutLauncher` with `intent="burn"` instead. */
 
 export type BurnActivityPickerProps = {
   visible:        boolean;

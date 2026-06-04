@@ -25,18 +25,32 @@ import {
     useScreenPadding,
 } from "@/lib/log-theme";
 import { LiveSessionSheet } from "@/components/log/workout/LiveSessionSheet";
+import { WorkoutHistorySection } from "@/components/log/workout/WorkoutHistorySection";
+import { WorkoutLauncher } from "@/components/log/workout/WorkoutLauncher";
+import { workoutFooterLabel, workoutSourceLabel } from "@/components/log/workout/workout-display";
+import { WorkoutActionRow } from "@/components/log/workout/WorkoutActionRow";
+import { WorkoutContinueCard } from "@/components/log/workout/WorkoutContinueCard";
+import { WorkoutPendingSection } from "@/components/log/workout/WorkoutPendingSection";
+import { WorkoutSessionRecoveryBanner } from "@/components/log/workout/WorkoutSessionRecoveryBanner";
+import { getCatalogEntryById, getBackendTypeForCatalogId } from "@/config/workout-catalog";
+import { useWorkoutSession } from "@/context/workout-session-context";
 import { useWorkoutSessionLiveActivity } from "@/hooks/use-workout-session-live-activity";
+import { useWorkoutHistory } from "@/hooks/use-workout-history";
+import { useWorkoutImportReview } from "@/hooks/use-workout-import-review";
+import { usePendingWorkoutImports } from "@/hooks/use-pending-workout-imports";
+import type { WorkoutLauncherIntent, WorkoutSelection } from "@/types/workout-session";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useFocusEffect } from "@react-navigation/native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { usePostHog } from "posthog-react-native";
 import type { ComponentProps } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Pressable,
     ScrollView,
     StyleSheet,
     Text,
     TextInput,
-    TouchableOpacity,
     View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -70,6 +84,12 @@ const INTENSITY_LEVEL: Record<string, number> = {
   hard: 3,
 };
 
+const INTENSITY_CAL_RATE = {
+  light: CALORIES_PER_MINUTE.low,
+  moderate: CALORIES_PER_MINUTE.moderate,
+  hard: CALORIES_PER_MINUTE.high,
+} as const;
+
 // Colors cycle across exercises within a workout
 const EX_COLORS = [
   "#22D3EE",
@@ -87,16 +107,6 @@ function fmtDuration(mins: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-/** Live-session ticking timer label (h:mm:ss or m:ss). */
-function fmtElapsed(ms: number): string {
-  const sec = Math.max(0, Math.floor(ms / 1000));
-  const h   = Math.floor(sec / 3600);
-  const m   = Math.floor((sec % 3600) / 60);
-  const s   = sec % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
-}
-
 function newSet(): SetRow {
   return {
     id: `s${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -111,12 +121,10 @@ function newSet(): SetRow {
 
 function WorkoutEntry({
   workout,
-  onDelete,
-  onEdit,
+  onOpen,
 }: {
   workout: Workout;
-  onDelete: (id: string) => void;
-  onEdit: (workout: Workout) => void;
+  onOpen: (workout: Workout) => void;
 }) {
   const P = usePalette();
   const meta = WORKOUT_META[workout.type] ?? WORKOUT_META.other;
@@ -142,10 +150,16 @@ function WorkoutEntry({
   const hasSets = exerciseGroups.length > 0;
   const intLevel = INTENSITY_LEVEL[workout.intensity ?? "moderate"] ?? 2;
   const topColor = EX_COLORS[0];
+  const sourceLabel = workoutSourceLabel(workout.source);
 
   return (
-    <View
-      style={[card.wrap, { backgroundColor: P.card, borderColor: P.cardEdge }]}
+    <Pressable
+      onPress={() => onOpen(workout)}
+      style={({ pressed }) => [
+        card.wrap,
+        { backgroundColor: P.card, borderColor: P.cardEdge },
+        pressed && { opacity: 0.92 },
+      ]}
     >
       <View style={card.topLine}>
         <View style={[card.topAccent, { backgroundColor: topColor }]} />
@@ -161,13 +175,29 @@ function WorkoutEntry({
         </View>
 
         <View style={{ flex: 1 }}>
-          <Text style={[card.workoutName, { color: P.text }]}>
-            {meta.label}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <Text style={[card.workoutName, { color: P.text }]}>
+              {meta.label}
+            </Text>
+            {sourceLabel != null && (
+              <View style={[card.sourceBadge, { backgroundColor: P.sunken }]}>
+                <Ionicons name="heart-outline" size={10} color={P.workout} />
+                <Text style={[card.sourceText, { color: P.textFaint }]}>{sourceLabel}</Text>
+              </View>
+            )}
+          </View>
           <View style={card.metaRow}>
             <Text style={[card.metaText, { color: P.textFaint }]}>
               {fmtDuration(workout.duration_mins)}
             </Text>
+            {workout.avg_heart_rate != null && (
+              <>
+                <View style={[card.metaDot, { backgroundColor: P.cardEdge }]} />
+                <Text style={[card.metaText, { color: P.textFaint }]}>
+                  {Math.round(workout.avg_heart_rate)} bpm
+                </Text>
+              </>
+            )}
             {workout.intensity && (
               <>
                 <View style={[card.metaDot, { backgroundColor: P.cardEdge }]} />
@@ -199,6 +229,7 @@ function WorkoutEntry({
           </Text>
           <Text style={[card.calsUnit, { color: P.textFaint }]}>kcal</Text>
         </View>
+        <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
       </View>
 
       {hasSets && (
@@ -297,26 +328,11 @@ function WorkoutEntry({
 
       <View style={[card.footerRow, { borderTopColor: P.hair }]}>
         <Text style={[card.footerText, { color: P.textFaint }]}>
-          Logged manually
+          {workoutFooterLabel(workout.source)}
         </Text>
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <TouchableOpacity
-            onPress={() => onEdit(workout)}
-            hitSlop={12}
-            style={[card.trash, { backgroundColor: P.sunken }]}
-          >
-            <Ionicons name="pencil-outline" size={13} color={P.textFaint} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => onDelete(workout.id)}
-            hitSlop={12}
-            style={[card.trash, { backgroundColor: P.sunken }]}
-          >
-            <Ionicons name="trash-outline" size={13} color={P.textFaint} />
-          </TouchableOpacity>
-        </View>
+        <Text style={[card.footerText, { color: P.textFaint }]}>View details</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -355,6 +371,15 @@ const card = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: -0.2,
   },
+  sourceBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  sourceText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.2 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
   metaText: { fontSize: 11, fontWeight: "600" },
   metaDot: { width: 3, height: 3, borderRadius: 2, opacity: 0.75 },
@@ -1733,14 +1758,91 @@ export default function WorkoutLogScreen() {
   const P = usePalette();
   const pad = useScreenPadding();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { editId } = useLocalSearchParams<{ editId?: string }>();
   const toast = useToast();
-  const { workouts, totalCaloriesBurned, deleteWorkout } = useWorkouts();
+  const posthog = usePostHog();
+  const { workouts, logWorkout, logSets, refreshWorkouts } = useWorkouts();
+  const workoutHistory = useWorkoutHistory();
+  const importReview = useWorkoutImportReview();
+  const pendingImports = usePendingWorkoutImports();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
 
-  // Live session, separate from the "log past workout" sheet above.
+  // Live session + log-past launcher (shared component, different intents).
   const session = useWorkoutSessionLiveActivity();
+  const workoutSession = useWorkoutSession();
+  const [launcherOpen, setLauncherOpen] = useState(false);
+  const [launcherIntent, setLauncherIntent] = useState<WorkoutLauncherIntent>("live");
   const [liveSheetOpen, setLiveSheetOpen] = useState(false);
+  const [liveSelection, setLiveSelection] = useState<WorkoutSelection | null>(null);
+
+  const openLiveLauncher = useCallback(() => {
+    setLauncherIntent("live");
+    setLauncherOpen(true);
+  }, []);
+
+  const openLogLauncher = useCallback(() => {
+    setLauncherIntent("log");
+    setLauncherOpen(true);
+  }, []);
+
+  const syncOnFocusRef = useRef<() => void>(() => {});
+  syncOnFocusRef.current = () => {
+    void refreshWorkouts();
+    void workoutHistory.refresh();
+    void importReview.runImport();
+    void pendingImports.refresh();
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      syncOnFocusRef.current();
+    }, []),
+  );
+
+  const handleOpenDetail = useCallback((workout: Workout) => {
+    router.push(`/(tabs)/log/workout/${workout.id}`);
+  }, [router]);
+
+  useEffect(() => {
+    if (!editId) return;
+    const target = workouts.find((workout) => workout.id === editId);
+    if (!target) return;
+    setEditingWorkout(target);
+    setSheetOpen(true);
+    router.setParams({ editId: undefined });
+  }, [editId, router, workouts]);
+
+  const hasActiveLiveSession =
+    session.active != null ||
+    workoutSession.status === "active" ||
+    workoutSession.status === "paused";
+
+  const activeLiveDisplay = useMemo(() => {
+    if (session.active) return session.active;
+    if (!workoutSession.session) return null;
+    if (workoutSession.status !== "active" && workoutSession.status !== "paused") {
+      return null;
+    }
+    const s = workoutSession.session;
+    const entry = getCatalogEntryById(s.workoutType);
+    return {
+      workoutType: s.workoutType,
+      workoutName: s.workoutName,
+      workoutIcon: entry?.sfSymbol ?? "dumbbell.fill",
+      startedAt: s.startedAt,
+      pausedAt: s.pausedAt,
+      sets: s.sets,
+    };
+  }, [session.active, workoutSession.session, workoutSession.status]);
+
+  const liveTimerStartedAt = activeLiveDisplay?.startedAt;
+  const liveTimerPausedAt = activeLiveDisplay?.pausedAt ?? null;
+
+  const handleLiveSheetClose = useCallback(() => {
+    setLiveSheetOpen(false);
+  }, []);
 
   // Deep-link entry: tapping the Dynamic Island or lock-screen Live Activity
   // routes through `app/workout-session.tsx`, which bumps openSheetSignal.
@@ -1753,46 +1855,124 @@ export default function WorkoutLogScreen() {
   // Live banner ticking timer.
   const [liveElapsed, setLiveElapsed] = useState(0);
   useEffect(() => {
-    if (!session.active) return;
-    if (session.active.pausedAt != null) {
-      setLiveElapsed(session.active.pausedAt - session.active.startedAt);
+    if (liveTimerStartedAt == null) return;
+    if (liveTimerPausedAt != null) {
+      setLiveElapsed(liveTimerPausedAt - liveTimerStartedAt);
       return;
     }
-    const tick = () => setLiveElapsed(Date.now() - session.active!.startedAt);
+    const tick = () => setLiveElapsed(Date.now() - liveTimerStartedAt);
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [session.active]);
+  }, [liveTimerStartedAt, liveTimerPausedAt]);
 
-  const handleDelete = useCallback(
-    async (id: string) => {
-      try {
-        await deleteWorkout(id);
-      } catch {
-        toast.error("Could not delete", "Please try again.");
-      }
+  const handleLiveStart = useCallback(
+    async (selection: WorkoutSelection) => {
+      await workoutSession.start({ ...selection, entrySurface: "log" });
+      await session.start({
+        workoutType: selection.entry.id,
+        workoutName: selection.entry.label,
+        workoutIcon: selection.entry.sfSymbol,
+      });
+      setLiveSelection(selection);
+      setLauncherOpen(false);
+      setLiveSheetOpen(true);
     },
-    [deleteWorkout, toast],
+    [workoutSession, session],
   );
 
-  const handleEdit = useCallback((workout: Workout) => {
-    setEditingWorkout(workout);
-    setSheetOpen(true);
-  }, []);
+  const handleLogSave = useCallback(
+    async (selection: WorkoutSelection) => {
+      const { entry, durationMins, intensity, presetExercises, notes } = selection;
+      if (!durationMins || durationMins === 0) {
+        toast.warning("Missing duration", "How long was this workout?");
+        return;
+      }
+      if (entry.sessionMode === "strength" && (!presetExercises || presetExercises.length === 0)) {
+        toast.warning("No exercises", "Pick at least one exercise.");
+        return;
+      }
+
+      const backendType = getBackendTypeForCatalogId(entry.id) ?? "other";
+      const backendIntensity = intensity ?? "moderate";
+      const estimatedCals = Math.round(
+        durationMins * (INTENSITY_CAL_RATE[backendIntensity] ?? INTENSITY_CAL_RATE.moderate),
+      );
+      const h = Math.floor(durationMins / 60);
+      const m = durationMins % 60;
+      const label = h > 0 ? `${h}h ${m}m` : `${m} min`;
+
+      try {
+        const w = await logWorkout({
+          type: backendType,
+          duration_mins: durationMins,
+          intensity: backendIntensity,
+          calories_burned: estimatedCals,
+          source: "manual",
+          ...(notes ? { notes } : {}),
+        });
+
+        if (entry.sessionMode === "strength" && presetExercises && presetExercises.length > 0) {
+          await logSets(
+            w.id,
+            presetExercises.map((name) => ({
+              exercise: name,
+              sets: 1,
+              weight_unit: "kg" as const,
+            })),
+          );
+        }
+
+        posthog.capture("workout_logged_retroactive", {
+          activity_id: entry.id,
+          duration_mins: durationMins,
+          intensity: backendIntensity,
+          exercises_count: presetExercises?.length ?? 0,
+          estimated_cals: estimatedCals,
+        });
+
+        toast.success(
+          "Logged!",
+          `${entry.sessionMode === "strength" && presetExercises?.length ? `${presetExercises.length} exercise${presetExercises.length !== 1 ? "s" : ""} · ` : ""}${label}`,
+        );
+        setLauncherOpen(false);
+      } catch {
+        toast.error("Failed to save", "Please try again.");
+      }
+    },
+    [logWorkout, logSets, posthog, toast],
+  );
+
+  const handleRecoverSession = useCallback(async () => {
+    const recoverable = workoutSession.recoverableSession;
+    await workoutSession.recover();
+    if (recoverable) {
+      const entry = getCatalogEntryById(recoverable.workoutType);
+      await session.start({
+        workoutType: recoverable.workoutType,
+        workoutName: recoverable.workoutName,
+        workoutIcon: entry?.sfSymbol ?? "figure.mixed.cardio",
+      });
+    }
+    setLiveSheetOpen(true);
+  }, [workoutSession, session]);
 
   const handleSheetClose = useCallback(() => {
     setSheetOpen(false);
     setEditingWorkout(null);
   }, []);
 
-  const totalDuration = workouts.reduce((s, w) => s + w.duration_mins, 0);
+  const totalDuration = pendingImports.todayDurationMinutes;
+  const totalCaloriesWithPending = pendingImports.todayCaloriesBurned;
+  const hasWorkoutActivity =
+    workouts.length > 0 || pendingImports.todayPending.length > 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <ScrollView
         contentContainerStyle={{
           paddingTop: pad.paddingTop,
-          paddingBottom: insets.bottom + 100,
+          paddingBottom: insets.bottom + 32,
         }}
         showsVerticalScrollIndicator={false}
       >
@@ -1800,95 +1980,27 @@ export default function WorkoutLogScreen() {
 
         {/* Live session entry / banner */}
         <View style={{ paddingHorizontal: 20, marginTop: 4, marginBottom: 8 }}>
-          {session.active ? (
-            <Pressable
+          <WorkoutSessionRecoveryBanner onRecover={() => void handleRecoverSession()} />
+
+          {hasActiveLiveSession && activeLiveDisplay ? (
+            <WorkoutContinueCard
+              workoutType={activeLiveDisplay.workoutType}
+              workoutName={activeLiveDisplay.workoutName}
+              elapsedMs={liveElapsed}
+              setCount={activeLiveDisplay.sets.length}
+              isPaused={activeLiveDisplay.pausedAt != null}
               onPress={() => setLiveSheetOpen(true)}
-              style={({ pressed }) => [
-                ms.liveBanner,
-                { backgroundColor: P.card, borderColor: P.workout + '55' },
-                pressed && { opacity: 0.85 },
-              ]}
-            >
-              <View style={[ms.liveIcon, { backgroundColor: P.workoutSoft }]}>
-                <Ionicons name="barbell" size={18} color={P.workout} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <View style={ms.liveDotRow}>
-                  <Text style={[ms.liveContinueTitle, { color: P.text }]}>
-                    Continue workout
-                  </Text>
-                  <View
-                    style={[
-                      ms.liveStatusChip,
-                      {
-                        backgroundColor:
-                          session.active.pausedAt != null
-                            ? P.sunken
-                            : 'rgba(52,211,153,0.15)',
-                        borderColor:
-                          session.active.pausedAt != null
-                            ? P.cardEdge
-                            : 'rgba(52,211,153,0.35)',
-                      },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        ms.liveDot,
-                        {
-                          backgroundColor:
-                            session.active.pausedAt != null ? P.textFaint : '#34D399',
-                        },
-                      ]}
-                    />
-                    <Text
-                      style={[
-                        ms.liveBadge,
-                        {
-                          color:
-                            session.active.pausedAt != null ? P.textFaint : '#34D399',
-                        },
-                      ]}
-                    >
-                      {session.active.pausedAt != null ? 'PAUSED' : 'LIVE'}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={[ms.liveMeta, { color: P.textFaint }]} numberOfLines={1}>
-                  {session.active.workoutName} · {fmtElapsed(liveElapsed)} ·{' '}
-                  {session.active.sets.length}{' '}
-                  {session.active.sets.length === 1 ? 'set' : 'sets'}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={P.textFaint} />
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={() => setLiveSheetOpen(true)}
-              style={({ pressed }) => [
-                ms.startSessionCard,
-                { backgroundColor: P.card, borderColor: P.cardEdge },
-                pressed && { opacity: 0.85 },
-              ]}
-            >
-              <View style={[ms.startSessionIcon, { backgroundColor: P.workoutSoft }]}>
-                <Ionicons name="play" size={16} color={P.workout} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[ms.startSessionTitle, { color: P.text }]}>
-                  Start a workout
-                </Text>
-                <Text style={[ms.startSessionSub, { color: P.textFaint }]}>
-                  Track your time and sets as you go.
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={P.textFaint} />
-            </Pressable>
-          )}
+            />
+          ) : null}
+
+          <WorkoutActionRow
+            onStartWorkout={openLiveLauncher}
+            onLogWorkout={openLogLauncher}
+          />
         </View>
 
         {/* Stats strip */}
-        {workouts.length > 0 && (
+        {hasWorkoutActivity && (
           <View style={{ paddingHorizontal: 20, marginBottom: 4 }}>
             <View
               style={[
@@ -1916,7 +2028,7 @@ export default function WorkoutLogScreen() {
                 </View>
                 <View>
                   <Text style={[ms.statVal, { color: P.text }]}>
-                    {Math.round(totalCaloriesBurned).toLocaleString()}
+                    {Math.round(totalCaloriesWithPending).toLocaleString()}
                   </Text>
                   <Text style={[ms.statLbl, { color: P.textFaint }]}>
                     burned
@@ -1934,7 +2046,7 @@ export default function WorkoutLogScreen() {
                 </View>
                 <View>
                   <Text style={[ms.statVal, { color: P.text }]}>
-                    {workouts.length}
+                    {pendingImports.todaySessionCount}
                   </Text>
                   <Text style={[ms.statLbl, { color: P.textFaint }]}>
                     sessions
@@ -1947,7 +2059,17 @@ export default function WorkoutLogScreen() {
 
         {/* List or empty state */}
         <View style={{ paddingHorizontal: 20, marginTop: 12 }}>
-          {workouts.length === 0 ? (
+          {workouts.length > 0 && (
+            <Text style={[ms.sectionTitle, { color: P.textFaint, marginBottom: 10 }]}>Today</Text>
+          )}
+          <WorkoutPendingSection
+            groups={pendingImports.pendingGroups}
+            isLoading={pendingImports.isLoading}
+            onOpenItem={(uuid) => {
+              router.push(`/(tabs)/log/workout/healthkit/${uuid}`);
+            }}
+          />
+          {workouts.length === 0 && pendingImports.totalPending === 0 ? (
             <View
               style={[
                 ms.empty,
@@ -1961,45 +2083,28 @@ export default function WorkoutLogScreen() {
                 No workouts yet
               </Text>
               <Text style={[ms.emptySub, { color: P.textFaint }]}>
-                Start by logging your first session for today.
+                Use Actions above to start a live session or log a workout manually.
               </Text>
-              <TouchableOpacity
-                onPress={() => setSheetOpen(true)}
-                activeOpacity={0.85}
-                style={[ms.emptyBtn, { backgroundColor: P.workout }]}
-              >
-                <Ionicons name="add" size={16} color="#fff" />
-                <Text style={ms.emptyBtnText}>Log a workout</Text>
-              </TouchableOpacity>
             </View>
           ) : (
             workouts.map((w) => (
               <WorkoutEntry
                 key={w.id}
                 workout={w}
-                onDelete={handleDelete}
-                onEdit={handleEdit}
+                onOpen={handleOpenDetail}
               />
             ))
           )}
+
+          <WorkoutHistorySection
+            groups={workoutHistory.groups}
+            isLoading={workoutHistory.isLoading}
+            error={workoutHistory.error}
+            onRetry={() => { void workoutHistory.refresh(); }}
+            onEditWorkout={handleOpenDetail}
+          />
         </View>
       </ScrollView>
-
-      {/* FAB */}
-      {workouts.length > 0 && (
-        <View style={[ms.fabWrap, { bottom: insets.bottom + 24 }]}>
-          <TouchableOpacity
-            onPress={() => {
-              setEditingWorkout(null);
-              setSheetOpen(true);
-            }}
-            activeOpacity={0.88}
-            style={[ms.fab, { backgroundColor: P.workout }]}
-          >
-            <Ionicons name="add" size={26} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      )}
 
       <LogWorkoutSheet
         visible={sheetOpen}
@@ -2007,10 +2112,19 @@ export default function WorkoutLogScreen() {
         editWorkout={editingWorkout}
       />
 
-      {/* Live session sheet: picker before start, in-progress view after. */}
+      <WorkoutLauncher
+        visible={launcherOpen}
+        onClose={() => setLauncherOpen(false)}
+        intent={launcherIntent}
+        onLiveStart={(selection) => void handleLiveStart(selection)}
+        onLogSave={(selection) => void handleLogSave(selection)}
+      />
+
+      {/* Live session UI — session must already be started via launcher. */}
       <LiveSessionSheet
         visible={liveSheetOpen}
-        onClose={() => setLiveSheetOpen(false)}
+        onClose={handleLiveSheetClose}
+        selection={liveSelection ?? undefined}
       />
     </View>
   );
@@ -2019,54 +2133,12 @@ export default function WorkoutLogScreen() {
 // ── Main screen styles ────────────────────────────────────────────────────────
 
 const ms = StyleSheet.create({
-  // ── Live session entry ──
-  startSessionCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
   },
-  startSessionIcon: {
-    width: 40, height: 40, borderRadius: 12,
-    alignItems: "center", justifyContent: "center",
-  },
-  startSessionTitle: { fontSize: 14, fontWeight: "800", letterSpacing: -0.2 },
-  startSessionSub:   { fontSize: 12, marginTop: 2 },
-
-  liveBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderRadius: 16,
-    borderWidth: 1.5,
-  },
-  liveIcon: {
-    width: 42, height: 42, borderRadius: 13,
-    alignItems: "center", justifyContent: "center",
-  },
-  liveDotRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  liveDot:    { width: 6, height: 6, borderRadius: 3 },
-  liveBadge:  { fontSize: 9, fontWeight: "800", letterSpacing: 1.0 },
-  liveName:   { fontSize: 13, fontWeight: "800", letterSpacing: -0.2, flexShrink: 1 },
-  liveMeta:   { fontSize: 12, fontVariant: ["tabular-nums"], marginTop: 3 },
-  liveContinueTitle: {
-    fontSize: 14, fontWeight: "800", letterSpacing: -0.2,
-  },
-  liveStatusChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-
   statsStrip: {
     flexDirection: "row",
     alignItems: "center",
@@ -2121,33 +2193,5 @@ const ms = StyleSheet.create({
     fontWeight: "500",
     textAlign: "center",
     lineHeight: 19,
-  },
-  emptyBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 10,
-    paddingHorizontal: 22,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  emptyBtnText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: -0.1,
-  },
-  fabWrap: { position: "absolute", right: 24 },
-  fab: {
-    width: 54,
-    height: 54,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 8,
   },
 });

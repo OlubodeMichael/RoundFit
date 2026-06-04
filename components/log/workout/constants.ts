@@ -1,18 +1,6 @@
-import type { ComponentProps } from 'react';
-import Ionicons from '@expo/vector-icons/Ionicons';
-
 import type { ExerciseSection, Intensity, WorkoutType } from './types';
 
-type IoniconName = ComponentProps<typeof Ionicons>['name'];
-
-export const WORKOUT_TYPES: { id: WorkoutType; label: string; icon: IoniconName }[] = [
-  { id: 'strength', label: 'Strength', icon: 'barbell-outline' },
-  { id: 'run', label: 'Run', icon: 'footsteps-outline' },
-  { id: 'cardio', label: 'Cardio', icon: 'heart-outline' },
-  { id: 'hiit', label: 'HIIT', icon: 'flash-outline' },
-  { id: 'yoga', label: 'Yoga', icon: 'leaf-outline' },
-  { id: 'other', label: 'Other', icon: 'apps-outline' },
-];
+export { WORKOUT_TYPES } from '@/config/workout-catalog';
 
 export const INTENSITY_OPTIONS: { id: Intensity; label: string; dots: number }[] = [
   { id: 'low', label: 'Low', dots: 1 },

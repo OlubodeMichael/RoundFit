@@ -37,7 +37,7 @@ private func timerView(
 private func sfSymbol(for workoutIcon: String) -> String {
     let known = [
         "figure.run", "figure.walk", "figure.outdoor.cycle", "figure.pool.swim",
-        "figure.rowing", "figure.yoga", "figure.highintensity.intervaltraining",
+        "figure.outdoor.rowing", "figure.yoga", "figure.highintensity.intervaltraining",
         "figure.strengthtraining.traditional", "dumbbell", "bolt.heart",
         "figure.mixed.cardio", "map",
     ]
@@ -327,6 +327,48 @@ struct SessionMinimalView: View {
 }
 
 @available(iOS 16.2, *)
+private func sessionShowsVitals(_ state: WorkoutSessionAttributes.ContentState) -> Bool {
+    state.caloriesBurned > 0 || state.heartRate != nil
+}
+
+@available(iOS 16.2, *)
+private struct SessionVitalsRow: View {
+    let state: WorkoutSessionAttributes.ContentState
+    let large: Bool
+
+    var body: some View {
+        HStack(spacing: large ? 14 : 10) {
+            if state.caloriesBurned > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "flame.fill")
+                        .foregroundColor(orange)
+                        .font(.system(size: large ? 12 : 11))
+                    Text("\(Int(state.caloriesBurned))")
+                        .font(.system(size: large ? 16 : 13, weight: .heavy))
+                        .foregroundColor(.white)
+                    Text("kcal")
+                        .font(.system(size: large ? 12 : 11, weight: .medium))
+                        .foregroundColor(.white.opacity(large ? 0.5 : 0.75))
+                }
+            }
+            if let hr = state.heartRate {
+                HStack(spacing: 4) {
+                    Image(systemName: "heart.fill")
+                        .foregroundColor(.pink)
+                        .font(.system(size: large ? 12 : 11))
+                    Text("\(hr)")
+                        .font(.system(size: large ? 16 : 12, weight: large ? .heavy : .semibold))
+                        .foregroundColor(large ? .white : .white.opacity(0.75))
+                    Text("bpm")
+                        .font(.system(size: large ? 12 : 11, weight: .medium))
+                        .foregroundColor(.white.opacity(large ? 0.5 : 0.75))
+                }
+            }
+        }
+    }
+}
+
+@available(iOS 16.2, *)
 struct SessionExpandedView: View {
     let attributes: WorkoutSessionAttributes
     let state:      WorkoutSessionAttributes.ContentState
@@ -368,6 +410,9 @@ struct SessionExpandedView: View {
                     Text("\(Int(state.totalVolumeKg)) kg total")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.white.opacity(0.65))
+                }
+                if sessionShowsVitals(state) {
+                    SessionVitalsRow(state: state, large: false)
                 }
             }
         }
@@ -435,7 +480,7 @@ struct SessionLockScreenView: View {
                 }
             }
 
-            // ── Metric row: set count | volume ──
+            // ── Metric row: set count | volume | vitals ──
             HStack(alignment: .center, spacing: 14) {
                 HStack(spacing: 6) {
                     Image(systemName: "list.bullet")
@@ -460,6 +505,10 @@ struct SessionLockScreenView: View {
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(.white.opacity(0.55))
                     }
+                }
+
+                if sessionShowsVitals(state) {
+                    SessionVitalsRow(state: state, large: true)
                 }
             }
 

@@ -58,6 +58,8 @@ public struct WorkoutSessionAttributes: ActivityAttributes {
         public var lastSetReps: Int?
         public var lastSetWeightKg: Double?
         public var totalVolumeKg: Double
+        public var caloriesBurned: Double
+        public var heartRate: Int?
         public var isActive: Bool
         public var pausedAt: Date?
         public var startTime: Date?
@@ -68,6 +70,8 @@ public struct WorkoutSessionAttributes: ActivityAttributes {
             lastSetReps: Int? = nil,
             lastSetWeightKg: Double? = nil,
             totalVolumeKg: Double = 0,
+            caloriesBurned: Double = 0,
+            heartRate: Int? = nil,
             isActive: Bool = true,
             pausedAt: Date? = nil,
             startTime: Date? = nil
@@ -77,6 +81,8 @@ public struct WorkoutSessionAttributes: ActivityAttributes {
             self.lastSetReps = lastSetReps
             self.lastSetWeightKg = lastSetWeightKg
             self.totalVolumeKg = totalVolumeKg
+            self.caloriesBurned = caloriesBurned
+            self.heartRate = heartRate
             self.isActive = isActive
             self.pausedAt = pausedAt
             self.startTime = startTime

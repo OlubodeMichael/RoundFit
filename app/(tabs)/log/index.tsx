@@ -13,7 +13,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useFood } from '@/hooks/use-food';
-import { useWorkouts } from '@/context/workout-context';
+import { usePendingWorkoutImports } from '@/hooks/use-pending-workout-imports';
 import { AnimatedCard, usePalette, useScreenPadding } from '@/lib/log-theme';
 import { SectionCard } from '@/components/log/SectionCard';
 import { useToast } from '@/components/ui/Toast';
@@ -43,7 +43,7 @@ export default function DailyLogScreen() {
   const insets = useSafeAreaInsets();
 
   const { meals, mealGoal, totalCalories, refreshLogs, activeDate } = useFood();
-  const { workouts, totalCaloriesBurned: workoutCalsBurned } = useWorkouts();
+  const pendingWorkouts = usePendingWorkoutImports();
   const { latest } = useWeight();
   const { totalMl, goalMl, refresh: refreshWater, ensureLoaded } = useWater();
   const { profile } = useProfile();
@@ -68,7 +68,9 @@ export default function DailyLogScreen() {
   const eatenPct         = Math.min(totalCalories / Math.max(mealGoal, 1), 1);
   const latestWeightKg   = latest?.weight_kg ?? profile?.weightKg ?? null;
   const latestWeight     = latestWeightKg === null ? null : toDisplayWeight(latestWeightKg);
-  const totalWorkoutMins = workouts.reduce((s, w) => s + w.duration_mins, 0);
+  const totalWorkoutMins = pendingWorkouts.todayDurationMinutes;
+  const workoutSessionCount = pendingWorkouts.todaySessionCount;
+  const workoutCalsBurned = pendingWorkouts.todayCaloriesBurned;
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -76,6 +78,7 @@ export default function DailyLogScreen() {
       await Promise.all([
         refreshLogs(),
         refreshWater(undefined, { force: true }),
+        pendingWorkouts.refresh(),
       ]);
     }
     catch { toast.error('Could not refresh', 'Please try again.'); }
@@ -252,12 +255,12 @@ export default function DailyLogScreen() {
             emoji="💪"
             title="Workout"
             eyebrow="TRAINING"
-            valueBig={totalWorkoutMins > 0 ? String(totalWorkoutMins) : 'Log'}
+            valueBig={workoutSessionCount > 0 ? String(totalWorkoutMins) : '0'}
             valueSmall="min"
             caption={
-              workouts.length === 0
+              workoutSessionCount === 0
                 ? 'No workout logged · tap to add'
-                : `${workouts.length} ${workouts.length === 1 ? 'session' : 'sessions'} · ${workoutCalsBurned.toLocaleString()} kcal burned`
+                : `${workoutSessionCount} ${workoutSessionCount === 1 ? 'session' : 'sessions'} · ${Math.round(workoutCalsBurned).toLocaleString()} kcal burned`
             }
             onPress={() => router.push('/(tabs)/log/workout')}
           />

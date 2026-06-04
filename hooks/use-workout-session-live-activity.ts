@@ -1,6 +1,18 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { AppState, Platform } from 'react-native';
 
+import { getCatalogEntryById } from '@/config/workout-catalog';
+import { useWorkoutSession } from '@/context/workout-session-context';
+import { useSessionMetrics } from '@/hooks/use-session-metrics';
+import type { WorkoutSelection, WorkoutSession } from '@/types/workout-session';
 import {
   endSessionLiveActivity,
   getCurrentSessionLiveActivityState,
@@ -10,218 +22,259 @@ import {
   updateSessionLiveActivity,
 } from 'workout-live-activity';
 
-// ── Set / session models ────────────────────────────────────────────────────
+export type { SessionSet } from '@/types/workout-session';
+import type { SessionSet } from '@/types/workout-session';
 
-export interface SessionSet {
-  /** Stable client-side id, generated when the set is logged. */
-  id:        string;
-  exercise:  string;
-  reps:      number;
-  /** Weight in kilograms. Pass 0 for bodyweight moves. */
-  weightKg:  number;
-  /** Local ms timestamp the set was logged. */
-  loggedAt:  number;
-}
+// ── Session view model (backward-compatible with LiveSessionSheet) ─────────
 
 export interface ActiveSessionState {
-  workoutType:  string;
-  workoutName:  string;
-  workoutIcon:  string; // SF Symbol used by the widget
-  /** Effective start. Shifted forward on resume so paused time is excluded. */
-  startedAt:    number;
-  /** ms timestamp when paused, null when running. */
-  pausedAt:     number | null;
-  /** All sets logged this session, in insertion order. */
-  sets:         SessionSet[];
+  workoutType: string;
+  workoutName: string;
+  workoutIcon: string;
+  startedAt: number;
+  pausedAt: number | null;
+  sets: SessionSet[];
 }
 
 export interface UseWorkoutSessionLiveActivityResult {
-  active:        ActiveSessionState | null;
-  isSupported:   boolean;
-
-  /**
-   * Monotonically increasing counter incremented every time something
-   * external (e.g. a Dynamic Island / lock-screen tap deep link) asks the
-   * UI to open the live-session sheet. Consumers watch for changes via
-   * useEffect and open the sheet when the value goes up.
-   */
+  active: ActiveSessionState | null;
+  isSupported: boolean;
   openSheetSignal: number;
-  /** Fire from deep-link routes to bump `openSheetSignal`. */
   requestOpenSheet: () => void;
-
-  /** Begin a session. Starts the ticking timer and shows the Live Activity. */
   start: (params: {
     workoutType: string;
     workoutName: string;
     workoutIcon?: string;
   }) => Promise<void>;
-
-  /** Append a set; pushes the new count + "last set" line to the widget. */
   addSet: (set: Omit<SessionSet, 'id' | 'loggedAt'>) => Promise<void>;
-
-  /** Remove a set by id (e.g. mis-entered). Recomputes volume. */
   removeSet: (setId: string) => Promise<void>;
-
-  /** Freeze the timer; widget shows PAUSED + grey colors. */
-  pause:  () => Promise<void>;
+  pause: () => Promise<void>;
   resume: () => Promise<void>;
-
-  /** End the session. Dismisses the Live Activity, returns the final state. */
-  end:    () => Promise<ActiveSessionState | null>;
+  /** Ends the Live Activity widget; returns session snapshot for persistence. */
+  end: () => Promise<ActiveSessionState | null>;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+const POLL_INTERVAL_MS = 8_000;
 
 function computeVolume(sets: SessionSet[]): number {
   return sets.reduce((acc, s) => acc + (s.weightKg > 0 ? s.weightKg * s.reps : 0), 0);
 }
 
-function generateId(): string {
-  // Tiny non-crypto id, enough to dedupe locally.
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+function liveMetricsFields(
+  metrics: ReturnType<typeof useSessionMetrics>,
+): Pick<
+  Parameters<typeof updateSessionLiveActivity>[0],
+  'caloriesBurned' | 'heartRate'
+> {
+  if (metrics.metrics == null) return {};
+  return {
+    caloriesBurned: metrics.caloriesBurned,
+    ...(metrics.heartRate != null ? { heartRate: metrics.heartRate } : {}),
+  };
 }
 
-// ── Implementation hook (internal) ───────────────────────────────────────────
-// Holds the single source of truth for the active session. Mount via
-// <WorkoutSessionLiveActivityProvider> at the app root so every consumer
-// sees the same state. Consumers should call useWorkoutSessionLiveActivity().
+function sessionToActive(session: WorkoutSession, workoutIcon?: string): ActiveSessionState {
+  const entry = getCatalogEntryById(session.workoutType);
+  return {
+    workoutType: session.workoutType,
+    workoutName: session.workoutName,
+    workoutIcon: workoutIcon ?? entry?.sfSymbol ?? 'dumbbell.fill',
+    startedAt: session.startedAt,
+    pausedAt: session.pausedAt,
+    sets: session.sets,
+  };
+}
+
+function buildSelectionFromLegacyParams(params: {
+  workoutType: string;
+  workoutName: string;
+  workoutIcon?: string;
+}): WorkoutSelection {
+  const entry = getCatalogEntryById(params.workoutType);
+  if (entry) {
+    return { entry, intent: 'live' };
+  }
+  return {
+    entry: {
+      id: params.workoutType,
+      label: params.workoutName,
+      icon: 'barbell-outline',
+      sfSymbol: params.workoutIcon ?? 'dumbbell.fill',
+      backendType: 'other',
+      sessionMode: 'strength',
+      supportsSets: true,
+    },
+    intent: 'live',
+  };
+}
+
+async function pushSetMetricsToLiveActivity(sets: SessionSet[]): Promise<void> {
+  const lastSet = sets[sets.length - 1];
+  await updateSessionLiveActivity({
+    setCount: sets.length,
+    lastExercise: lastSet?.exercise ?? null,
+    lastSetReps: lastSet?.reps ?? null,
+    lastSetWeightKg: lastSet?.weightKg ?? null,
+    totalVolumeKg: computeVolume(sets),
+  });
+}
 
 function useWorkoutSessionLiveActivityImpl(): UseWorkoutSessionLiveActivityResult {
-  const [active, setActive] = useState<ActiveSessionState | null>(null);
+  const workoutSession = useWorkoutSession();
+  const { session, status, start: contextStart, pause: contextPause, resume: contextResume, addSet: contextAddSet, removeSet: contextRemoveSet } =
+    workoutSession;
+  const sessionMetrics = useSessionMetrics();
+
   const [openSheetSignal, setOpenSheetSignal] = useState(0);
-  const isSupported         = Platform.OS === 'ios' && isLiveActivitySupported();
+  const isSupported = Platform.OS === 'ios' && isLiveActivitySupported();
+  const laSessionIdRef = useRef<string | null>(null);
+  const sessionMetricsRef = useRef(sessionMetrics);
+  sessionMetricsRef.current = sessionMetrics;
 
   const requestOpenSheet = useCallback(() => {
     setOpenSheetSignal((n) => n + 1);
   }, []);
 
+  const active = useMemo((): ActiveSessionState | null => {
+    if (!session || (status !== 'active' && status !== 'paused')) return null;
+    return sessionToActive(session);
+  }, [session, status]);
+
   const activeRef = useRef(active);
   activeRef.current = active;
 
-  const start = useCallback(
-    async ({
-      workoutType,
-      workoutName,
-      workoutIcon = 'dumbbell.fill',
-    }: {
-      workoutType: string;
-      workoutName: string;
-      workoutIcon?: string;
-    }) => {
-      if (!isSupported) {
-        console.warn('[SessionLA] not supported (iOS < 16.1 or disabled)');
-        return;
-      }
+  const ensureLiveActivityStarted = useCallback(
+    async (s: WorkoutSession, workoutIcon?: string) => {
+      if (!isSupported || laSessionIdRef.current === s.id) return;
 
-      const startedAt = Date.now();
-      const next: ActiveSessionState = {
-        workoutType,
-        workoutName,
-        workoutIcon,
-        startedAt,
-        pausedAt: null,
-        sets: [],
-      };
-
+      // Dismiss any stale lock-screen card before requesting a new activity.
       try {
-        const id = await startSessionLiveActivity({
-          workoutType,
-          workoutName,
-          workoutIcon,
-          startTime: startedAt,
+        await endSessionLiveActivity();
+      } catch {
+        // Live Activity may be disabled or already dismissed
+      }
+      laSessionIdRef.current = null;
+
+      const icon = workoutIcon ?? getCatalogEntryById(s.workoutType)?.sfSymbol ?? 'dumbbell.fill';
+      try {
+        await startSessionLiveActivity({
+          workoutType: s.workoutType,
+          workoutName: s.workoutName,
+          workoutIcon: icon,
+          startTime: s.startedAt,
         });
-        console.log('[SessionLA] started', { id });
-        setActive(next);
-      } catch (e) {
-        console.error('[SessionLA] start failed', e);
+        if (s.sets.length > 0) {
+          await pushSetMetricsToLiveActivity(s.sets);
+        }
+        if (s.pausedAt != null) {
+          await updateSessionLiveActivity({ isActive: false, pausedAt: s.pausedAt });
+        }
+        laSessionIdRef.current = s.id;
+      } catch {
+        // Live Activity may be disabled or dismissed
       }
     },
     [isSupported],
   );
 
-  const addSet = useCallback(
-    async (set: Omit<SessionSet, 'id' | 'loggedAt'>) => {
-      const current = activeRef.current;
-      if (!current) return;
+  useEffect(() => {
+    if (!session || session.mode !== 'strength') return;
+    if (status !== 'active' && status !== 'paused') return;
+    void ensureLiveActivityStarted(session);
+  }, [session, status, ensureLiveActivityStarted]);
 
-      const fullSet: SessionSet = {
-        ...set,
-        id:       generateId(),
-        loggedAt: Date.now(),
-      };
-      const nextSets   = [...current.sets, fullSet];
-      const nextVolume = computeVolume(nextSets);
+  useEffect(() => {
+    if (status === 'idle') {
+      laSessionIdRef.current = null;
+    }
+  }, [status]);
 
-      setActive({ ...current, sets: nextSets });
-      try {
-        await updateSessionLiveActivity({
-          setCount:        nextSets.length,
-          lastExercise:    set.exercise,
-          lastSetReps:     set.reps,
-          lastSetWeightKg: set.weightKg,
-          totalVolumeKg:   nextVolume,
-        });
-      } catch (e) {
-        console.error('[SessionLA] addSet update failed', e);
-      }
+  const start = useCallback(
+    async ({
+      workoutType,
+      workoutName,
+      workoutIcon,
+    }: {
+      workoutType: string;
+      workoutName: string;
+      workoutIcon?: string;
+    }) => {
+      const selection = buildSelectionFromLegacyParams({ workoutType, workoutName, workoutIcon });
+      const created = await contextStart(selection);
+      if (!created) return;
+
+      await ensureLiveActivityStarted(created, workoutIcon);
     },
-    [],
+    [isSupported, contextStart, ensureLiveActivityStarted],
   );
 
-  const removeSet = useCallback(async (setId: string) => {
-    const current = activeRef.current;
-    if (!current) return;
+  const addSet = useCallback(
+    async (set: Omit<SessionSet, 'id' | 'loggedAt'>) => {
+      const next = await contextAddSet({ ...set, loggedAt: Date.now() });
+      if (!next) return;
 
-    const nextSets   = current.sets.filter((s) => s.id !== setId);
-    if (nextSets.length === current.sets.length) return; // no-op
-    const nextVolume = computeVolume(nextSets);
-    const lastSet   = nextSets[nextSets.length - 1];
+      const current = activeRef.current;
+      const sets = current ? [...current.sets, next] : [next];
+      try {
+        await pushSetMetricsToLiveActivity(sets);
+        await updateSessionLiveActivity(liveMetricsFields(sessionMetricsRef.current));
+      } catch {
+        // Activity may have been dismissed
+      }
+    },
+    [contextAddSet],
+  );
 
-    setActive({ ...current, sets: nextSets });
-    try {
-      // null clears the "last set" line when removal empties the session.
-      await updateSessionLiveActivity({
-        setCount:        nextSets.length,
-        lastExercise:    lastSet?.exercise ?? null,
-        lastSetReps:     lastSet?.reps     ?? null,
-        lastSetWeightKg: lastSet?.weightKg ?? null,
-        totalVolumeKg:   nextVolume,
-      });
-    } catch (e) {
-      console.error('[SessionLA] removeSet update failed', e);
-    }
-  }, []);
+  const removeSet = useCallback(
+    async (setId: string) => {
+      const updated = await contextRemoveSet(setId);
+      if (!updated) return;
+
+      try {
+        await pushSetMetricsToLiveActivity(updated.sets);
+        await updateSessionLiveActivity(liveMetricsFields(sessionMetricsRef.current));
+      } catch {
+        // Activity may have been dismissed
+      }
+    },
+    [contextRemoveSet],
+  );
 
   const pause = useCallback(async () => {
     const current = activeRef.current;
     if (!current || current.pausedAt != null) return;
 
-    const pausedAt = Date.now();
-    setActive({ ...current, pausedAt });
+    await contextPause();
     try {
-      await updateSessionLiveActivity({ isActive: false, pausedAt });
-    } catch (e) {
-      console.error('[SessionLA] pause failed', e);
+      await updateSessionLiveActivity({
+        isActive: false,
+        pausedAt: Date.now(),
+        ...liveMetricsFields(sessionMetricsRef.current),
+      });
+    } catch {
+      // Activity may have been dismissed
     }
-  }, []);
+  }, [contextPause]);
 
   const resume = useCallback(async () => {
     const current = activeRef.current;
     if (!current || current.pausedAt == null) return;
 
     const pauseDuration = Date.now() - current.pausedAt;
-    const newStartedAt  = current.startedAt + pauseDuration;
-    setActive({ ...current, startedAt: newStartedAt, pausedAt: null });
+    const newStartedAt = current.startedAt + pauseDuration;
+
+    await contextResume();
     try {
       await updateSessionLiveActivity({
-        isActive:  true,
+        isActive: true,
         startTime: newStartedAt,
-        pausedAt:  null,
+        pausedAt: null,
+        ...liveMetricsFields(sessionMetricsRef.current),
       });
-    } catch (e) {
-      console.error('[SessionLA] resume failed', e);
+    } catch {
+      // Activity may have been dismissed
     }
-  }, []);
+  }, [contextResume]);
 
   const end = useCallback(async (): Promise<ActiveSessionState | null> => {
     const current = activeRef.current;
@@ -230,54 +283,36 @@ function useWorkoutSessionLiveActivityImpl(): UseWorkoutSessionLiveActivityResul
     const volume = computeVolume(current.sets);
     try {
       await endSessionLiveActivity({
-        setCount:      current.sets.length,
+        setCount: current.sets.length,
         totalVolumeKg: volume,
       });
-    } catch (e) {
-      console.error('[SessionLA] end failed', e);
+    } catch {
+      // Activity may have been dismissed
     } finally {
-      setActive(null);
+      laSessionIdRef.current = null;
     }
     return current;
   }, []);
 
-  // Resync from the native activity (cold reattach + foreground refresh).
   const syncFromNative = useCallback(() => {
     const current = activeRef.current;
     if (!current) return;
 
-    // Tri-state: explicit `false` means native confirms no session; `null`
-    // means native couldn't be queried (stale binary, missing function).
-    // Only drop JS state on explicit false. Otherwise the polling loop
-    // would clear the session every 3 seconds whenever the native module
-    // hasn't been rebuilt with the latest functions.
     const hasActive = hasActiveSessionLiveActivity();
-    if (hasActive === false) {
-      // The Live Activity was dismissed externally (e.g. user swiped away).
-      setActive(null);
-      return;
-    }
-    if (hasActive === null) {
-      // Native side can't answer; keep current JS state untouched.
-      return;
-    }
+    if (hasActive === false) return;
+    if (hasActive === null) return;
 
     const native = getCurrentSessionLiveActivityState();
     if (!native) return;
 
     const nativePaused = native.pausedAt != null;
-    const jsPaused     = current.pausedAt != null;
+    const jsPaused = current.pausedAt != null;
     if (nativePaused && !jsPaused) {
-      setActive({ ...current, pausedAt: native.pausedAt ?? Date.now() });
+      void contextPause();
     } else if (!nativePaused && jsPaused) {
-      const pauseDuration = Date.now() - (current.pausedAt ?? Date.now());
-      setActive({
-        ...current,
-        startedAt: current.startedAt + pauseDuration,
-        pausedAt:  null,
-      });
+      void contextResume();
     }
-  }, []);
+  }, [contextPause, contextResume]);
 
   useEffect(() => {
     if (!isSupported) return;
@@ -293,6 +328,24 @@ function useWorkoutSessionLiveActivityImpl(): UseWorkoutSessionLiveActivityResul
     return () => clearInterval(id);
   }, [isSupported, active, syncFromNative]);
 
+  useEffect(() => {
+    if (!isSupported || !active || active.pausedAt != null) return;
+
+    const tick = async () => {
+      const fields = liveMetricsFields(sessionMetricsRef.current);
+      if (Object.keys(fields).length === 0) return;
+      try {
+        await updateSessionLiveActivity(fields);
+      } catch {
+        // Activity may have been dismissed
+      }
+    };
+
+    void tick();
+    const id = setInterval(tick, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [isSupported, active]);
+
   return {
     active,
     isSupported,
@@ -307,18 +360,14 @@ function useWorkoutSessionLiveActivityImpl(): UseWorkoutSessionLiveActivityResul
   };
 }
 
-// ── Context + Provider ──────────────────────────────────────────────────────
-// Hoist the impl hook into a Context so every consumer (workout tab banner,
-// session sheet, summary toast, etc.) shares the same `active` state. Without
-// this each call site would get its own useState, and the banner on the
-// workout tab would never see the session that the sheet started.
-
 const WorkoutSessionLiveActivityContext =
   createContext<UseWorkoutSessionLiveActivityResult | null>(null);
 
-export function WorkoutSessionLiveActivityProvider(
-  { children }: { children: React.ReactNode },
-) {
+export function WorkoutSessionLiveActivityProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const value = useWorkoutSessionLiveActivityImpl();
   return React.createElement(
     WorkoutSessionLiveActivityContext.Provider,
@@ -327,10 +376,6 @@ export function WorkoutSessionLiveActivityProvider(
   );
 }
 
-/**
- * Shared hook backed by <WorkoutSessionLiveActivityProvider>.
- * The provider must be mounted above any consumer (see `app/_layout.tsx`).
- */
 export function useWorkoutSessionLiveActivity(): UseWorkoutSessionLiveActivityResult {
   const ctx = useContext(WorkoutSessionLiveActivityContext);
   if (!ctx) {

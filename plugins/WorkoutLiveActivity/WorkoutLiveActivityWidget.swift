@@ -7,7 +7,7 @@ private let orange = Color(red: 0.976, green: 0.451, blue: 0.086)
 private func sfSymbol(for workoutIcon: String) -> String {
     let known = [
         "figure.run", "figure.walk", "figure.outdoor.cycle", "figure.pool.swim",
-        "figure.rowing", "figure.yoga", "figure.highintensity.intervaltraining",
+        "figure.outdoor.rowing", "figure.yoga", "figure.highintensity.intervaltraining",
         "figure.strengthtraining.traditional", "dumbbell", "bolt.heart",
         "figure.mixed.cardio", "map",
     ]

@@ -11,6 +11,8 @@ export default function LogLayout() {
       <Stack.Screen name="food/manual" />
       <Stack.Screen name="food/photo" />
       <Stack.Screen name="workout" />
+      <Stack.Screen name="workout/[id]" />
+      <Stack.Screen name="workout/healthkit/[uuid]" />
       <Stack.Screen name="sleep" />
       <Stack.Screen name="weight" />
       <Stack.Screen name="body" />
