@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
+import { RecoveryTrendGradientCard } from '@/components/recovery/RecoveryTrendGradientCard';
 import type { TrendPalette } from '@/components/recovery/recovery-trend-utils';
 
 export interface RecoveryTrendHeroProps {
@@ -9,6 +10,7 @@ export interface RecoveryTrendHeroProps {
   periodTitle: string;
   periodSubtitle: string;
   palette: TrendPalette;
+  readinessScore?: number;
 }
 
 export function RecoveryTrendHero({
@@ -18,12 +20,22 @@ export function RecoveryTrendHero({
   periodTitle,
   periodSubtitle,
   palette,
+  readinessScore = score ?? 0,
 }: RecoveryTrendHeroProps) {
   return (
-    <View style={[styles.wrap, { backgroundColor: palette.card, borderColor: palette.cardEdge }]}>
+    <RecoveryTrendGradientCard
+      palette={palette}
+      readinessScore={readinessScore}
+      corner="top-left"
+      contentStyle={styles.inner}
+    >
       <View style={styles.left}>
-        <Text style={[styles.periodTitle, { color: palette.textFaint }]}>{periodTitle}</Text>
-        <Text style={[styles.periodSub, { color: palette.text }]}>{periodSubtitle}</Text>
+        <Text style={[styles.periodTitle, { color: palette.textFaint }]}>
+          {periodTitle}
+        </Text>
+        <Text style={[styles.periodSub, { color: palette.text }]}>
+          {periodSubtitle}
+        </Text>
       </View>
       <View style={styles.right}>
         {gaugeLabel.length > 0 && (
@@ -37,60 +49,61 @@ export function RecoveryTrendHero({
         </View>
         <Text style={[styles.today, { color: palette.textFaint }]}>today</Text>
       </View>
-    </View>
+    </RecoveryTrendGradientCard>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    justifyContent:    'space-between',
-    borderRadius:      16,
-    borderWidth:       StyleSheet.hairlineWidth,
+  inner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical:   14,
+    paddingVertical: 14,
   },
   left: {
     flex: 1,
-    gap:  3,
+    gap: 3,
     paddingRight: 12,
+    minWidth: 0,
   },
   periodTitle: {
-    fontSize:      10,
-    fontWeight:    '700',
+    fontSize: 10,
+    fontWeight: '700',
     letterSpacing: 1.4,
   },
   periodSub: {
-    fontSize:   15,
+    fontSize: 15,
     fontWeight: '700',
   },
   right: {
     alignItems: 'flex-end',
-    gap:        2,
+    gap: 2,
+    flexShrink: 0,
   },
   badge: {
-    fontSize:      9,
-    fontWeight:    '800',
+    fontSize: 9,
+    fontWeight: '800',
     letterSpacing: 1.6,
   },
   scoreRow: {
     flexDirection: 'row',
-    alignItems:    'baseline',
-    gap:           2,
+    alignItems: 'baseline',
+    gap: 2,
   },
   score: {
-    fontSize:      40,
-    fontWeight:    '800',
+    fontSize: 40,
+    fontWeight: '800',
     letterSpacing: -2,
-    lineHeight:    42,
+    lineHeight: 42,
+    fontVariant: ['tabular-nums'],
   },
   of: {
-    fontSize:   13,
+    fontSize: 13,
     fontWeight: '600',
   },
   today: {
-    fontSize:   11,
+    fontSize: 11,
     fontWeight: '500',
   },
 });

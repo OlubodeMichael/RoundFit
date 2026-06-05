@@ -100,11 +100,10 @@ if (Platform.OS === 'ios') {
 /** True if the device supports Live Activities (iOS 16.1+ and user hasn't disabled them). */
 export function isLiveActivitySupported(): boolean {
   if (!Native) {
-    console.warn('[LiveActivity] native module is null (not linked into the build)');
     return false;
   }
   const supported = Native.isSupported();
-  console.log('[LiveActivity] Native.isSupported() =', supported);
+  
   return supported;
 }
 

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Defs, LinearGradient, Path, Stop, Line } from 'react-native-svg';
+import Svg, { Circle, Defs, LinearGradient, Line, Path, Stop, Text as SvgText } from 'react-native-svg';
 
 import type { ReadinessHistoryPoint } from '@/types/readiness';
 import type { TrendPalette } from '@/components/recovery/recovery-trend-utils';
@@ -13,7 +13,8 @@ import {
 } from '@/components/recovery/recovery-trend-utils';
 
 const CHART_H = 128;
-const PAD_TOP = 18;
+const PAD_TOP = 28;
+const SCORE_LABEL_OFFSET = 12;
 const PAD_BOTTOM = 4;
 
 export interface RecoveryWeeklyChartProps {
@@ -109,6 +110,25 @@ export function RecoveryWeeklyChart({ points, tint, width, palette }: RecoveryWe
           if (c.score <= 0) return null;
           const dotTint = scoreTint(c.score, palette);
           const today = isToday(c.date);
+          const labelY = c.y - (today ? 14 : SCORE_LABEL_OFFSET);
+          return (
+            <SvgText
+              key={`${c.date}-label`}
+              x={c.x}
+              y={labelY}
+              fill={today ? palette.text : dotTint}
+              fontSize={today ? 11 : 10}
+              fontWeight={today ? '800' : '700'}
+              textAnchor="middle"
+            >
+              {c.score}
+            </SvgText>
+          );
+        })}
+        {coords.map((c) => {
+          if (c.score <= 0) return null;
+          const dotTint = scoreTint(c.score, palette);
+          const today = isToday(c.date);
           return (
             <Circle
               key={c.date}
@@ -128,13 +148,6 @@ export function RecoveryWeeklyChart({ points, tint, width, palette }: RecoveryWe
           const today = isToday(p.date);
           return (
             <View key={p.date} style={styles.labelCol}>
-              <Text style={[
-                styles.score,
-                { color: p.score > 0 ? palette.textDim : palette.textFaint },
-                today && { color: palette.text, fontWeight: '800' },
-              ]}>
-                {p.score > 0 ? p.score : '·'}
-              </Text>
               <Text style={[
                 styles.day,
                 { color: today ? tint : palette.textFaint },
@@ -162,10 +175,6 @@ const styles = StyleSheet.create({
     flex:       1,
     alignItems: 'center',
     gap:        2,
-  },
-  score: {
-    fontSize:   10,
-    fontWeight: '600',
   },
   day: {
     fontSize:   11,

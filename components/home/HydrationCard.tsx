@@ -9,6 +9,7 @@ import { useWater } from '@/hooks/use-water';
 
 const ML_PER_OZ = 29.5735;
 const OZ_ROUND = (oz: number) => Math.round(oz);
+const HEADER_ICON_SIZE = 32;
 
 export interface HydrationCardPalette {
   card: string;
@@ -57,11 +58,7 @@ export function HydrationCard({ P, delay = 0, onViewAll }: HydrationCardProps) {
     >
       <View style={s.header}>
         <View style={s.headerMain}>
-          <View style={[s.iconRing, { backgroundColor: accent.iconSoft }]}>
-            <View style={[s.iconBox, { backgroundColor: accent.iconBg }]}>
-              <Ionicons name="water" size={16} color="#FFF" />
-            </View>
-          </View>
+          <Ionicons name="water" size={HEADER_ICON_SIZE} color={accent.iconBg} />
           <View style={s.headerCopy}>
             <Text style={[s.headerTitle, { color: P.text }]}>Hydration</Text>
             <Text style={[s.headerCaption, { color: P.textDim }]}>
@@ -123,7 +120,7 @@ const s = StyleSheet.create({
   headerMain: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
     flex: 1,
     minWidth: 0,
   },
@@ -131,17 +128,6 @@ const s = StyleSheet.create({
     flex: 1,
     gap: 4,
     minWidth: 0,
-  },
-  iconRing: {
-    padding: 4,
-    borderRadius: 14,
-  },
-  iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 20,

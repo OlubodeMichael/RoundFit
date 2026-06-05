@@ -29,6 +29,7 @@ import { WorkoutHistorySection } from "@/components/log/workout/WorkoutHistorySe
 import { WorkoutLauncher } from "@/components/log/workout/WorkoutLauncher";
 import { workoutFooterLabel, workoutSourceLabel } from "@/components/log/workout/workout-display";
 import { WorkoutActionRow } from "@/components/log/workout/WorkoutActionRow";
+import { WorkoutDurationPicker } from "@/components/log/workout/WorkoutDurationPicker";
 import { WorkoutContinueCard } from "@/components/log/workout/WorkoutContinueCard";
 import { WorkoutPendingSection } from "@/components/log/workout/WorkoutPendingSection";
 import { WorkoutSessionRecoveryBanner } from "@/components/log/workout/WorkoutSessionRecoveryBanner";
@@ -995,80 +996,15 @@ function LogWorkoutSheet({
             </ScrollView>
           </View>
 
-          {/* Duration — scoreboard style */}
           <View style={fp.section}>
-            <Text style={[fp.sectionLabel, { color: P.textFaint }]}>
-              DURATION
-            </Text>
-            <View
-              style={[
-                fp.durationCard,
-                { backgroundColor: P.card, borderColor: P.cardEdge },
-              ]}
-            >
-              <View style={fp.durationDisplay}>
-                {/* Hours */}
-                <View style={fp.timeSlot}>
-                  <View
-                    style={[
-                      fp.timeInput,
-                      { backgroundColor: P.sunken, borderColor: P.cardEdge },
-                    ]}
-                  >
-                    <TextInput
-                      value={hours}
-                      onChangeText={(t) => setHours(t.replace(/[^0-9]/g, ""))}
-                      placeholder="0"
-                      placeholderTextColor={P.cardEdge}
-                      keyboardType="number-pad"
-                      style={[fp.timeNum, { color: P.text }]}
-                    />
-                  </View>
-                  <Text style={[fp.timeUnit, { color: P.textFaint }]}>HR</Text>
-                </View>
-
-                <Text style={[fp.timeSep, { color: P.cardEdge }]}>:</Text>
-
-                {/* Minutes */}
-                <View style={fp.timeSlot}>
-                  <View
-                    style={[
-                      fp.timeInput,
-                      { backgroundColor: P.sunken, borderColor: P.cardEdge },
-                    ]}
-                  >
-                    <TextInput
-                      value={minutes}
-                      onChangeText={(t) => {
-                        const n = t.replace(/[^0-9]/g, "");
-                        setMinutes(
-                          n === "" ? "" : String(Math.min(59, parseInt(n))),
-                        );
-                      }}
-                      placeholder="45"
-                      placeholderTextColor={P.cardEdge}
-                      keyboardType="number-pad"
-                      style={[fp.timeNum, { color: P.text }]}
-                    />
-                  </View>
-                  <Text style={[fp.timeUnit, { color: P.textFaint }]}>MIN</Text>
-                </View>
-              </View>
-
-              {/* Calorie estimate */}
-              {totalMinutes > 0 && (
-                <View style={[fp.calRow, { borderTopColor: P.hair }]}>
-                  <Ionicons name="flame" size={13} color={P.calories} />
-                  <Text style={[fp.calText, { color: P.textFaint }]}>
-                    Estimated
-                  </Text>
-                  <Text style={[fp.calNum, { color: P.calories }]}>
-                    {estimatedCals}
-                  </Text>
-                  <Text style={[fp.calUnit, { color: P.textFaint }]}>kcal</Text>
-                </View>
-              )}
-            </View>
+            <WorkoutDurationPicker
+              hours={hours}
+              minutes={minutes}
+              onHoursChange={setHours}
+              onMinutesChange={setMinutes}
+              estimatedCals={estimatedCals}
+              totalMinutes={totalMinutes}
+            />
           </View>
 
           {/* Intensity */}
@@ -1559,59 +1495,6 @@ const fp = StyleSheet.create({
   },
   typeLabel: { fontSize: 11, fontWeight: "700", letterSpacing: -0.1 },
 
-  // Duration — scoreboard display
-  durationCard: {
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-  },
-  durationDisplay: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    paddingVertical: 24,
-    paddingHorizontal: 20,
-  },
-  timeSlot: { alignItems: "center", gap: 6 },
-  timeInput: {
-    width: 90,
-    height: 72,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  timeNum: {
-    fontFamily: "BarlowCondensed_800ExtraBold",
-    fontSize: 44,
-    lineHeight: 44,
-    textAlign: "center",
-    width: 80,
-  },
-  timeUnit: { fontFamily: "Syne_800ExtraBold", fontSize: 9, letterSpacing: 2 },
-  timeSep: {
-    fontFamily: "BarlowCondensed_800ExtraBold",
-    fontSize: 44,
-    lineHeight: 44,
-    marginBottom: 20,
-  },
-  calRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    justifyContent: "center",
-    paddingVertical: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  calText: { fontSize: 11, fontWeight: "600" },
-  calNum: {
-    fontFamily: "BarlowCondensed_700Bold",
-    fontSize: 16,
-    letterSpacing: 0,
-  },
-  calUnit: { fontSize: 11, fontWeight: "600" },
-
   // Intensity
   intGrid: { flexDirection: "row", gap: 8 },
   intCard: {
@@ -1962,11 +1845,6 @@ export default function WorkoutLogScreen() {
     setEditingWorkout(null);
   }, []);
 
-  const totalDuration = pendingImports.todayDurationMinutes;
-  const totalCaloriesWithPending = pendingImports.todayCaloriesBurned;
-  const hasWorkoutActivity =
-    workouts.length > 0 || pendingImports.todayPending.length > 0;
-
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <ScrollView
@@ -1998,64 +1876,6 @@ export default function WorkoutLogScreen() {
             onLogWorkout={openLogLauncher}
           />
         </View>
-
-        {/* Stats strip */}
-        {hasWorkoutActivity && (
-          <View style={{ paddingHorizontal: 20, marginBottom: 4 }}>
-            <View
-              style={[
-                ms.statsStrip,
-                { backgroundColor: P.card, borderColor: P.cardEdge },
-              ]}
-            >
-              <View style={ms.statCell}>
-                <View style={[ms.statIcon, { backgroundColor: P.sunken }]}>
-                  <Ionicons name="time-outline" size={13} color={P.workout} />
-                </View>
-                <View>
-                  <Text style={[ms.statVal, { color: P.text }]}>
-                    {fmtDuration(totalDuration)}
-                  </Text>
-                  <Text style={[ms.statLbl, { color: P.textFaint }]}>
-                    duration
-                  </Text>
-                </View>
-              </View>
-              <View style={[ms.statSep, { backgroundColor: P.hair }]} />
-              <View style={ms.statCell}>
-                <View style={[ms.statIcon, { backgroundColor: P.sunken }]}>
-                  <Ionicons name="flame-outline" size={13} color={P.calories} />
-                </View>
-                <View>
-                  <Text style={[ms.statVal, { color: P.text }]}>
-                    {Math.round(totalCaloriesWithPending).toLocaleString()}
-                  </Text>
-                  <Text style={[ms.statLbl, { color: P.textFaint }]}>
-                    burned
-                  </Text>
-                </View>
-              </View>
-              <View style={[ms.statSep, { backgroundColor: P.hair }]} />
-              <View style={ms.statCell}>
-                <View style={[ms.statIcon, { backgroundColor: P.sunken }]}>
-                  <Ionicons
-                    name="barbell-outline"
-                    size={13}
-                    color={P.protein}
-                  />
-                </View>
-                <View>
-                  <Text style={[ms.statVal, { color: P.text }]}>
-                    {pendingImports.todaySessionCount}
-                  </Text>
-                  <Text style={[ms.statLbl, { color: P.textFaint }]}>
-                    sessions
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-        )}
 
         {/* List or empty state */}
         <View style={{ paddingHorizontal: 20, marginTop: 12 }}>
@@ -2138,33 +1958,6 @@ const ms = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.3,
     textTransform: "uppercase",
-  },
-  statsStrip: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 12,
-    marginBottom: 4,
-  },
-  statCell: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
-  statIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  statVal: {
-    fontFamily: "BarlowCondensed_700Bold",
-    fontSize: 15,
-    letterSpacing: 0,
-  },
-  statLbl: { fontSize: 10, fontWeight: "600" },
-  statSep: {
-    width: StyleSheet.hairlineWidth,
-    alignSelf: "stretch",
-    marginHorizontal: 10,
   },
   empty: {
     borderRadius: 16,

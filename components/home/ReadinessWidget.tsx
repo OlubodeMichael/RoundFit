@@ -19,6 +19,7 @@ const GSW = 7;
 const GAS = 225;
 const GAT = 270;
 const GH = Math.round(G * 0.78);
+const HEADER_ICON_SIZE = 30;
 
 const HEADLINES: Record<string, string> = {
   "Train hard": "Push it today",
@@ -173,11 +174,7 @@ export function ReadinessWidget({
       >
         <View style={s.header}>
           <View style={s.headerMain}>
-            <View style={[s.iconRing, { backgroundColor: accent.iconSoft }]}>
-              <View style={[s.iconBox, { backgroundColor: accent.iconBg }]}>
-                <Ionicons name="pulse" size={14} color="#FFF" />
-              </View>
-            </View>
+            <Ionicons name="pulse" size={HEADER_ICON_SIZE} color={accent.iconBg} />
             <Text style={[s.headerLabel, { color: P.textDim }]}>Readiness</Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
@@ -281,18 +278,7 @@ const s = StyleSheet.create({
   headerMain: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-  },
-  iconRing: {
-    padding: 3,
-    borderRadius: 12,
-  },
-  iconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
+    gap: 8,
   },
   headerLabel: {
     fontSize: 12,

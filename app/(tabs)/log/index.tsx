@@ -1,4 +1,3 @@
-import type { ComponentProps } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -8,14 +7,14 @@ import {
   Text,
   View,
 } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { LogTodayCategoryCard } from '@/components/log/LogTodayCategoryCard';
+import { LogTodaySummary } from '@/components/log/LogTodaySummary';
 import { useFood } from '@/hooks/use-food';
 import { usePendingWorkoutImports } from '@/hooks/use-pending-workout-imports';
-import { AnimatedCard, usePalette, useScreenPadding } from '@/lib/log-theme';
-import { SectionCard } from '@/components/log/SectionCard';
+import { ScreenHeader, usePalette, useScreenPadding } from '@/lib/log-theme';
 import { useToast } from '@/components/ui/Toast';
 import { useWeight } from '@/hooks/use-weight';
 import { useWater } from '@/hooks/use-water';
@@ -25,32 +24,25 @@ import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
 import { formatSleepDuration } from '@/utils/sleep-quality';
 
-function localCalendarToday(): string {
-  const d  = new Date();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${mm}-${dd}`;
-}
-
 function capital(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 export default function DailyLogScreen() {
-  const P      = usePalette();
+  const P = usePalette();
   const router = useRouter();
-  const pad    = useScreenPadding();
+  const pad = useScreenPadding();
   const insets = useSafeAreaInsets();
+  const toast = useToast();
 
-  const { meals, mealGoal, totalCalories, refreshLogs, activeDate } = useFood();
+  const { meals, mealGoal, totalCalories, refreshLogs } = useFood();
   const pendingWorkouts = usePendingWorkoutImports();
   const { latest } = useWeight();
   const { totalMl, goalMl, refresh: refreshWater, ensureLoaded } = useWater();
   const { profile } = useProfile();
   const { weightUnit, toDisplayWeight } = useUnits();
-  const health   = useHealth();
+  const health = useHealth();
   const recovery = useRecovery();
-  const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
 
   useFocusEffect(
@@ -59,18 +51,13 @@ export default function DailyLogScreen() {
     }, [ensureLoaded]),
   );
 
-  // Sleep — prefer HealthKit (objective), fall back to recovery log
-  const sleepHours   = health.today?.sleep_hours ?? recovery.today?.sleep_hours ?? null;
+  const sleepHours = health.today?.sleep_hours ?? recovery.today?.sleep_hours ?? null;
   const sleepQuality = recovery.today?.sleep_quality ?? null;
-  const sleepFromHK  = health.today?.sleep_hours != null;
+  const sleepFromHK = health.today?.sleep_hours != null;
 
-  const isFoodDayToday   = activeDate === localCalendarToday();
-  const eatenPct         = Math.min(totalCalories / Math.max(mealGoal, 1), 1);
-  const latestWeightKg   = latest?.weight_kg ?? profile?.weightKg ?? null;
-  const latestWeight     = latestWeightKg === null ? null : toDisplayWeight(latestWeightKg);
-  const totalWorkoutMins = pendingWorkouts.todayDurationMinutes;
-  const workoutSessionCount = pendingWorkouts.todaySessionCount;
-  const workoutCalsBurned = pendingWorkouts.todayCaloriesBurned;
+  const eatenPct = Math.min(totalCalories / Math.max(mealGoal, 1), 1);
+  const latestWeightKg = latest?.weight_kg ?? profile?.weightKg ?? null;
+  const latestWeight = latestWeightKg === null ? null : toDisplayWeight(latestWeightKg);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -80,69 +67,70 @@ export default function DailyLogScreen() {
         refreshWater(undefined, { force: true }),
         pendingWorkouts.refresh(),
       ]);
+    } catch {
+      toast.error('Could not refresh', 'Please try again.');
+    } finally {
+      setRefreshing(false);
     }
-    catch { toast.error('Could not refresh', 'Please try again.'); }
-    finally { setRefreshing(false); }
   };
 
-  const today = useMemo(
-    () => new Date().toLocaleDateString(undefined, {
-      weekday: 'long', month: 'long', day: 'numeric',
-    }),
+  const dateEyebrow = useMemo(
+    () =>
+      new Date().toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      }),
     [],
   );
 
-  type IoniconName = ComponentProps<typeof Ionicons>['name'];
+  const summaryMetrics = useMemo(
+    () => [
+      {
+        icon: 'restaurant' as const,
+        label: 'Eaten',
+        value: totalCalories > 0 ? totalCalories.toLocaleString() : '0',
+        unit: 'kcal',
+        variant: 'meals' as const,
+      },
+      {
+        icon: 'barbell' as const,
+        label: 'Training',
+        value:
+          pendingWorkouts.todayDurationMinutes > 0
+            ? String(pendingWorkouts.todayDurationMinutes)
+            : '0',
+        unit: 'min',
+        variant: 'workouts' as const,
+      },
+      {
+        icon: 'water' as const,
+        label: 'Water',
+        value: totalMl > 0 ? totalMl.toLocaleString() : '0',
+        unit: 'ml',
+        variant: 'water' as const,
+      },
+    ],
+    [totalCalories, pendingWorkouts.todayDurationMinutes, totalMl],
+  );
 
-  const stats: {
-    key: string;
-    emoji?: string;
-    icon?: IoniconName;
-    value: string;
-    unit: string;
-    accent: string;
-  }[] = [
-    {
-      key:    'food',
-      emoji:  '🍽️',
-      value:  totalCalories > 0 ? totalCalories.toLocaleString() : '0',
-      unit:   'kcal',
-      accent: P.calories,
-    },
-    {
-      key:    'workout',
-      emoji:  '💪',
-      value:  totalWorkoutMins > 0 ? String(totalWorkoutMins) : '0',
-      unit:   'min',
-      accent: P.workout,
-    },
-    {
-      key:    'sleep',
-      emoji:  '🌙',
-      value:  formatSleepDuration(sleepHours),
-      unit:   '',
-      accent: P.sleep,
-    },
-    {
-      key:    'weight',
-      emoji:  '⚖️',
-      value:  latestWeight === null ? '—' : latestWeight.toFixed(1),
-      unit:   weightUnit,
-      accent: P.weight,
-    },
-    {
-      key:    'water',
-      icon:   'water-outline' as const,
-      value:  totalMl > 0 ? String(totalMl) : '0',
-      unit:   'ml',
-      accent: P.water,
-    },
-  ];
+  const sleepCaption =
+    sleepHours === null
+      ? 'Not logged · tap to add'
+      : [
+          sleepQuality ? `${capital(sleepQuality)} quality` : null,
+          sleepFromHK ? 'Apple Health' : 'Logged',
+        ]
+          .filter(Boolean)
+          .join(' · ');
 
   return (
-    <View style={{ flex: 1, backgroundColor: P.bg }}>
+    <View style={[styles.root, { backgroundColor: P.bg }]}>
       <ScrollView
-        contentContainerStyle={{ paddingTop: pad.paddingTop, paddingBottom: insets.bottom + 96 }}
+        contentContainerStyle={{
+          paddingTop: pad.paddingTop,
+          paddingBottom: insets.bottom + 96,
+        }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -154,166 +142,84 @@ export default function DailyLogScreen() {
           />
         }
       >
-        {/* ── Header ─────────────────────────────────────────────── */}
-        <View style={s.header}>
-          <Text style={[s.date, { color: P.textFaint }]}>
-            {today.toUpperCase()}
-          </Text>
-          <Text style={[s.title, { color: P.text }]}>
-            {"Today's Log"}<Text style={{ color: P.calories }}>.</Text>
-          </Text>
+        <ScreenHeader
+          showBack={false}
+          eyebrow={dateEyebrow}
+          title="Today"
+          accent={P.calories}
+        />
+
+        <View style={styles.section}>
+          <LogTodaySummary metrics={summaryMetrics} />
         </View>
 
-        {/* ── At-a-glance ─────────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 20, marginTop: 20 }}>
-          <AnimatedCard delay={60} padding={0}>
-            {/* Card header */}
-            <View style={[s.glanceHeader, { borderBottomColor: P.hair }]}>
-              <Text style={[s.glanceTitle, { color: P.textFaint }]}>
-                TODAY AT A GLANCE
-              </Text>
-            </View>
+        <Text style={[styles.sectionTitle, { color: P.textFaint }]}>Log</Text>
 
-            {/* Single row — each column owns its icon + value + unit */}
-            <View style={s.glanceRow}>
-              {stats.map((st, i) => (
-                <View
-                  key={st.key}
-                  style={[
-                    s.glanceCol,
-                    i < stats.length - 1 && {
-                      borderRightWidth: StyleSheet.hairlineWidth,
-                      borderRightColor: P.hair,
-                    },
-                  ]}
-                >
-                  {st.icon ? (
-                    <View
-                      style={[
-                        s.glanceIcon,
-                        { backgroundColor: st.accent + (P.isDark ? '22' : '14') },
-                      ]}
-                    >
-                      <Ionicons name={st.icon} size={20} color={st.accent} />
-                    </View>
-                  ) : (
-                    <Text style={{ fontSize: 28 }}>{st.emoji}</Text>
-                  )}
-
-                  {/* Value */}
-                  <Text
-                    style={[
-                      s.glanceValue,
-                      { color: st.value === '—' ? P.textFaint : P.text },
-                    ]}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.75}
-                  >
-                    {st.value}
-                  </Text>
-
-                  {/* Unit */}
-                  <Text style={[s.glanceUnit, { color: st.accent }]}>
-                    {st.unit}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </AnimatedCard>
-        </View>
-
-        {/* ── Section label ───────────────────────────────────────── */}
-        <Text style={[s.sectionLabel, { color: P.textFaint }]}>
-          LOG TODAY
-        </Text>
-
-        {/* ── Section cards ───────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 20, gap: 10 }}>
-          <SectionCard
-            delay={140}
-            accent={P.calories}
-            accentSoft={P.caloriesSoft}
-            emoji="🍽️"
+        <View style={styles.list}>
+          <LogTodayCategoryCard
+            variant="meals"
+            icon="restaurant"
             title="Food"
-            eyebrow={isFoodDayToday ? 'EATEN' : 'ATE'}
-            valueBig={totalCalories > 0 ? totalCalories.toLocaleString() : 'Log'}
-            valueSmall="kcal"
+            value={totalCalories > 0 ? totalCalories.toLocaleString() : '0'}
+            valueUnit="kcal"
             caption={
               meals.length === 0
-                ? 'No meals logged yet · tap to add'
+                ? 'No meals yet · tap to add'
                 : `${meals.length} ${meals.length === 1 ? 'meal' : 'meals'} · ${Math.round(eatenPct * 100)}% of goal`
             }
             progress={totalCalories > 0 ? eatenPct : undefined}
             onPress={() => router.push('/(tabs)/log/food')}
           />
 
-          <SectionCard
-            delay={190}
-            accent={P.workout}
-            accentSoft={P.workoutSoft}
-            emoji="💪"
+          <LogTodayCategoryCard
+            variant="workouts"
+            icon="barbell-outline"
             title="Workout"
-            eyebrow="TRAINING"
-            valueBig={workoutSessionCount > 0 ? String(totalWorkoutMins) : '0'}
-            valueSmall="min"
+            value={
+              pendingWorkouts.todaySessionCount > 0
+                ? String(pendingWorkouts.todayDurationMinutes)
+                : '0'
+            }
+            valueUnit="min"
             caption={
-              workoutSessionCount === 0
-                ? 'No workout logged · tap to add'
-                : `${workoutSessionCount} ${workoutSessionCount === 1 ? 'session' : 'sessions'} · ${Math.round(workoutCalsBurned).toLocaleString()} kcal burned`
+              pendingWorkouts.todaySessionCount === 0
+                ? 'No sessions yet · tap to add'
+                : `${pendingWorkouts.todaySessionCount} ${
+                    pendingWorkouts.todaySessionCount === 1 ? 'session' : 'sessions'
+                  } · ${Math.round(pendingWorkouts.todayCaloriesBurned).toLocaleString()} kcal`
             }
             onPress={() => router.push('/(tabs)/log/workout')}
           />
 
-          <SectionCard
-            delay={240}
-            accent={P.sleep}
-            accentSoft={P.sleepSoft}
-            emoji="🌙"
+          <LogTodayCategoryCard
+            variant="insight"
+            icon="moon"
             title="Sleep"
-            eyebrow="LAST NIGHT"
-            valueBig={sleepHours !== null ? formatSleepDuration(sleepHours) : 'Log'}
-            valueSmall=""
-            caption={
-              sleepHours === null
-                ? 'Not logged · tap to add'
-                : [
-                    sleepQuality
-                      ? capital(sleepQuality) + ' quality'
-                      : sleepFromHK
-                        ? 'from Apple Health'
-                        : 'Logged',
-                  ].filter(Boolean).join(' · ')
-            }
+            value={sleepHours !== null ? formatSleepDuration(sleepHours) : '—'}
+            caption={sleepCaption}
             onPress={() => router.push('/(tabs)/log/sleep')}
           />
 
-          <SectionCard
-            delay={290}
-            accent={P.weight}
-            accentSoft={P.weightSoft}
-            emoji="⚖️"
+          <LogTodayCategoryCard
+            variant="weight"
+            icon="body"
             title="Weight"
-            eyebrow="TODAY'S READING"
-            valueBig={latestWeight === null ? 'Log' : latestWeight.toFixed(1)}
-            valueSmall={weightUnit}
+            value={latestWeight === null ? '—' : latestWeight.toFixed(1)}
+            valueUnit={latestWeight === null ? undefined : weightUnit}
             caption={
               latestWeight === null
                 ? 'Not logged · tap to add'
-                : 'Latest recorded · tap to update'
+                : 'Latest reading · tap to update'
             }
             onPress={() => router.push('/(tabs)/log/weight')}
           />
 
-          <SectionCard
-            delay={340}
-            accent={P.water}
-            accentSoft={P.waterSoft}
-            icon="water-outline"
+          <LogTodayCategoryCard
+            variant="water"
+            icon="water"
             title="Water"
-            eyebrow="HYDRATION"
-            valueBig={totalMl > 0 ? String(totalMl) : 'Log'}
-            valueSmall="ml"
+            value={totalMl > 0 ? totalMl.toLocaleString() : '0'}
+            valueUnit="ml"
             caption={
               totalMl === 0
                 ? 'Not logged · tap to add'
@@ -328,67 +234,23 @@ export default function DailyLogScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  header: {
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  section: {
     paddingHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 20,
   },
-  date: {
-    fontSize:      10,
-    fontWeight:    '600',
-    letterSpacing: 1.5,
-    marginBottom:  6,
-  },
-  title: {
-    fontSize:      28,
-    fontWeight:    '800',
-    letterSpacing: -0.8,
-  },
-
-  // ── At-a-glance ────────────────────────────────────────────────
-  glanceHeader: {
-    paddingHorizontal: 18,
-    paddingVertical:   14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  glanceTitle: {
-    fontSize:      10,
-    fontWeight:    '700',
-    letterSpacing: 1.4,
-  },
-  glanceRow: {
-    flexDirection: 'row',
-  },
-  glanceCol: {
-    flex:            1,
-    alignItems:      'center',
-    paddingVertical: 18,
-    gap:             8,
-  },
-  glanceIcon: {
-    width:          34,
-    height:         34,
-    borderRadius:   10,
-    alignItems:     'center',
-    justifyContent: 'center',
-  },
-  glanceValue: {
-    fontSize:      20,
-    fontWeight:    '700',
-    letterSpacing: -0.5,
-  },
-  glanceUnit: {
-    fontSize:      10,
-    fontWeight:    '600',
-    letterSpacing: 0.5,
-  },
-
-  // ── Section list ───────────────────────────────────────────────
-  sectionLabel: {
-    fontSize:          10,
-    fontWeight:        '700',
-    letterSpacing:     1.5,
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
     paddingHorizontal: 20,
-    marginTop:         28,
-    marginBottom:      12,
+    marginBottom: 10,
+  },
+  list: {
+    paddingHorizontal: 20,
+    gap: 10,
   },
 });

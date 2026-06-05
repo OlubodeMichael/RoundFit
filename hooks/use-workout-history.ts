@@ -4,7 +4,13 @@ import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import type { Workout } from '@/context/workout-context';
 import { useWorkouts } from '@/hooks/use-workouts';
 import { apiFetch } from '@/utils/api';
+import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
 import { getLocalDateString } from '@/utils/date';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+} from '@/utils/resource-cache';
 
 function parseApiWorkout(row: Record<string, unknown>): Workout {
   const rawSets = Array.isArray(row.sets) ? row.sets as Record<string, unknown>[] : [];
@@ -63,7 +69,7 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
   const [error, setError] = useState<string | null>(null);
   const inFlightRef = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     if (!hasActiveUserSession(status, user)) {
       setWorkouts([]);
       setIsLoading(false);
@@ -71,24 +77,49 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
     }
     if (inFlightRef.current) return;
 
+    const userId = user!.id;
+    const cacheKey = buildResourceKey('workouts-history', userId, String(HISTORY_LIMIT));
+
     inFlightRef.current = true;
-    setIsLoading(true);
     setError(null);
 
-    try {
-      const { ok, body } = await apiFetch(`/workouts/history?limit=${HISTORY_LIMIT}`);
-      if (!ok) {
-        throw new Error(typeof body.error === 'string' ? body.error : 'Failed to load workout history');
+    if (!force) {
+      const cached = await getResourceCached<Workout[]>(cacheKey);
+      if (cached) {
+        const parsed = cached.data.filter((workout) => workout.date !== todayKey);
+        setWorkouts(parsed);
+        setIsLoading(false);
+        if (!cached.isStale) {
+          inFlightRef.current = false;
+          return;
+        }
+      } else {
+        setIsLoading(true);
       }
+    } else {
+      setIsLoading(true);
+    }
 
-      const rows = Array.isArray(body.workouts)
-        ? body.workouts as Record<string, unknown>[]
-        : [];
+    try {
+      const rows = await fetchWithResourceCache<Workout[]>(
+        cacheKey,
+        TTL_COLD_START_MS,
+        async () => {
+          const { ok, body } = await apiFetch(`/workouts/history?limit=${HISTORY_LIMIT}`);
+          if (!ok) {
+            throw new Error(typeof body.error === 'string' ? body.error : 'Failed to load workout history');
+          }
 
-      const parsed = rows
-        .map(parseApiWorkout)
-        .filter((workout) => workout.date !== todayKey);
+          const apiRows = Array.isArray(body.workouts)
+            ? body.workouts as Record<string, unknown>[]
+            : [];
 
+          return apiRows.map(parseApiWorkout);
+        },
+        { force, allowStale: !force },
+      );
+
+      const parsed = (rows ?? []).filter((workout) => workout.date !== todayKey);
       setWorkouts(parsed);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load workout history');

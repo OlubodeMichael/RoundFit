@@ -13,6 +13,7 @@ import { usePalette } from '@/lib/log-theme';
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 const ACTION_GAP = 10;
+const ACTION_ICON_SIZE = 28;
 
 interface WorkoutActionTileProps {
   title: string;
@@ -49,11 +50,7 @@ function WorkoutActionTile({
         style={styles.tileCard}
         contentStyle={[styles.tileInner, { borderColor: accent.iconSoft }]}
       >
-        <View style={[styles.iconRing, { backgroundColor: accent.iconSoft }]}>
-          <View style={[styles.iconBox, { backgroundColor: accent.iconBg }]}>
-            <Ionicons name={icon} size={17} color="#FFFFFF" />
-          </View>
-        </View>
+        <Ionicons name={icon} size={ACTION_ICON_SIZE} color={accent.iconBg} />
         <Text style={[styles.title, { color: P.text }]}>{title}</Text>
         <Text style={[styles.subtitle, { color: accent.iconBg }]}>{subtitle}</Text>
       </GradientCard>
@@ -91,7 +88,7 @@ export function WorkoutActionRow({
         <WorkoutActionTile
           title="Log workout"
           subtitle="Manual entry"
-          icon="create-outline"
+            icon="create"
           variant="calories"
           corner="bottom-right"
           onPress={onLogWorkout}
@@ -134,18 +131,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     justifyContent: 'flex-start',
     gap: 8,
-  },
-  iconRing: {
-    padding: 3,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-  },
-  iconBox: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   title: {
     fontSize: 14,

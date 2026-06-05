@@ -11,6 +11,7 @@ import { usePostHog } from 'posthog-react-native';
 
 import { WorkoutImportReviewSheet } from '@/components/log/workout/WorkoutImportReviewSheet';
 import { getCatalogEntryById, type WorkoutCatalogEntry } from '@/config/workout-catalog';
+import { useAuth } from '@/context/auth-context';
 import { useWorkouts } from '@/hooks/use-workouts';
 import { useHealthKitWorkoutImport } from '@/hooks/use-healthkit-workout-import';
 import {
@@ -45,6 +46,7 @@ const WorkoutImportReviewContext = createContext<WorkoutImportReviewContextValue
 
 export function WorkoutImportReviewProvider({ children }: { children: React.ReactNode }) {
   const posthog = usePostHog();
+  const { user } = useAuth();
   const { logWorkout, refreshWorkouts, workouts } = useWorkouts();
 
   const [queue, setQueue] = useState<WorkoutImportReviewItem[]>([]);
@@ -84,22 +86,33 @@ export function WorkoutImportReviewProvider({ children }: { children: React.Reac
   });
 
   const refreshPendingCount = useCallback(async () => {
+    if (!user?.id) {
+      setPendingCount(0);
+      return;
+    }
     try {
-      const pending = await fetchAppleFitnessWorkoutsForDisplay({ isAlreadyImported });
+      const pending = await fetchAppleFitnessWorkoutsForDisplay({
+        isAlreadyImported,
+        userId: user.id,
+      });
       setPendingCount(pending.length);
     } catch {
       setPendingCount(0);
     }
-  }, [isAlreadyImported]);
+  }, [isAlreadyImported, user?.id]);
 
   const openPendingReview = useCallback(async () => {
+    if (!user?.id) return;
     await runImport();
-    const pending = await fetchAppleFitnessWorkoutsForDisplay({ isAlreadyImported });
+    const pending = await fetchAppleFitnessWorkoutsForDisplay({
+      isAlreadyImported,
+      userId: user.id,
+    });
     setPendingCount(pending.length);
     if (pending.length > 0) {
       presentQueue(pending);
     }
-  }, [isAlreadyImported, presentQueue, runImport]);
+  }, [isAlreadyImported, presentQueue, runImport, user?.id]);
 
   const openReviewForItem = useCallback((item: WorkoutImportReviewItem) => {
     presentQueue([item]);
@@ -149,7 +162,7 @@ export function WorkoutImportReviewProvider({ children }: { children: React.Reac
     try {
       const catalogId = selectedCatalogId ?? currentItem.catalogId;
       const changedType = catalogId !== currentItem.catalogId;
-      await importReviewedWorkout(currentItem.sample, logWorkout, { catalogId });
+      await importReviewedWorkout(currentItem.sample, logWorkout, { catalogId }, user?.id);
       captureReviewEvent(changedType ? 'change_type' : 'save', currentItem, catalogId);
       const entry = getCatalogEntryById(catalogId);
       posthog.capture('workout_imported_watch', {
@@ -177,19 +190,20 @@ export function WorkoutImportReviewProvider({ children }: { children: React.Reac
     posthog,
     refreshWorkouts,
     selectedCatalogId,
+    user?.id,
   ]);
 
   const discard = useCallback(async () => {
     if (!currentItem || isSaving) return;
     setIsSaving(true);
     try {
-      await discardReviewedWorkout(currentItem.sample);
+      await discardReviewedWorkout(currentItem.sample, user?.id);
       captureReviewEvent('discard', currentItem);
       advanceOrClose();
     } finally {
       setIsSaving(false);
     }
-  }, [advanceOrClose, captureReviewEvent, currentItem, isSaving]);
+  }, [advanceOrClose, captureReviewEvent, currentItem, isSaving, user?.id]);
 
   const openChangeType = useCallback(() => {
     setShowChangeType(true);

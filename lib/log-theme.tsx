@@ -199,7 +199,7 @@ export function ScreenHeader({
   const back   = onBack ?? (() => router.back());
 
   return (
-    <View style={s.header}>
+    <View style={[s.header, !showBack && s.headerFlush]}>
       {showBack ? (
         <TouchableOpacity
           onPress={back}
@@ -209,11 +209,9 @@ export function ScreenHeader({
         >
           <Ionicons name="chevron-back" size={20} color={P.text} />
         </TouchableOpacity>
-      ) : (
-        <View style={s.backBtn} />
-      )}
+      ) : null}
 
-      <View style={{ flex: 1, marginLeft: 14 }}>
+      <View style={[s.headerText, showBack && s.headerTextWithBack]}>
         {!!eyebrow && (
           <Text style={[s.eyebrow, { color: P.textFaint }]}>
             {eyebrow.toUpperCase()}
@@ -530,6 +528,16 @@ const s = StyleSheet.create({
     alignItems:       'center',
     paddingHorizontal:20,
     marginBottom:     14,
+  },
+  headerFlush: {
+    alignItems: 'flex-start',
+  },
+  headerText: {
+    flex: 1,
+    alignSelf: 'stretch',
+  },
+  headerTextWithBack: {
+    marginLeft: 14,
   },
   backBtn: {
     width:           40, height: 40, borderRadius: 14,

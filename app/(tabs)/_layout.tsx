@@ -1,4 +1,5 @@
-import Feather from "@expo/vector-icons/Feather";
+import type { ComponentProps } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import * as Haptics from "expo-haptics";
 import { Tabs, useSegments } from "expo-router";
@@ -14,58 +15,79 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CheckinModal } from "@/components/checkin/CheckinModal";
 import { useCheckin } from "@/hooks/use-checkin";
-import { useTheme } from "@/hooks/use-theme";
+import { usePalette } from "@/lib/log-theme";
 
-type FeatherName = React.ComponentProps<typeof Feather>["name"];
+type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
 const SW = Dimensions.get("window").width;
 
-const PILL_H    = 70;
-const PILL_W    = SW - 48;
-const FAB_D     = 46;
-const FLOAT_BOT = 16;
+const PILL_H    = 64;
+const PILL_W    = SW - 40;
+const FAB_D     = 44;
+const FLOAT_BOT = 14;
+const TAB_ICON  = 21;
+const TAB_ICON_FOCUSED = 22;
 
-const TABS: { name: string; icon: FeatherName; label: string; fab?: true }[] = [
-    { name: "index",    icon: "home",     label: "Home"     },
-    { name: "insights", icon: "zap",      label: "Insights" },
-    { name: "log",      icon: "plus",     label: "Log",  fab: true },
-    { name: "progress", icon: "activity", label: "Progress" },
-    { name: "profile",  icon: "user",     label: "Profile"  },
+/** Dark floating bar on light app screens — contrasts with #F6F6F8 page bg. */
+const LIGHT_TAB_BAR_BG = "#18181B";
+const LIGHT_TAB_BAR_BORDER = "rgba(255,255,255,0.10)";
+const LIGHT_TAB_INACTIVE = "#9CA3AF";
+const LIGHT_FAB_IDLE_BG = "#2A2A34";
+
+const TABS: {
+    name: string;
+    icon: IoniconName;
+    iconActive: IoniconName;
+    label: string;
+    fab?: true;
+}[] = [
+    { name: "index",    icon: "home-outline",    iconActive: "home",    label: "Home"     },
+    { name: "insights", icon: "flash-outline",   iconActive: "flash",   label: "Insights" },
+    { name: "log",      icon: "add-outline",     iconActive: "add",     label: "Log", fab: true },
+    { name: "progress", icon: "pulse-outline",   iconActive: "pulse",   label: "Progress" },
+    { name: "profile",  icon: "person-outline",  iconActive: "person",  label: "Profile"  },
 ];
 
 const PROFILE_SUB_SCREENS = [
     "cycle", "wearable", "notifications", "subscription", "paywall", "help",
 ];
 
+/** Expo Router types `useSegments()` as a short tuple; paths can be deeper. */
+function readTabSegments(segments: ReturnType<typeof useSegments>): {
+    tab?: string;
+    screen?: string;
+} {
+    const path = segments as readonly string[];
+    return { tab: path[1], screen: path[2] };
+}
+
+function shouldHideTabBar(tab?: string, screen?: string): boolean {
+    if (tab === "profile" && screen != null && PROFILE_SUB_SCREENS.includes(screen)) {
+        return true;
+    }
+    if (tab === "log" && screen != null) return true;
+    if (tab === "progress" && screen != null) return true;
+    if (tab === "insights" && screen != null) return true;
+    return false;
+}
+
 // ── Floating Tab Bar ──────────────────────────────────────────────────────────
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
-    const { isDark } = useTheme();
-    const insets     = useSafeAreaInsets();
-    const segments   = useSegments();
+    const P        = usePalette();
+    const insets   = useSafeAreaInsets();
+    const { tab, screen } = readTabSegments(useSegments());
 
-    const isProfileSubScreen =
-        segments[1] === "profile" &&
-        PROFILE_SUB_SCREENS.includes(segments[2] as string);
+    if (shouldHideTabBar(tab, screen)) return null;
 
-    const isLogSubScreen =
-        segments[1] === "log" && segments[2] !== undefined;
+    const activeColor = P.calories;
+    const inactiveColor = P.isDark ? P.textFaint : LIGHT_TAB_INACTIVE;
+    const pillBg = P.isDark ? P.card : LIGHT_TAB_BAR_BG;
+    const pillBorder = P.isDark ? P.cardEdge : LIGHT_TAB_BAR_BORDER;
+    const fabIdleBg = P.isDark ? P.sunken : LIGHT_FAB_IDLE_BG;
+    const shadowOpacity = P.isDark ? 0.28 : 0.22;
+    const shadowRadius  = P.isDark ? 20 : 18;
 
-    const isProgressSubScreen =
-        segments[1] === "progress" && segments[2] !== undefined;
-
-    const isInsightsSubScreen =
-        segments[1] === "insights" && segments[2] !== undefined;
-
-    if (isProfileSubScreen || isLogSubScreen || isProgressSubScreen || isInsightsSubScreen) return null;
-
-    const ACTIVE    = "#F97316";
-    const INACTIVE  = isDark ? "#5A5A66" : "#8A8A96";
-    const PILL_BG   = isDark ? "#23232C" : "#131318";
-    const PILL_BORDER = isDark ? "rgba(255,255,255,0.10)" : "transparent";
-    const FAB_BG    = isDark ? "#2E2E3A" : "#252530";
-
-    // Outer height determines the inset React Navigation adds to screens
-    const outerH = insets.bottom + FLOAT_BOT + PILL_H + 12;
+    const outerH = insets.bottom + FLOAT_BOT + PILL_H + 10;
 
     const go = (key: string, name: string, focused: boolean) => {
         const event = navigation.emit({
@@ -75,14 +97,10 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
         });
         if (!event.defaultPrevented) {
             if (!focused) {
-                // Navigate to the tab and reset its nested stack to the index
-                // screen, so cross-tab pushes (e.g. home → progress/recovery)
-                // don't leave a dirty stack when the user taps the tab later.
                 if (name === "index") {
                     navigation.navigate(name);
                 } else {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    (navigation as any).navigate(name, { screen: "index" });
+                    navigation.navigate(name, { screen: "index" });
                 }
             }
         }
@@ -97,9 +115,10 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                     s.pill,
                     {
                         bottom:          insets.bottom + FLOAT_BOT,
-                        backgroundColor: PILL_BG,
-                        borderWidth:     1,
-                        borderColor:     PILL_BORDER,
+                        backgroundColor: pillBg,
+                        borderColor:     pillBorder,
+                        shadowOpacity,
+                        shadowRadius,
                     },
                 ]}
             >
@@ -120,22 +139,25 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                                     style={[
                                         s.fab,
                                         {
-                                            backgroundColor: focused ? ACTIVE : FAB_BG,
-                                            shadowColor:     focused ? ACTIVE : "#000",
+                                            backgroundColor: focused ? activeColor : fabIdleBg,
+                                            borderColor: focused ? activeColor : pillBorder,
+                                            shadowColor: focused ? activeColor : "#000",
+                                            shadowOpacity: focused ? 0.35 : shadowOpacity * 0.6,
                                         },
                                     ]}
                                 >
-                                    <Feather
-                                        name="plus"
-                                        size={24}
-                                        color={focused ? "#fff" : INACTIVE}
+                                    <Ionicons
+                                        name={focused ? cfg.iconActive : cfg.icon}
+                                        size={22}
+                                        color={focused ? "#fff" : inactiveColor}
                                     />
                                 </View>
                             </TouchableOpacity>
                         );
                     }
 
-                    const color = focused ? ACTIVE : INACTIVE;
+                    const color = focused ? activeColor : inactiveColor;
+                    const iconName = focused ? cfg.iconActive : cfg.icon;
                     return (
                         <TouchableOpacity
                             key={route.key}
@@ -143,8 +165,17 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                             onPress={() => go(route.key, route.name, focused)}
                             activeOpacity={0.65}
                         >
-                            <Feather name={cfg.icon} size={20} color={color} />
+                            <Ionicons
+                                name={iconName}
+                                size={focused ? TAB_ICON_FOCUSED : TAB_ICON}
+                                color={color}
+                            />
                             <Text style={[s.tabLabel, { color }]}>{cfg.label}</Text>
+                            {focused ? (
+                                <View style={[s.activeDot, { backgroundColor: activeColor }]} />
+                            ) : (
+                                <View style={s.activeDotPlaceholder} />
+                            )}
                         </TouchableOpacity>
                     );
                 })}
@@ -194,17 +225,14 @@ const s = StyleSheet.create({
         left:          (SW - PILL_W) / 2,
         width:         PILL_W,
         height:        PILL_H,
-        borderRadius:  PILL_H / 2,
+        borderRadius:  22,
         flexDirection: "row",
         alignItems:    "center",
-        paddingHorizontal: 8,
-
-        // Shadow
+        paddingHorizontal: 6,
+        borderWidth:   StyleSheet.hairlineWidth,
         shadowColor:   "#000",
-        shadowOffset:  { width: 0, height: 12 },
-        shadowOpacity: 0.35,
-        shadowRadius:  24,
-        elevation:     24,
+        shadowOffset:  { width: 0, height: 8 },
+        elevation:     12,
     },
 
     tabBtn: {
@@ -212,13 +240,27 @@ const s = StyleSheet.create({
         alignItems:     "center",
         justifyContent: "center",
         height:         PILL_H,
-        gap:            3,
+        gap:            2,
+        paddingTop:     2,
     },
 
     tabLabel: {
-        fontSize:      9,
+        fontSize:      10,
         fontWeight:    "700",
-        letterSpacing: 0.3,
+        letterSpacing: 0.2,
+    },
+
+    activeDot: {
+        width:  4,
+        height: 4,
+        borderRadius: 2,
+        marginTop: 1,
+    },
+
+    activeDotPlaceholder: {
+        width:  4,
+        height: 4,
+        marginTop: 1,
     },
 
     fabSlot: {
@@ -235,9 +277,9 @@ const s = StyleSheet.create({
         borderRadius:   FAB_D / 2,
         alignItems:     "center",
         justifyContent: "center",
+        borderWidth:    StyleSheet.hairlineWidth,
         shadowOffset:   { width: 0, height: 4 },
-        shadowOpacity:  0.4,
-        shadowRadius:   10,
-        elevation:      8,
+        shadowRadius:   8,
+        elevation:      6,
     },
 });

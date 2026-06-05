@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ComponentProps } from 'react';
 import {
   ScrollView,
   View,
@@ -29,14 +28,18 @@ import { PhotoAnalysisModal } from '@/components/log/PhotoAnalysisModal';
 import { Image } from 'expo-image';
 import { persistCameraPhoto, prunePhotoCache } from '@/utils/photo-cache';
 import { useToast } from '@/components/ui/Toast';
+import { FoodLogActionsRow } from '@/components/log/food/FoodLogActionsRow';
+import { FoodLogCaloriesCard } from '@/components/log/food/FoodLogCaloriesCard';
 import { DayNavigator, usePalette, type Palette } from '@/lib/log-theme';
 import {
+  MEAL_ROW_GAP,
   MEAL_ROW_MIN_HEIGHT,
+  MEAL_ROW_PADDING_LEFT,
+  MEAL_ROW_PADDING_RIGHT,
   mealLogThumbStyles,
   mealRowDividerInset,
 } from '@/lib/meal-log-row';
 
-type IoniconsName = ComponentProps<typeof Ionicons>['name'];
 type CameraMode = 'photo' | 'scan';
 type CameraRefLike = {
   takePictureAsync: (opts?: { quality?: number; skipProcessing?: boolean; base64?: boolean }) => Promise<{ uri?: string; base64?: string }>;
@@ -55,7 +58,7 @@ type GroupKey = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
 const GROUP_ORDER: GroupKey[] = ['breakfast', 'lunch', 'dinner', 'snack', 'other'];
 
 const GROUP_META: Record<GroupKey, { title: string; emoji: string; accent: keyof Palette }> = {
-  breakfast: { title: 'Breakfast', emoji: '🍳', accent: 'carbs'    },
+  breakfast: { title: 'Breakfast', emoji: '🥞', accent: 'carbs'    },
   lunch:     { title: 'Lunch',     emoji: '🥗', accent: 'protein'  },
   dinner:    { title: 'Dinner',    emoji: '🍽️', accent: 'fat'      },
   snack:     { title: 'Snack',     emoji: '🍎', accent: 'water'    },
@@ -438,77 +441,19 @@ export default function FoodLogScreen() {
           <View style={{ width: 40 }} />
         </View>
 
-        {/* ── SUMMARY CARD ─────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 20, marginTop: 18, marginBottom: 16 }}>
-          <AnimatedCard delay={80}>
-            <View style={styles.summaryRow}>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={[styles.summaryEyebrow, { color: P.textFaint }]}>
-                  CALORIES REMAINING
-                </Text>
-                <Text style={[styles.summaryBig, { color: P.text }]}>
-                  {Math.max(0, remaining).toLocaleString()}
-                </Text>
-              </View>
-              <View style={[styles.summaryPill, { backgroundColor: P.caloriesSoft }]}>
-                <Ionicons name="flame" size={13} color={P.calories} />
-                <Text style={[styles.summaryPillText, { color: P.calories }]}>
-                  {Math.round(eatenPct * 100)}%
-                </Text>
-              </View>
-            </View>
-
-            <View style={[styles.progressTrack, { backgroundColor: P.sunken }]}>
-              <View style={[styles.progressFill, { width: `${eatenPct * 100}%`, backgroundColor: P.calories }]} />
-            </View>
-
-            <View style={[styles.summaryFoot, { borderTopColor: P.hair }]}>
-              <SummaryStat
-                label={isToday ? 'EATEN' : 'ATE'}
-                value={totalCalories.toLocaleString()}
-                ink={P.text}
-                sub={P.textFaint}
-              />
-              <View style={[styles.vDiv, { backgroundColor: P.hair }]} />
-              <SummaryStat label="REMAINING" value={Math.max(0, remaining).toLocaleString()} ink={P.sage} sub={P.textFaint} />
-              <View style={[styles.vDiv, { backgroundColor: P.hair }]} />
-              <SummaryStat label="GOAL"      value={mealGoal.toLocaleString()}      ink={P.textDim}  sub={P.textFaint} />
-            </View>
-          </AnimatedCard>
-        </View>
-
-        {/* ── QUICK ACTIONS ────────────────────────────────────── */}
-        <View style={styles.actions}>
-          <ActionCard
-            label="Photo"
-            caption="AI detect"
-            icon="camera"
-            accent={P.calories}
-            accentSoft={P.caloriesSoft}
-            P={P}
-            delay={160}
-            onPress={openPhoto}
-            primary
+        {/* ── SUMMARY + QUICK ACTIONS ──────────────────────────── */}
+        <View style={{ paddingHorizontal: 20, marginTop: 18, gap: 16, marginBottom: 8 }}>
+          <FoodLogCaloriesCard
+            remaining={remaining}
+            totalCalories={totalCalories}
+            mealGoal={mealGoal}
+            eatenPct={eatenPct}
+            isToday={isToday}
           />
-          <ActionCard
-            label="Manual"
-            caption="Type entry"
-            icon="create"
-            accent={P.protein}
-            accentSoft={P.proteinSoft}
-            P={P}
-            delay={220}
-            onPress={() => openManual()}
-          />
-          <ActionCard
-            label="Search"
-            caption="Browse foods"
-            icon="search"
-            accent={P.fat}
-            accentSoft={P.fatSoft}
-            P={P}
-            delay={280}
-            onPress={() => router.push('/(tabs)/log/food/search')}
+          <FoodLogActionsRow
+            onPhoto={openPhoto}
+            onManual={() => openManual()}
+            onSearch={() => router.push('/(tabs)/log/food/search')}
           />
         </View>
 
@@ -775,70 +720,6 @@ function AnimatedCard({
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Summary stat — tiny column
-// ───────────────────────────────────────────────────────────────────────────────
-function SummaryStat({ label, value, ink, sub }: { label: string; value: string; ink: string; sub: string }) {
-  return (
-    <View style={{ flex: 1, alignItems: 'center', gap: 4 }}>
-      <Text style={[styles.statLabel, { color: sub }]}>{label}</Text>
-      <Text style={[styles.statValue, { color: ink }]}>{value}</Text>
-    </View>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Action card — quick-add chips
-// ───────────────────────────────────────────────────────────────────────────────
-function ActionCard({
-  label, caption, icon, accent, accentSoft, P, delay, onPress, primary,
-}: {
-  label: string; caption: string; icon: IoniconsName;
-  accent: string; accentSoft: string; P: Palette;
-  delay: number; onPress: () => void; primary?: boolean;
-}) {
-  const anim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.timing(anim, {
-      toValue: 1, duration: 560, delay,
-      easing: Easing.out(Easing.cubic), useNativeDriver: true,
-    }).start();
-  }, [anim, delay]);
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [18, 0] });
-
-  return (
-    <Animated.View style={{ flex: 1, opacity: anim, transform: [{ translateY }] }}>
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.action,
-          {
-            backgroundColor: primary ? accent : P.card,
-            borderColor: primary ? accent : P.cardEdge,
-          },
-          pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
-        ]}
-      >
-        <View style={[
-          styles.actionIcon,
-          { backgroundColor: primary ? 'rgba(255,255,255,0.18)' : accentSoft },
-        ]}>
-          <Ionicons name={icon} size={18} color={primary ? '#fff' : accent} />
-        </View>
-        <Text style={[styles.actionLabel, { color: primary ? '#fff' : P.text }]}>
-          {label}
-        </Text>
-        <Text style={[
-          styles.actionCaption,
-          { color: primary ? 'rgba(255,255,255,0.75)' : P.textFaint },
-        ]}>
-          {caption}
-        </Text>
-      </Pressable>
-    </Animated.View>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
 // Meal group — header + swipeable rows
 // ───────────────────────────────────────────────────────────────────────────────
 const GROUP_TO_LABEL: Partial<Record<GroupKey, MealLabel>> = {
@@ -859,7 +740,6 @@ function MealGroup({
 }) {
   const meta       = GROUP_META[groupKey];
   const accent     = P[meta.accent] as string;
-  const accentSoft = P[`${String(meta.accent)}Soft` as keyof Palette] as string;
   const total      = items.reduce((a, m) => a + m.cals, 0);
   const presetForGroup = GROUP_TO_LABEL[groupKey];
 
@@ -899,8 +779,6 @@ function MealGroup({
               {i > 0 && <View style={[styles.rowDivider, { backgroundColor: P.hair }]} />}
               <MealRow
                 item={item}
-                accent={accent}
-                accentSoft={accentSoft}
                 emoji={meta.emoji}
                 P={P}
                 onDelete={() => onDelete(item.id)}
@@ -918,9 +796,9 @@ function MealGroup({
 // Swipeable row
 // ───────────────────────────────────────────────────────────────────────────────
 function MealRow({
-  item, accent, accentSoft, emoji, P, onDelete, onEdit,
+  item, emoji, P, onDelete, onEdit,
 }: {
-  item: MealItem; accent: string; accentSoft: string; emoji: string;
+  item: MealItem; emoji: string;
   P: Palette; onDelete: () => void; onEdit: () => void;
 }) {
   const swipeRef = useRef<Swipeable>(null);
@@ -968,8 +846,8 @@ function MealRow({
         onPress={onEdit}
         style={({ pressed }) => [styles.mealRow, { backgroundColor: P.card }, pressed && { backgroundColor: P.sunken }]}
       >
-        <View style={[mealLogThumbStyles.thumb, { backgroundColor: accentSoft }]}>
-          {item.imageUrl ? (
+        {item.imageUrl ? (
+          <View style={mealLogThumbStyles.thumbPhoto}>
             <Image
               source={item.imageUrl}
               style={mealLogThumbStyles.thumbImage}
@@ -977,12 +855,14 @@ function MealRow({
               cachePolicy="memory-disk"
               transition={150}
             />
-          ) : (
+          </View>
+        ) : (
+          <View style={mealLogThumbStyles.emojiSlot}>
             <Text style={mealLogThumbStyles.emoji} allowFontScaling={false}>
               {emoji}
             </Text>
-          )}
-        </View>
+          </View>
+        )}
 
         <View style={styles.mealCopy}>
           <Text style={[styles.mealName, { color: P.text }]} numberOfLines={1}>
@@ -1020,9 +900,7 @@ function EmptyState({ P, onAdd }: { P: Palette; onAdd: () => void }) {
   return (
     <AnimatedCard delay={480}>
       <View style={{ alignItems: 'center', paddingVertical: 8, gap: 10 }}>
-        <View style={[styles.emptyIcon, { backgroundColor: P.caloriesSoft }]}>
-          <Ionicons name="restaurant-outline" size={26} color={P.calories} />
-        </View>
+        <Ionicons name="restaurant" size={36} color={P.calories} />
         <Text style={[styles.emptyTitle, { color: P.text }]}>Nothing logged yet</Text>
         <Text style={[styles.emptyBody, { color: P.textFaint, textAlign: 'center' }]}>
           Snap a photo, scan a barcode, or type a meal to get your day started.
@@ -1072,70 +950,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
 
-  // Summary
-  summaryRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-  },
-  summaryEyebrow: {
-    fontSize: 10, fontWeight: '800', letterSpacing: 1.5,
-  },
-  summaryBig: {
-    fontSize: 40, fontWeight: '800', letterSpacing: -1.6, lineHeight: 44,
-  },
-  summaryPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999,
-  },
-  summaryPillText: {
-    fontSize: 11, fontWeight: '800', letterSpacing: 0.4,
-  },
-  progressTrack: {
-    height: 6, borderRadius: 3, overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%', borderRadius: 3,
-  },
-  summaryFoot: {
-    flexDirection: 'row',
-    marginTop: 16,
-    paddingTop: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  vDiv: { width: StyleSheet.hairlineWidth },
-  statLabel: {
-    fontSize: 9, fontWeight: '800', letterSpacing: 1.4,
-  },
-  statValue: {
-    fontSize: 17, fontWeight: '800', letterSpacing: -0.4,
-  },
-
-  // Actions
-  actions: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-  },
-  action: {
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    gap: 8,
-  },
-  actionIcon: {
-    width: 38, height: 38, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  actionLabel: {
-    fontSize: 13, fontWeight: '800', letterSpacing: -0.2,
-  },
-  actionCaption: {
-    fontSize: 10, fontWeight: '600', letterSpacing: 0.3,
-  },
-
   // Group
   groupHead: {
     flexDirection: 'row', alignItems: 'center',
@@ -1163,14 +977,15 @@ const styles = StyleSheet.create({
   // Meal row
   rowDivider: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: mealRowDividerInset(18),
+    marginLeft: mealRowDividerInset(),
   },
   mealRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    gap: MEAL_ROW_GAP,
+    paddingLeft: MEAL_ROW_PADDING_LEFT,
+    paddingRight: MEAL_ROW_PADDING_RIGHT,
+    paddingVertical: 12,
     minHeight: MEAL_ROW_MIN_HEIGHT,
   },
   mealCopy: {
@@ -1233,10 +1048,6 @@ const styles = StyleSheet.create({
   },
 
   // Empty state (whole day)
-  emptyIcon: {
-    width: 56, height: 56, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
-  },
   emptyTitle: {
     fontSize: 16, fontWeight: '800', letterSpacing: -0.3,
   },

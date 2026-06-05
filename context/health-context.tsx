@@ -12,6 +12,8 @@ import {
   type HealthKitSummary,
 } from '@/utils/healthkit';
 import { getLocalDateString } from '@/utils/date';
+import { localSleepDateString } from '@/utils/sleep-date';
+import { mergePriorDaySleepIntoHealth } from '@/utils/sleep-display';
 import { notifyTodayDataChanged } from '@/utils/today-sync';
 import {
   buildResourceKey,
@@ -24,6 +26,11 @@ import {
 // ── Config ─────────────────────────────────────────────────────────────────
 
 const HEALTH_BACKFILL_CURSOR_KEY = '@roundfit/health_backfill_cursor';
+export const LAST_HEALTH_SYNC_KEY = '@roundfit/last_health_sync';
+/** Throttle expensive per-day backfill only — today's HK read always runs. */
+const HEALTH_BACKFILL_THROTTLE_MS = 3 * 60 * 1000;
+/** Re-read today's steps/calories while the app stays in the foreground. */
+const HEALTH_TODAY_POLL_MS = 60 * 1000;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -149,6 +156,53 @@ const STEPS_WITH_MISSING_DISTANCE = 100;
 
 function hasStepsButNoDistance(steps: number, distance: number): boolean {
   return steps >= STEPS_WITH_MISSING_DISTANCE && distance <= 0;
+}
+
+function healthKitSummaryChanged(
+  current: HealthData | null,
+  summary: HealthKitSummary,
+): boolean {
+  if (!current) return true;
+  return (
+    current.steps !== summary.steps
+    || current.active_calories !== summary.active_calories
+    || current.resting_calories !== summary.resting_calories
+    || current.total_calories_burned !== summary.total_calories_burned
+    || current.distance !== summary.distance
+    || (current.stand_hours ?? 0) !== summary.stand_hours
+    || (current.active_minutes ?? 0) !== summary.active_minutes
+    || (current.mindfulness_minutes ?? 0) !== summary.mindfulness_minutes
+  );
+}
+
+/** Daily cumulative metrics from HealthKit should never regress after sync. */
+function mergeCumulativeFromSyncInput(
+  saved: HealthData,
+  input: SyncHealthInput,
+): HealthData {
+  const maxNum = (a: number, b: number | undefined): number =>
+    b !== undefined ? Math.max(a, b) : a;
+
+  return {
+    ...saved,
+    steps:                 maxNum(saved.steps, input.steps),
+    active_calories:       maxNum(saved.active_calories, input.active_calories),
+    resting_calories:      maxNum(saved.resting_calories, input.resting_calories),
+    total_calories_burned: maxNum(saved.total_calories_burned, input.total_calories_burned),
+    distance:              maxNum(saved.distance, input.distance),
+    active_minutes: input.active_minutes != null
+      ? Math.max(saved.active_minutes ?? 0, input.active_minutes)
+      : saved.active_minutes,
+    exercise_minutes: input.exercise_minutes != null
+      ? Math.max(saved.exercise_minutes ?? 0, input.exercise_minutes)
+      : saved.exercise_minutes,
+    stand_hours: input.stand_hours != null
+      ? Math.max(saved.stand_hours ?? 0, input.stand_hours)
+      : saved.stand_hours,
+    mindfulness_minutes: input.mindfulness_minutes != null
+      ? Math.max(saved.mindfulness_minutes ?? 0, input.mindfulness_minutes)
+      : saved.mindfulness_minutes,
+  };
 }
 
 /** Only sync if HealthKit returned at least one meaningful reading. */
@@ -348,13 +402,18 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
         }
         return null;
       },
-      { force },
+      { force, allowStale: !force },
     );
   }, [user?.id]);
 
   const fetchToday = useCallback(async (force = false): Promise<boolean> => {
-    const today = getLocalDateString();
-    const parsed = await fetchByDate(today, force);
+    const calendarToday = getLocalDateString();
+    const sleepDay = localSleepDateString();
+    let parsed = await fetchByDate(calendarToday, force);
+    if (sleepDay !== calendarToday) {
+      const priorSleep = await fetchByDate(sleepDay, force);
+      parsed = mergePriorDaySleepIntoHealth(parsed, priorSleep);
+    }
     setToday(parsed);
     return parsed !== null;
   }, [fetchByDate]);
@@ -370,16 +429,18 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     });
     if (!ok || !body.health_data) throw new Error('Failed to sync health data');
     const saved = fromApiData(body.health_data as Record<string, unknown>);
-    const merged =
+    let merged = mergeCumulativeFromSyncInput(saved, input);
+    if (
       typeof input.distance === 'number'
       && input.distance > 0
-      && hasStepsButNoDistance(saved.steps, saved.distance)
-        ? {
-            ...saved,
-            distance:      input.distance,
-            distance_unit: input.distance_unit ?? saved.distance_unit,
-          }
-        : saved;
+      && hasStepsButNoDistance(merged.steps, merged.distance)
+    ) {
+      merged = {
+        ...merged,
+        distance:      input.distance,
+        distance_unit: input.distance_unit ?? merged.distance_unit,
+      };
+    }
     if (applyTodayState) {
       setToday(merged);
       if (user?.id) {
@@ -413,73 +474,84 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-      const lastSync     = await AsyncStorage.getItem('@roundfit/last_health_sync');
-      const now          = Date.now();
-
-      if (!force && lastSync) {
-        const minutesSince = (now - parseInt(lastSync)) / 60000;
-        if (minutesSince < 3) {
-          console.log('[HealthKit] skipping sync — last sync was', Math.round(minutesSince), 'mins ago');
-          return;
-        }
-      }
+      const lastSyncRaw = await AsyncStorage.getItem(LAST_HEALTH_SYNC_KEY);
+      const now = Date.now();
+      const msSinceLastSync = lastSyncRaw
+        ? now - parseInt(lastSyncRaw, 10)
+        : Number.POSITIVE_INFINITY;
+      const backfillThrottled = !force && msSinceLastSync < HEALTH_BACKFILL_THROTTLE_MS;
 
       const authorized = await ensureHealthKitAuthorized(hk);
       if (!authorized) return;
 
       const todayDate = getLocalDateString();
-      const createdAtDate = user?.createdAt ? new Date(user.createdAt) : null;
-      const hasValidCreatedAt = createdAtDate !== null && !Number.isNaN(createdAtDate.getTime());
-      const accountStartDate = hasValidCreatedAt
-        ? formatDate(startOfDay(createdAtDate))
-        : formatDate(addDays(startOfDay(new Date()), -1));
-      const cursorRaw = await AsyncStorage.getItem(HEALTH_BACKFILL_CURSOR_KEY);
-      const cursorDate = cursorRaw && /^\d{4}-\d{2}-\d{2}$/.test(cursorRaw) ? cursorRaw : null;
-      const backfillStartDate = (!force && cursorDate)
-        ? formatDate(addDays(startOfDay(new Date(`${cursorDate}T00:00:00`)), 1))
-        : accountStartDate;
 
-      let backfillCursor = backfillStartDate;
-      while (backfillCursor < todayDate) {
-        const dayData = await fetchByDate(backfillCursor);
-        const needsDistanceBackfill =
-          !dayData || hasStepsButNoDistance(dayData.steps, dayData.distance);
-        if (needsDistanceBackfill) {
-          const daySummary = await readHealthKitForDate(hk, backfillCursor);
-          if (!isEmptySummary(daySummary) && daySummary.distance > 0) {
-            const payload = toSyncInput(daySummary);
-            payload.date = backfillCursor;
-            console.log('[HealthKit] backfill /health/sync payload:', JSON.stringify(payload, null, 2));
-            await saveHealthSnapshot(payload, false);
+      if (!backfillThrottled) {
+        const createdAtDate = user?.createdAt ? new Date(user.createdAt) : null;
+        const hasValidCreatedAt = createdAtDate !== null && !Number.isNaN(createdAtDate.getTime());
+        const accountStartDate = hasValidCreatedAt
+          ? formatDate(startOfDay(createdAtDate))
+          : formatDate(addDays(startOfDay(new Date()), -1));
+        const cursorRaw = await AsyncStorage.getItem(HEALTH_BACKFILL_CURSOR_KEY);
+        const cursorDate = cursorRaw && /^\d{4}-\d{2}-\d{2}$/.test(cursorRaw) ? cursorRaw : null;
+        const backfillStartDate = cursorDate
+          ? formatDate(addDays(startOfDay(new Date(`${cursorDate}T00:00:00`)), 1))
+          : accountStartDate;
+
+        let backfillCursor = backfillStartDate;
+        while (backfillCursor < todayDate) {
+          const dayData = await fetchByDate(backfillCursor);
+          const needsDistanceBackfill =
+            !dayData || hasStepsButNoDistance(dayData.steps, dayData.distance);
+          if (needsDistanceBackfill) {
+            const daySummary = await readHealthKitForDate(hk, backfillCursor);
+            if (!isEmptySummary(daySummary) && daySummary.distance > 0) {
+              const payload = toSyncInput(daySummary);
+              payload.date = backfillCursor;
+              await saveHealthSnapshot(payload, false);
+            }
           }
+          await AsyncStorage.setItem(HEALTH_BACKFILL_CURSOR_KEY, backfillCursor);
+          backfillCursor = formatDate(addDays(startOfDay(new Date(`${backfillCursor}T00:00:00`)), 1));
         }
-        await AsyncStorage.setItem(HEALTH_BACKFILL_CURSOR_KEY, backfillCursor);
-        backfillCursor = formatDate(addDays(startOfDay(new Date(`${backfillCursor}T00:00:00`)), 1));
       }
 
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const summary = await readDailyHealthKit(hk, todayStart, new Date());
-
-      if (isEmptySummary(summary)) {
-        console.log('[HealthKit] all zeros — skipping sync to preserve backend data', summary);
-        return;
-      }
+      if (isEmptySummary(summary)) return;
 
       const payload = toSyncInput(summary);
-      console.log('[HealthKit] POST /health/sync payload:', JSON.stringify(payload, null, 2));
+      const prior = todayRef.current;
+      const applied = applyKitSummary(prior, summary, todayDate);
 
-      // Optimistic update: paint fresh device data immediately, server confirms after.
-      setToday(applyKitSummary(todayRef.current, summary, todayDate));
-      await saveHealthSnapshot(payload, true);
+      // Paint fresh HealthKit data immediately — do not wait on cache or API.
+      setToday(applied);
+
+      const metricsChanged = healthKitSummaryChanged(prior, summary);
+      const shouldPost =
+        force
+        || metricsChanged
+        || msSinceLastSync >= HEALTH_BACKFILL_THROTTLE_MS;
+
+      if (shouldPost) {
+        await saveHealthSnapshot(payload, true);
+        await AsyncStorage.setItem(LAST_HEALTH_SYNC_KEY, now.toString());
+        await AsyncStorage.setItem(HEALTH_BACKFILL_CURSOR_KEY, todayDate);
+      } else if (user?.id) {
+        void setResourceCached(
+          buildResourceKey('health', user.id, todayDate),
+          applied,
+          ttlForDate(todayDate),
+        );
+      }
+
       await persistConnectedFlag();
-      await AsyncStorage.setItem('@roundfit/last_health_sync', now.toString());
-      await AsyncStorage.setItem(HEALTH_BACKFILL_CURSOR_KEY, todayDate);
       setIsConnected(true);
     } catch {
       // HealthKit not available in Expo Go or simulator without data
     }
-  }, [fetchByDate, saveHealthSnapshot, user?.createdAt]);
+  }, [fetchByDate, saveHealthSnapshot, user?.createdAt, user?.id]);
 
   // ── Mount: fetch once per authenticated session ───────────────────────────
   useEffect(() => {
@@ -549,20 +621,24 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     if (Platform.OS !== 'ios' || status !== 'authenticated') return;
     const handleAppState = async (nextState: AppStateStatus) => {
       if (nextState !== 'active' || !user?.id) return;
-
-      const today = getLocalDateString();
-      const cached = await getResourceCached<HealthData>(
-        buildResourceKey('health', user.id, today),
-      );
-      if (!cached || cached.isStale) {
-        await fetchToday(false);
-      }
-
+      void fetchToday(false);
       void syncFromDevice(false);
     };
     const sub = AppState.addEventListener('change', handleAppState);
     return () => sub.remove();
   }, [status, user?.id, fetchToday, syncFromDevice]);
+
+  // ── Poll today's HealthKit metrics while foregrounded ────────────────────
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || status !== 'authenticated') return;
+
+    const interval = setInterval(() => {
+      if (AppState.currentState !== 'active') return;
+      void syncFromDevice(false);
+    }, HEALTH_TODAY_POLL_MS);
+
+    return () => clearInterval(interval);
+  }, [status, syncFromDevice]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {

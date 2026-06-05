@@ -6,6 +6,7 @@ export function getLocalDateString(date: Date = new Date()): string {
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 /**
  * "Jun 2" for the timestamp's LOCAL calendar day. Uses local Date getters rather
@@ -26,6 +27,11 @@ export function localDayOfMonth(iso: string): number {
 /** Full weekday name for the timestamp's LOCAL day (e.g. "Tuesday"). */
 export function localWeekdayLong(iso: string): string {
   return WEEKDAYS_LONG[new Date(iso).getDay()] ?? '';
+}
+
+/** Short weekday for the timestamp's LOCAL day (e.g. "Tue"). */
+export function localWeekdayShort(iso: string): string {
+  return WEEKDAYS_SHORT[new Date(iso).getDay()] ?? '';
 }
 
 /** Whole calendar days between two timestamps, in LOCAL time (today = 0). */

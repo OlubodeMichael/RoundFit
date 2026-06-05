@@ -19,6 +19,8 @@ import {
     type DistanceUnit,
 } from "@/utils/units";
 
+const HEADER_ICON_SIZE = 26;
+
 export interface ActivityCardPalette {
   text: string;
   textDim: string;
@@ -99,27 +101,16 @@ export function StepsMetricCard({
     >
       <View style={s.cardHeader}>
         <View style={s.headerMain}>
-          <View style={[s.iconRing, { backgroundColor: accent.iconSoft }]}>
-            <View style={[s.iconBox, { backgroundColor: accent.iconBg }]}>
-              <Ionicons name="footsteps" size={14} color="#FFF" />
-            </View>
-          </View>
+          <Ionicons name="footsteps" size={HEADER_ICON_SIZE} color={accent.iconBg} />
           <Text style={[s.label, { color: P.textDim }]} numberOfLines={1}>
             Steps
           </Text>
         </View>
-        <View
-          style={[
-            s.chip,
-            { backgroundColor: goalComplete ? P.proteinSoft : P.waterSoft },
-          ]}
-        >
-          {goalComplete ? (
-            <Ionicons name="checkmark" size={10} color={P.protein} />
-          ) : (
-            <Text style={[s.chipText, { color: stepColor }]}>{pctLabel}%</Text>
-          )}
-        </View>
+        {goalComplete ? (
+          <Ionicons name="checkmark-circle" size={16} color={P.protein} />
+        ) : (
+          <Text style={[s.trailPct, { color: stepColor }]}>{pctLabel}%</Text>
+        )}
       </View>
 
       <View style={s.cardBody}>
@@ -189,11 +180,11 @@ export function DistanceMetricCard({
     >
       <View style={s.cardHeader}>
         <View style={s.headerMain}>
-          <View style={[s.iconRing, { backgroundColor: accent.iconSoft }]}>
-            <View style={[s.iconBox, { backgroundColor: accent.iconBg }]}>
-              <Ionicons name="navigate-outline" size={14} color="#FFF" />
-            </View>
-          </View>
+          <Ionicons
+            name="navigate"
+            size={HEADER_ICON_SIZE}
+            color={accent.iconBg}
+          />
           <Text style={[s.label, { color: P.textDim }]}>Distance</Text>
         </View>
       </View>
@@ -276,17 +267,6 @@ const s = StyleSheet.create({
     height: METRIC_BOTTOM_SLOT_HEIGHT,
     justifyContent: "flex-end",
   },
-  iconRing: {
-    padding: 3,
-    borderRadius: 12,
-  },
-  iconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   label: {
     flex: 1,
     fontSize: 11,
@@ -325,17 +305,9 @@ const s = StyleSheet.create({
     height: "100%",
     borderRadius: 3,
   },
-  chip: {
+  trailPct: {
     flexShrink: 0,
-    minWidth: 26,
-    height: 18,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
-  },
-  chipText: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "800",
     fontVariant: ["tabular-nums"],
   },

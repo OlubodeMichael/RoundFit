@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
+import { RecoveryTrendGradientCard } from '@/components/recovery/RecoveryTrendGradientCard';
 import { RecoveryTrendHero } from '@/components/recovery/RecoveryTrendHero';
 import { RecoveryTrendStatsRow } from '@/components/recovery/RecoveryTrendStatsRow';
 import { usePalette } from '@/lib/log-theme';
@@ -109,9 +110,19 @@ export function RecoveryTrendSkeleton({ period, palette, tint }: RecoveryTrendSk
         periodTitle={periodTitle}
         periodSubtitle={periodSubtitle}
         palette={palette}
+        readinessScore={0}
       />
-      <RecoveryTrendStatsRow stats={emptyStats} palette={palette} />
-      <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.cardEdge }]}>
+      <RecoveryTrendStatsRow
+        stats={emptyStats}
+        palette={palette}
+        readinessScore={0}
+      />
+      <RecoveryTrendGradientCard
+        palette={palette}
+        readinessScore={0}
+        corner="bottom-left"
+        contentStyle={styles.cardInner}
+      >
         <View style={styles.cardHead}>
           <Text style={[styles.cardTitle, { color: palette.text }]}>{chartTitle}</Text>
           <SkeletonBlock width={72} height={12} radius={4} />
@@ -125,7 +136,7 @@ export function RecoveryTrendSkeleton({ period, palette, tint }: RecoveryTrendSk
             </View>
           ))}
         </View>
-      </View>
+      </RecoveryTrendGradientCard>
     </View>
   );
 }
@@ -135,12 +146,10 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: SCREEN_PAD,
   },
-  card: {
-    borderRadius:      16,
-    borderWidth:       StyleSheet.hairlineWidth,
+  cardInner: {
     paddingHorizontal: 16,
-    paddingTop:        14,
-    paddingBottom:     14,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   cardHead: {
     flexDirection:  'row',

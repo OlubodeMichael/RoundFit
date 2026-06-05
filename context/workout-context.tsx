@@ -12,6 +12,7 @@ import {
   buildResourceKey,
   fetchWithResourceCache,
   getResourceCached,
+  setResourceCached,
   ttlForDate,
 } from '@/utils/resource-cache';
 
@@ -283,12 +284,23 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     });
     if (!ok) throw new Error((body.error as string) ?? 'Failed to log workout');
     const saved = fromApiWorkout(body.workout as Record<string, unknown>);
-    setWorkouts((prev) => [saved, ...prev]);
+    setWorkouts((prev) => {
+      const next = [saved, ...prev];
+      if (user?.id) {
+        const today = todayDateString();
+        void setResourceCached(
+          buildResourceKey('workouts', user.id, today),
+          next,
+          ttlForDate(today),
+        );
+      }
+      return next;
+    });
     applyTodayOptimistic({ caloriesBurned: saved.calories_burned });
     bumpHistory();
     void syncToday();
     return saved;
-  }, [bumpHistory, syncToday]);
+  }, [bumpHistory, syncToday, user?.id]);
 
   // ── Log sets ─────────────────────────────────────────────────────────────
   const logSets = useCallback(async (workoutId: string, sets: LogSetInput[]): Promise<WorkoutSet[]> => {
@@ -327,9 +339,20 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       }
       throw new Error((body.error as string) ?? 'Failed to delete workout');
     }
+
+    if (user?.id) {
+      const today = todayDateString();
+      const next = snapshot.filter((workout) => workout.id !== id);
+      void setResourceCached(
+        buildResourceKey('workouts', user.id, today),
+        next,
+        ttlForDate(today),
+      );
+    }
+
     bumpHistory();
     void syncToday();
-  }, [bumpHistory, syncToday, workouts]);
+  }, [bumpHistory, syncToday, user?.id, workouts]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refreshWorkouts = useCallback(async (date?: string) => {

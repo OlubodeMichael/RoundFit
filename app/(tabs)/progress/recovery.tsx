@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -12,11 +12,20 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Path, Stop } from 'react-native-svg';
+import Svg, {
+  Circle,
+  Defs,
+  LinearGradient as SvgLinearGradient,
+  Path,
+  Stop,
+  Text as SvgText,
+} from 'react-native-svg';
 
 import { RecoveryArcGauge } from '@/components/recovery/RecoveryArcGauge';
 import { RecoveryDayMetrics } from '@/components/recovery/RecoveryDayMetrics';
 import { RecoveryDaySkeleton } from '@/components/recovery/RecoveryDaySkeleton';
+import { RecoveryFactorsCard } from '@/components/recovery/RecoveryFactorsCard';
+import { RecoveryTrendGradientCard } from '@/components/recovery/RecoveryTrendGradientCard';
 import { RecoveryTrendSkeleton } from '@/components/recovery/RecoveryTrendSkeleton';
 import { RecoveryWeeklyTrend } from '@/components/recovery/RecoveryWeeklyTrend';
 import { RecoveryMonthlyTrend } from '@/components/recovery/RecoveryMonthlyTrend';
@@ -125,8 +134,12 @@ const ms = StyleSheet.create({
 
 // ── MiniTrendSection ──────────────────────────────────────────────────────────
 
-const SPARKLINE_H   = 72;
-const SPARKLINE_PAD = 14;
+const SPARKLINE_H = 72;
+const SPARKLINE_PAD_TOP = 26;
+const SPARKLINE_PAD_BOTTOM = 10;
+const MINI_SCORE_LABEL_OFFSET = 11;
+/** Keeps dots, halos, and score labels off the chart edges (matches weekly chart inset). */
+const MINI_CHART_H_INSET = 12;
 
 interface SparkDot {
   cx: number;
@@ -197,45 +210,52 @@ function buildAreaPath(dots: SparkDot[], bottom: number): string {
   }).filter(Boolean).join(' ');
 }
 
-function MiniTrendSection({ points, tint, palette, onViewPress }: {
-  points:      ReadinessHistoryPoint[];
-  tint:        string;
-  palette:     TrendPalette;
-  onViewPress: () => void;
+function MiniTrendSection({ points, tint, palette, readinessScore, onViewPress }: {
+  points:          ReadinessHistoryPoint[];
+  tint:            string;
+  palette:         TrendPalette;
+  readinessScore:  number;
+  onViewPress:     () => void;
 }) {
-  const stats     = computeTrendStats(points);
-  const { width } = useWindowDimensions();
-  const chartW    = width - SCREEN_PAD * 2 - 28;
+  const stats = computeTrendStats(points);
+  const [plotWidth, setPlotWidth] = useState(0);
+  const last7 = useMemo(() => points.slice(-7), [points]);
+
+  const chartLayout = useMemo(() => {
+    if (plotWidth <= 0 || last7.length === 0) return null;
+
+    const validScores = last7.filter((p) => p.score > 0).map((p) => p.score);
+    const minS = validScores.length > 0 ? Math.min(...validScores) : 0;
+    const maxS = validScores.length > 0 ? Math.max(...validScores) : 100;
+    const range = Math.max(maxS - minS, 20);
+    const plotH = SPARKLINE_H - SPARKLINE_PAD_TOP - SPARKLINE_PAD_BOTTOM;
+    const plotInnerW = plotWidth - MINI_CHART_H_INSET * 2;
+    const slotW = plotInnerW / 7;
+
+    const dots: SparkDot[] = last7.map((p, i) => {
+      const hasData = p.score > 0;
+      const cx = MINI_CHART_H_INSET + slotW * i + slotW / 2;
+      const cy = hasData
+        ? SPARKLINE_H - SPARKLINE_PAD_BOTTOM - ((p.score - minS) / range) * plotH
+        : SPARKLINE_H;
+      return { cx, cy, score: p.score, hasData, today: isToday(p.date), date: p.date };
+    });
+
+    const avgY = stats.average != null
+      ? SPARKLINE_H - SPARKLINE_PAD_BOTTOM - ((stats.average - minS) / range) * plotH
+      : null;
+
+    return {
+      slotW,
+      dots,
+      fullPath: buildFullPath(dots),
+      dataPath: buildDataPath(dots),
+      areaPath: buildAreaPath(dots, SPARKLINE_H),
+      avgY,
+    };
+  }, [plotWidth, last7, stats.average]);
 
   if (points.length === 0) return null;
-
-  const last7 = points.slice(-7);
-
-  const validScores = last7.filter((p) => p.score > 0).map((p) => p.score);
-  const minS  = validScores.length > 0 ? Math.min(...validScores) : 0;
-  const maxS  = validScores.length > 0 ? Math.max(...validScores) : 100;
-  const range = Math.max(maxS - minS, 20);
-  const plotH = SPARKLINE_H - SPARKLINE_PAD * 2;
-  const slotW = chartW / 7;
-
-  const dots: SparkDot[] = last7.map((p, i) => {
-    const hasData = p.score > 0;
-    const cx = slotW * i + slotW / 2;
-    // No-data days go to the literal bottom edge so the dashed guide "touches ground"
-    const cy = hasData
-      ? SPARKLINE_H - SPARKLINE_PAD - ((p.score - minS) / range) * plotH
-      : SPARKLINE_H;
-    return { cx, cy, score: p.score, hasData, today: isToday(p.date), date: p.date };
-  });
-
-  const fullPath = buildFullPath(dots);
-  const dataPath = buildDataPath(dots);
-  const areaPath = buildAreaPath(dots, SPARKLINE_H);
-
-  // Average reference line y-position
-  const avgY = stats.average != null
-    ? SPARKLINE_H - SPARKLINE_PAD - ((stats.average - minS) / range) * plotH
-    : null;
 
   const avgText  = stats.average != null ? `Avg ${stats.average}` : null;
   const daysText = stats.loggedDays > 0
@@ -245,13 +265,18 @@ function MiniTrendSection({ points, tint, palette, onViewPress }: {
   const gradFillId = 'mini-trend-fill';
 
   return (
-    <View style={[ts.wrap, { backgroundColor: palette.card, borderColor: palette.cardEdge }]}>
-      {/* Header */}
+    <View style={ts.sectionWrap}>
+    <RecoveryTrendGradientCard
+      palette={palette}
+      readinessScore={readinessScore}
+      corner="top-right"
+      contentStyle={ts.wrap}
+    >
       <View style={ts.header}>
         <Text style={[ts.sectionLabel, { color: palette.textFaint }]}>7-DAY TREND</Text>
         <TouchableOpacity onPress={onViewPress} activeOpacity={0.7} style={ts.viewBtn}>
-          <Text style={[ts.viewText, { color: tint }]}>View</Text>
-          <Ionicons name="arrow-up-right-box" size={12} color={tint} />
+          <Text style={[ts.viewText, { color: palette.textFaint }]}>View</Text>
+          <Ionicons name="arrow-up-right-box" size={12} color={palette.textFaint} />
         </TouchableOpacity>
       </View>
 
@@ -265,129 +290,139 @@ function MiniTrendSection({ points, tint, palette, onViewPress }: {
         </Text>
       </View>
 
-      {/* Chart + score label overlay */}
-      <View style={{ width: chartW, height: SPARKLINE_H, marginTop: 12 }}>
-        <Svg width={chartW} height={SPARKLINE_H}>
-          <Defs>
-            <SvgLinearGradient id={gradFillId} x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0%"   stopColor={tint} stopOpacity={palette.isDark ? 0.30 : 0.18} />
-              <Stop offset="100%" stopColor={tint} stopOpacity={0} />
-            </SvgLinearGradient>
-          </Defs>
+      {/* Chart — width from layout so it stays inside card padding */}
+      <View
+        style={ts.chartArea}
+        onLayout={(e) => {
+          const w = Math.round(e.nativeEvent.layout.width);
+          if (w > 0 && w !== plotWidth) setPlotWidth(w);
+        }}
+      >
+        {chartLayout != null && (
+          <>
+            <Svg width={plotWidth} height={SPARKLINE_H}>
+              <Defs>
+                <SvgLinearGradient id={gradFillId} x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0%"   stopColor={tint} stopOpacity={palette.isDark ? 0.30 : 0.18} />
+                  <Stop offset="100%" stopColor={tint} stopOpacity={0} />
+                </SvgLinearGradient>
+              </Defs>
 
-          {/* Avg dashed reference */}
-          {avgY != null && (
-            <Path
-              d={`M 0 ${avgY.toFixed(1)} L ${chartW} ${avgY.toFixed(1)}`}
-              stroke={palette.textFaint}
-              strokeWidth={1}
-              strokeOpacity={0.25}
-              strokeDasharray="3 5"
-              fill="none"
-            />
-          )}
-
-          {/* Area fill — data segments only */}
-          {areaPath.length > 0 && (
-            <Path d={areaPath} fill={`url(#${gradFillId})`} />
-          )}
-
-          {/* Dashed full guide — runs through all 7 slots, dips to ground on no-data days */}
-          {fullPath.length > 0 && (
-            <Path
-              d={fullPath}
-              fill="none"
-              stroke={tint}
-              strokeWidth={1.5}
-              strokeOpacity={0.30}
-              strokeDasharray="4 5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          )}
-
-          {/* Solid line — data segments only, rendered on top of dashed guide */}
-          {dataPath.length > 0 && (
-            <Path
-              d={dataPath}
-              fill="none"
-              stroke={tint}
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          )}
-
-          {/* Dots */}
-          {dots.map((d, i) => {
-            if (!d.hasData) return null;
-            const dotColor = scoreTint(d.score, palette);
-            return (
-              <React.Fragment key={i}>
-                {d.today && (
-                  <Circle cx={d.cx} cy={d.cy} r={10} fill={tint} opacity={palette.isDark ? 0.18 : 0.12} />
-                )}
-                <Circle
-                  cx={d.cx}
-                  cy={d.cy}
-                  r={d.today ? 5.5 : 3.5}
-                  fill={d.today ? tint : palette.card}
-                  stroke={dotColor}
-                  strokeWidth={d.today ? 0 : 1.5}
+              {chartLayout.avgY != null && (
+                <Path
+                  d={`M ${MINI_CHART_H_INSET} ${chartLayout.avgY.toFixed(1)} L ${plotWidth - MINI_CHART_H_INSET} ${chartLayout.avgY.toFixed(1)}`}
+                  stroke={palette.textFaint}
+                  strokeWidth={1}
+                  strokeOpacity={0.25}
+                  strokeDasharray="3 5"
+                  fill="none"
                 />
-              </React.Fragment>
-            );
-          })}
-        </Svg>
+              )}
 
-        {/* Score label above today's dot — rendered outside SVG for font support */}
-        {dots.map((d, i) =>
-          d.hasData && d.today ? (
+              {chartLayout.areaPath.length > 0 && (
+                <Path d={chartLayout.areaPath} fill={`url(#${gradFillId})`} />
+              )}
+
+              {chartLayout.fullPath.length > 0 && (
+                <Path
+                  d={chartLayout.fullPath}
+                  fill="none"
+                  stroke={tint}
+                  strokeWidth={1.5}
+                  strokeOpacity={0.30}
+                  strokeDasharray="4 5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+
+              {chartLayout.dataPath.length > 0 && (
+                <Path
+                  d={chartLayout.dataPath}
+                  fill="none"
+                  stroke={tint}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+
+              {chartLayout.dots.map((d, i) => {
+                if (!d.hasData) return null;
+                const dotColor = scoreTint(d.score, palette);
+                const labelY = d.cy - (d.today ? 13 : MINI_SCORE_LABEL_OFFSET);
+                return (
+                  <SvgText
+                    key={`${d.date}-label`}
+                    x={d.cx}
+                    y={labelY}
+                    fill={d.today ? palette.text : dotColor}
+                    fontSize={d.today ? 11 : 10}
+                    fontWeight={d.today ? '800' : '700'}
+                    textAnchor="middle"
+                  >
+                    {d.score}
+                  </SvgText>
+                );
+              })}
+
+              {chartLayout.dots.map((d, i) => {
+                if (!d.hasData) return null;
+                const dotColor = scoreTint(d.score, palette);
+                return (
+                  <React.Fragment key={i}>
+                    {d.today && (
+                      <Circle cx={d.cx} cy={d.cy} r={10} fill={tint} opacity={palette.isDark ? 0.18 : 0.12} />
+                    )}
+                    <Circle
+                      cx={d.cx}
+                      cy={d.cy}
+                      r={d.today ? 5.5 : 3.5}
+                      fill={d.today ? tint : palette.card}
+                      stroke={dotColor}
+                      strokeWidth={d.today ? 0 : 1.5}
+                    />
+                  </React.Fragment>
+                );
+              })}
+            </Svg>
+
             <View
-              key={i}
-              pointerEvents="none"
-              style={{
-                position:   'absolute',
-                left:       d.cx - 18,
-                top:        d.cy - 22,
-                width:      36,
-                alignItems: 'center',
-              }}
+              style={[
+                ts.dayRow,
+                { width: plotWidth, paddingHorizontal: MINI_CHART_H_INSET },
+              ]}
             >
-              <Text style={[ts.dotScore, { color: tint }]}>{d.score}</Text>
+              {last7.map((p, i) => {
+                const todayPt = isToday(p.date);
+                return (
+                  <View key={i} style={{ width: chartLayout.slotW, alignItems: 'center', gap: 1 }}>
+                    <Text style={[ts.dayLabel, { color: todayPt ? tint : palette.textFaint }, todayPt && ts.dayLabelToday]}>
+                      {weekdayLetter(p.date)}
+                    </Text>
+                    <Text style={[ts.dayDate, { color: todayPt ? tint : palette.textFaint }]}>
+                      {dayOfMonth(p.date)}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
-          ) : null,
+          </>
         )}
       </View>
-
-      {/* Day labels — slot-width Views so centers match SVG cx exactly */}
-      <View style={{ width: chartW, flexDirection: 'row', marginTop: 6 }}>
-        {last7.map((p, i) => {
-          const todayPt = isToday(p.date);
-          return (
-            <View key={i} style={{ width: slotW, alignItems: 'center', gap: 1 }}>
-              <Text style={[ts.dayLabel, { color: todayPt ? tint : palette.textFaint }, todayPt && ts.dayLabelToday]}>
-                {weekdayLetter(p.date)}
-              </Text>
-              <Text style={[ts.dayDate, { color: todayPt ? tint : palette.textFaint }]}>
-                {dayOfMonth(p.date)}
-              </Text>
-            </View>
-          );
-        })}
-      </View>
+    </RecoveryTrendGradientCard>
     </View>
   );
 }
 
 const ts = StyleSheet.create({
+  sectionWrap: {
+    paddingHorizontal: SCREEN_PAD,
+  },
   wrap: {
-    marginHorizontal:  SCREEN_PAD,
-    borderRadius:      16,
-    borderWidth:       StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
-    paddingTop:        14,
-    paddingBottom:     14,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   header: {
     flexDirection:  'row',
@@ -414,6 +449,15 @@ const ts = StyleSheet.create({
     alignItems:    'baseline',
     flexWrap:      'wrap',
   },
+  chartArea: {
+    width:         '100%',
+    marginTop:     12,
+    overflow:      'hidden',
+  },
+  dayRow: {
+    flexDirection: 'row',
+    marginTop:     6,
+  },
   avgScore: {
     fontSize:      20,
     fontWeight:    '800',
@@ -423,11 +467,6 @@ const ts = StyleSheet.create({
   avgDays: {
     fontSize:   13,
     fontWeight: '500',
-  },
-  dotScore: {
-    fontSize:      10,
-    fontWeight:    '800',
-    letterSpacing: -0.3,
   },
   dayLabel: {
     fontSize:   10,
@@ -581,13 +620,19 @@ export default function RecoveryScreen() {
 
         {/* ── No data ─────────────────────────────────────────────── */}
         {period === 'D' && initialized && hasInsufficientData && !isCalculating && (
-          <View style={[s.emptyCard, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
+          <RecoveryTrendGradientCard
+            palette={P}
+            readinessScore={0}
+            corner="top-left"
+            style={s.emptyCardOuter}
+            contentStyle={s.emptyCardInner}
+          >
             <Ionicons name="analytics-outline" size={22} color={P.textFaint} />
             <Text style={[s.emptyTitle, { color: P.text }]}>Not enough data yet</Text>
             <Text style={[s.emptyText, { color: P.textFaint }]}>
               Log sleep, connect HealthKit, or complete a morning check-in to unlock your readiness score.
             </Text>
-          </View>
+          </RecoveryTrendGradientCard>
         )}
 
         {period === 'D' && isCalculating && (
@@ -639,29 +684,19 @@ export default function RecoveryScreen() {
                 points={trend7d}
                 tint={tint}
                 palette={P}
+                readinessScore={score ?? 0}
                 onViewPress={() => setPeriod('W')}
               />
             )}
 
-            {/* 4. Metric rows (no progress bars) */}
-            {factors.length > 0 && (
-              <View style={s.factorsWrap}>
-                <View style={s.factorsHeader}>
-                  <Text style={[s.factorsTitle, { color: P.textFaint }]}>WHAT MOVED THE SCORE</Text>
-                  <Ionicons name="trending-up-outline" size={13} color={P.textFaint} />
-                </View>
-                <View style={[s.factorsCard, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
-                  {factors.map((f, i) => (
-                    <MetricRow
-                      key={f.pillar}
-                      factor={f}
-                      last={i === factors.length - 1}
-                      palette={P}
-                    />
-                  ))}
-                </View>
-              </View>
-            )}
+            <RecoveryFactorsCard
+              factors={factors}
+              palette={P}
+              readinessScore={score ?? 0}
+              renderRow={(f, last) => (
+                <MetricRow key={f.pillar} factor={f} last={last} palette={P} />
+              )}
+            />
 
           </View>
         )}
@@ -753,15 +788,15 @@ const s = StyleSheet.create({
     lineHeight:    36,
   },
 
-  emptyCard: {
-    marginHorizontal:  SCREEN_PAD,
-    marginTop:         SECTION_GAP,
-    alignItems:        'center',
-    gap:               8,
-    paddingVertical:   24,
+  emptyCardOuter: {
+    marginHorizontal: SCREEN_PAD,
+    marginTop: SECTION_GAP,
+  },
+  emptyCardInner: {
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 24,
     paddingHorizontal: SCREEN_PAD,
-    borderRadius:      16,
-    borderWidth:       StyleSheet.hairlineWidth,
   },
   emptyTitle: { fontSize: 15, fontWeight: '800' },
   emptyText:  { fontSize: 13, fontWeight: '500', textAlign: 'center', lineHeight: 19 },
@@ -781,23 +816,4 @@ const s = StyleSheet.create({
     borderRadius: 999,
   },
 
-  factorsWrap: {
-    paddingHorizontal: SCREEN_PAD,
-    gap:               10,
-  },
-  factorsHeader: {
-    flexDirection:  'row',
-    alignItems:     'center',
-    justifyContent: 'space-between',
-  },
-  factorsTitle: {
-    fontSize:      10,
-    fontWeight:    '700',
-    letterSpacing: 1.4,
-  },
-  factorsCard: {
-    borderRadius: 16,
-    borderWidth:  StyleSheet.hairlineWidth,
-    overflow:     'hidden',
-  },
 });

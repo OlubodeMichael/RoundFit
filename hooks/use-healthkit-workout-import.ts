@@ -65,11 +65,16 @@ export function useHealthKitWorkoutImport(
 
       const isAlreadyImported = (uuid: string) => knownUuids.has(uuid);
 
+      const userId = user!.id;
+
       if (reviewBeforeImport) {
-        const pending = await fetchAppleFitnessWorkoutsForDisplay({ isAlreadyImported });
+        const pending = await fetchAppleFitnessWorkoutsForDisplay({
+          isAlreadyImported,
+          userId,
+        });
         onPendingReviewsRef.current?.(pending);
       } else {
-        await runWorkoutImport(logWorkout, { isAlreadyImported });
+        await runWorkoutImport(logWorkout, { isAlreadyImported, userId });
       }
 
       setLastImportAt(new Date());

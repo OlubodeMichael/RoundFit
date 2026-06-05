@@ -352,7 +352,6 @@ async function queryCumulativeStat(
   for (const statsOpts of optionVariants) {
     try {
       const result = await hk.queryStatisticsForQuantity(id, ['cumulativeSum'], statsOpts);
-      console.log(`[HealthKit] stat raw ${id}:`, JSON.stringify(result));
       const value = extractCumulativeFromStatResult(result);
       if (value > 0) {
         console.log(`[HealthKit] stat ${id}:`, value);

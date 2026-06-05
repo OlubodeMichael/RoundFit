@@ -7,14 +7,19 @@ import {
   type WorkoutCatalogEntry,
 } from '@/config/workout-catalog';
 import {
+  buildHealthKitLookbackStart,
   fetchWorkoutsSince,
   HEALTHKIT_WORKOUT_DEFAULT_LOOKBACK_DAYS,
   mapHealthKitWorkoutToLogInput,
   type HealthKitWorkoutSample,
 } from '@/utils/healthkit';
+import {
+  fetchHealthKitWorkoutsScanCached,
+  invalidateHealthKitWorkoutScanCache,
+} from '@/utils/workout-hk-cache';
 
 export const HEALTHKIT_WORKOUT_CURSOR_KEY = '@roundfit/healthkit_workout_cursor';
-const IMPORTED_UUIDS_KEY = '@roundfit/healthkit_imported_uuids';
+export const IMPORTED_UUIDS_KEY = '@roundfit/healthkit_imported_uuids';
 
 export type LogWorkoutFn = (input: LogWorkoutInput) => Promise<Workout>;
 
@@ -25,6 +30,10 @@ export interface WorkoutImportOptions {
   cursorOverride?: Date;
   /** When true, detect new workouts but do not POST — surface via review flow. */
   reviewBeforeImport?: boolean;
+  /** Enables cached HealthKit scan when set. */
+  userId?: string;
+  /** Bypass cached HealthKit scan. */
+  forceScan?: boolean;
 }
 
 export interface WorkoutImportResult {
@@ -54,10 +63,18 @@ export interface WorkoutImportReviewOverrides {
 }
 
 function defaultLookbackCursor(): Date {
-  const cursor = new Date();
-  cursor.setDate(cursor.getDate() - HEALTHKIT_WORKOUT_DEFAULT_LOOKBACK_DAYS);
-  cursor.setHours(0, 0, 0, 0);
-  return cursor;
+  return buildHealthKitLookbackStart(HEALTHKIT_WORKOUT_DEFAULT_LOOKBACK_DAYS);
+}
+
+async function fetchWorkoutsSinceCached(
+  scanStart: Date,
+  options: Pick<WorkoutImportOptions, 'userId' | 'forceScan'> = {},
+): Promise<HealthKitWorkoutSample[]> {
+  if (options.userId) {
+    const samples = await fetchHealthKitWorkoutsScanCached(options.userId, options.forceScan);
+    return samples.filter((sample) => sample.endDate.getTime() >= scanStart.getTime());
+  }
+  return fetchWorkoutsSince(scanStart);
 }
 
 async function loadImportCursor(): Promise<Date> {
@@ -143,9 +160,10 @@ async function markSampleHandled(
  * Does not filter AsyncStorage discard/import markers — only hides rows already saved to the server via `isAlreadyImported`.
  */
 export async function fetchAppleFitnessWorkoutsForDisplay(
-  options: Pick<WorkoutImportOptions, 'isAlreadyImported'> = {},
+  options: Pick<WorkoutImportOptions, 'isAlreadyImported' | 'userId' | 'forceScan'> = {},
 ): Promise<WorkoutImportReviewItem[]> {
-  const samples = await fetchWorkoutsSince(defaultLookbackCursor());
+  const scanStart = defaultLookbackCursor();
+  const samples = await fetchWorkoutsSinceCached(scanStart, options);
 
   return samples
     .filter((sample) => !options.isAlreadyImported?.(sample.uuid))
@@ -157,12 +175,12 @@ export async function fetchAppleFitnessWorkoutsForDisplay(
  * HK workouts since the persisted cursor that have not been imported or discarded.
  */
 export async function fetchPendingWorkoutsForReview(
-  options: Pick<WorkoutImportOptions, 'cursorOverride' | 'isAlreadyImported'> = {},
+  options: Pick<WorkoutImportOptions, 'cursorOverride' | 'isAlreadyImported' | 'userId' | 'forceScan'> = {},
 ): Promise<WorkoutImportReviewItem[]> {
   // Always scan the full lookback window — the import cursor can skip workouts
   // that were never saved/discarded (e.g. after a partial sync).
   const scanStart = options.cursorOverride ?? defaultLookbackCursor();
-  const samples = await fetchWorkoutsSince(scanStart);
+  const samples = await fetchWorkoutsSinceCached(scanStart, options);
   const importedUuids = await loadImportedUuidSet();
 
   const pending = samples
@@ -178,6 +196,7 @@ export async function importReviewedWorkout(
   sample: HealthKitWorkoutSample,
   logWorkout: LogWorkoutFn,
   overrides?: WorkoutImportReviewOverrides,
+  userId?: string,
 ): Promise<Workout> {
   const input = mapHealthKitWorkoutToLogInput(sample);
   const sourceLabel = sample.sourceName ?? 'Apple Watch';
@@ -193,13 +212,22 @@ export async function importReviewedWorkout(
   const workout = await logWorkout(input);
   const importedUuids = await loadImportedUuidSet();
   await markSampleHandled(sample, importedUuids);
+  if (userId) {
+    await invalidateHealthKitWorkoutScanCache(userId);
+  }
   return workout;
 }
 
 /** Marks a HK workout as handled without creating a RoundFit row. */
-export async function discardReviewedWorkout(sample: HealthKitWorkoutSample): Promise<void> {
+export async function discardReviewedWorkout(
+  sample: HealthKitWorkoutSample,
+  userId?: string,
+): Promise<void> {
   const importedUuids = await loadImportedUuidSet();
   await markSampleHandled(sample, importedUuids);
+  if (userId) {
+    await invalidateHealthKitWorkoutScanCache(userId);
+  }
 }
 
 /**
@@ -214,7 +242,7 @@ export async function runWorkoutImport(
   options: WorkoutImportOptions = {},
 ): Promise<WorkoutImportResult> {
   const cursor = options.cursorOverride ?? await loadImportCursor();
-  const samples = await fetchWorkoutsSince(cursor);
+  const samples = await fetchWorkoutsSinceCached(cursor, options);
   const importedUuids = await loadImportedUuidSet();
 
   let imported = 0;
@@ -258,6 +286,10 @@ export async function runWorkoutImport(
   }
   if (!options.reviewBeforeImport) {
     await saveImportedUuidSet(importedUuids);
+  }
+
+  if (options.userId && !options.reviewBeforeImport && imported > 0) {
+    await invalidateHealthKitWorkoutScanCache(options.userId);
   }
 
   return {

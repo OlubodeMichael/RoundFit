@@ -1,11 +1,9 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { WorkoutHistoryRow } from '@/components/log/workout/WorkoutHistoryRow';
-import { formatHistoryDateLabel } from '@/components/log/workout/workout-display';
 import type { Workout } from '@/context/workout-context';
 import type { WorkoutHistoryGroup } from '@/hooks/use-workout-history';
 import { usePalette } from '@/lib/log-theme';
-import { getLocalDateString } from '@/utils/date';
 
 export interface WorkoutHistorySectionProps {
   groups: WorkoutHistoryGroup[];
@@ -23,7 +21,6 @@ export function WorkoutHistorySection({
   onEditWorkout,
 }: WorkoutHistorySectionProps) {
   const P = usePalette();
-  const todayKey = getLocalDateString();
   const hasHistory = groups.length > 0;
 
   return (
@@ -48,22 +45,18 @@ export function WorkoutHistorySection({
           </Text>
         </View>
       ) : (
-        groups.map((group) => (
-          <View key={group.date} style={styles.group}>
-            <Text style={[styles.dateLabel, { color: P.text }]}>
-              {formatHistoryDateLabel(group.date, todayKey)}
-            </Text>
-            <View style={styles.list}>
-              {group.workouts.map((workout) => (
-                <WorkoutHistoryRow
-                  key={workout.id}
-                  workout={workout}
-                  onPress={onEditWorkout}
-                />
-              ))}
-            </View>
-          </View>
-        ))
+        <View style={styles.list}>
+          {groups.flatMap((group) =>
+            group.workouts.map((workout) => (
+              <WorkoutHistoryRow
+                key={workout.id}
+                workout={workout}
+                dateKey={group.date}
+                onPress={onEditWorkout}
+              />
+            )),
+          )}
+        </View>
       )}
     </View>
   );
@@ -77,9 +70,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     textTransform: 'uppercase',
   },
-  group: { gap: 2 },
   list: { gap: 8 },
-  dateLabel: { fontSize: 13, fontWeight: '700', marginBottom: 6, marginTop: 8, letterSpacing: 0.2 },
   center: { paddingVertical: 24, alignItems: 'center' },
   empty: {
     padding: 16,

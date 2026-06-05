@@ -15,6 +15,7 @@ import type { WorkoutLauncherIntent } from '@/types/workout-session';
 
 import { CALORIES_PER_MINUTE, INTENSITY_OPTIONS } from './constants';
 import { ExercisePicker } from './ExercisePicker';
+import { WorkoutDurationPicker } from './WorkoutDurationPicker';
 import type { Intensity, WorkoutType } from './types';
 
 export interface WorkoutConfigureStepProps {
@@ -81,7 +82,8 @@ export function WorkoutConfigureStep(props: WorkoutConfigureStepProps) {
             onOpenPicker={() => setPickerOpen(true)}
           />
         )}
-        <LogDurationSection
+        <WorkoutDurationPicker
+          variant="configure"
           hours={logHours}
           minutes={logMinutes}
           onHoursChange={onLogHoursChange}
@@ -216,83 +218,6 @@ function LogExerciseSection({
           {presetExercises.length > 0 ? 'Edit exercises' : 'Choose exercises'}
         </Text>
       </Pressable>
-    </View>
-  );
-}
-
-function LogDurationSection({
-  hours,
-  minutes,
-  onHoursChange,
-  onMinutesChange,
-  estimatedCals,
-  totalMinutes,
-}: {
-  hours: string;
-  minutes: string;
-  onHoursChange: (value: string) => void;
-  onMinutesChange: (value: string) => void;
-  estimatedCals: number;
-  totalMinutes: number;
-}) {
-  const P = usePalette();
-  return (
-    <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: P.text }]}>Duration</Text>
-      <View
-        style={[styles.durationCard, { backgroundColor: P.card, borderColor: P.cardEdge }]}
-      >
-        <View style={styles.durationDisplay}>
-          <View style={styles.timeSlot}>
-            <View
-              style={[
-                styles.timeInput,
-                { backgroundColor: P.sunken, borderColor: P.cardEdge },
-              ]}
-            >
-              <TextInput
-                value={hours}
-                onChangeText={(t) => onHoursChange(t.replace(/[^0-9]/g, ''))}
-                placeholder="0"
-                placeholderTextColor={P.cardEdge}
-                keyboardType="number-pad"
-                style={[styles.timeNum, { color: P.text }]}
-              />
-            </View>
-            <Text style={[styles.timeUnit, { color: P.textFaint }]}>HR</Text>
-          </View>
-          <Text style={[styles.timeSep, { color: P.cardEdge }]}>:</Text>
-          <View style={styles.timeSlot}>
-            <View
-              style={[
-                styles.timeInput,
-                { backgroundColor: P.sunken, borderColor: P.cardEdge },
-              ]}
-            >
-              <TextInput
-                value={minutes}
-                onChangeText={(t) => {
-                  const n = t.replace(/[^0-9]/g, '');
-                  onMinutesChange(n === '' ? '' : String(Math.min(59, parseInt(n, 10))));
-                }}
-                placeholder="45"
-                placeholderTextColor={P.cardEdge}
-                keyboardType="number-pad"
-                style={[styles.timeNum, { color: P.text }]}
-              />
-            </View>
-            <Text style={[styles.timeUnit, { color: P.textFaint }]}>MIN</Text>
-          </View>
-        </View>
-        {totalMinutes > 0 && (
-          <View style={[styles.calRow, { borderTopColor: P.hair }]}>
-            <Ionicons name="flame" size={13} color={P.calories} />
-            <Text style={[styles.calText, { color: P.textFaint }]}>Estimated</Text>
-            <Text style={[styles.calNum, { color: P.calories }]}>{estimatedCals}</Text>
-            <Text style={[styles.calUnit, { color: P.textFaint }]}>kcal</Text>
-          </View>
-        )}
-      </View>
     </View>
   );
 }
@@ -527,57 +452,6 @@ const styles = StyleSheet.create({
   },
   actionBtnText: { fontSize: 15, fontWeight: '700' },
   skipLink: { fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  durationCard: {
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-  },
-  durationDisplay: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    paddingVertical: 24,
-    paddingHorizontal: 20,
-  },
-  timeSlot: { alignItems: 'center', gap: 6 },
-  timeInput: {
-    width: 90,
-    height: 72,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timeNum: {
-    fontFamily: 'BarlowCondensed_800ExtraBold',
-    fontSize: 44,
-    lineHeight: 44,
-    textAlign: 'center',
-    width: 80,
-  },
-  timeUnit: { fontFamily: 'Syne_800ExtraBold', fontSize: 9, letterSpacing: 2 },
-  timeSep: {
-    fontFamily: 'BarlowCondensed_800ExtraBold',
-    fontSize: 44,
-    lineHeight: 44,
-    marginBottom: 20,
-  },
-  calRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  calText: { fontSize: 11, fontWeight: '600' },
-  calNum: {
-    fontFamily: 'BarlowCondensed_700Bold',
-    fontSize: 16,
-    letterSpacing: 0,
-  },
-  calUnit: { fontSize: 11, fontWeight: '600' },
   intGrid: { flexDirection: 'row', gap: 8 },
   intCard: {
     flex: 1,

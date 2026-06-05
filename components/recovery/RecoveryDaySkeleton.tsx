@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { RecoveryTrendGradientCard } from '@/components/recovery/RecoveryTrendGradientCard';
 import { usePalette } from '@/lib/log-theme';
 
 const SCREEN_PAD = 20;
@@ -87,17 +88,41 @@ export function RecoveryDaySkeleton({ gaugeSize }: RecoveryDaySkeletonProps) {
         <Text style={[styles.insightText, { color: P.textDim }]}>{LOADING_INSIGHT}</Text>
       </View>
 
-      <View style={[styles.metricsCard, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
-        {[0, 1, 2].map((i) => (
-          <View key={i} style={styles.metricColWrap}>
-            {i > 0 && <View style={[styles.divider, { backgroundColor: P.hair }]} />}
-            <View style={styles.metricCol}>
-              <SkeletonBlock width={36} height={9} radius={4} />
-              <SkeletonBlock width={44} height={24} radius={6} style={{ marginTop: 8 }} />
-              <SkeletonBlock width={52} height={10} radius={4} style={{ marginTop: 8 }} />
-            </View>
-          </View>
-        ))}
+      <View style={[styles.metricsGrid, { paddingHorizontal: SCREEN_PAD }]}>
+        <View style={styles.metricsRow}>
+          {[0, 1].map((i) => (
+            <RecoveryTrendGradientCard
+              key={i}
+              palette={P}
+              readinessScore={0}
+              corner={i === 0 ? 'top-left' : 'top-right'}
+              layout="metric"
+              style={styles.metricCardWrap}
+              contentStyle={styles.metricCardInner}
+            >
+              <SkeletonBlock width="40%" height={9} radius={4} />
+              <SkeletonBlock width="55%" height={24} radius={6} style={{ marginTop: 10 }} />
+              <SkeletonBlock width="70%" height={10} radius={4} style={{ marginTop: 8 }} />
+            </RecoveryTrendGradientCard>
+          ))}
+        </View>
+        <View style={styles.metricsRow}>
+          {[0, 1].map((i) => (
+            <RecoveryTrendGradientCard
+              key={i}
+              palette={P}
+              readinessScore={0}
+              corner={i === 0 ? 'bottom-left' : 'bottom-right'}
+              layout="metric"
+              style={styles.metricCardWrap}
+              contentStyle={styles.metricCardInner}
+            >
+              <SkeletonBlock width="40%" height={9} radius={4} />
+              <SkeletonBlock width="55%" height={24} radius={6} style={{ marginTop: 10 }} />
+              <SkeletonBlock width="70%" height={10} radius={4} style={{ marginTop: 8 }} />
+            </RecoveryTrendGradientCard>
+          ))}
+        </View>
       </View>
 
       <View style={styles.factorsWrap}>
@@ -105,7 +130,12 @@ export function RecoveryDaySkeleton({ gaugeSize }: RecoveryDaySkeletonProps) {
           <Text style={[styles.factorsTitle, { color: P.textFaint }]}>WHAT MOVED THE SCORE</Text>
           <Ionicons name="trending-up-outline" size={13} color={P.textFaint} />
         </View>
-        <View style={[styles.factorsCard, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
+        <RecoveryTrendGradientCard
+          palette={P}
+          readinessScore={0}
+          corner="bottom-left"
+          contentStyle={styles.factorsCardInner}
+        >
           {[0, 1, 2].map((i) => (
             <View key={i} style={styles.factorRow}>
               <View style={{ flex: 1, gap: 8 }}>
@@ -115,7 +145,7 @@ export function RecoveryDaySkeleton({ gaugeSize }: RecoveryDaySkeletonProps) {
               <SkeletonBlock width={28} height={20} radius={4} />
             </View>
           ))}
-        </View>
+        </RecoveryTrendGradientCard>
       </View>
     </View>
   );
@@ -150,27 +180,21 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign:  'center',
   },
-  metricsCard: {
-    flexDirection:     'row',
-    marginHorizontal:  SCREEN_PAD,
-    borderRadius:      18,
-    borderWidth:       StyleSheet.hairlineWidth,
-    paddingVertical:   16,
-    paddingHorizontal: 8,
+  metricsGrid: {
+    gap: 10,
   },
-  metricColWrap: {
-    flex:          1,
+  metricsRow: {
     flexDirection: 'row',
+    gap: 10,
   },
-  metricCol: {
-    flex:              1,
-    alignItems:        'center',
-    paddingHorizontal: 4,
+  metricCardWrap: {
+    flex: 1,
+    minWidth: 0,
   },
-  divider: {
-    width:          StyleSheet.hairlineWidth,
-    alignSelf:      'stretch',
-    marginVertical: 4,
+  metricCardInner: {
+    minHeight: 0,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
   },
   factorsWrap: {
     paddingHorizontal: SCREEN_PAD,
@@ -186,10 +210,9 @@ const styles = StyleSheet.create({
     fontWeight:    '700',
     letterSpacing: 1.4,
   },
-  factorsCard: {
-    borderRadius: 16,
-    borderWidth:  StyleSheet.hairlineWidth,
-    padding:      14,
+  factorsCardInner: {
+    padding: 14,
+    overflow: 'hidden',
   },
   factorRow: {
     flexDirection: 'row',

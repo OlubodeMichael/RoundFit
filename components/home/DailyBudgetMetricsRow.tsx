@@ -22,6 +22,7 @@ import type { HealthData } from '@/context/health-context';
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 const BOTTOM_SLOT_HEIGHT = 13;
+const HEADER_ICON_SIZE = 26;
 
 /** Home palette — includes budget + movement metric fields. */
 export type DailyBudgetMetricsPalette = ActivityCardPalette & {
@@ -69,7 +70,6 @@ export function DailyBudgetMetricsRow({
             isOver ? undefined : Math.round((eaten / Math.max(goal, 1)) * 100)
           }
           fillColor={isOver ? P.calories : P.protein}
-          chipSoft={isOver ? P.caloriesSoft : P.proteinSoft}
           delay={delay}
           style={s.cell}
         />
@@ -116,7 +116,7 @@ export function DailyBudgetMetricsRow({
             <BudgetMetricCard
               P={P}
               variant="distance"
-              icon="navigate-outline"
+              icon="navigate"
               label="Distance"
               value={0}
               sub="—"
@@ -141,7 +141,6 @@ interface BudgetMetricCardProps {
   trailLabel?: string;
   trailPct?: number;
   fillColor?: string;
-  chipSoft?: string;
   delay?: number;
   style?: ViewStyle;
 }
@@ -157,14 +156,12 @@ function BudgetMetricCard({
   trailLabel,
   trailPct,
   fillColor,
-  chipSoft,
   delay = 0,
   style,
 }: BudgetMetricCardProps) {
   const accent = getCardAccent(variant, P.isDark);
   const palette = { card: P.card, cardEdge: P.cardEdge, isDark: P.isDark };
   const barColor = fillColor ?? accent.iconBg;
-  const chipBg = chipSoft ?? accent.iconSoft;
 
   const anim = useRef(new Animated.Value(progress ?? 0)).current;
   const countAnim = useRef(new Animated.Value(0)).current;
@@ -210,11 +207,7 @@ function BudgetMetricCard({
     >
       <View style={s.cardHeader}>
         <View style={s.headerMain}>
-          <View style={[s.iconRing, { backgroundColor: accent.iconSoft }]}>
-            <View style={[s.iconBox, { backgroundColor: accent.iconBg }]}>
-              <Ionicons name={icon} size={14} color="#FFF" />
-            </View>
-          </View>
+          <Ionicons name={icon} size={HEADER_ICON_SIZE} color={accent.iconBg} />
           <Text style={[s.label, { color: P.textDim }]}>{label}</Text>
         </View>
         {showTrail ? (
@@ -228,9 +221,7 @@ function BudgetMetricCard({
               </Text>
             ) : null}
             {trailPct != null ? (
-              <View style={[s.chip, { backgroundColor: chipBg }]}>
-                <Text style={[s.chipText, { color: barColor }]}>{trailPct}%</Text>
-              </View>
+              <Text style={[s.trailPct, { color: barColor }]}>{trailPct}%</Text>
             ) : null}
           </View>
         ) : null}
@@ -308,32 +299,13 @@ const s = StyleSheet.create({
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
-  iconRing: {
-    padding: 3,
-    borderRadius: 12,
-  },
-  iconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   label: {
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: -0.1,
   },
-  chip: {
-    minWidth: 26,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  chipText: {
-    fontSize: 9,
+  trailPct: {
+    fontSize: 11,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
   },

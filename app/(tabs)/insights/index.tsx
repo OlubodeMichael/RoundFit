@@ -2,7 +2,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ComponentProps } from "react";
 import { useMemo, useRef, useState } from "react";
 import {
-    ActivityIndicator,
     Animated,
     Pressable,
     RefreshControl,
@@ -18,11 +17,15 @@ import { useRouter } from "expo-router";
 
 import { DailyGoalsSummaryCard } from "@/components/insights/DailyGoalsSummaryCard";
 import { InsightGradientCard } from "@/components/insights/InsightGradientCard";
+import {
+  TodayInsightsSkeleton,
+  WeekInsightsSkeleton,
+} from "@/components/insights/InsightsSkeleton";
 import { GradientCard } from "@/components/ui/GradientCard";
 import type { Insight as ApiInsight } from "@/context/insights-context";
 import { useInsights } from "@/context/insights-context";
 import { useWeeklyInsights } from "@/hooks/use-weekly-insights";
-import { AnimatedCard, usePalette } from "@/lib/log-theme";
+import { usePalette } from "@/lib/log-theme";
 import { getLocalDateString } from "@/utils/date";
 import {
     formatSleepHours,
@@ -356,18 +359,7 @@ function TodayView({
   const router = useRouter();
 
   if (isLoading && !todayDay) {
-    return (
-      <View style={s.stack}>
-        <AnimatedCard delay={60}>
-          <View style={s.loadingRow}>
-            <ActivityIndicator size="small" color={P.calories} />
-            <Text style={[s.loadingText, { color: P.textFaint }]}>
-              Loading today&apos;s data…
-            </Text>
-          </View>
-        </AnimatedCard>
-      </View>
-    );
+    return <TodayInsightsSkeleton />;
   }
 
   // Date label — e.g. "WED, MAY 28"
@@ -524,18 +516,7 @@ function WeekView({
   const P = usePalette();
 
   if (isLoading && !data) {
-    return (
-      <View style={s.stack}>
-        <WeekInsightCard P={P} delay={60} contentStyle={{ padding: 20 }}>
-          <View style={s.loadingRow}>
-            <ActivityIndicator size="small" color={P.calories} />
-            <Text style={[s.loadingText, { color: P.textFaint }]}>
-              Loading weekly report…
-            </Text>
-          </View>
-        </WeekInsightCard>
-      </View>
-    );
+    return <WeekInsightsSkeleton />;
   }
 
   if (!data) {
@@ -926,13 +907,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 14,
   },
-  loadingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 4,
-  },
-  loadingText: { fontSize: 15, fontWeight: "500" },
 
   glow: {
     position: "absolute",

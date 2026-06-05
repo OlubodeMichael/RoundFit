@@ -55,7 +55,6 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   const {
     logRecovery,
     refresh: refreshRecovery,
-    today: recoveryToday,
     fetchRecoveryByDate,
   } = useRecovery();
   const { fetchForDate: fetchHealthForDate } = health;
@@ -63,6 +62,15 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   const today = localSleepDateString();
   const [activeDate, setActiveDate] = useState(today);
   const isToday = activeDate === today;
+
+  useEffect(() => {
+    setActiveDate((prev) => {
+      if (prev > today) return today;
+      const priorSleepDay = offsetSleepDate(today, -1);
+      if (prev === priorSleepDay) return today;
+      return prev;
+    });
+  }, [today]);
 
   const segmentCache   = useRef<Map<string, SleepSegment[]>>(new Map());
 
@@ -94,28 +102,21 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   }, [activeDate, today]);
 
   const hkSleep = useMemo(() => {
-    const raw = isToday ? health.today : dateHealthData;
-    const row = healthDataForSleepDate(raw, activeDate);
+    const row = healthDataForSleepDate(dateHealthData, activeDate);
     return row && typeof row.sleep_hours === 'number' && row.sleep_hours > 0 ? row : null;
-  }, [isToday, health.today, dateHealthData, activeDate]);
+  }, [dateHealthData, activeDate]);
 
-  const recoveryForDate = useMemo(() => {
-    if (isToday) return recoveryLogForDate(recoveryToday, activeDate);
-    return dateRecoveryLog;
-  }, [isToday, recoveryToday, activeDate, dateRecoveryLog]);
+  const recoveryForDate = useMemo(
+    () => recoveryLogForDate(dateRecoveryLog, activeDate),
+    [dateRecoveryLog, activeDate],
+  );
 
   const persistedManualLog = useMemo(
-    () => isPersistedManualLog(savedSource, hkSleep ?? (isToday ? health.today : dateHealthData), activeDate),
-    [savedSource, hkSleep, isToday, health.today, dateHealthData, activeDate],
+    () => isPersistedManualLog(savedSource, hkSleep ?? dateHealthData, activeDate),
+    [savedSource, hkSleep, dateHealthData, activeDate],
   );
 
   useEffect(() => {
-    if (isToday) {
-      setDateHealthData(null);
-      setDateRecoveryLog(null);
-      setLoadingDate(false);
-      return;
-    }
     let cancelled = false;
     setDateHealthData(null);
     setDateRecoveryLog(null);
@@ -137,7 +138,7 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
       })
       .finally(() => { if (!cancelled) setLoadingDate(false); });
     return () => { cancelled = true; };
-  }, [activeDate, isToday, fetchHealthForDate, fetchRecoveryByDate]);
+  }, [activeDate, fetchHealthForDate, fetchRecoveryByDate]);
 
   const isHealthKitView = useMemo(
     () => isHealthKitDisplayMode(hkSleep, persistedManualLog, manualMode),

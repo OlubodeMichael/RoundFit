@@ -3,7 +3,12 @@ import type Ionicons from '@expo/vector-icons/Ionicons';
 
 import type { WorkoutIntensity, WorkoutSource, DistanceUnit, Workout } from '@/context/workout-context';
 import type { WorkoutImportReviewItem } from '@/services/workout-import';
-import { formatMonthDayLocal, getLocalDateString, localWeekdayLong } from '@/utils/date';
+import {
+  addLocalCalendarDays,
+  formatMonthDayLocal,
+  getLocalDateString,
+  localWeekdayShort,
+} from '@/utils/date';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -81,8 +86,9 @@ export function workoutSourceLabel(source: WorkoutSource): string | null {
 
 export function formatHistoryDateLabel(dateKey: string, todayKey: string): string {
   if (dateKey === todayKey) return 'Today';
+  if (dateKey === addLocalCalendarDays(todayKey, -1)) return 'Yesterday';
   const iso = `${dateKey}T12:00:00`;
-  const weekday = localWeekdayLong(iso);
+  const weekday = localWeekdayShort(iso);
   const monthDay = formatMonthDayLocal(iso);
   return weekday ? `${weekday}, ${monthDay}` : monthDay;
 }

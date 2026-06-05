@@ -8,22 +8,26 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ComponentProps } from 'react';
 
+import { pendingWorkoutDurationMinutes } from '@/components/log/workout/workout-display';
 import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
 import type { Workout } from '@/context/workout-context';
+import type { WorkoutImportReviewItem } from '@/services/workout-import';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
+const ROW_ICON_SIZE = 28;
+
 const WORKOUT_CONFIG: Record<string, { icon: IoniconName; label: string }> = {
-  gym: { icon: 'barbell-outline', label: 'Strength' },
-  running: { icon: 'footsteps-outline', label: 'Run' },
-  cycling: { icon: 'bicycle-outline', label: 'Cycling' },
-  hiit: { icon: 'flash-outline', label: 'HIIT' },
-  yoga: { icon: 'leaf-outline', label: 'Yoga' },
-  swimming: { icon: 'water-outline', label: 'Swimming' },
-  walking: { icon: 'footsteps-outline', label: 'Walking' },
-  rowing: { icon: 'boat-outline', label: 'Rowing' },
-  elliptical: { icon: 'reload-outline', label: 'Elliptical' },
-  other: { icon: 'apps-outline', label: 'Workout' },
+  gym: { icon: 'barbell', label: 'Strength' },
+  running: { icon: 'footsteps', label: 'Run' },
+  cycling: { icon: 'bicycle', label: 'Cycling' },
+  hiit: { icon: 'flash', label: 'HIIT' },
+  yoga: { icon: 'leaf', label: 'Yoga' },
+  swimming: { icon: 'water', label: 'Swimming' },
+  walking: { icon: 'footsteps', label: 'Walking' },
+  rowing: { icon: 'boat', label: 'Rowing' },
+  elliptical: { icon: 'reload', label: 'Elliptical' },
+  other: { icon: 'apps', label: 'Workout' },
 };
 
 const INTENSITY_DOTS: Record<string, number> = {
@@ -59,8 +63,11 @@ export interface WorkoutCardProps {
   P: WorkoutCardPalette;
   delay?: number;
   workouts: Workout[];
+  /** Unsaved Apple Fitness workouts for the displayed day. */
+  pendingWorkouts?: WorkoutImportReviewItem[];
   totalCaloriesBurned: number;
   onLogMore?: () => void;
+  onOpenPending?: (healthkitUuid: string) => void;
 }
 
 function fmtDuration(mins: number): string {
@@ -74,15 +81,19 @@ export function WorkoutCard({
   P,
   delay = 0,
   workouts,
+  pendingWorkouts = [],
   totalCaloriesBurned,
   onLogMore,
+  onOpenPending,
 }: WorkoutCardProps) {
   const accent = getCardAccent('workouts', P.isDark);
   const palette = { card: P.card, cardEdge: P.cardEdge, isDark: P.isDark };
+  const sessionCount = workouts.length + pendingWorkouts.length;
+  const hasAny = sessionCount > 0;
   const caption =
-    workouts.length === 0
+    sessionCount === 0
       ? 'Nothing logged yet'
-      : `${workouts.length} session${workouts.length !== 1 ? 's' : ''} · ${totalCaloriesBurned.toLocaleString()} kcal burned`;
+      : `${sessionCount} session${sessionCount !== 1 ? 's' : ''} · ${totalCaloriesBurned.toLocaleString()} kcal burned`;
 
   return (
     <GradientCard variant="workouts" palette={palette} corner="top-right" delay={delay}>
@@ -93,17 +104,10 @@ export function WorkoutCard({
       >
         <View style={s.header}>
           <View style={s.headerMain}>
-            <View style={[s.iconRing, { backgroundColor: accent.iconSoft }]}>
-              <View style={[s.iconBox, { backgroundColor: accent.iconBg }]}>
-                <Ionicons name="barbell" size={16} color="#FFF" />
-              </View>
-            </View>
-            <View style={s.headerCopy}>
-              <Text style={[s.headerTitle, { color: P.text }]}>Workouts</Text>
-              <Text style={[s.headerCaption, { color: P.textDim }]} numberOfLines={1}>
-                {caption}
-              </Text>
-            </View>
+            <Text style={[s.headerTitle, { color: P.text }]}>Workouts</Text>
+            <Text style={[s.headerCaption, { color: P.textDim }]} numberOfLines={1}>
+              {caption}
+            </Text>
           </View>
           {onLogMore ? (
             <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
@@ -113,7 +117,7 @@ export function WorkoutCard({
 
       <View style={[s.divider, { backgroundColor: P.hair }]} />
 
-      {workouts.length === 0 ? (
+      {!hasAny ? (
         <EmptyBlock
           P={P}
           message={
@@ -127,7 +131,6 @@ export function WorkoutCard({
             const cfg = WORKOUT_CONFIG[w.type] ?? WORKOUT_CONFIG.other;
             const tintKey = ROW_ACCENTS[i % ROW_ACCENTS.length];
             const fill = P[tintKey];
-            const soft = P[`${tintKey}Soft`];
             const dots = INTENSITY_DOTS[w.intensity ?? 'moderate'] ?? 2;
             const hasSets = w.sets && w.sets.length > 0;
 
@@ -144,8 +147,8 @@ export function WorkoutCard({
                     onLogMore && pressed && { backgroundColor: P.sunken },
                   ]}
                 >
-                  <View style={[s.rowIcon, { backgroundColor: soft }]}>
-                    <Ionicons name={cfg.icon} size={18} color={fill} />
+                  <View style={s.rowIconSlot}>
+                    <Ionicons name={cfg.icon} size={ROW_ICON_SIZE} color={fill} />
                   </View>
                   <View style={s.rowCopy}>
                     <Text style={[s.rowTitle, { color: P.text }]}>
@@ -198,10 +201,65 @@ export function WorkoutCard({
               </View>
             );
           })}
+          {pendingWorkouts.map((item, i) => {
+            const rowIndex = workouts.length + i;
+            const tintKey = ROW_ACCENTS[rowIndex % ROW_ACCENTS.length];
+            const fill = P[tintKey];
+            const durationMins = pendingWorkoutDurationMinutes(item);
+            const canOpen = onOpenPending != null;
+
+            return (
+              <View key={item.sample.uuid}>
+                {rowIndex > 0 ? (
+                  <View style={[s.rowDivider, { backgroundColor: P.hair }]} />
+                ) : null}
+                <Pressable
+                  onPress={
+                    canOpen ? () => onOpenPending(item.sample.uuid) : undefined
+                  }
+                  disabled={!canOpen}
+                  style={({ pressed }) => [
+                    s.row,
+                    canOpen && pressed && { backgroundColor: P.sunken },
+                  ]}
+                >
+                  <View style={s.rowIconSlot}>
+                    <Ionicons
+                      name={item.catalogEntry.icon}
+                      size={ROW_ICON_SIZE}
+                      color={fill}
+                    />
+                  </View>
+                  <View style={s.rowCopy}>
+                    <Text style={[s.rowTitle, { color: P.text }]}>
+                      {item.label}
+                    </Text>
+                    <View style={s.meta}>
+                      <Text style={[s.metaText, { color: P.textFaint }]}>
+                        Apple Fitness
+                      </Text>
+                      <View
+                        style={[s.metaDot, { backgroundColor: P.textFaint }]}
+                      />
+                      <Text style={[s.metaText, { color: P.textFaint }]}>
+                        {fmtDuration(durationMins)}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={s.rowStat}>
+                    <Text style={[s.rowValue, { color: P.text }]}>
+                      {Math.round(item.caloriesBurned ?? 0)}
+                    </Text>
+                    <Text style={[s.rowUnit, { color: P.textFaint }]}>kcal</Text>
+                  </View>
+                </Pressable>
+              </View>
+            );
+          })}
         </View>
       )}
 
-      {onLogMore && workouts.length > 0 ? (
+      {onLogMore && hasAny ? (
         <>
           <View style={[s.divider, { backgroundColor: P.hair }]} />
           <TouchableOpacity
@@ -209,9 +267,7 @@ export function WorkoutCard({
             activeOpacity={0.7}
             style={s.footer}
           >
-            <View style={[s.footerIcon, { backgroundColor: accent.iconSoft }]}>
-              <Ionicons name="add" size={16} color={accent.iconBg} />
-            </View>
+            <Ionicons name="add" size={ROW_ICON_SIZE} color={accent.iconBg} />
             <Text style={[s.footerLabel, { color: P.text }]}>Log a workout</Text>
             <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
           </TouchableOpacity>
@@ -233,8 +289,8 @@ function EmptyBlock({
   const content = (
     <View style={s.empty}>
       <Ionicons
-        name={onPress ? 'add-circle-outline' : 'barbell-outline'}
-        size={18}
+        name={onPress ? 'add-circle' : 'barbell'}
+        size={ROW_ICON_SIZE}
         color={P.textFaint}
       />
       <Text style={[s.emptyText, { color: P.textFaint }]}>{message}</Text>
@@ -265,27 +321,9 @@ const s = StyleSheet.create({
     gap: 8,
   },
   headerMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-    minWidth: 0,
-  },
-  headerCopy: {
     flex: 1,
     gap: 4,
     minWidth: 0,
-  },
-  iconRing: {
-    padding: 4,
-    borderRadius: 14,
-  },
-  iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 20,
@@ -325,10 +363,8 @@ const s = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     marginHorizontal: 16,
   },
-  rowIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+  rowIconSlot: {
+    width: ROW_ICON_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -387,13 +423,6 @@ const s = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
-  },
-  footerIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   footerLabel: {
     flex: 1,

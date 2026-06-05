@@ -11,21 +11,22 @@ import { Image } from 'expo-image';
 import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
 import type { MealItem } from '@/context/food-context';
 import {
+  MEAL_ROW_GAP,
   MEAL_ROW_MIN_HEIGHT,
+  MEAL_ROW_PADDING_LEFT,
+  MEAL_ROW_PADDING_RIGHT,
   mealLogThumbStyles,
 } from '@/lib/meal-log-row';
 
 const MAX_VISIBLE_MEALS = 5;
 
 const MEAL_EMOJIS: Record<string, string> = {
-  breakfast: '🍳',
+  breakfast: '🥞',
   lunch: '🥗',
   dinner: '🍽️',
   snack: '🍎',
   other: '🍴',
 };
-
-const ROW_TINTS = ['calories', 'protein', 'carbs', 'fat'] as const;
 
 export interface MealsCardPalette {
   card: string;
@@ -76,19 +77,12 @@ export function MealsCard({
       >
         <View style={s.header}>
           <View style={s.headerMain}>
-            <View style={[s.iconRing, { backgroundColor: accent.iconSoft }]}>
-              <View style={[s.iconBox, { backgroundColor: accent.iconBg }]}>
-                <Ionicons name="restaurant" size={16} color="#FFF" />
-              </View>
-            </View>
-            <View style={s.headerCopy}>
-              <Text style={[s.headerTitle, { color: P.text }]} numberOfLines={1}>
-                {title}
-              </Text>
-              <Text style={[s.headerCaption, { color: P.textDim }]} numberOfLines={1}>
-                {caption}
-              </Text>
-            </View>
+            <Text style={[s.headerTitle, { color: P.text }]} numberOfLines={1}>
+              {title}
+            </Text>
+            <Text style={[s.headerCaption, { color: P.textDim }]} numberOfLines={1}>
+              {caption}
+            </Text>
           </View>
           {onLogMore ? (
             <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
@@ -113,7 +107,6 @@ export function MealsCard({
               key={meal.id}
               meal={meal}
               P={P}
-              tintSoft={P[`${ROW_TINTS[i % ROW_TINTS.length]}Soft`]}
               emoji={MEAL_EMOJIS[meal.meal.toLowerCase()] ?? '🍴'}
               showDivider={i > 0}
               onPress={onLogMore}
@@ -140,14 +133,12 @@ export function MealsCard({
 function MealLogRow({
   meal,
   P,
-  tintSoft,
   emoji,
   showDivider,
   onPress,
 }: {
   meal: MealItem;
   P: MealsCardPalette;
-  tintSoft: string;
   emoji: string;
   showDivider: boolean;
   onPress?: () => void;
@@ -168,8 +159,8 @@ function MealLogRow({
           onPress && pressed && { backgroundColor: P.sunken },
         ]}
       >
-        <View style={[mealLogThumbStyles.thumb, { backgroundColor: tintSoft }]}>
-          {hasPhoto ? (
+        {hasPhoto ? (
+          <View style={mealLogThumbStyles.thumbPhoto}>
             <Image
               source={meal.imageUrl}
               style={mealLogThumbStyles.thumbImage}
@@ -177,12 +168,14 @@ function MealLogRow({
               cachePolicy="memory-disk"
               transition={150}
             />
-          ) : (
+          </View>
+        ) : (
+          <View style={mealLogThumbStyles.emojiSlot}>
             <Text style={mealLogThumbStyles.emoji} allowFontScaling={false}>
               {emoji}
             </Text>
-          )}
-        </View>
+          </View>
+        )}
         <View style={s.rowCopy}>
           <Text
             style={[s.rowTitle, { color: P.text }]}
@@ -275,27 +268,9 @@ const s = StyleSheet.create({
     gap: 8,
   },
   headerMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-    minWidth: 0,
-  },
-  headerCopy: {
     flex: 1,
     gap: 4,
     minWidth: 0,
-  },
-  iconRing: {
-    padding: 4,
-    borderRadius: 14,
-  },
-  iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 20,
@@ -327,9 +302,10 @@ const s = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    gap: MEAL_ROW_GAP,
+    paddingLeft: MEAL_ROW_PADDING_LEFT,
+    paddingRight: MEAL_ROW_PADDING_RIGHT,
+    paddingVertical: 12,
     minHeight: MEAL_ROW_MIN_HEIGHT,
   },
   rowDivider: {

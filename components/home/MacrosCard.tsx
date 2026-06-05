@@ -6,6 +6,7 @@ import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
 import { SegmentedDial } from '@/components/home/SegmentedDial';
 
 const MACRO_DIAL_SIZE = 94;
+const HEADER_ICON_SIZE = 32;
 
 export type MacroAccentKey = 'protein' | 'carbs' | 'fat';
 
@@ -50,18 +51,14 @@ export function MacrosCard({ P, delay = 0, macros }: MacrosCardProps) {
   return (
     <GradientCard variant="macros" palette={palette} delay={delay}>
       <View style={s.header}>
-        <View style={[s.iconRing, { backgroundColor: accent.iconSoft }]}>
-          <View style={[s.iconBox, { backgroundColor: accent.iconBg }]}>
-            <Ionicons name="nutrition" size={16} color="#FFF" />
-          </View>
-        </View>
+        <Ionicons name="nutrition" size={HEADER_ICON_SIZE} color={accent.iconBg} />
         <View style={s.headerCopy}>
           <Text style={[s.headerTitle, { color: P.text }]}>Macros</Text>
           <Text style={[s.headerCaption, { color: P.textDim }]}>
             Grams today
           </Text>
         </View>
-        <View style={[s.totalChip, { backgroundColor: accent.iconSoft }]}>
+        <View style={s.totalMetaBlock}>
           <View style={s.totalRow}>
             <Text style={[s.totalValue, { color: P.text }]}>
               {totalGrams.toLocaleString()}
@@ -159,18 +156,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 14,
-    gap: 12,
-  },
-  iconRing: {
-    padding: 4,
-    borderRadius: 14,
-  },
-  iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
   },
   headerCopy: {
     flex: 1,
@@ -189,11 +175,8 @@ const s = StyleSheet.create({
     letterSpacing: -0.15,
     lineHeight: 18,
   },
-  totalChip: {
+  totalMetaBlock: {
     alignItems: 'flex-end',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 12,
     gap: 2,
   },
   totalRow: {

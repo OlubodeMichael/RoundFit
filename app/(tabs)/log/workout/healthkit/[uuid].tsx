@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { WorkoutAppleHealthDetail } from '@/components/log/workout/WorkoutAppleHealthDetail';
 import { useToast } from '@/components/ui/Toast';
+import { useAuth } from '@/context/auth-context';
 import { useWorkouts } from '@/hooks/use-workouts';
 import { useHealthKitWorkoutByUuid } from '@/hooks/use-healthkit-workout-by-uuid';
 import { importReviewedWorkout } from '@/services/workout-import';
@@ -17,6 +18,7 @@ export default function HealthKitWorkoutDetailScreen() {
   const router = useRouter();
   const toast = useToast();
   const { uuid } = useLocalSearchParams<{ uuid: string }>();
+  const { user } = useAuth();
   const { logWorkout, workouts } = useWorkouts();
   const { sample, isLoading, error } = useHealthKitWorkoutByUuid(uuid);
   const [isSaving, setIsSaving] = useState(false);
@@ -27,7 +29,7 @@ export default function HealthKitWorkoutDetailScreen() {
     if (!sample || isSaving) return;
     setIsSaving(true);
     try {
-      const saved = await importReviewedWorkout(sample, logWorkout);
+      const saved = await importReviewedWorkout(sample, logWorkout, undefined, user?.id);
       toast.success('Workout saved', 'Added to your workout log.');
       router.replace(`/(tabs)/log/workout/${saved.id}`);
     } catch {
@@ -35,7 +37,7 @@ export default function HealthKitWorkoutDetailScreen() {
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, logWorkout, router, sample, toast]);
+  }, [isSaving, logWorkout, router, sample, toast, user?.id]);
 
   if (isLoading) {
     return (

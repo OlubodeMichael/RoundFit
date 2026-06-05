@@ -19,8 +19,7 @@ import {
 import { useWeight } from '@/hooks/use-weight';
 import { useUnits } from '@/hooks/use-units';
 import { useProfile } from '@/hooks/use-profile';
-import { WeightTrendChart } from '@/components/weight/WeightTrendChart';
-import { GradientCard } from '@/components/ui/GradientCard';
+import { WeightHistoryCurrentCard } from '@/components/weight/WeightHistoryCurrentCard';
 import { formatMonthDayLocal, localCalendarDaysAgo, localWeekdayLong } from '@/utils/date';
 
 
@@ -55,13 +54,8 @@ export default function WeightLogScreen() {
 
   const currentKg  = latest?.weight_kg ?? profile?.weightKg ?? null;
   const startingKg = allAsc.length > 0 ? allAsc[0].weight_kg : currentKg;
-  const deltaKg    = currentKg !== null && startingKg !== null ? currentKg - startingKg : 0;
-
-  const currentDisplay  = currentKg  !== null ? toDisplayWeight(currentKg).toFixed(1)  : '—';
-  const startingDisplay = startingKg !== null ? toDisplayWeight(startingKg).toFixed(1) : '—';
-  const deltaDisplay    = toDisplayWeight(Math.abs(deltaKg)).toFixed(1);
-
-  const isEmpty = entries.length === 0;
+  const deltaKg =
+    currentKg !== null && startingKg !== null ? currentKg - startingKg : 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
@@ -85,82 +79,17 @@ export default function WeightLogScreen() {
         />
 
         <View style={styles.stack}>
+          <WeightHistoryCurrentCard
+            entries={entries}
+            currentKg={currentKg}
+            startingKg={startingKg}
+            deltaKg={deltaKg}
+            weightUnit={weightUnit}
+            toDisplayWeight={toDisplayWeight}
+            delay={60}
+          />
 
-          {isEmpty ? (
-            /* ── Empty state ─────────────────────────────────────── */
-            <AnimatedCard delay={60}>
-              <View style={{ alignItems: 'center', paddingVertical: 16, gap: 10 }}>
-                <View style={[styles.emptyIcon, { backgroundColor: P.weightSoft }]}>
-                  <Ionicons name="scale-outline" size={26} color={P.weight} />
-                </View>
-                <Text style={{ fontSize: 16, fontWeight: '800', color: P.text, letterSpacing: -0.3 }}>
-                  No entries yet
-                </Text>
-                {currentKg !== null && (
-                  <Text style={{ fontSize: 13, fontWeight: '500', color: P.textFaint, textAlign: 'center' }}>
-                    Profile weight: {currentDisplay} {weightUnit}
-                  </Text>
-                )}
-                <Text style={{ fontSize: 13, fontWeight: '500', color: P.textFaint, textAlign: 'center', paddingHorizontal: 16 }}>
-                  Log your weight regularly to track your progress over time.
-                </Text>
-              </View>
-            </AnimatedCard>
-          ) : (
-            /* ── Hero card ─────────────────────────────────────── */
-            <GradientCard
-              variant="weight"
-              palette={P}
-              delay={60}
-              corner="top-right"
-              contentStyle={{ padding: 20, borderRadius: 24 }}
-            >
-              <View pointerEvents="none" style={[styles.glow, { backgroundColor: P.weightSoft, top: -80, right: -60 }]} />
-
-              <Text style={[styles.heroEyebrow, { color: P.textFaint }]}>CURRENT</Text>
-              <View style={styles.heroRow}>
-                <Text style={[styles.heroValue, { color: P.text }]}>{currentDisplay}</Text>
-                <Text style={[styles.heroUnit, { color: P.textFaint }]}>{weightUnit}</Text>
-                {allAsc.length >= 2 && (
-                  <View style={[
-                    styles.trendPill,
-                    { backgroundColor: deltaKg <= -0.1 ? P.proteinSoft : deltaKg >= 0.1 ? P.caloriesSoft : P.sunken, marginLeft: 'auto' },
-                  ]}>
-                    <Ionicons
-                      name={deltaKg <= -0.1 ? 'trending-down' : deltaKg >= 0.1 ? 'trending-up' : 'remove'}
-                      size={11}
-                      color={deltaKg <= -0.1 ? P.protein : deltaKg >= 0.1 ? P.calories : P.textFaint}
-                    />
-                    <Text style={[styles.trendText, { color: deltaKg <= -0.1 ? P.protein : deltaKg >= 0.1 ? P.calories : P.textFaint }]}>
-                      {deltaKg > 0 ? '+' : deltaKg < 0 ? '-' : ''}{deltaDisplay} {weightUnit}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              <WeightTrendChart entries={entries} accent={P.weight} palette={P} />
-            </GradientCard>
-          )}
-
-          {/* ── Stat quad ──────────────────────────────────────── */}
-          {!isEmpty && (
-            <AnimatedCard delay={140} padding={0}>
-              <View style={styles.statGrid}>
-                <StatCell label="Starting" value={`${startingDisplay} ${weightUnit}`} />
-                <StatCellDivider />
-                <StatCell label="Current"  value={`${currentDisplay} ${weightUnit}`}  tone="accent" />
-                <StatCellDivider />
-                <StatCell
-                  label="Change"
-                  value={`${deltaKg > 0 ? '+' : deltaKg < 0 ? '-' : ''}${deltaDisplay} ${weightUnit}`}
-                  tone={deltaKg < -0.1 ? 'positive' : deltaKg > 0.1 ? 'negative' : undefined}
-                />
-              </View>
-            </AnimatedCard>
-          )}
-
-          {/* ── History list ───────────────────────────────────── */}
-          {!isEmpty && (
+          {entries.length > 0 && (
             <>
               <View style={{ marginTop: 8 }}>
                 <Text style={[styles.sectionTitle, { color: P.text }]}>History</Text>
@@ -235,32 +164,6 @@ export default function WeightLogScreen() {
   );
 }
 
-
-function StatCell({
-  label, value, tone,
-}: { label: string; value: string; tone?: 'accent' | 'positive' | 'negative' }) {
-  const P     = usePalette();
-  const color = tone === 'accent'   ? P.weight
-              : tone === 'positive' ? P.protein
-              : tone === 'negative' ? P.calories
-              :                       P.text;
-  return (
-    <View style={{ flex: 1, paddingVertical: 18, alignItems: 'center', gap: 5 }}>
-      <Text style={{ fontSize: 9, fontWeight: '800', letterSpacing: 1.2, color: P.textFaint }}>
-        {label.toUpperCase()}
-      </Text>
-      <Text style={{ fontSize: 18, fontWeight: '800', letterSpacing: -0.4, color }}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function StatCellDivider() {
-  const P = usePalette();
-  return <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: P.hair }} />;
-}
-
 const styles = StyleSheet.create({
   stack: {
     paddingHorizontal: 20,
@@ -269,35 +172,6 @@ const styles = StyleSheet.create({
   addBtn: {
     width: 40, height: 40, borderRadius: 14,
     alignItems: 'center', justifyContent: 'center',
-  },
-  emptyIcon: {
-    width: 56, height: 56, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  glow: {
-    position: 'absolute', width: 240, height: 240, borderRadius: 120,
-  },
-  heroEyebrow: {
-    fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginBottom: 6,
-  },
-  heroRow: {
-    flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginBottom: 18,
-  },
-  heroValue: {
-    fontSize: 56, fontWeight: '800', letterSpacing: -2.4, lineHeight: 60,
-  },
-  heroUnit: {
-    fontSize: 16, fontWeight: '700', paddingBottom: 10,
-  },
-  trendPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, marginBottom: 8,
-  },
-  trendText: {
-    fontSize: 10, fontWeight: '800',
-  },
-  statGrid: {
-    flexDirection: 'row',
   },
   sectionTitle: {
     fontSize: 15, fontWeight: '800', letterSpacing: -0.3, marginTop: 4,

@@ -61,11 +61,7 @@ export function WorkoutListCard({
         contentStyle={styles.cardInner}
       >
         <View style={styles.header}>
-          <View style={[styles.iconRing, { backgroundColor: accent.iconSoft }]}>
-            <View style={[styles.iconBox, { backgroundColor: accent.iconBg }]}>
-              <Ionicons name={icon} size={15} color="#FFFFFF" />
-            </View>
-          </View>
+          <Ionicons name={icon} size={26} color={accent.iconBg} />
           {isNew && (
             <View style={[styles.newPill, { backgroundColor: accent.iconBg }]}>
               <Text style={styles.newText}>NEW</Text>
@@ -145,17 +141,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  iconRing: {
-    padding: 3,
-    borderRadius: 12,
-  },
-  iconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   newPill: {
     paddingHorizontal: 7,

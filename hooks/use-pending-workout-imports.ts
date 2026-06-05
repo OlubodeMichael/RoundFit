@@ -58,6 +58,7 @@ export function usePendingWorkoutImports(): UsePendingWorkoutImportsResult {
 
       const items = await fetchAppleFitnessWorkoutsForDisplay({
         isAlreadyImported: (uuid) => knownUuids.has(uuid),
+        userId: user!.id,
       });
       setPendingItems(items);
     } catch (err) {

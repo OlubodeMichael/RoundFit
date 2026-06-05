@@ -13,6 +13,8 @@ import type { Workout } from '@/context/workout-context';
 import type { ComputedReadiness, ReadinessFactor, ReadinessHistoryPoint, ReadinessTip } from '@/types/readiness';
 import { buildReadinessInput, yesterdayDateString } from '@/utils/build-readiness-input';
 import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
+import { localSleepDateString } from '@/utils/sleep-date';
+import { mergePriorDaySleepIntoRecovery } from '@/utils/sleep-display';
 import { calculateMacros } from '@/utils/nutrition';
 import {
   buildReadinessTrend,
@@ -214,23 +216,6 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
 
   const calorieBudget = user?.calorieBudget ?? user?.tdee ?? 2000;
 
-  const fetchToday = useCallback(async (force = false) => {
-    if (!user?.id) return;
-    const today = getLocalDateString();
-    const key = buildResourceKey('recovery-today', user.id, today);
-    const result = await fetchWithResourceCache<RecoveryLog | null>(
-      key,
-      TTL_COLD_START_MS,
-      async () => {
-        const { ok, body } = await apiFetch('/recovery/today');
-        if (ok && body.data) return fromApiLog(body.data as Record<string, unknown>);
-        return null;
-      },
-      { force },
-    );
-    setToday(result ?? null);
-  }, [user?.id]);
-
   const fetchRecoveryByDate = useCallback(async (date: string, force = false): Promise<RecoveryLog | null> => {
     if (!user?.id) return null;
     const key = buildResourceKey('recovery-today', user.id, date);
@@ -245,6 +230,29 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
       { force },
     );
   }, [user?.id]);
+
+  const fetchToday = useCallback(async (force = false) => {
+    if (!user?.id) return;
+    const calendarToday = getLocalDateString();
+    const sleepDay = localSleepDateString();
+    const key = buildResourceKey('recovery-today', user.id, calendarToday);
+    const result = await fetchWithResourceCache<RecoveryLog | null>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const { ok, body } = await apiFetch('/recovery/today');
+        if (ok && body.data) return fromApiLog(body.data as Record<string, unknown>);
+        return null;
+      },
+      { force },
+    );
+    let merged = result ?? null;
+    if (sleepDay !== calendarToday) {
+      const prior = await fetchRecoveryByDate(sleepDay, force);
+      merged = mergePriorDaySleepIntoRecovery(merged, prior);
+    }
+    setToday(merged);
+  }, [user?.id, fetchRecoveryByDate]);
 
   const fetchReadiness = useCallback(async (force = false) => {
     if (!user?.id) return;

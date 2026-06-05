@@ -23,7 +23,8 @@ import type {
   WorkoutSessionStatus,
 } from '@/types/workout-session';
 
-const STORAGE_KEY = '@roundfit/active_workout_session';
+export const ACTIVE_WORKOUT_SESSION_KEY = '@roundfit/active_workout_session';
+const STORAGE_KEY = ACTIVE_WORKOUT_SESSION_KEY;
 
 interface PersistedWorkoutSession {
   session: WorkoutSession;

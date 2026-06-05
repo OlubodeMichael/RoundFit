@@ -4,6 +4,8 @@ import { useRouter } from 'expo-router';
 
 import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
 
+const HEADER_ICON_SIZE = 26;
+
 export interface MirrorPromoCardPalette {
   card: string;
   cardEdge: string;
@@ -33,11 +35,7 @@ export function MirrorPromoCard({ P, delay = 480 }: MirrorPromoCardProps) {
       >
         <View style={s.header}>
           <View style={s.headerMain}>
-            <View style={[s.iconRing, { backgroundColor: accent.iconSoft }]}>
-              <View style={[s.iconBox, { backgroundColor: accent.iconBg }]}>
-                <Ionicons name="sparkles" size={16} color="#FFF" />
-              </View>
-            </View>
+            <Ionicons name="sparkles" size={HEADER_ICON_SIZE} color={accent.iconBg} />
             <View style={s.headerCopy}>
               <Text style={[s.headerLabel, { color: P.textDim }]}>Premium report</Text>
               <Text style={[s.headerMeta, { color: P.textFaint }]}>30-day mirror</Text>
@@ -83,19 +81,11 @@ const s = StyleSheet.create({
   headerMain: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
     flex: 1,
     minWidth: 0,
   },
   headerCopy: { flex: 1, gap: 3, minWidth: 0 },
-  iconRing: { padding: 4, borderRadius: 14 },
-  iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   headerLabel: {
     fontSize: 14,
     fontWeight: '600',

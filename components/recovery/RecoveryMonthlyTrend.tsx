@@ -1,8 +1,11 @@
 import { useMemo } from 'react';
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { RecoveryMonthCalendarBackdrop } from '@/components/recovery/RecoveryMonthCalendarBackdrop';
+import { RecoveryTrendGradientCard } from '@/components/recovery/RecoveryTrendGradientCard';
+import { getCardAccent } from '@/components/ui/GradientCard';
 import { RecoveryTrendStatsRow } from '@/components/recovery/RecoveryTrendStatsRow';
 import { RecoveryTrendHero } from '@/components/recovery/RecoveryTrendHero';
 import type { ReadinessHistoryPoint } from '@/types/readiness';
@@ -13,7 +16,6 @@ import {
   currentMonthTitle,
   isToday,
   READINESS_BAND_COLORS,
-  scoreSoft,
   scoreTint,
 } from '@/components/recovery/recovery-trend-utils';
 import { getLocalDateString } from '@/utils/date';
@@ -28,18 +30,34 @@ interface HeatmapCellProps {
   score: number;
   size: number;
   palette: TrendPalette;
+  todayScore: number | null;
 }
 
-function HeatmapCell({ cell, score, size, palette }: HeatmapCellProps) {
+/** Logged score for the cell, or today's live readiness when the cell is today. */
+function cellPerformanceScore(
+  loggedScore: number,
+  isTodayCell: boolean,
+  todayScore: number | null,
+): number {
+  if (isTodayCell && todayScore != null && todayScore > 0) {
+    return todayScore;
+  }
+  return loggedScore;
+}
+
+function HeatmapCell({ cell, score, size, palette, todayScore }: HeatmapCellProps) {
   if (cell.date == null) {
     return <View style={{ width: size, height: size }} />;
   }
 
-  const hasScore = score > 0;
   const today = isToday(cell.date);
   const future = cell.date > getLocalDateString();
-  const tint = hasScore ? scoreTint(score, palette) : null;
-  const soft = hasScore ? scoreSoft(score, palette) : null;
+  const performanceScore = cellPerformanceScore(score, today, todayScore);
+  const hasPerformance = performanceScore > 0;
+  const accent = getCardAccent('readiness', palette.isDark, {
+    readinessScore: hasPerformance ? performanceScore : 0,
+  });
+  const tint = hasPerformance ? scoreTint(performanceScore, palette) : null;
 
   return (
     <View
@@ -48,30 +66,42 @@ function HeatmapCell({ cell, score, size, palette }: HeatmapCellProps) {
         {
           width: size,
           height: size,
-          borderColor: today ? tint ?? palette.text : 'transparent',
-          borderWidth: today ? 2 : 0,
+          borderColor: today
+            ? accent.iconBg
+            : hasPerformance
+              ? accent.iconSoft
+              : 'transparent',
+          borderWidth: today ? 2 : hasPerformance ? StyleSheet.hairlineWidth : 0,
+          backgroundColor: !hasPerformance && !future ? palette.sunken : 'transparent',
         },
       ]}
     >
-      {hasScore && (
-        <View style={[styles.scoreFill, { backgroundColor: soft ?? 'transparent' }]} />
+      {hasPerformance && (
+        <LinearGradient
+          colors={[...accent.gradient]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.scoreFill}
+        />
       )}
-      <Text style={[
-        styles.cellDay,
-        {
-          color: hasScore
-            ? palette.text
-            : future
-              ? palette.textFaint
-              : palette.textDim,
-        },
-        today && { fontWeight: '700' },
-      ]}>
+      <Text
+        style={[
+          styles.cellDay,
+          {
+            color: hasPerformance
+              ? palette.text
+              : future
+                ? palette.textFaint
+                : palette.textDim,
+          },
+          today && { fontWeight: '700' },
+        ]}
+      >
         {cell.day}
       </Text>
-      {hasScore && (
-        <Text style={[styles.cellScore, { color: tint ?? palette.text }]}>
-          {score}
+      {hasPerformance && (
+        <Text style={[styles.cellScore, { color: tint ?? accent.iconBg }]}>
+          {performanceScore}
         </Text>
       )}
     </View>
@@ -105,6 +135,7 @@ export function RecoveryMonthlyTrend({
 
   const stats = computeTrendStats(points);
   const hasData = stats.loggedDays > 0;
+  const readinessScore = todayScore ?? stats.average ?? 0;
   const coverage = stats.totalDays > 0
     ? Math.round((stats.loggedDays / stats.totalDays) * 100)
     : 0;
@@ -113,12 +144,21 @@ export function RecoveryMonthlyTrend({
 
   if (!hasData) {
     return (
-      <View style={[styles.empty, { backgroundColor: palette.card, borderColor: palette.cardEdge }]}>
-        <Ionicons name="calendar-outline" size={26} color={palette.textFaint} />
-        <Text style={[styles.emptyTitle, { color: palette.text }]}>No monthly data yet</Text>
-        <Text style={[styles.emptyBody, { color: palette.textFaint }]}>
-          Keep logging recovery — your 30-day heatmap will fill in over time.
-        </Text>
+      <View style={styles.wrap}>
+        <RecoveryTrendGradientCard
+          palette={palette}
+          readinessScore={readinessScore}
+          corner="bottom-left"
+          contentStyle={styles.emptyInner}
+        >
+          <Ionicons name="calendar-outline" size={26} color={palette.textFaint} />
+          <Text style={[styles.emptyTitle, { color: palette.text }]}>
+            No monthly data yet
+          </Text>
+          <Text style={[styles.emptyBody, { color: palette.textFaint }]}>
+            Keep logging recovery — your 30-day heatmap will fill in over time.
+          </Text>
+        </RecoveryTrendGradientCard>
       </View>
     );
   }
@@ -132,9 +172,19 @@ export function RecoveryMonthlyTrend({
         periodTitle="LAST 30 DAYS"
         periodSubtitle={currentMonthTitle()}
         palette={palette}
+        readinessScore={readinessScore}
       />
-      <RecoveryTrendStatsRow stats={stats} palette={palette} />
-      <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.cardEdge }]}>
+      <RecoveryTrendStatsRow
+        stats={stats}
+        palette={palette}
+        readinessScore={readinessScore}
+      />
+      <RecoveryTrendGradientCard
+        palette={palette}
+        readinessScore={readinessScore}
+        corner="bottom-left"
+        contentStyle={styles.cardInner}
+      >
         <View style={styles.cardHead}>
           <Text style={[styles.cardTitle, { color: palette.text }]}>Readiness map</Text>
           <Text style={[styles.coverage, { color: palette.textFaint }]}>
@@ -170,6 +220,7 @@ export function RecoveryMonthlyTrend({
                     score={cell.date ? (scoreByDate.get(cell.date) ?? 0) : 0}
                     size={cellSize}
                     palette={palette}
+                    todayScore={todayScore}
                   />
                 ))}
               </View>
@@ -183,7 +234,7 @@ export function RecoveryMonthlyTrend({
           <LegendSwatch label="Optimal" color={READINESS_BAND_COLORS.high} palette={palette} />
           <LegendSwatch label="No data" color={palette.sunken} palette={palette} isEmpty />
         </View>
-      </View>
+      </RecoveryTrendGradientCard>
     </View>
   );
 }
@@ -218,12 +269,16 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: SCREEN_PAD,
   },
-  card: {
-    borderRadius:      16,
-    borderWidth:       StyleSheet.hairlineWidth,
+  cardInner: {
     paddingHorizontal: 16,
-    paddingTop:        14,
-    paddingBottom:     14,
+    paddingTop: 14,
+    paddingBottom: 14,
+  },
+  emptyInner: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 28,
+    gap: 8,
   },
   cardHead: {
     flexDirection:  'row',
@@ -300,15 +355,6 @@ const styles = StyleSheet.create({
   legendLabel: {
     fontSize:   10,
     fontWeight: '600',
-  },
-  empty: {
-    marginHorizontal:  SCREEN_PAD,
-    alignItems:        'center',
-    gap:               8,
-    paddingVertical:   32,
-    paddingHorizontal: 20,
-    borderRadius:      16,
-    borderWidth:       StyleSheet.hairlineWidth,
   },
   emptyTitle: {
     fontSize:   15,
