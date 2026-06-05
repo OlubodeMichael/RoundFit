@@ -146,12 +146,15 @@ export async function invalidateAfterMutation({
 
 /** Domains that should trigger summary-provider listener refetch. */
 export function shouldRefetchSummaryAfterMutation(domain: MutationDomain): boolean {
+  // 'water' is intentionally excluded: the daily summary's only water field
+  // (water_glasses) is never displayed or scored on the client — water UI reads
+  // from water-context (ml-based). Refetching /summary/daily on every water log
+  // updated a field nothing consumes.
   return (
     domain === 'full' ||
     domain === 'summary' ||
     domain === 'food' ||
     domain === 'workout' ||
-    domain === 'water' ||
     domain === 'health' ||
     domain === 'checkin' ||
     domain === 'recovery'
