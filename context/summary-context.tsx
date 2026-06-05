@@ -244,11 +244,13 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
     if (raw) setWeekly(fromApiWeekly(raw));
   }, [user?.id]);
 
-  const loadTodayDaily = useCallback(async (force = false) => {
-    if (!user?.id) return;
+  const loadTodayDaily = useCallback(async (force = false): Promise<DailySummary | null> => {
+    if (!user?.id) return null;
     const today = todayDateString();
     const bundle = await fetchDailySummaryBundle(user.id, today, { force });
-    if (bundle) setDaily(bundle.daily);
+    if (!bundle) return null;
+    setDaily(bundle.daily);
+    return bundle.daily;
   }, [user?.id]);
 
   useEffect(() => {
@@ -326,9 +328,13 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     return registerTodayDataSyncListener(async ({ domain }) => {
       if (!user?.id || !shouldRefetchSummaryAfterMutation(domain)) return;
-      await loadTodayDaily(true);
+      const freshDaily = await loadTodayDaily(true);
       if (domain === 'full') {
         await fetchWeekly(true);
+      } else if (freshDaily) {
+        // Only today changed — patch the refreshed daily into the in-memory
+        // weekly instead of a full /summary/weekly round-trip.
+        setWeekly((prev) => (prev ? upsertTodayInWeekly(prev, freshDaily) : prev));
       }
     });
   }, [user?.id, loadTodayDaily, fetchWeekly]);

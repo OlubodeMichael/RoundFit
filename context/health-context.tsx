@@ -422,6 +422,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const saveHealthSnapshot = useCallback(async (
     input: SyncHealthInput,
     applyTodayState: boolean,
+    notify = true,
   ): Promise<HealthData> => {
     const { ok, body } = await healthFetch('/health/sync', {
       method: 'POST',
@@ -450,7 +451,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
           merged,
           ttlForDate(date),
         );
-        void notifyTodayDataChanged(user.id, 'health');
+        if (notify) void notifyTodayDataChanged(user.id, 'health');
       }
     }
     return merged;
@@ -535,7 +536,11 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
         || msSinceLastSync >= HEALTH_BACKFILL_THROTTLE_MS;
 
       if (shouldPost) {
-        await saveHealthSnapshot(payload, true);
+        // Persist on a time-based re-sync, but only broadcast a 'health'
+        // mutation when metrics actually changed (or a forced sync). Otherwise
+        // an unchanged launch sync would fan out a force-refetch across every
+        // context (engine, recovery, summary, insights) for identical data.
+        await saveHealthSnapshot(payload, true, metricsChanged || force);
         await AsyncStorage.setItem(LAST_HEALTH_SYNC_KEY, now.toString());
         await AsyncStorage.setItem(HEALTH_BACKFILL_CURSOR_KEY, todayDate);
       } else if (user?.id) {
@@ -601,7 +606,13 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     })();
 
     return () => { cancelled = true; };
-  }, [status, user, fetchToday, syncFromDevice]);
+    // Depend only on session identity — not the whole `user` object or the
+    // fetch callbacks. A background /auth/me profile refresh changes those
+    // identities mid-flight, which would cancel this once-per-session load
+    // before its `finally` clears isLoading, then bail on `hasFetchedRef` —
+    // leaving isLoading stuck true (recovery skeleton never clears).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, user?.id]);
 
   // ── Check HealthKit connection status ────────────────────────────────────
   useEffect(() => {

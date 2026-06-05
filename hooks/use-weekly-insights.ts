@@ -212,8 +212,13 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
     if (!isCurrentWeek) return
     return registerTodayDataSyncListener(({ domain }) => {
       if (!user?.id) return
-      void invalidateWeek(user.id, week)
+      // Only a 'full' refresh evicts the cached week and refetches. For
+      // today-only domains (food, health, water, …) the cached week is still
+      // good enough to serve on reload — just flag it stale so an open screen
+      // can offer a refresh, without forcing a /summary/weekly + /insights/weekly
+      // round-trip on every launch.
       if (domain === 'full') {
+        void invalidateWeek(user.id, week)
         void load(true)
       } else if (mountedRef.current) {
         setIsStale(true)
