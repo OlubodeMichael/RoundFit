@@ -22,8 +22,9 @@ type IoniconName = ComponentProps<typeof Ionicons>["name"];
 const SW = Dimensions.get("window").width;
 
 const PILL_H    = 64;
-const PILL_W    = SW - 40;
-const FAB_D     = 44;
+const FAB_D     = 56;            // standalone Log button (right)
+const TABBAR_GAP = 12;           // gap between the nav pill and the Log button
+const PILL_W    = SW - 40 - FAB_D - TABBAR_GAP;
 const FLOAT_BOT = 14;
 const TAB_ICON  = 21;
 const TAB_ICON_FOCUSED = 22;
@@ -32,7 +33,6 @@ const TAB_ICON_FOCUSED = 22;
 const LIGHT_TAB_BAR_BG = "#18181B";
 const LIGHT_TAB_BAR_BORDER = "rgba(255,255,255,0.10)";
 const LIGHT_TAB_INACTIVE = "#9CA3AF";
-const LIGHT_FAB_IDLE_BG = "#2A2A34";
 
 const TABS: {
     name: string;
@@ -83,7 +83,6 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
     const inactiveColor = P.isDark ? P.textFaint : LIGHT_TAB_INACTIVE;
     const pillBg = P.isDark ? P.card : LIGHT_TAB_BAR_BG;
     const pillBorder = P.isDark ? P.cardEdge : LIGHT_TAB_BAR_BORDER;
-    const fabIdleBg = P.isDark ? P.sunken : LIGHT_FAB_IDLE_BG;
     const shadowOpacity = P.isDark ? 0.28 : 0.22;
     const shadowRadius  = P.isDark ? 20 : 18;
 
@@ -110,6 +109,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
     return (
         <View style={[s.outer, { height: outerH }]} pointerEvents="box-none">
+            {/* Nav pill (left) — the four primary tabs */}
             <View
                 style={[
                     s.pill,
@@ -124,37 +124,8 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
             >
                 {state.routes.map((route, i) => {
                     const cfg     = TABS.find((t) => t.name === route.name);
+                    if (!cfg || cfg.fab) return null;
                     const focused = state.index === i;
-                    if (!cfg) return null;
-
-                    if (cfg.fab) {
-                        return (
-                            <TouchableOpacity
-                                key={route.key}
-                                style={s.fabSlot}
-                                onPress={() => go(route.key, route.name, focused)}
-                                activeOpacity={0.8}
-                            >
-                                <View
-                                    style={[
-                                        s.fab,
-                                        {
-                                            backgroundColor: focused ? activeColor : fabIdleBg,
-                                            borderColor: focused ? activeColor : pillBorder,
-                                            shadowColor: focused ? activeColor : "#000",
-                                            shadowOpacity: focused ? 0.35 : shadowOpacity * 0.6,
-                                        },
-                                    ]}
-                                >
-                                    <Ionicons
-                                        name={focused ? cfg.iconActive : cfg.icon}
-                                        size={22}
-                                        color={focused ? "#fff" : inactiveColor}
-                                    />
-                                </View>
-                            </TouchableOpacity>
-                        );
-                    }
 
                     const color = focused ? activeColor : inactiveColor;
                     const iconName = focused ? cfg.iconActive : cfg.icon;
@@ -180,6 +151,36 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                     );
                 })}
             </View>
+
+            {/* Standalone Log button (right) */}
+            {state.routes.map((route, i) => {
+                const cfg = TABS.find((t) => t.name === route.name);
+                if (!cfg || !cfg.fab) return null;
+                const focused = state.index === i;
+                return (
+                    <TouchableOpacity
+                        key={route.key}
+                        style={[s.fabWrap, { bottom: insets.bottom + FLOAT_BOT + (PILL_H - FAB_D) / 2 }]}
+                        onPress={() => go(route.key, route.name, focused)}
+                        activeOpacity={0.85}
+                    >
+                        <View
+                            style={[
+                                s.fab,
+                                {
+                                    backgroundColor: activeColor,
+                                    borderColor:     activeColor,
+                                    shadowColor:     activeColor,
+                                    shadowOpacity:   focused ? 0.45 : 0.32,
+                                    shadowRadius,
+                                },
+                            ]}
+                        >
+                            <Ionicons name={cfg.iconActive} size={26} color="#fff" />
+                        </View>
+                    </TouchableOpacity>
+                );
+            })}
         </View>
     );
 }
@@ -222,7 +223,7 @@ const s = StyleSheet.create({
 
     pill: {
         position:      "absolute",
-        left:          (SW - PILL_W) / 2,
+        left:          20,
         width:         PILL_W,
         height:        PILL_H,
         borderRadius:  22,
@@ -263,12 +264,13 @@ const s = StyleSheet.create({
         marginTop: 1,
     },
 
-    fabSlot: {
-        flex:           1,
+    fabWrap: {
+        position:       "absolute",
+        right:          20,
+        width:          FAB_D,
+        height:         FAB_D,
         alignItems:     "center",
         justifyContent: "center",
-        height:         PILL_H,
-        gap:            3,
     },
 
     fab: {
