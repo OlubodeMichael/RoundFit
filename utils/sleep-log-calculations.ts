@@ -95,9 +95,15 @@ export function resolveHeroHours(
   hk: HealthData | null,
   bedtime: string,
   wakeup: string,
+  savedManualHours: number | null = null,
 ): SleepHoursResult {
   if (isHealthKitView && hk?.sleep_hours != null && hk.sleep_hours > 0) {
     return sleepHoursToDisplay(hk.sleep_hours);
+  }
+  // A saved manual log shows the stored sleep_hours directly, so the card always
+  // reflects what was logged (not a recompute from bedtime/wake-up).
+  if (savedManualHours != null && savedManualHours > 0) {
+    return sleepHoursToDisplay(savedManualHours);
   }
   return resolveDisplayHours(bedtime, wakeup, hk?.sleep_hours);
 }
@@ -249,13 +255,13 @@ export function buildSleepSavePayload(input: SleepSaveInput) {
       rem_sleep_hours:  input.hk?.rem_sleep_hours ?? undefined,
       notes:            input.notes.trim() || undefined,
       source:           'manual' as const,
-      date:             input.isToday ? undefined : input.activeDate,
+      date:             input.activeDate,
       bedtime_iso:      bedtimeIso,
       wakeup_iso:       wakeupIso,
     },
     healthBody: {
       source:           'manual' as const,
-      date:             input.isToday ? undefined : input.activeDate,
+      date:             input.activeDate,
       sleep_hours:      sleepH,
       sleep_quality:    toApiSleepQuality(input.quality),
       deep_sleep_hours: deepSleepH,

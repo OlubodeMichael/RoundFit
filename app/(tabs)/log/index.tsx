@@ -51,9 +51,16 @@ export default function DailyLogScreen() {
     }, [ensureLoaded]),
   );
 
-  const sleepHours = health.today?.sleep_hours ?? recovery.today?.sleep_hours ?? null;
+  // Treat 0 / null as "no sleep" and prefer whichever source has a real value, so a
+  // manual log (recovery) isn't shadowed by a HealthKit row that has sleep_hours = 0.
+  const hkSleepHours  = health.today?.sleep_hours ?? 0;
+  const recSleepHours = recovery.today?.sleep_hours ?? 0;
+  const sleepHours =
+    hkSleepHours  > 0 ? hkSleepHours
+    : recSleepHours > 0 ? recSleepHours
+    : null;
   const sleepQuality = recovery.today?.sleep_quality ?? null;
-  const sleepFromHK = health.today?.sleep_hours != null;
+  const sleepFromHK = hkSleepHours > 0;
 
   const eatenPct = Math.min(totalCalories / Math.max(mealGoal, 1), 1);
   const latestWeightKg = latest?.weight_kg ?? profile?.weightKg ?? null;

@@ -13,9 +13,11 @@ import {
   fetchWithResourceCache,
   getResourceCached,
   invalidateResourceCache,
+  setResourceCached,
 } from '@/utils/resource-cache';
 import { registerTodayDataSyncListener, registerTodayTargetsListener } from '@/utils/today-sync';
 import { registerTodayOptimisticListener, type TodayDataDelta } from '@/utils/today-optimistic';
+import { registerTodayReconcileListener, type TodayReconcileBundle } from '@/utils/today-reconcile';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -242,6 +244,31 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
       });
     });
   }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const uid = user.id;
+    return registerTodayReconcileListener((bundle: TodayReconcileBundle) => {
+      // Engine only tracks today — ignore reconciles for any other day.
+      if (bundle.date !== getLocalDateString()) return;
+      setDaily((prev) => {
+        if (!prev) return prev;
+        const merged: DailyEngine = {
+          ...prev,
+          calorie_budget:    bundle.summary.calorie_budget,
+          calories_consumed: bundle.summary.calories_consumed,
+          calories_burned:   bundle.summary.calories_burned,
+          delta:             bundle.summary.delta,
+        };
+        void setResourceCached(
+          buildResourceKey('engine-daily', uid, bundle.date),
+          merged,
+          TTL_COLD_START_MS,
+        );
+        return merged;
+      });
+    });
+  }, [user?.id]);
 
   useEffect(() => {
     return registerTodayTargetsListener(() => {

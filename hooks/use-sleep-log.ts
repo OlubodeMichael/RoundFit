@@ -54,7 +54,6 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   const posthog = usePostHog();
   const {
     logRecovery,
-    refresh: refreshRecovery,
     fetchRecoveryByDate,
   } = useRecovery();
   const { fetchForDate: fetchHealthForDate } = health;
@@ -76,7 +75,11 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
 
   const [dateHealthData, setDateHealthData]     = useState<HealthData | null>(null);
   const [dateRecoveryLog, setDateRecoveryLog]   = useState<RecoveryLog | null>(null);
-  const [loadingDate, setLoadingDate]         = useState(false);
+  // Start true: we always load on mount, and the no-sleep modal keys off this.
+  // Starting false let the modal flash visible for one render before the load
+  // ran, and the rapid visible→hidden toggle left a stuck (invisible) iOS modal
+  // layer capturing touches — the header (back / date toggle) went dead.
+  const [loadingDate, setLoadingDate]         = useState(true);
 
   const [bedtime, setBedtime]           = useState(SLEEP_FORM_DEFAULTS.bedtime);
   const [wakeup, setWakeup]             = useState(SLEEP_FORM_DEFAULTS.wakeup);
@@ -112,8 +115,12 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   );
 
   const persistedManualLog = useMemo(
-    () => isPersistedManualLog(savedSource, hkSleep ?? dateHealthData, activeDate),
-    [savedSource, hkSleep, dateHealthData, activeDate],
+    () =>
+      isPersistedManualLog(savedSource, hkSleep ?? dateHealthData, activeDate)
+      // Also treat a saved manual recovery log for the day as persisted, so the
+      // save button stays hidden on return (you can only log sleep once per day).
+      || (recoveryForDate?.source === 'manual' && (recoveryForDate?.sleep_hours ?? 0) > 0),
+    [savedSource, hkSleep, dateHealthData, activeDate, recoveryForDate],
   );
 
   useEffect(() => {
@@ -171,12 +178,16 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   }, [activeDate, hkSleep, recoveryForDate]);
 
   useEffect(() => {
-    if (isToday && !loadingDate && health.isConnected && !hkSleep) {
+    // Suppress the "no sleep" prompt when sleep already exists for the day —
+    // either from HealthKit (hkSleep) or a manual/recovery log. Manual logs never
+    // produce hkSleep, so checking hkSleep alone re-prompted after every manual save.
+    const hasLoggedSleep = !!hkSleep || (recoveryForDate?.sleep_hours ?? 0) > 0;
+    if (isToday && !loadingDate && health.isConnected && !hasLoggedSleep) {
       setNoSleepModalVisible(true);
     } else {
       setNoSleepModalVisible(false);
     }
-  }, [isToday, loadingDate, hkSleep, health.isConnected]);
+  }, [isToday, loadingDate, hkSleep, recoveryForDate, health.isConnected]);
 
   useEffect(() => {
     setSleepSegments([]);
@@ -205,8 +216,14 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   }, [activeDate, isHealthKitView]);
 
   const hours = useMemo(
-    () => resolveHeroHours(isHealthKitView, hkSleep, bedtime, wakeup),
-    [isHealthKitView, hkSleep, bedtime, wakeup],
+    () => resolveHeroHours(
+      isHealthKitView,
+      hkSleep,
+      bedtime,
+      wakeup,
+      persistedManualLog ? recoveryForDate?.sleep_hours ?? null : null,
+    ),
+    [isHealthKitView, hkSleep, bedtime, wakeup, persistedManualLog, recoveryForDate],
   );
 
   const parsedDeepHours = useMemo(() => parseDeepSleepInput(deepH, deepM), [deepH, deepM]);
@@ -331,24 +348,22 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
       }
 
       await logRecovery(payload.recoveryBody, { notifyListeners: true });
+      // logRecovery write-throughs recovery state + cache, the updated health row
+      // (via the reconcile channel), and readiness — and notifies summary/insights.
+      // No extra /health/sync POST (the backend already mirrors sleep into
+      // health_data) and no force refresh needed (~17 requests → ~1).
 
-      try {
-        await health.syncHealth(payload.healthBody);
-      } catch {
-        // POST /recovery/log already mirrors sleep into health_data.
-      }
-
-      if (isToday) {
-        await health.refresh();
-      } else {
+      if (!isToday) {
+        // Past-date edit: the screen's local copies aren't driven by the contexts'
+        // "today" state, so refresh them — cache-first, since the write-through
+        // above already populated the cache for this date.
         const [updatedHealth, updatedRecovery] = await Promise.all([
-          fetchHealthForDate(activeDate, true),
-          fetchRecoveryByDate(activeDate, true),
+          fetchHealthForDate(activeDate, false),
+          fetchRecoveryByDate(activeDate, false),
         ]);
         setDateHealthData(healthDataForSleepDate(updatedHealth, activeDate));
         setDateRecoveryLog(updatedRecovery);
       }
-      await refreshRecovery({ force: true });
 
       posthog.capture('sleep_logged', {
         sleep_hours: payload.sleepH,
@@ -375,8 +390,8 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
     }
   }, [
     activeDate, bedtime, wakeup, deepH, deepM, derivedSleepQuality, fetchHealthForDate,
-    fetchRecoveryByDate, health, hkSleep, hours, isToday, logRecovery, notes, posthog,
-    refreshRecovery, toast,
+    fetchRecoveryByDate, hkSleep, hours, isToday, logRecovery, notes, posthog,
+    toast,
   ]);
 
   const actions: SleepLogActions = useMemo(() => ({

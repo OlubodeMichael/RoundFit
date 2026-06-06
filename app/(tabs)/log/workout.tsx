@@ -1672,7 +1672,10 @@ export default function WorkoutLogScreen() {
 
   const syncOnFocusRef = useRef<() => void>(() => {});
   syncOnFocusRef.current = () => {
-    void refreshWorkouts();
+    // Cache-first on focus — serve the 2h workouts cache without a network
+    // round-trip. Mutations + foreground/day-roll keep today current; only an
+    // explicit pull-to-refresh forces a fetch.
+    void refreshWorkouts(undefined, false);
     void workoutHistory.refresh();
     void importReview.runImport();
     void pendingImports.refresh();

@@ -38,7 +38,6 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { AuthProvider, hasActiveUserSession } from "@/context/auth-context";
 import { CheckinProvider } from "@/context/checkin-context";
 import { CycleProvider } from "@/context/cycle-context";
-import { EngineProvider } from "@/context/engine-context";
 import { FoodProvider } from "@/context/food-context";
 import { HealthProvider } from "@/context/health-context";
 import { InsightsProvider } from "@/context/insights-context";
@@ -200,13 +199,14 @@ export default function RootLayout() {
                           <CheckinProvider>
                             <SummaryProvider>
                               <RecoveryProvider>
-                                <EngineProvider>
-                                  <InsightsProvider>
-                                    <NotificationInboxProvider>
-                                      <AppNavigator />
-                                    </NotificationInboxProvider>
-                                  </InsightsProvider>
-                                </EngineProvider>
+                                {/* EngineProvider unmounted: no screen consumes useEngine();
+                                    it only generated unused /engine/daily + /engine/patterns
+                                    requests. Context/hook kept for when engine UI is wired. */}
+                                <InsightsProvider>
+                                  <NotificationInboxProvider>
+                                    <AppNavigator />
+                                  </NotificationInboxProvider>
+                                </InsightsProvider>
                               </RecoveryProvider>
                             </SummaryProvider>
                           </CheckinProvider>

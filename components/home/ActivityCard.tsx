@@ -59,10 +59,14 @@ export function StepsMetricCard({
   const palette = { card: P.card, cardEdge: P.cardEdge, isDark: P.isDark };
   const stepColor = goalComplete ? P.protein : P.water;
   const stepFill = useRef(new Animated.Value(0)).current;
+  // Persistent across renders so the count animates FROM the previous value to the
+  // new one (e.g. 2000 → 2010), not from 0 every update. On first mount it's 0, so
+  // the initial render still counts up from 0. The effect only re-runs when `steps`
+  // / `stepPct` actually change, so unchanged data never re-animates.
+  const countAnim = useRef(new Animated.Value(0)).current;
   const [displayedSteps, setDisplayedSteps] = useState(0);
 
   useEffect(() => {
-    const countAnim = new Animated.Value(0);
     const id = countAnim.addListener(({ value }) =>
       setDisplayedSteps(Math.round(value)),
     );
@@ -79,9 +83,9 @@ export function StepsMetricCard({
         easing: Easing.out(Easing.cubic),
         useNativeDriver: false,
       }),
-    ]).start(() => countAnim.removeListener(id));
+    ]).start();
     return () => countAnim.removeListener(id);
-  }, [steps, stepPct, stepFill]);
+  }, [steps, stepPct, stepFill, countAnim]);
 
   const fillWidth = stepFill.interpolate({
     inputRange: [0, 1],

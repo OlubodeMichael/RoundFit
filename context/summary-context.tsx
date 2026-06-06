@@ -8,6 +8,7 @@ import {
   buildSummaryCacheKey,
   fetchDailySummaryBundle,
   getCachedSummary,
+  setCachedSummary,
   TTL_COLD_START_MS,
 } from '@/utils/daily-summary-cache';
 import {
@@ -60,6 +61,7 @@ import {
   
   fetchWithResourceCache,
   getResourceCached,
+  setResourceCached,
 } from '@/utils/resource-cache';
 import { getWeekStart } from '@/utils/insights-aggregator';
 import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
@@ -73,6 +75,7 @@ import {
   registerTodayOptimisticListener,
   type TodayDataDelta,
 } from '@/utils/today-optimistic';
+import { registerTodayReconcileListener } from '@/utils/today-reconcile';
 import { apiFetch } from '@/utils/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -384,6 +387,46 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     return registerTodayOptimisticListener(applyOptimisticDelta);
   }, [applyOptimisticDelta]);
+
+  // Authoritative reconcile from a mutation response — overwrites the optimistic
+  // patch with server truth (incl. met_targets) and writes through both caches so
+  // a cold start right after a log reads the reconciled values.
+  useEffect(() => {
+    if (!user?.id) return;
+    const uid = user.id;
+
+    return registerTodayReconcileListener((bundle) => {
+      const { date, summary } = bundle;
+      const inCurrentWeek = getWeekStart(new Date(`${date}T12:00:00`)) === getWeekStart();
+
+      setDaily(summary);
+
+      // Daily write-through — match the stored DailySummaryBundle shape so the
+      // mount reader (getCachedSummary → data.daily) stays consistent.
+      void setCachedSummary(
+        buildSummaryCacheKey(uid, date),
+        { daily: summary, raw: summary as unknown as Record<string, unknown>, computed_at: new Date().toISOString() },
+        TTL_COLD_START_MS,
+      );
+
+      if (inCurrentWeek) {
+        setWeekly((prev) => {
+          if (!prev) return prev;
+          const next = upsertTodayInWeekly(prev, summary);
+          // Weekly write-through — the resource cache stores the RAW API weekly
+          // body read back via fromApiWeekly; WeeklySummary round-trips
+          // field-for-field (days[], consistency_score, avg_calories,
+          // avg_protein, best_day).
+          void setResourceCached(
+            buildResourceKey('summary-weekly', uid, getWeekStart()),
+            next,
+            TTL_COLD_START_MS,
+          );
+          return next;
+        });
+      }
+    });
+  }, [user?.id]);
 
   useEffect(() => {
     return registerTodayTargetsListener(() => {

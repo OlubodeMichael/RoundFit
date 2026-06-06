@@ -146,18 +146,21 @@ export async function invalidateAfterMutation({
 
 /** Domains that should trigger summary-provider listener refetch. */
 export function shouldRefetchSummaryAfterMutation(domain: MutationDomain): boolean {
-  // 'water' is intentionally excluded: the daily summary's only water field
-  // (water_glasses) is never displayed or scored on the client — water UI reads
-  // from water-context (ml-based). Refetching /summary/daily on every water log
-  // updated a field nothing consumes.
+  // 'food' / 'workout' / 'health' are excluded: their write endpoints now return
+  // the recomputed daily summary in the response `today` block, which the client
+  // writes through via applyTodayReconcile — no follow-up GET /summary/daily needed.
+  // (Requires the backend to return `today`; deploy backend before/with this client.)
+  // 'water' is excluded too: the summary's only water field (water_glasses) is
+  // never displayed or scored — water UI reads from water-context (ml-based).
+  // 'checkin' stays: its endpoint does not yet return a reconcile block.
+  // 'recovery' excluded: a sleep/recovery log doesn't change the daily summary
+  // (calories/macros), and logRecovery already write-throughs everything it does
+  // change. The weekly summary's sleep metric is handled via cache invalidation +
+  // weekly-insights stale flag, not an eager /summary/daily refetch.
   return (
     domain === 'full' ||
     domain === 'summary' ||
-    domain === 'food' ||
-    domain === 'workout' ||
-    domain === 'health' ||
-    domain === 'checkin' ||
-    domain === 'recovery'
+    domain === 'checkin'
   )
 }
 
@@ -176,10 +179,13 @@ export function shouldRefetchEngineAfterMutation(domain: MutationDomain): boolea
  * and never reaches the Recovery screen until a forced refresh / re-login.
  */
 export function shouldRefetchRecoveryAfterMutation(domain: MutationDomain): boolean {
+  // 'recovery' excluded: it is only ever emitted by logRecovery, which already
+  // write-throughs recovery state + readiness + the health row. Re-fetching the
+  // full recovery bundle (6 endpoints) on its own notify is pure redundancy.
+  // Recovery still refreshes on external inputs (health/checkin/workout/full).
   return (
     domain === 'full' ||
     domain === 'health' ||
-    domain === 'recovery' ||
     domain === 'checkin' ||
     domain === 'workout'
   )

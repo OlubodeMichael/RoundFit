@@ -15,6 +15,8 @@ import { getLocalDateString } from '@/utils/date';
 import { localSleepDateString } from '@/utils/sleep-date';
 import { mergePriorDaySleepIntoHealth } from '@/utils/sleep-display';
 import { notifyTodayDataChanged } from '@/utils/today-sync';
+import { applyTodayReconcile, type TodayReconcileBundle } from '@/utils/today-reconcile';
+import { registerHealthReconcileListener } from '@/utils/today-health-reconcile';
 import {
   buildResourceKey,
   fetchWithResourceCache,
@@ -29,6 +31,10 @@ const HEALTH_BACKFILL_CURSOR_KEY = '@roundfit/health_backfill_cursor';
 export const LAST_HEALTH_SYNC_KEY = '@roundfit/last_health_sync';
 /** Throttle expensive per-day backfill only — today's HK read always runs. */
 const HEALTH_BACKFILL_THROTTLE_MS = 3 * 60 * 1000;
+
+/** Per-day fingerprint of the last successfully-synced payload — gates redundant POSTs. */
+const HEALTH_SIG_KEY_PREFIX = '@roundfit/health_sig';
+const healthSigStorageKey = (date: string) => `${HEALTH_SIG_KEY_PREFIX}:${date}`;
 /** Re-read today's steps/calories while the app stays in the foreground. */
 const HEALTH_TODAY_POLL_MS = 60 * 1000;
 
@@ -151,28 +157,25 @@ function num(v: unknown, fallback: number | null = null): number | null {
   return fallback;
 }
 
+/**
+ * Pulls the `today` reconciliation block out of a mutation response, if present.
+ * Returns null when the backend does not (yet) include it — the legacy
+ * `notifyTodayDataChanged` path remains the fallback.
+ */
+function extractTodayBundle(body: Record<string, unknown>): TodayReconcileBundle | null {
+  const today = body.today;
+  if (!today || typeof today !== 'object') return null;
+  const t = today as Record<string, unknown>;
+  if (typeof t.date !== 'string') return null;
+  if (!t.summary || typeof t.summary !== 'object') return null;
+  return today as TodayReconcileBundle;
+}
+
 /** Steps above this with zero distance usually means a failed HK read or stale server row. */
 const STEPS_WITH_MISSING_DISTANCE = 100;
 
 function hasStepsButNoDistance(steps: number, distance: number): boolean {
   return steps >= STEPS_WITH_MISSING_DISTANCE && distance <= 0;
-}
-
-function healthKitSummaryChanged(
-  current: HealthData | null,
-  summary: HealthKitSummary,
-): boolean {
-  if (!current) return true;
-  return (
-    current.steps !== summary.steps
-    || current.active_calories !== summary.active_calories
-    || current.resting_calories !== summary.resting_calories
-    || current.total_calories_burned !== summary.total_calories_burned
-    || current.distance !== summary.distance
-    || (current.stand_hours ?? 0) !== summary.stand_hours
-    || (current.active_minutes ?? 0) !== summary.active_minutes
-    || (current.mindfulness_minutes ?? 0) !== summary.mindfulness_minutes
-  );
 }
 
 /** Daily cumulative metrics from HealthKit should never regress after sync. */
@@ -296,6 +299,26 @@ function toSyncInput(s: HealthKitSummary): SyncHealthInput {
   if (s.bedtime_iso        !== null) input.bedtime_iso        = s.bedtime_iso;
   if (s.wakeup_iso         !== null) input.wakeup_iso         = s.wakeup_iso;
   return input;
+}
+
+/**
+ * Stable fingerprint of the metric fields we POST, so we only sync when the data
+ * actually changed. Covers EVERY field in the payload (sleep, HRV, RHR, sleep
+ * stages, vo2_max, …) — unlike the old movement-only comparison — and ignores
+ * `source`/`date`. Numbers are rounded to absorb HealthKit float jitter that
+ * would otherwise read as a change.
+ */
+function signHealthPayload(input: SyncHealthInput): string {
+  const rest: Record<string, unknown> = { ...input };
+  delete rest.source;
+  delete rest.date;
+  return Object.keys(rest)
+    .sort()
+    .map((k) => {
+      const v = rest[k];
+      return `${k}:${typeof v === 'number' ? Math.round(v * 1000) / 1000 : v}`;
+    })
+    .join('|');
 }
 
 /** Remember that the user is connected so the AsyncStorage fallback works. */
@@ -451,7 +474,11 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
           merged,
           ttlForDate(date),
         );
-        if (notify) void notifyTodayDataChanged(user.id, 'health');
+        if (notify) {
+          const bundle = extractTodayBundle(body);
+          if (bundle) applyTodayReconcile(bundle);
+          void notifyTodayDataChanged(user.id, 'health');
+        }
       }
     }
     return merged;
@@ -515,6 +542,8 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
           await AsyncStorage.setItem(HEALTH_BACKFILL_CURSOR_KEY, backfillCursor);
           backfillCursor = formatDate(addDays(startOfDay(new Date(`${backfillCursor}T00:00:00`)), 1));
         }
+        // Mark backfill complete through today (only after the loop actually ran).
+        await AsyncStorage.setItem(HEALTH_BACKFILL_CURSOR_KEY, todayDate);
       }
 
       const todayStart = new Date();
@@ -529,20 +558,21 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       // Paint fresh HealthKit data immediately — do not wait on cache or API.
       setToday(applied);
 
-      const metricsChanged = healthKitSummaryChanged(prior, summary);
-      const shouldPost =
-        force
-        || metricsChanged
-        || msSinceLastSync >= HEALTH_BACKFILL_THROTTLE_MS;
+      // Only POST when the payload differs from what we last synced for this day.
+      // The signature covers every posted field (sleep/HRV/RHR included), and a new
+      // day has no stored signature so the first sync of the day always posts — a
+      // built-in once-a-day floor. The backend upsert is idempotent, so skipping an
+      // identical post is risk-free.
+      const sig = signHealthPayload(payload);
+      const storedSig = await AsyncStorage.getItem(healthSigStorageKey(todayDate));
+      const changed = sig !== storedSig;
+      const shouldPost = force || changed;
 
       if (shouldPost) {
-        // Persist on a time-based re-sync, but only broadcast a 'health'
-        // mutation when metrics actually changed (or a forced sync). Otherwise
-        // an unchanged launch sync would fan out a force-refetch across every
-        // context (engine, recovery, summary, insights) for identical data.
-        await saveHealthSnapshot(payload, true, metricsChanged || force);
-        await AsyncStorage.setItem(LAST_HEALTH_SYNC_KEY, now.toString());
-        await AsyncStorage.setItem(HEALTH_BACKFILL_CURSOR_KEY, todayDate);
+        // Broadcast a 'health' mutation only when data changed (or forced), so an
+        // unchanged sync never fans out a force-refetch across other contexts.
+        await saveHealthSnapshot(payload, true, changed || force);
+        await AsyncStorage.setItem(healthSigStorageKey(todayDate), sig);
       } else if (user?.id) {
         void setResourceCached(
           buildResourceKey('health', user.id, todayDate),
@@ -550,6 +580,11 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
           ttlForDate(todayDate),
         );
       }
+
+      // Advance the sync-throttle timestamp every run (independent of whether we
+      // posted today's data) so reduced posting can't make the expensive past-day
+      // backfill loop run on every sync.
+      await AsyncStorage.setItem(LAST_HEALTH_SYNC_KEY, now.toString());
 
       await persistConnectedFlag();
       setIsConnected(true);
@@ -613,6 +648,24 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     // leaving isLoading stuck true (recovery skeleton never clears).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, user?.id]);
+
+  // ── Reconcile health from a recovery/sleep log ────────────────────────────
+  // A manual sleep log writes sleep into health_data on the backend and returns
+  // the updated row; the recovery context emits it here so health's `today` +
+  // cache reflect the new sleep without a separate /health/sync POST.
+  useEffect(() => {
+    if (!user?.id) return;
+    const uid = user.id;
+    return registerHealthReconcileListener(({ date, row }) => {
+      const parsed = fromApiData(row);
+      if (date === getLocalDateString()) setToday(parsed);
+      void setResourceCached(
+        buildResourceKey('health', uid, date),
+        parsed,
+        ttlForDate(date),
+      );
+    });
+  }, [user?.id]);
 
   // ── Check HealthKit connection status ────────────────────────────────────
   useEffect(() => {

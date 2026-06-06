@@ -7,6 +7,7 @@ import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
 import { notifyTodayDataChanged } from '@/utils/today-sync';
 import { applyTodayOptimistic } from '@/utils/today-optimistic';
+import { applyTodayReconcile, type TodayReconcileBundle } from '@/utils/today-reconcile';
 import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
 import {
   buildResourceKey,
@@ -116,7 +117,7 @@ export interface WorkoutContextValue {
   logWorkout:          (input: LogWorkoutInput) => Promise<Workout>;
   logSets:             (workoutId: string, sets: LogSetInput[]) => Promise<WorkoutSet[]>;
   deleteWorkout:       (id: string) => Promise<void>;
-  refreshWorkouts:     (date?: string) => Promise<void>;
+  refreshWorkouts:     (date?: string, force?: boolean) => Promise<void>;
   fetchForDate:        (date: string, force?: boolean) => Promise<Workout[]>;
 }
 
@@ -129,6 +130,19 @@ function todayDateString(): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Pulls the `today` reconciliation block out of a mutation response, if present.
+ * Returns null when the backend does not (yet) include it — the legacy
+ * `notifyTodayDataChanged` path remains the fallback.
+ */
+function extractTodayBundle(body: Record<string, unknown>): TodayReconcileBundle | null {
+  if (!isPlainObject(body.today)) return null;
+  const t = body.today;
+  if (typeof t.date !== 'string') return null;
+  if (!isPlainObject(t.summary)) return null;
+  return body.today as unknown as TodayReconcileBundle;
 }
 
 function fromApiSet(row: Record<string, unknown>): WorkoutSet {
@@ -297,6 +311,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
     applyTodayOptimistic({ caloriesBurned: saved.calories_burned });
+    const bundle = extractTodayBundle(body);
+    if (bundle) applyTodayReconcile(bundle);
     bumpHistory();
     void syncToday();
     return saved;
@@ -317,6 +333,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
         w.id === workoutId ? { ...w, sets: [...w.sets, ...saved] } : w,
       ),
     );
+    const bundle = extractTodayBundle(body);
+    if (bundle) applyTodayReconcile(bundle);
     void syncToday();
     return saved;
   }, [syncToday]);
@@ -350,15 +368,20 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       );
     }
 
+    const bundle = extractTodayBundle(body);
+    if (bundle) applyTodayReconcile(bundle);
     bumpHistory();
     void syncToday();
   }, [bumpHistory, syncToday, user?.id, workouts]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
-  const refreshWorkouts = useCallback(async (date?: string) => {
+  // `force` defaults true so pull-to-refresh fetches fresh. Pass force=false for
+  // cache-first refreshes (e.g. screen focus) so a fresh 2h cache is served
+  // without a network round-trip (which otherwise costs a full request even for a 304).
+  const refreshWorkouts = useCallback(async (date?: string, force = true) => {
     const target = date ?? todayDateString();
     setActiveDate(target);
-    await fetchWorkouts(target, true);
+    await fetchWorkouts(target, force);
   }, [fetchWorkouts]);
 
   // ── Fetch for any date without touching context state ─────────────────────

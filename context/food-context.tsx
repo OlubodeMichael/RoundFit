@@ -8,6 +8,7 @@ import { getLocalDateString } from '@/utils/date';
 import { apiFetch } from '@/utils/api';
 import { notifyTodayDataChanged } from '@/utils/today-sync';
 import { applyTodayOptimistic } from '@/utils/today-optimistic';
+import { applyTodayReconcile, type TodayReconcileBundle } from '@/utils/today-reconcile';
 import { getCachedAnalysis, cacheAnalysis } from '@/utils/photo-cache';
 import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
 import {
@@ -122,6 +123,20 @@ function foodLogRowsFromResponse(body: Record<string, unknown>): Record<string, 
   }
   if (Array.isArray(body.logs)) return body.logs as Record<string, unknown>[];
   return [];
+}
+
+/**
+ * Pulls the `today` reconciliation block out of a mutation response, if present.
+ * Returns null when the backend does not (yet) include it — the legacy
+ * `notifyTodayDataChanged` path remains the fallback.
+ */
+function extractTodayBundle(body: Record<string, unknown>): TodayReconcileBundle | null {
+  const today = body.today;
+  if (!today || typeof today !== 'object') return null;
+  const t = today as Record<string, unknown>;
+  if (typeof t.date !== 'string') return null;
+  if (!t.summary || typeof t.summary !== 'object') return null;
+  return today as TodayReconcileBundle;
 }
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
@@ -372,6 +387,8 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     if (ok && body.data) {
       const saved = fromApiLog(body.data as Record<string, unknown>);
       setMeals((prev) => prev.map((m) => m.id === tempId ? saved : m));
+      const bundle = extractTodayBundle(body);
+      if (bundle) applyTodayReconcile(bundle);
       void syncToday();
       return;
     }
@@ -479,6 +496,8 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       carbsConsumed:    item.carbs ?? 0,
       fatConsumed:      item.fat ?? 0,
     });
+    const bundle = extractTodayBundle(body);
+    if (bundle) applyTodayReconcile(bundle);
     void syncToday();
     return item;
   }, [syncToday]);
@@ -500,6 +519,8 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       carbsConsumed:    saved.carbs ?? 0,
       fatConsumed:      saved.fat ?? 0,
     });
+    const bundle = extractTodayBundle(body);
+    if (bundle) applyTodayReconcile(bundle);
     void syncToday();
   }, [syncToday]);
 
@@ -518,7 +539,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       });
     }
 
-    const { ok } = await apiFetch(`/food/log/${id}`, { method: 'DELETE' });
+    const { ok, body } = await apiFetch(`/food/log/${id}`, { method: 'DELETE' });
     if (!ok) {
       setMeals(snapshot);
       if (removed) {
@@ -531,6 +552,8 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       }
       throw new Error('Failed to delete meal');
     }
+    const bundle = extractTodayBundle(body);
+    if (bundle) applyTodayReconcile(bundle);
     void syncToday();
   }, [meals, syncToday]);
 

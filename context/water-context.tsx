@@ -5,6 +5,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { apiFetch } from '@/utils/api';
 import { notifyTodayDataChanged } from '@/utils/today-sync';
+import { applyTodayReconcile, type TodayReconcileBundle } from '@/utils/today-reconcile';
 import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
 import {
   buildResourceKey,
@@ -56,6 +57,20 @@ function fromApiEntry(row: Record<string, unknown>): WaterEntry {
     amount_ml: typeof row.amount_ml === 'number' ? row.amount_ml : 0,
     logged_at: typeof row.logged_at === 'string' ? row.logged_at : new Date().toISOString(),
   };
+}
+
+/**
+ * Pulls the `today` reconciliation block out of a mutation response, if present.
+ * Returns null when the backend does not (yet) include it — the legacy
+ * `notifyTodayDataChanged` path remains the fallback.
+ */
+function extractTodayBundle(body: Record<string, unknown>): TodayReconcileBundle | null {
+  const today = body.today;
+  if (!today || typeof today !== 'object') return null;
+  const t = today as Record<string, unknown>;
+  if (typeof t.date !== 'string') return null;
+  if (!t.summary || typeof t.summary !== 'object') return null;
+  return today as TodayReconcileBundle;
 }
 
 function parseWaterBody(body: Record<string, unknown>): WaterDayData {
@@ -266,6 +281,8 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
       const saved = fromApiEntry(body.data as Record<string, unknown>);
       const next = entriesRef.current.map((e) => (e.id === optimisticId ? saved : e));
       commitEntries(next);
+      const bundle = extractTodayBundle(body);
+      if (bundle) applyTodayReconcile(bundle);
       // Invalidate dependent caches (summary/insights), then write the fresh
       // entries back so the water cache survives the invalidation.
       await notifyTodayDataChanged(user?.id, 'water');
@@ -282,8 +299,10 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
     const next = entriesRef.current.filter((e) => e.id !== id);
     commitEntries(next);
     try {
-      const { ok } = await apiFetch(`/water/${id}`, { method: 'DELETE' });
+      const { ok, body } = await apiFetch(`/water/${id}`, { method: 'DELETE' });
       if (!ok) throw new Error('Failed to delete water entry');
+      const bundle = extractTodayBundle(body);
+      if (bundle) applyTodayReconcile(bundle);
       await notifyTodayDataChanged(user?.id, 'water');
       await persistWaterCache(targetDate, next);
     } catch (err) {

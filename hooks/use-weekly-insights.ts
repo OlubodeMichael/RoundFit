@@ -24,6 +24,7 @@ import {
 } from '@/utils/insights-cache'
 import { getLocalTargets, type LocalTargets } from '@/utils/local-targets'
 import { registerTodayDataSyncListener, registerTodayTargetsListener } from '@/utils/today-sync'
+import { registerTodayReconcileListener } from '@/utils/today-reconcile'
 import { calculateMacros } from '@/utils/nutrition'
 
 const DEFAULT_CALORIE_BUDGET = 2000
@@ -225,6 +226,89 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
       }
     })
   }, [isCurrentWeek, user?.id, week, load])
+
+  // Write-through reconcile: a today-mutating POST returns the authoritative
+  // DailySummary for the edited day. Merge its nutrition fields into the matching
+  // NormalizedDay (preserving steps/sleep/water/workout, which DailySummary does
+  // NOT carry), re-score, rebuild the week, and write through to cache — no refetch.
+  useEffect(() => {
+    if (!isCurrentWeek) return
+    return registerTodayReconcileListener((bundle) => {
+      void (async () => {
+        if (!user?.id || !mountedRef.current) return
+
+        const current = dataRef.current
+        const date = bundle.date
+
+        // Fallback: no current week in memory, or the reconciled date is outside
+        // this week window. We cannot faithfully patch a day we don't hold, so we
+        // just flag stale — the sync listener keeps the cache, so a reload serves
+        // cached data and revalidates. Correctness over a partial local merge.
+        if (
+          !current ||
+          !isValidIsoDate(date) ||
+          date < current.week_start ||
+          date > current.week_end
+        ) {
+          if (mountedRef.current) setIsStale(true)
+          return
+        }
+
+        const existing = current.days.find(d => d.date === date)
+        // Fallback: the day slot isn't present (shouldn't happen for an aligned
+        // week, but if it did we'd have no steps/sleep to preserve). Flag stale.
+        if (!existing) {
+          if (mountedRef.current) setIsStale(true)
+          return
+        }
+
+        // Derive the same targets applyDerivedTargets uses, so the re-score here
+        // matches a cache reload.
+        const local = await getLocalTargets()
+        if (!mountedRef.current) return
+        const fallbackProtein = deriveProteinTarget(user)
+        const targets = ensureValidTargets(
+          {
+            ...current.targets_snapshot,
+            steps_target: local.steps_target ?? current.targets_snapshot.steps_target ?? user?.stepsTarget ?? 10000,
+            sleep_target: local.sleep_target ?? current.targets_snapshot.sleep_target,
+          },
+          fallbackProtein,
+        )
+
+        // Override only the nutrition fields the DailySummary is authoritative for;
+        // preserve steps / sleep_hours / workout_count / water_glasses from cache.
+        const mergedDay: NormalizedDay = {
+          ...existing,
+          calories: bundle.summary.calories_consumed,
+          protein:  bundle.summary.protein_consumed,
+          carbs:    bundle.summary.carbs_consumed,
+          fat:      bundle.summary.fat_consumed,
+        }
+        const rescoredDay = recomputeNormalizedDay(mergedDay, targets)
+
+        const patchedDays = current.days.map(d => (d.date === date ? rescoredDay : d))
+        const days = buildWeekDays(patchedDays, current.week_start)
+        const logged = days.filter(x => !x.is_partial)
+        const updatedWeek: WeeklyInsightSummary = {
+          ...current,
+          targets_snapshot:  targets,
+          days,
+          days_met_calories: logged.filter(x => x.met_calories === 'met').length,
+          days_met_protein:  logged.filter(x => x.met_protein  === 'met').length,
+          days_met_steps:    logged.filter(x => x.met_steps    === 'met').length,
+          days_met_sleep:    logged.filter(x => x.met_sleep    === 'met').length,
+        }
+
+        const ttl = isCurrentWeek ? TTL_CURRENT_WEEK : TTL_PAST_WEEK
+        await setCached(buildWeekKey(user.id, week), updatedWeek, ttl)
+        if (mountedRef.current) {
+          setData(updatedWeek)
+          setIsStale(false)
+        }
+      })()
+    })
+  }, [isCurrentWeek, user, week])
 
   useEffect(() => {
     if (!isCurrentWeek) return

@@ -23,6 +23,7 @@ import {
 import { apiFetch } from '@/utils/api';
 import { fetchDailySummaryBundle, TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
 import { notifyTodayDataChanged, registerTodayDataSyncListener } from '@/utils/today-sync';
+import { applyHealthReconcile } from '@/utils/today-health-reconcile';
 import { shouldRefetchRecoveryAfterMutation } from '@/utils/cache-invalidation';
 import {
   buildResourceKey,
@@ -563,7 +564,19 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
         TTL_COLD_START_MS,
       );
       void invalidateResourceCache(buildResourceKey('recovery-readiness', uid, logDate));
-      void invalidateResourceCache(buildResourceKey('health', uid, logDate));
+
+      // Write-through the updated health row (it includes the new sleep) into the
+      // health context + cache. Health subscribes to this channel — previously it
+      // listened to nothing, so a manual sleep log never reached health state and
+      // only its cache was dropped. Falls back to invalidation if the row is absent.
+      if (data.health_data && typeof data.health_data === 'object') {
+        applyHealthReconcile({
+          date: logDate,
+          row: data.health_data as Record<string, unknown>,
+        });
+      } else {
+        void invalidateResourceCache(buildResourceKey('health', uid, logDate));
+      }
     }
 
     if (data.readiness) {
@@ -588,7 +601,10 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (notifyListeners && user?.id) {
-      void notifyTodayDataChanged(user.id, 'recovery');
+      // Pass the explicit sleep/log date so summary + insights invalidate the
+      // correct day/week — not getLocalDateString(), which diverges from the
+      // sleep-date before 06:00.
+      void notifyTodayDataChanged(user.id, 'recovery', logDate);
     }
 
     return saved;
