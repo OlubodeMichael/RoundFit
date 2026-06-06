@@ -3,6 +3,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+    Alert,
     LayoutAnimation,
     Platform,
     ScrollView,
@@ -20,7 +21,15 @@ import { PICKER_H, WheelTimePicker } from "@/components/ui/WheelTimePicker";
 import { useNotificationInbox } from "@/hooks/use-notification-inbox";
 import { useNotifications } from "@/hooks/use-notifications";
 import { useTheme } from "@/hooks/use-theme";
-import { openNotificationSettings } from "@/utils/notifications";
+import {
+  getPermissionStatus,
+  openNotificationSettings,
+  requestPermissions,
+} from "@/utils/notifications";
+import {
+  getDailyInsightConfig,
+  setDailyInsightConfig,
+} from "@/utils/daily-insight-delivery";
 
 if (
   Platform.OS === "android" &&
@@ -76,6 +85,16 @@ interface Reminder {
 }
 
 const REMINDERS: Reminder[] = [
+  {
+    id:     "insight",
+    label:  "Daily Insight",
+    sub:    "Get today's one focus the moment last night's sleep syncs.",
+    icon:   "sparkles-outline",
+    iconBg: "#A855F7",
+    hour:   9,
+    minute: 0,
+    period: "AM",
+  },
   {
     id:     "morning",
     label:  "Morning Check-in",
@@ -160,6 +179,18 @@ function displayTime({ hour, minute, period }: TimeVal) {
   return `${hour}:${String(minute).padStart(2, "0")} ${period}`;
 }
 
+// The daily-insight config stores a 24-hour time; the UI uses 12-hour TimeVals.
+function timeValTo24h({ hour, minute, period }: TimeVal): { hour: number; minute: number } {
+  const h = period === "AM" ? (hour === 12 ? 0 : hour) : (hour === 12 ? 12 : hour + 12);
+  return { hour: h, minute };
+}
+
+function timeValFrom24h(hour24: number, minute: number): TimeVal {
+  const period: "AM" | "PM" = hour24 < 12 ? "AM" : "PM";
+  const hour = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return { hour, minute, period };
+}
+
 function defaultTimesByReminderId(): Record<string, TimeVal> {
   return Object.fromEntries(
     REMINDERS.filter((r) => r.id !== "meal").map((r) => [
@@ -199,7 +230,9 @@ export default function NotificationsScreen() {
   const router = useRouter();
 
   const { unreadCount } = useNotificationInbox();
-  const REMINDER_IDS = REMINDERS.map((r) => r.id);
+  // "insight" is managed by the daily-insight delivery module (one-shot fallback
+  // + sleep background delivery), not the standard repeating-reminder hook.
+  const REMINDER_IDS = REMINDERS.map((r) => r.id).filter((id) => id !== "insight");
   const {
     enabled,
     permissionStatus,
@@ -208,6 +241,8 @@ export default function NotificationsScreen() {
     syncReminder,
     syncMealReminders,
   } = useNotifications(REMINDER_IDS);
+
+  const [insightEnabled, setInsightEnabled] = useState(false);
 
   const [times, setTimes] = useState<Record<string, TimeVal>>(
     defaultTimesByReminderId(),
@@ -219,8 +254,36 @@ export default function NotificationsScreen() {
   const [pickerTarget, setPickerTarget]           = useState<PickerTarget | null>(null);
   const [draft, setDraft]                         = useState<TimeVal>({ hour: 7, minute: 0, period: "AM" });
 
+  async function ensureInsightPermission(): Promise<boolean> {
+    let st = await getPermissionStatus();
+    if (st === "granted") return true;
+    if (st === "undetermined") {
+      st = await requestPermissions();
+      return st === "granted";
+    }
+    Alert.alert(
+      "Notifications Disabled",
+      "Enable notifications in your device settings to receive your daily insight.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Open Settings", onPress: openNotificationSettings },
+      ],
+    );
+    return false;
+  }
+
   async function toggle(id: string) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+
+    if (id === "insight") {
+      const wasOff = !insightEnabled;
+      if (wasOff && !(await ensureInsightPermission())) return;
+      const next = !insightEnabled;
+      setInsightEnabled(next);
+      await setDailyInsightConfig({ enabled: next, ...timeValTo24h(times.insight) });
+      return;
+    }
+
     const wasOff = !enabled[id];
     await hookToggle(id);
 
@@ -244,6 +307,12 @@ export default function NotificationsScreen() {
 
   async function confirmTime() {
     if (!pickerTarget) return;
+    if (pickerTarget.id === "insight") {
+      setTimes((prev) => ({ ...prev, insight: draft }));
+      await setDailyInsightConfig({ enabled: insightEnabled, ...timeValTo24h(draft) });
+      setPickerTarget(null);
+      return;
+    }
     if (pickerTarget.id === "meal" && pickerTarget.mealIndex !== undefined) {
       const updated = mealTimes.map((t, i) => (i === pickerTarget.mealIndex ? draft : t));
       setMealTimes(updated);
@@ -296,6 +365,15 @@ export default function NotificationsScreen() {
       JSON.stringify({ times, mealTimes }),
     ).catch(() => {});
   }, [hasHydratedTimes, mealTimes, times]);
+
+  // Hydrate the daily-insight config (enabled + 24h time → 12h display).
+  useEffect(() => {
+    (async () => {
+      const cfg = await getDailyInsightConfig();
+      setInsightEnabled(cfg.enabled);
+      setTimes((prev) => ({ ...prev, insight: timeValFrom24h(cfg.hour, cfg.minute) }));
+    })();
+  }, []);
 
   // Re-schedule all active reminders once both enabled state and times are hydrated
   useEffect(() => {
@@ -397,6 +475,16 @@ export default function NotificationsScreen() {
                 onTimePress={(idx) => openPicker({ id: "meal", mealIndex: idx })}
                 onAdd={addMeal}
                 onRemove={removeMeal}
+                P={P}
+              />
+            ) : item.id === "insight" ? (
+              <ReminderCard
+                key={item.id}
+                item={item}
+                on={insightEnabled}
+                time={times.insight}
+                onToggle={() => toggle("insight")}
+                onTimePress={() => openPicker({ id: "insight" })}
                 P={P}
               />
             ) : (

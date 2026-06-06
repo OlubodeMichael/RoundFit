@@ -258,6 +258,56 @@ export async function getScheduledReminders(): Promise<Notifications.Notificatio
   return Notifications.getAllScheduledNotificationsAsync();
 }
 
+// ── Daily insight ──────────────────────────────────────────────────────────
+
+/** Identifier for the generic one-shot insight fallback (re-armed daily). */
+export const DAILY_INSIGHT_FALLBACK_ID = 'insight';
+
+/**
+ * Immediate rich notification carrying the real insight title + message.
+ * Fired by the background path once last night's sleep has synced.
+ */
+export async function notifyDailyInsight(
+  { title, message, insightId }: { title: string; message: string; insightId?: string },
+): Promise<void> {
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title,
+      body:  message,
+      data:  { screen: 'insight', ...(insightId ? { insightId } : {}) },
+      ...(Platform.OS === 'android' && { channelId: 'reminders' }),
+    },
+    trigger: null,
+  });
+}
+
+/**
+ * Schedules the generic fallback as a one-shot at `fireDate`. Unlike a repeating
+ * DAILY trigger, a one-shot can be cancelled per-occurrence — so the background
+ * rich path can suppress it for a day it has already covered. Re-armed on every
+ * app foreground / boot, so the next day's slot is always queued.
+ */
+export async function scheduleInsightFallbackOneShot(fireDate: Date): Promise<void> {
+  await cancelInsightFallback();
+  await Notifications.scheduleNotificationAsync({
+    identifier: DAILY_INSIGHT_FALLBACK_ID,
+    content: {
+      title: 'Your daily insight is ready ☀️',
+      body:  'Tap to see what today\'s focus should be.',
+      data:  { screen: 'insight' },
+      ...(Platform.OS === 'android' && { channelId: 'reminders' }),
+    },
+    trigger: {
+      type: SchedulableTriggerInputTypes.DATE,
+      date: fireDate,
+    },
+  });
+}
+
+export async function cancelInsightFallback(): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(DAILY_INSIGHT_FALLBACK_ID);
+}
+
 // ── Workout import (Watch review save) ─────────────────────────────────────
 
 export interface WorkoutImportSavedNotification {

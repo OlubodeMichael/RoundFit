@@ -17,6 +17,7 @@ export const NOTIFICATION_INBOX_META: Record<NotificationScreenKey, Notification
   sleep:    { icon: 'moon-outline',        iconBg: '#818CF8' },
   summary:  { icon: 'stats-chart-outline', iconBg: '#60A5FA' },
   water:    { icon: 'water-outline',       iconBg: '#0EA5E9' },
+  insight:  { icon: 'sparkles-outline',    iconBg: '#A855F7' },
 };
 
 export const DEFAULT_NOTIFICATION_META: NotificationMeta = {

@@ -7,6 +7,7 @@ export const NOTIFICATION_ROUTES: Record<NotificationScreenKey, string> = {
   sleep:    '/(tabs)/log/sleep',
   summary:  '/(tabs)/insights',
   water:    '/(tabs)/log/water',
+  insight:  '/(tabs)/insights/daily',
 };
 
 export function routeForNotificationScreen(

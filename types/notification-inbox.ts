@@ -4,7 +4,8 @@ export type NotificationScreenKey =
   | 'workout'
   | 'sleep'
   | 'summary'
-  | 'water';
+  | 'water'
+  | 'insight';
 
 export interface InboxNotification {
   id: string;

@@ -11,6 +11,7 @@ import { MealsCard } from "@/components/home/MealsCard";
 import { ReadinessWidget } from "@/components/home/ReadinessWidget";
 import { WorkoutCard } from "@/components/home/WorkoutCard";
 import { UserAvatar } from "@/components/profile/UserAvatar";
+import { useAvatarPhotoActions } from "@/hooks/use-avatar-photo-actions";
 import { AppModal } from "@/components/ui/AppModal";
 import { useToast } from "@/components/ui/Toast";
 import { useCycle } from "@/context/cycle-context";
@@ -504,7 +505,7 @@ export default function HomeScreen() {
   const P = usePalette();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { profile, avatarUrl, avatarLetter, firstName, refreshProfile } =
+  const { profile, avatarUrl, avatarLetter, firstName, refreshProfile, updateProfile } =
     useProfile();
   const { mealGoal, refreshLogs, fetchForDate: fetchMealsForDate } = useFood();
   const { today: healthToday, refresh: refreshHealth } = useHealth();
@@ -519,6 +520,16 @@ export default function HomeScreen() {
 
   const [date, setDate] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
+  const {
+    present: presentAvatarActions,
+    uploading: avatarUploading,
+    overlay: avatarOverlay,
+  } = useAvatarPhotoActions({
+    avatarUrl,
+    avatarLetter,
+    name: profile?.name || firstName || undefined,
+    onUpdated: (url) => updateProfile({ avatarUrl: url }),
+  });
 
   const todayStr = useMemo(() => getLocalDateString(), []);
   const dateStr = useMemo(() => getLocalDateString(date), [date]);
@@ -852,13 +863,18 @@ export default function HomeScreen() {
               )}
             </TouchableOpacity>
 
-            <Pressable onPress={() => router.push("/profile")} hitSlop={8}>
+            <Pressable
+              onPress={presentAvatarActions}
+              disabled={avatarUploading}
+              hitSlop={8}
+            >
               <UserAvatar
                 size="sm"
                 avatarUrl={avatarUrl}
                 avatarLetter={avatarLetter}
                 accentColor={P.calories}
                 fillColor={P.sunken}
+                uploading={avatarUploading}
               />
             </Pressable>
           </View>
@@ -1019,6 +1035,8 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
       </AppModal>
+
+      {avatarOverlay}
     </View>
   );
 }

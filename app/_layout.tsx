@@ -53,6 +53,7 @@ import { WorkoutSessionProvider } from "@/context/workout-session-context";
 import { WorkoutImportReviewProvider } from "@/context/workout-import-review-context";
 import { WorkoutSessionLiveActivityProvider } from "@/hooks/use-workout-session-live-activity";
 import { useAuth } from "@/hooks/use-auth";
+import { useDailyInsightNotification } from "@/hooks/use-daily-insight-notification";
 import { useTheme } from "@/hooks/use-theme";
 
 export const unstable_settings = {
@@ -69,6 +70,9 @@ function AppNavigator() {
   const params = useGlobalSearchParams();
   const previousPathname = useRef<string | undefined>(undefined);
   const navigatorReady = Boolean(navState?.key);
+
+  // Daily insight notification: sleep background delivery + generic fallback.
+  useDailyInsightNotification();
 
   useEffect(() => {
     if (previousPathname.current !== pathname) {

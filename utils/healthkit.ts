@@ -1486,6 +1486,51 @@ export async function enableWorkoutBackgroundDelivery(): Promise<boolean> {
   }
 }
 
+// ── Sleep observer + background delivery (daily insight) ───────────────────
+
+/** HKCategoryTypeIdentifierSleepAnalysis — used for observer + background delivery. */
+export const HEALTHKIT_SLEEP_TYPE_ID = 'HKCategoryTypeIdentifierSleepAnalysis';
+
+/**
+ * Observer for new sleep samples. Fires when the watch writes last night's
+ * sleep — including OS background wake-ups once delivery is enabled. Same
+ * mechanism as {@link subscribeToWorkoutUpdates}, pointed at sleep.
+ */
+export function subscribeToSleepUpdates(
+  onChange: () => void,
+): { remove: () => void } | null {
+  const hk = getHealthKitModule();
+  if (!hk || typeof hk.subscribeToChanges !== 'function') return null;
+
+  return hk.subscribeToChanges(HEALTHKIT_SLEEP_TYPE_ID, () => {
+    onChange();
+  });
+}
+
+/**
+ * Best-effort background delivery for sleep analysis. Lets iOS wake the app
+ * when last night's sleep syncs from the watch, even while the app is closed.
+ * Requires the com.apple.developer.healthkit.background-delivery entitlement
+ * (present in RoundFit.entitlements); silently no-ops when unavailable.
+ */
+export async function enableSleepBackgroundDelivery(): Promise<boolean> {
+  const hk = getHealthKitModule();
+  if (!hk || typeof hk.enableBackgroundDelivery !== 'function') return false;
+
+  const authorized = await ensureHealthKitAuthorized(hk);
+  if (!authorized) return false;
+
+  try {
+    return await hk.enableBackgroundDelivery(
+      HEALTHKIT_SLEEP_TYPE_ID,
+      HK_UPDATE_FREQUENCY_IMMEDIATE,
+    );
+  } catch (err) {
+    console.log('[HealthKit] enableSleepBackgroundDelivery failed:', err);
+    return false;
+  }
+}
+
 /** Maps a normalised HK workout sample to {@link LogWorkoutInput} for POST /workouts. */
 export function mapHealthKitWorkoutToLogInput(
   sample: HealthKitWorkoutSample,

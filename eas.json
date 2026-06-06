@@ -9,19 +9,22 @@
       "distribution": "internal",
       "env": {
         "EXPO_NO_CAPABILITY_SYNC": "1"
-      }
+      },
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
       "env": {
         "EXPO_NO_CAPABILITY_SYNC": "1"
-      }
+      },
+      "channel": "preview"
     },
     "production": {
       "autoIncrement": true,
       "env": {
         "EXPO_NO_CAPABILITY_SYNC": "1"
-      }
+      },
+      "channel": "production"
     }
   },
   "submit": {

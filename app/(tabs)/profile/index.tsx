@@ -4,8 +4,7 @@ import Constants from 'expo-constants';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Alert, Animated, Image, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DailyTargetsGrid } from '@/components/profile/DailyTargetsGrid';
@@ -15,14 +14,13 @@ import { EditProfileModal } from '@/components/profile/EditProfileModal';
 import { GoalsActivityModal } from '@/components/profile/GoalsActivityModal';
 import { ExportDataModal } from '@/components/profile/ExportDataModal';
 import { UserAvatar } from '@/components/profile/UserAvatar';
-import { AppModal } from '@/components/ui/AppModal';
 import { useAuth } from '@/hooks/use-auth';
 import { useHealth } from '@/hooks/use-health';
 import { useProfile } from '@/hooks/use-profile';
 import { getLocalTargets } from '@/utils/local-targets';
 import { registerTodayTargetsListener } from '@/utils/today-sync';
 import { useTheme, type ThemePreference } from '@/hooks/use-theme';
-import { deleteAvatar, pickAndUploadAvatar } from '@/utils/avatar';
+import { useAvatarPhotoActions } from '@/hooks/use-avatar-photo-actions';
 import { isStoredTokenOAuth } from '@/utils/api';
 import { usePostHog } from 'posthog-react-native';
 
@@ -104,9 +102,16 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const posthog = usePostHog();
-  const [avatarUploading,   setAvatarUploading]   = useState(false);
-  const [avatarSheetOpen,   setAvatarSheetOpen]   = useState(false);
-  const [viewingAvatar,     setViewingAvatar]     = useState(false);
+  const {
+    present:   handleAvatarPress,
+    uploading: avatarUploading,
+    overlay:   avatarOverlay,
+  } = useAvatarPhotoActions({
+    avatarUrl,
+    avatarLetter,
+    name: profile?.name || undefined,
+    onUpdated: (url) => updateProfile({ avatarUrl: url }),
+  });
   const [sleepTarget,       setSleepTarget]       = useState(8);
   const [stepsTarget,       setStepsTarget]       = useState(10000);
   // OAuth users have no password (Supabase creates them with provider=apple/
@@ -194,57 +199,6 @@ export default function ProfileScreen() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       Alert.alert('Could not connect', msg || 'Allow access in Settings → Health → RoundFit.');
-    }
-  }
-
-  function handleAvatarPress() {
-    if (avatarUploading) return;
-    setAvatarSheetOpen(true);
-  }
-
-  async function handleAvatarChange() {
-    setAvatarSheetOpen(false);
-    await new Promise(r => setTimeout(r, 280));
-    try {
-      setAvatarUploading(true);
-      const uploadedUrl = await pickAndUploadAvatar();
-      if (!uploadedUrl) return;
-      updateProfile({ avatarUrl: uploadedUrl });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      Alert.alert('Could not upload avatar', msg || 'Please try again.');
-    } finally {
-      setAvatarUploading(false);
-    }
-  }
-
-  async function handleAvatarTakePhoto() {
-    setAvatarSheetOpen(false);
-    await new Promise(r => setTimeout(r, 280));
-    try {
-      setAvatarUploading(true);
-      const uploadedUrl = await pickAndUploadAvatar();
-      if (!uploadedUrl) return;
-      updateProfile({ avatarUrl: uploadedUrl });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      Alert.alert('Could not upload avatar', msg || 'Please try again.');
-    } finally {
-      setAvatarUploading(false);
-    }
-  }
-
-  async function handleAvatarRemove() {
-    setAvatarSheetOpen(false);
-    try {
-      setAvatarUploading(true);
-      await deleteAvatar();
-      updateProfile({ avatarUrl: null }); // optimistic — clears UI immediately
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      Alert.alert('Could not remove avatar', msg || 'Please try again.');
-    } finally {
-      setAvatarUploading(false);
     }
   }
 
@@ -474,104 +428,8 @@ export default function ProfileScreen() {
         onSaved={() => { void reloadLocalTargets(); }}
       />
 
-      {/* ── Avatar action sheet ─────────────────────────────────────── */}
-      <AppModal
-        visible={avatarSheetOpen}
-        onClose={() => setAvatarSheetOpen(false)}
-        sheetHeight={avatarUrl ? 0.54 : 0.42}
-      >
-        {/* Identity */}
-        <View style={{ alignItems: 'center', paddingTop: 2, paddingBottom: 22 }}>
-          <View style={[s.sheetAvatar, { borderColor: P.hair }]}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={s.sheetAvatarImg} resizeMode="cover" />
-            ) : (
-              <LinearGradient
-                colors={['#FB923C', '#F97316', '#EA580C']}
-                start={{ x: 0.1, y: 0 }}
-                end={{ x: 0.9, y: 1 }}
-                style={s.sheetAvatarGradient}
-              >
-                <Text style={s.sheetAvatarLetter}>{avatarLetter}</Text>
-              </LinearGradient>
-            )}
-            {avatarUploading && (
-              <View style={[StyleSheet.absoluteFill, s.sheetAvatarOverlay]}>
-                <Ionicons name="cloud-upload-outline" size={22} color="#FFF" />
-              </View>
-            )}
-          </View>
-          <Text style={[s.sheetName, { color: P.text }]}>{profile?.name || ''}</Text>
-          <Text style={[s.sheetSub, { color: P.dim }]}>Profile photo</Text>
-        </View>
-
-        {/* Primary actions */}
-        <View style={{ paddingHorizontal: 16, gap: 10 }}>
-          <View style={[s.sheetGroup, { backgroundColor: P.card, borderColor: P.edge }]}>
-            <TouchableOpacity style={s.sheetGroupRow} onPress={handleAvatarChange} activeOpacity={0.6}>
-              <View style={[s.sheetGroupIcon, { backgroundColor: P.sunken }]}>
-                <Ionicons name="image-outline" size={18} color={P.accent} />
-              </View>
-              <Text style={[s.sheetGroupLabel, { color: P.text }]}>Choose from Library</Text>
-              <Ionicons name="chevron-forward" size={14} color={P.faint} />
-            </TouchableOpacity>
-
-            <View style={[s.sheetGroupDivider, { backgroundColor: P.hair }]} />
-
-            <TouchableOpacity style={s.sheetGroupRow} onPress={handleAvatarTakePhoto} activeOpacity={0.6}>
-              <View style={[s.sheetGroupIcon, { backgroundColor: P.sunken }]}>
-                <Ionicons name="camera-outline" size={18} color={P.accent} />
-              </View>
-              <Text style={[s.sheetGroupLabel, { color: P.text }]}>Take Photo</Text>
-              <Ionicons name="chevron-forward" size={14} color={P.faint} />
-            </TouchableOpacity>
-
-            {avatarUrl && (
-              <>
-                <View style={[s.sheetGroupDivider, { backgroundColor: P.hair }]} />
-                <TouchableOpacity
-                  style={s.sheetGroupRow}
-                  onPress={() => { setAvatarSheetOpen(false); setViewingAvatar(true); }}
-                  activeOpacity={0.6}
-                >
-                  <View style={[s.sheetGroupIcon, { backgroundColor: P.sunken }]}>
-                    <Ionicons name="eye-outline" size={18} color={P.dim} />
-                  </View>
-                  <Text style={[s.sheetGroupLabel, { color: P.text }]}>View Photo</Text>
-                  <Ionicons name="chevron-forward" size={14} color={P.faint} />
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-
-          {/* Destructive */}
-          {avatarUrl && (
-            <View style={[s.sheetGroup, { backgroundColor: P.card, borderColor: P.edge }]}>
-              <TouchableOpacity style={s.sheetGroupRow} onPress={handleAvatarRemove} activeOpacity={0.6}>
-                <View style={[s.sheetGroupIcon, { backgroundColor: 'rgba(239,68,68,0.08)' }]}>
-                  <Ionicons name="trash-outline" size={18} color="#EF4444" />
-                </View>
-                <Text style={[s.sheetGroupLabel, { color: '#EF4444' }]}>Remove Photo</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      </AppModal>
-
-      {/* ── Full-screen avatar viewer ───────────────────────────────── */}
-      <Modal visible={viewingAvatar} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setViewingAvatar(false)}>
-        <StatusBar hidden />
-        <View style={s.viewerBg}>
-          <TouchableOpacity style={s.viewerClose} onPress={() => setViewingAvatar(false)} hitSlop={12}>
-            <View style={s.viewerCloseCircle}>
-              <Ionicons name="close" size={20} color="#FFF" />
-            </View>
-          </TouchableOpacity>
-          {avatarUrl && (
-            <Image source={{ uri: avatarUrl }} style={s.viewerImage} resizeMode="contain" />
-          )}
-        </View>
-      </Modal>
+      {/* ── Avatar actions (native sheet on iOS, AppModal on Android) ── */}
+      {avatarOverlay}
     </ScrollView>
   );
 }
@@ -951,73 +809,4 @@ const s = StyleSheet.create({
   version: { textAlign: 'center', fontSize: 12, paddingTop: 4, paddingBottom: 8 },
 
   // Avatar sheet
-  sheetAvatar: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  sheetAvatarImg:      { width: 76, height: 76, borderRadius: 38 },
-  sheetAvatarGradient: { width: 76, height: 76, borderRadius: 38, alignItems: 'center', justifyContent: 'center' },
-  sheetAvatarLetter:   { fontSize: 28, fontWeight: '800', letterSpacing: -0.5, color: '#FFF' },
-  sheetAvatarOverlay: {
-    borderRadius: 38,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sheetName: { fontSize: 17, fontWeight: '700', letterSpacing: -0.3 },
-  sheetSub:  { fontSize: 13, marginTop: 3 },
-
-  sheetGroup: {
-    borderRadius: 14,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  sheetGroupRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  sheetGroupIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sheetGroupLabel:   { flex: 1, fontSize: 15, fontWeight: '500' },
-  sheetGroupDivider: { height: StyleSheet.hairlineWidth, marginLeft: 60 },
-
-  // Full-screen viewer
-  viewerBg: {
-    flex: 1,
-    backgroundColor: '#000',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  viewerClose: {
-    position: 'absolute',
-    top: 56,
-    right: 20,
-    zIndex: 10,
-  },
-  viewerCloseCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  viewerImage: {
-    width: '100%',
-    height: '80%',
-  },
 });

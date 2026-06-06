@@ -8,6 +8,10 @@ module.exports = {
     scheme: "roundfit",
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
+    runtimeVersion: "1.0.0",
+    updates: {
+      url: "https://u.expo.dev/ff296c21-4562-4829-8c02-65d0c9bbe22f",
+    },
     ios: {
       buildNumber: "10",
       supportsTablet: true,
