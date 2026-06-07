@@ -16,9 +16,10 @@ import type { ComponentProps } from 'react';
 import { AnimatedCard, DayNavigator, usePalette, useScreenPadding } from '@/lib/log-theme';
 import { DailyGoalsSummaryCard } from '@/components/insights/DailyGoalsSummaryCard';
 import { DailyMetricsCard } from '@/components/insights/DailyMetricsCard';
-import { GradientCard } from '@/components/ui/GradientCard';
+import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
 import { useDailyInsights } from '@/hooks/use-daily-insights';
 import { useFood } from '@/context/food-context';
+import { useInsights } from '@/context/insights-context';
 import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
 import {
   formatSleepHours,
@@ -174,6 +175,12 @@ export default function DailyInsightScreen() {
   const goTo = (d: string) => { if (d <= today) setDate(d); };
 
   const { data, isLoading, isRefreshing, error, refresh } = useDailyInsights(date);
+
+  // Daily insight paragraph for the selected date.
+  const { todayInsight, claudeInsight, history } = useInsights();
+  const dailyInsight = isToday
+    ? (claudeInsight ?? todayInsight)
+    : (history.find(i => i.date === date) ?? null);
 
   const {
     activeDate:    foodActiveDate,
@@ -341,6 +348,41 @@ export default function DailyInsightScreen() {
             </GradientCard>
           ) : null}
 
+          {dailyInsight ? (
+            <GradientCard
+              variant="insightGrey"
+              palette={{ card: P.card, cardEdge: P.cardEdge, isDark: P.isDark }}
+              corner="top-right"
+              delay={300}
+              contentStyle={{ paddingVertical: 20, paddingHorizontal: 20 }}
+            >
+              <View style={styles.insightHeader}>
+                {(() => {
+                  const accent = getCardAccent('insightGrey', P.isDark);
+                  return (
+                    <View style={[styles.insightIconRing, { backgroundColor: accent.iconSoft }]}>
+                      <View style={[styles.insightIconBox, { backgroundColor: accent.iconBg }]}>
+                        <Ionicons name="sparkles" size={15} color="#FFF" />
+                      </View>
+                    </View>
+                  );
+                })()}
+                <Text style={[styles.insightLabel, { color: P.textDim }]}>
+                  {dailyInsight.type === 'claude' ? 'RIS insight' : 'Daily insight'}
+                </Text>
+              </View>
+
+              {dailyInsight.title ? (
+                <Text style={[styles.insightTitle, { color: P.text }]}>
+                  {dailyInsight.title}
+                </Text>
+              ) : null}
+              <Text style={[styles.insightBody, { color: P.textDim }]}>
+                {dailyInsight.message}
+              </Text>
+            </GradientCard>
+          ) : null}
+
         </View>
       </ScrollView>
     </View>
@@ -367,4 +409,30 @@ const styles = StyleSheet.create({
   // ── Empty state ──
   emptyState: { alignItems: 'center', paddingVertical: 24, gap: 12 },
   emptyText:  { fontSize: 16, fontWeight: '400', textAlign: 'center', lineHeight: 24 },
+
+  // ── Insight paragraph ──
+  insightHeader: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           10,
+    marginBottom:  12,
+  },
+  insightIconRing: {
+    padding:      3,
+    borderRadius: 12,
+  },
+  insightIconBox: {
+    width: 28, height: 28, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  insightLabel: {
+    fontSize: 14, fontWeight: '600', letterSpacing: -0.1,
+  },
+  insightTitle: {
+    fontSize: 18, fontWeight: '800', letterSpacing: -0.3,
+    lineHeight: 24, marginBottom: 8,
+  },
+  insightBody: {
+    fontSize: 16, fontWeight: '500', lineHeight: 24, letterSpacing: -0.1,
+  },
 });

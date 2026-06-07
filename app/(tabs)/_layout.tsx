@@ -49,6 +49,7 @@ const TABS: {
 ];
 
 const PROFILE_SUB_SCREENS = [
+    "you", "health", "preferences", "account",
     "cycle", "wearable", "notifications", "subscription", "paywall", "help",
 ];
 

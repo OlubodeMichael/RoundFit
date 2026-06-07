@@ -1,5 +1,5 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Droplet, Dumbbell, Flame, Footprints, Moon, SlidersHorizontal, type LucideIcon } from 'lucide-react-native';
 import {
   Platform,
   Pressable,
@@ -8,8 +8,6 @@ import {
   View,
   type ViewStyle,
 } from 'react-native';
-
-type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 export interface DailyTargetsGridColors {
   card: string;
@@ -33,55 +31,19 @@ export interface DailyTargetsGridProps {
 
 interface TargetDef {
   key: keyof Pick<DailyTargetsGridProps, 'calories' | 'protein' | 'water' | 'sleep' | 'steps'>;
-  icon: IoniconsName;
-  iconBg: string;
-  iconSoft: string;
+  icon: LucideIcon;
+  color: string;
   label: string;
   unit?: string;
   hero?: boolean;
 }
 
 const TARGETS: TargetDef[] = [
-  {
-    key: 'calories',
-    icon: 'flame',
-    iconBg: '#FF7849',
-    iconSoft: 'rgba(255,120,73,0.16)',
-    label: 'Calories',
-    unit: 'kcal',
-    hero: true,
-  },
-  {
-    key: 'protein',
-    icon: 'barbell',
-    iconBg: '#34D399',
-    iconSoft: 'rgba(52,211,153,0.16)',
-    label: 'Protein',
-    unit: 'g',
-  },
-  {
-    key: 'water',
-    icon: 'water',
-    iconBg: '#0EA5E9',
-    iconSoft: 'rgba(14,165,233,0.16)',
-    label: 'Water',
-    unit: 'L',
-  },
-  {
-    key: 'sleep',
-    icon: 'moon',
-    iconBg: '#818CF8',
-    iconSoft: 'rgba(129,140,248,0.16)',
-    label: 'Sleep',
-    unit: 'h',
-  },
-  {
-    key: 'steps',
-    icon: 'footsteps',
-    iconBg: '#38BDF8',
-    iconSoft: 'rgba(56,189,248,0.16)',
-    label: 'Steps',
-  },
+  { key: 'calories', icon: Flame,      color: '#FF7849', label: 'Calories', unit: 'kcal', hero: true },
+  { key: 'protein',  icon: Dumbbell,   color: '#34D399', label: 'Protein',  unit: 'g' },
+  { key: 'water',    icon: Droplet,    color: '#0EA5E9', label: 'Water',    unit: 'L' },
+  { key: 'sleep',    icon: Moon,       color: '#818CF8', label: 'Sleep',    unit: 'h' },
+  { key: 'steps',    icon: Footprints, color: '#38BDF8', label: 'Steps' },
 ];
 
 interface TargetCardProps {
@@ -147,10 +109,8 @@ function TargetCardContent({
   return (
     <>
       <View style={s.cardHeader}>
-        <View style={[s.iconRing, { backgroundColor: def.iconSoft }]}>
-          <View style={[s.iconBox, { backgroundColor: def.iconBg }]}>
-            <Ionicons name={def.icon} size={isHero ? 15 : 14} color="#FFF" />
-          </View>
+        <View style={[s.iconBox, { backgroundColor: def.color, borderColor: def.color, borderWidth: StyleSheet.hairlineWidth }]}>
+          <def.icon size={isHero ? 18 : 17} color="#FFFFFF" strokeWidth={2.4} />
         </View>
         <Text style={[s.label, { color: colors.dim }]}>{def.label}</Text>
       </View>
@@ -213,7 +173,7 @@ export function DailyTargetsGrid({
             },
           ]}
         >
-          <Ionicons name="options-outline" size={14} color={colors.dim} />
+          <SlidersHorizontal size={15} color={colors.dim} strokeWidth={2.4} />
         </Pressable>
       </View>
 
