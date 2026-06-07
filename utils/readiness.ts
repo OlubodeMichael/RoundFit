@@ -8,6 +8,7 @@ import type {
   ComputedReadiness,
   FactorStatus,
   HrvScoreInput,
+  HydrationScoreInput,
   NutritionScoreInput,
   PillarScore,
   ReadinessFactor,
@@ -207,14 +208,19 @@ export function computeTrainingLoadScore(workouts7d: ReadinessWorkoutInput[]): n
   const acr = chronic > 0 ? acute / (chronic * 3) : acute > 0 ? 2 : 1;
 
   let score: number;
-  if (acr >= 0.8 && acr <= 1.3) {
-    score = 80 + ((1.3 - Math.abs(acr - 1.05)) / 0.5) * 20;
-  } else if (acr < 0.5) {
-    score = 60;
-  } else if (acr <= 1.5) {
-    score = 50;
+  if (acr >= 0.85 && acr <= 1.15) {
+    // Optimal band — peak 100 at acr 1.0, tapering to 90 at the edges.
+    score = 100 - (Math.abs(acr - 1.0) / 0.15) * 10;
+  } else if (acr >= 0.70 && acr < 0.85) {
+    // Slightly undertrained — 70 → 89 as acr approaches 0.85.
+    score = 70 + ((acr - 0.70) / 0.15) * 19;
+  } else if (acr > 1.15 && acr <= 1.30) {
+    // Slightly overreaching — 79 → 65 as acr approaches 1.30.
+    score = 79 - ((acr - 1.15) / 0.15) * 14;
+  } else if (acr < 0.70) {
+    score = 55; // detraining
   } else {
-    score = 20;
+    score = 20; // overreaching (> 1.30)
   }
 
   const yesterday = addLocalCalendarDays(today, -1);
@@ -270,6 +276,20 @@ export function computeNutritionScore(input: NutritionScoreInput): number | null
   return Math.round(calScore * 0.6 + protScore * 0.4);
 }
 
+export function computeHydrationScore(input: HydrationScoreInput): number | null {
+  const { logged_ml, target_ml } = input;
+  if (logged_ml === null || target_ml === null || target_ml <= 0) return null;
+  // Only activate once water has actually been logged today, so an empty
+  // morning doesn't penalise the score before the user has had a chance to drink.
+  if (logged_ml <= 0) return null;
+
+  const ratio = logged_ml / target_ml;
+  if (ratio >= 0.9) return 100;
+  if (ratio >= 0.7) return 70;
+  if (ratio >= 0.5) return 45;
+  return 20;
+}
+
 export function computeSorenessScore(
   soreness: number | null,
   energy: EnergyLevel | null,
@@ -309,8 +329,14 @@ export function computeCycleScore(
       return 90;
     case 'ovulation':
       return 85;
-    case 'luteal':
-      return daysRemaining !== null && daysRemaining <= 7 ? 50 : 70;
+    case 'luteal': {
+      // Gradual PMS-driven decline across the luteal phase (~14 days),
+      // rather than a single step in the final week.
+      if (daysRemaining === null) return 70;
+      const LUTEAL_LEN = 14;
+      const daysIntoLuteal = clamp(LUTEAL_LEN - daysRemaining, 0, LUTEAL_LEN);
+      return Math.round(clamp(70 - daysIntoLuteal * 1.5, 45, 70));
+    }
     case 'menstrual':
       return 55;
     default:
@@ -332,6 +358,7 @@ const PILLAR_LABELS: Record<ReadinessPillarId, string> = {
   nutrition:     'Nutrition',
   soreness:      'How you feel',
   cycle:         'Cycle phase',
+  hydration:     'Hydration',
 };
 
 const PILLAR_ICONS: Record<ReadinessPillarId, string> = {
@@ -341,6 +368,7 @@ const PILLAR_ICONS: Record<ReadinessPillarId, string> = {
   nutrition:     'nutrition-outline',
   soreness:      'body-outline',
   cycle:         'flower-outline',
+  hydration:     'water-outline',
 };
 
 function buildReason(pillars: PillarScore[]): string {
@@ -497,6 +525,15 @@ function buildFactors(
             : 'Cycle-adjusted readiness';
           break;
         }
+        case 'hydration': {
+          const logged = input.hydration.logged_ml;
+          const target = input.hydration.target_ml;
+          value = logged !== null ? `${(logged / 1000).toFixed(1)} L` : '—';
+          note = target !== null && logged !== null
+            ? (logged >= target * 0.9 ? 'On track with water' : `Goal ${(target / 1000).toFixed(1)} L`)
+            : 'Daily hydration';
+          break;
+        }
         default:
           break;
       }
@@ -526,14 +563,33 @@ export function computeReadiness(input: ReadinessInput): ComputedReadiness | nul
 
   const hrvScore = computeHrvScore(input.hrv);
   const trainingScore = computeTrainingLoadScore(input.workouts_7d);
-  const nutritionScore = computeNutritionScore(input.nutrition);
-  const sorenessScore = computeSorenessScore(
+
+  // 48-hour nutrition window — yesterday weighted heavier than the day before (item 2).
+  const nutritionYesterday = computeNutritionScore(input.nutrition);
+  const nutritionPrev = input.nutrition_prev ? computeNutritionScore(input.nutrition_prev) : null;
+  const nutritionScore =
+    nutritionYesterday !== null && nutritionPrev !== null
+      ? Math.round(nutritionYesterday * 0.65 + nutritionPrev * 0.35)
+      : nutritionYesterday ?? nutritionPrev;
+
+  let sorenessScore = computeSorenessScore(
     input.soreness.soreness_level,
     input.soreness.energy_level,
   );
   const cycleScore = input.cycle.include_cycle
     ? computeCycleScore(input.cycle.phase, input.cycle.days_remaining)
     : null;
+  const hydrationScore = computeHydrationScore(input.hydration);
+
+  // Soreness gating (item 3): a purely-inferred soreness value (no manual log
+  // and no check-in energy) only counts toward readiness when ≥ 3 other pillars
+  // are active — otherwise it would drive a score off a number the user never gave.
+  const sorenessPurelyInferred = input.soreness.inferred && input.soreness.energy_level === null;
+  if (sorenessPurelyInferred && sorenessScore !== null) {
+    const otherActive = [sleepScore, hrvScore, trainingScore, nutritionScore, cycleScore, hydrationScore]
+      .filter((s) => s !== null).length;
+    if (otherActive < 3) sorenessScore = null;
+  }
 
   const raw: { id: ReadinessPillarId; score: number | null }[] = [
     { id: 'sleep',          score: sleepScore },
@@ -542,6 +598,7 @@ export function computeReadiness(input: ReadinessInput): ComputedReadiness | nul
     { id: 'nutrition',      score: nutritionScore },
     { id: 'soreness',       score: sorenessScore },
     { id: 'cycle',          score: cycleScore },
+    { id: 'hydration',      score: hydrationScore },
   ];
 
   const activePillars = raw.filter((r) => r.score !== null) as { id: ReadinessPillarId; score: number }[];
@@ -566,7 +623,10 @@ export function computeReadiness(input: ReadinessInput): ComputedReadiness | nul
   });
 
   const score = Math.round(clamp(weighted / weightSum, 0, 100));
-  const recommendation = recommendationFromScore(score);
+  // Three consecutive hard days is a real overtraining risk — force rest (item 5).
+  const recommendation = input.consecutive_hard_days >= 3
+    ? 'Rest'
+    : recommendationFromScore(score);
   const reason = buildReason(pillars);
   const factors = buildFactors(input, pillars);
   const tips = buildTips(
@@ -604,4 +664,43 @@ export function buildReadinessTrend(
     const computed = computeForDate?.(date);
     return { date, score: computed?.score ?? 0 };
   });
+}
+
+export type TrendDirectionKind = 'rising' | 'falling' | 'steady';
+
+export interface TrendDirection {
+  direction: TrendDirectionKind;
+  /** Today's score minus the trailing 5-day average. */
+  delta: number;
+  /** User-facing context message, or null when steady / insufficient history. */
+  message: string | null;
+}
+
+/**
+ * Compares today's score to the trailing 5-day average so messaging can reflect
+ * direction, not just the absolute number (item 4). `history` should be
+ * chronological (oldest → newest), e.g. from `buildReadinessTrend`.
+ */
+export function computeTrendDirection(
+  history: ReadinessHistoryPoint[],
+  todayScore: number,
+): TrendDirection {
+  const today = getLocalDateString();
+  const prior = history
+    .filter((p) => p.date !== today && p.score > 0)
+    .slice(-5)
+    .map((p) => p.score);
+
+  if (prior.length === 0) return { direction: 'steady', delta: 0, message: null };
+
+  const avg = prior.reduce((a, b) => a + b, 0) / prior.length;
+  const delta = todayScore - avg;
+
+  if (delta < -8) {
+    return { direction: 'falling', delta, message: 'Your readiness has been declining this week.' };
+  }
+  if (delta > 8) {
+    return { direction: 'rising', delta, message: "You're recovering well this week." };
+  }
+  return { direction: 'steady', delta, message: null };
 }

@@ -10,15 +10,18 @@ export type ReadinessPillarId =
   | 'training_load'
   | 'nutrition'
   | 'soreness'
-  | 'cycle';
+  | 'cycle'
+  | 'hydration';
 
+// v2 weights — hydration added at 0.05, others trimmed so the total stays 1.00.
 export const PILLAR_WEIGHTS: Record<ReadinessPillarId, number> = {
-  sleep:          0.30,
+  sleep:          0.28,
   hrv:            0.20,
-  training_load:  0.20,
+  training_load:  0.18,
   nutrition:      0.10,
-  soreness:       0.10,
+  soreness:       0.09,
   cycle:          0.10,
+  hydration:      0.05,
 };
 
 export type ReadinessRecommendation =
@@ -63,6 +66,15 @@ export interface NutritionScoreInput {
 export interface SorenessScoreInput {
   soreness_level: number | null;
   energy_level: EnergyLevel | null;
+  /** True when soreness_level was inferred from workouts, not logged by the user. */
+  inferred: boolean;
+}
+
+export interface HydrationScoreInput {
+  /** Water logged so far today, in ml. */
+  logged_ml: number | null;
+  /** Daily water goal, in ml. */
+  target_ml: number | null;
 }
 
 export interface CycleScoreInput {
@@ -78,8 +90,13 @@ export interface ReadinessInput {
   hrv: HrvScoreInput;
   workouts_7d: ReadinessWorkoutInput[];
   nutrition: NutritionScoreInput;
+  /** Day-before-yesterday nutrition, for the 48-hour weighted window. */
+  nutrition_prev: NutritionScoreInput | null;
   soreness: SorenessScoreInput;
   cycle: CycleScoreInput;
+  hydration: HydrationScoreInput;
+  /** Consecutive hard-training days ending yesterday. */
+  consecutive_hard_days: number;
   /** Optional subjective sleep quality from recovery log. */
   sleep_quality_label: SleepQuality | null;
 }

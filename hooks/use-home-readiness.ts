@@ -63,11 +63,14 @@ export function useHomeReadiness(): RecoveryDisplay {
       cycle,
       userSex:             user?.sex ?? 'male',
       yesterdaySummary:    summaryToday,
+      dayBeforeSummary:    null,
       workouts7d:          workouts,
       hrvBaseline:         null,
       restingHrBaseline:   null,
       proteinTarget,
       calorieBudget,
+      waterGlassesToday:   summaryToday?.water_glasses ?? null,
+      waterGoalMl:         user?.waterGoalMl ?? 2000,
     })
 
     const computed = computeReadiness(input)
@@ -94,5 +97,6 @@ export function useHomeReadiness(): RecoveryDisplay {
     workouts,
     proteinTarget,
     calorieBudget,
+    user?.waterGoalMl,
   ])
 }

@@ -11,14 +11,16 @@ import { useSummary } from '@/context/summary-context';
 import { useWorkouts } from '@/context/workout-context';
 import type { Workout } from '@/context/workout-context';
 import type { ComputedReadiness, ReadinessFactor, ReadinessHistoryPoint, ReadinessTip } from '@/types/readiness';
-import { buildReadinessInput, yesterdayDateString } from '@/utils/build-readiness-input';
+import { buildReadinessInput } from '@/utils/build-readiness-input';
 import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
+import { computeBaseline } from '@/utils/baseline';
 import { localSleepDateString } from '@/utils/sleep-date';
 import { mergePriorDaySleepIntoRecovery } from '@/utils/sleep-display';
 import { calculateMacros } from '@/utils/nutrition';
 import {
   buildReadinessTrend,
   computeReadiness,
+  computeTrendDirection,
 } from '@/utils/readiness';
 import { apiFetch } from '@/utils/api';
 import { fetchDailySummaryBundle, TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
@@ -145,11 +147,6 @@ function fromApiReadiness(row: Record<string, unknown>): Readiness {
   };
 }
 
-function average(nums: number[]): number | null {
-  if (nums.length === 0) return null;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
-}
-
 function datesLast7(): string[] {
   const today = getLocalDateString();
   const out: string[] = [];
@@ -191,6 +188,7 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
   const [initialized,     setInitialized]     = useState(false);
   const [workouts7d,      setWorkouts7d]      = useState<Workout[]>([]);
   const [yesterdaySummary, setYesterdaySummary] = useState<DailySummary | null>(null);
+  const [dayBeforeSummary, setDayBeforeSummary] = useState<DailySummary | null>(null);
   const [hrvBaseline,     setHrvBaseline]     = useState<number | null>(null);
   const [restingHrBaseline, setRestingHrBaseline] = useState<number | null>(null);
   const [historyScores,   setHistoryScores]   = useState<ReadinessHistoryPoint[]>([]);
@@ -327,13 +325,21 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
           : Array.isArray(body.history)
             ? body.history as Record<string, unknown>[]
             : [];
-        const hrvValues = rows
+
+        // EWMA needs chronological order (oldest → newest).
+        const sorted = [...rows].sort((a, b) => {
+          const da = String(a.date ?? a.recorded_at ?? a.created_at ?? '');
+          const db = String(b.date ?? b.recorded_at ?? b.created_at ?? '');
+          return da < db ? -1 : da > db ? 1 : 0;
+        });
+
+        const hrvValues = sorted
           .map((r) => nullableNum(r.hrv))
           .filter((v): v is number => v !== null && v > 0);
-        const hrValues = rows
+        const hrValues = sorted
           .map((r) => nullableNum(r.resting_heart_rate))
           .filter((v): v is number => v !== null && v > 0);
-        return { hrv: average(hrvValues), hr: average(hrValues) };
+        return { hrv: computeBaseline(hrvValues), hr: computeBaseline(hrValues) };
       },
       { force },
     );
@@ -354,9 +360,15 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
 
   const fetchYesterdayNutrition = useCallback(async () => {
     if (!user?.id) return;
-    const y = yesterdayDateString(getLocalDateString());
-    const bundle = await fetchDailySummaryBundle(user.id, y);
-    setYesterdaySummary(bundle?.daily ?? null);
+    const today = getLocalDateString();
+    const y  = addLocalCalendarDays(today, -1);
+    const d2 = addLocalCalendarDays(today, -2);
+    const [yBundle, d2Bundle] = await Promise.all([
+      fetchDailySummaryBundle(user.id, y),
+      fetchDailySummaryBundle(user.id, d2),
+    ]);
+    setYesterdaySummary(yBundle?.daily ?? null);
+    setDayBeforeSummary(d2Bundle?.daily ?? null);
   }, [user?.id]);
 
   /** Paint cached recovery data immediately (including stale) before network. */
@@ -410,6 +422,7 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
       setInitialized(false);
       setWorkouts7d([]);
       setYesterdaySummary(null);
+      setDayBeforeSummary(null);
       setHrvBaseline(null);
       setRestingHrBaseline(null);
       setHistoryScores([]);
@@ -461,11 +474,14 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
       cycle,
       userSex:             user?.sex ?? 'male',
       yesterdaySummary:    nutritionSummary,
+      dayBeforeSummary,
       workouts7d,
       hrvBaseline,
       restingHrBaseline,
       proteinTarget,
       calorieBudget,
+      waterGlassesToday:   summaryToday?.water_glasses ?? null,
+      waterGoalMl:         user?.waterGoalMl ?? 2000,
     });
     return computeReadiness(input);
   }, [
@@ -476,11 +492,14 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     cycle,
     user?.sex,
     nutritionSummary,
+    dayBeforeSummary,
     workouts7d,
     hrvBaseline,
     restingHrBaseline,
     proteinTarget,
     calorieBudget,
+    summaryToday?.water_glasses,
+    user?.waterGoalMl,
   ]);
 
   /** Always stamp today's live computed score into a trend array so the calendar matches the ring. */
@@ -504,10 +523,15 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
 
   const display = useMemo((): RecoveryDisplay => {
     if (computed) {
+      // Append a trend-direction note (rising/falling) when there's enough history (item 4).
+      const trend = computeTrendDirection(trend7d, computed.score);
+      const reason = trend.message
+        ? `${computed.reason} ${trend.message}`.trim()
+        : computed.reason;
       return {
         score:          computed.score,
         recommendation: computed.recommendation,
-        reason:         computed.reason,
+        reason,
         sleepScore:     computed.sleep_score,
         strainScore:    computed.strain_score,
         factors:        computed.factors,
