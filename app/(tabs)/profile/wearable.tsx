@@ -74,11 +74,13 @@ export default function WearableScreen() {
 
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top + 8 }]}>
-      <TouchableOpacity style={s.back} onPress={() => router.back()} hitSlop={10}>
-        <Ionicons name="chevron-back" size={22} color={hi} />
-      </TouchableOpacity>
-      <Text style={[s.eyebrow, { color: mid }]}>Health Sync</Text>
-      <Text style={[s.title, { color: hi }]}>Wearable</Text>
+      <View style={s.header}>
+        <TouchableOpacity style={s.back} onPress={() => router.back()} hitSlop={10}>
+          <Ionicons name="chevron-back" size={22} color={hi} />
+        </TouchableOpacity>
+        <Text style={[s.headerTitle, { color: hi }]} numberOfLines={1}>Wearable</Text>
+        <View style={{ width: 38 }} />
+      </View>
 
       <View style={[s.card, { backgroundColor: card, borderColor: edge }]}>
         <View style={s.row}>
@@ -128,7 +130,9 @@ export default function WearableScreen() {
 
 const s = StyleSheet.create({
   root:    { flex: 1, paddingHorizontal: 20 },
-  back:    { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', marginLeft: -8, marginBottom: 6 },
+  header:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 44, marginBottom: 6 },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
+  back:    { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
   eyebrow: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.2 },
   title:   { fontSize: 26, fontWeight: '800', letterSpacing: -0.5, marginTop: 3 },
   sub:     { fontSize: 14, marginTop: 12, lineHeight: 20 },

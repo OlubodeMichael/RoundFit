@@ -18,32 +18,32 @@ export interface ReminderConfig {
 
 const REMINDER_CONTENT: Record<string, { title: string; body: string }> = {
   morning: {
-    title: 'Good morning ☀️',
-    body:  'Time for your daily check-in — energy, mood, and plan.',
+    title: 'Good morning',
+    body:  'Time for your daily check-in: energy, mood, and plan.',
   },
   workout: {
-    title: 'Time to move 💪',
+    title: 'Time to move',
     body:  'Your workout reminder is here. Let\'s go!',
   },
   sleep: {
-    title: 'Wind down 🌙',
+    title: 'Wind down',
     body:  'Start your evening routine for better rest tonight.',
   },
   summary: {
-    title: 'Day recap 📊',
+    title: 'Day recap',
     body:  'Check your daily progress before wrapping up.',
   },
   water: {
-    title: 'Stay hydrated 💧',
-    body:  'Time for a glass of water — log it in RoundFit.',
+    title: 'Stay hydrated',
+    body:  'Time for a glass of water. Log it in RoundFit.',
   },
 };
 
 const MEAL_CONTENT: Record<number, { title: string; body: string }> = {
-  0: { title: 'Breakfast time 🍳', body: 'Don\'t forget to log your breakfast.' },
-  1: { title: 'Lunch time 🥗',     body: 'Don\'t forget to log your lunch.' },
-  2: { title: 'Dinner time 🍽️',   body: 'Don\'t forget to log your dinner.' },
-  3: { title: 'Snack time 🍎',     body: 'Don\'t forget to log your snack.' },
+  0: { title: 'Breakfast time', body: 'Don\'t forget to log your breakfast.' },
+  1: { title: 'Lunch time',     body: 'Don\'t forget to log your lunch.' },
+  2: { title: 'Dinner time',    body: 'Don\'t forget to log your dinner.' },
+  3: { title: 'Snack time',     body: 'Don\'t forget to log your snack.' },
 };
 
 // ── Channel setup (Android) ────────────────────────────────────────────────
@@ -219,7 +219,7 @@ export async function scheduleMealReminders(
 
   for (let i = 0; i < mealTimes.length; i++) {
     const t = mealTimes[i];
-    const fallback = { title: 'Meal time 🍽️', body: 'Don\'t forget to log your meal.' };
+    const fallback = { title: 'Meal time', body: 'Don\'t forget to log your meal.' };
     const content = MEAL_CONTENT[i] ?? fallback;
 
     await Notifications.scheduleNotificationAsync({
@@ -292,7 +292,7 @@ export async function scheduleInsightFallbackOneShot(fireDate: Date): Promise<vo
   await Notifications.scheduleNotificationAsync({
     identifier: DAILY_INSIGHT_FALLBACK_ID,
     content: {
-      title: 'Your daily insight is ready ☀️',
+      title: 'Your daily insight is ready',
       body:  'Tap to see what today\'s focus should be.',
       data:  { screen: 'insight' },
       ...(Platform.OS === 'android' && { channelId: 'reminders' }),
@@ -321,7 +321,7 @@ export async function notifyWorkoutImportSaved(
 ): Promise<void> {
   const kcalSuffix =
     caloriesBurned != null && caloriesBurned > 0
-      ? ` — ${Math.round(caloriesBurned)} kcal`
+      ? ` (${Math.round(caloriesBurned)} kcal)`
       : '';
 
   await Notifications.scheduleNotificationAsync({

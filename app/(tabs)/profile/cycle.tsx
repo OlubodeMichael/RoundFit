@@ -282,12 +282,9 @@ export default function CycleTrackingScreen() {
           <Ionicons name="chevron-back" size={18} color={P.text} />
         </TouchableOpacity>
 
-        <View style={{ flex: 1 }}>
-          <Text style={[s.eyebrow, { color: P.textFaint }]}>{'WOMEN\'S HEALTH'}</Text>
-          <Text style={[s.headerTitle, { color: P.text }]}>Cycle Tracking</Text>
-        </View>
+        <Text style={[s.headerTitle, { color: P.text }]} numberOfLines={1}>Cycle Tracking</Text>
 
-        {!isViewingCurrentMonth && (
+        {!isViewingCurrentMonth ? (
           <TouchableOpacity
             onPress={() => { setCalYear(today.getFullYear()); setCalMonth(today.getMonth()); setSelected(today); }}
             style={[s.todayPill, { backgroundColor: ACC + '18', borderColor: ACC + '40' }]}
@@ -295,6 +292,8 @@ export default function CycleTrackingScreen() {
           >
             <Text style={[s.todayPillText, { color: ACC }]}>Today</Text>
           </TouchableOpacity>
+        ) : (
+          <View style={s.backBtn} />
         )}
       </View>
 
@@ -605,12 +604,12 @@ const s = StyleSheet.create({
     gap:            12,
   },
   backBtn: {
-    width: 36, height: 36, borderRadius: 11,
+    width: 38, height: 38, borderRadius: 19,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
   },
   eyebrow:      { fontSize: 9, fontWeight: '700', letterSpacing: 2, marginBottom: 1 },
-  headerTitle:  { fontFamily: 'Syne_800ExtraBold', fontSize: 19, letterSpacing: -0.3 },
+  headerTitle:  { flex: 1, textAlign: 'center', fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
   todayPill:    { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
   todayPillText:{ fontSize: 12, fontWeight: '700' },
 

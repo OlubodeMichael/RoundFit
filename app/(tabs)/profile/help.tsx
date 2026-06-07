@@ -56,8 +56,6 @@ type P = ReturnType<typeof usePalette>;
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const PRIVACY_URL   = 'https://roundfit.co/privacy';
-const TERMS_URL     = 'https://roundfit.co/terms';
 const SUPPORT_EMAIL = 'support@roundfit.co';
 const INSTAGRAM_URL = 'https://instagram.com/roundfit.co';
 
@@ -131,19 +129,20 @@ export default function HelpScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* ── Header ─────────────────────────────────────────────────── */}
-      <View style={{ paddingHorizontal: 20, paddingBottom: 24 }}>
-        <TouchableOpacity
-          style={[s.backBtn, { backgroundColor: P.card, borderColor: P.edge }]}
-          onPress={() => router.back()}
-          activeOpacity={0.7}
-          hitSlop={8}
-        >
-          <Ionicons name="chevron-back" size={18} color={P.hi} />
-        </TouchableOpacity>
-
-        <Text style={[s.eyebrow, { color: P.mid, marginTop: 20 }]}>SUPPORT</Text>
-        <Text style={[s.title, { color: P.hi }]}>Help & Support</Text>
-        <Text style={[s.titleSub, { color: P.mid }]}>
+      <View style={{ paddingBottom: 24 }}>
+        <View style={s.header}>
+          <TouchableOpacity
+            style={[s.backBtn, { backgroundColor: P.card, borderColor: P.edge }]}
+            onPress={() => router.back()}
+            activeOpacity={0.7}
+            hitSlop={8}
+          >
+            <Ionicons name="chevron-back" size={20} color={P.hi} />
+          </TouchableOpacity>
+          <Text style={[s.headerTitle, { color: P.hi }]} numberOfLines={1}>Help & Support</Text>
+          <View style={s.backBtn} />
+        </View>
+        <Text style={[s.titleSub, { color: P.mid, textAlign: 'center', paddingHorizontal: 20 }]}>
           Find answers, get in touch, or review our policies.
         </Text>
       </View>
@@ -182,27 +181,6 @@ export default function HelpScreen() {
           label="Instagram"
           sub="@roundfit.co"
           onPress={() => Linking.openURL(INSTAGRAM_URL)}
-          P={P}
-          last
-        />
-      </View>
-
-      {/* ── Legal ──────────────────────────────────────────────────── */}
-      <SectionLabel label="Legal" P={P} />
-      <View style={[s.card, { backgroundColor: P.card, borderColor: P.edge, marginHorizontal: 20 }]}>
-        <LinkRow
-          icon="shield-checkmark"
-          iconBg="#2DD4BF"
-          label="Privacy Policy"
-          onPress={() => Linking.openURL(PRIVACY_URL)}
-          P={P}
-        />
-        <View style={[s.divider, { backgroundColor: P.hair }]} />
-        <LinkRow
-          icon="document-text"
-          iconBg="#818CF8"
-          label="Terms of Service"
-          onPress={() => Linking.openURL(TERMS_URL)}
           P={P}
           last
         />
@@ -311,10 +289,24 @@ function LinkRow({ icon, iconBg, label, sub, onPress, P }: LinkRowProps) {
 // ── Styles ─────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
+  header: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    height:         44,
+  },
+  headerTitle: {
+    flex:          1,
+    textAlign:     'center',
+    fontSize:      22,
+    fontWeight:    '700',
+    letterSpacing: -0.4,
+  },
   backBtn: {
-    width:          36,
-    height:         36,
-    borderRadius:   11,
+    width:          38,
+    height:         38,
+    borderRadius:   19,
     borderWidth:    1,
     alignItems:     'center',
     justifyContent: 'center',

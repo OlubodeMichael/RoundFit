@@ -49,7 +49,7 @@ const TABS: {
 ];
 
 const PROFILE_SUB_SCREENS = [
-    "you", "health", "preferences", "account",
+    "you", "health", "preferences", "theme", "security", "account",
     "cycle", "wearable", "notifications", "subscription", "paywall", "help",
 ];
 

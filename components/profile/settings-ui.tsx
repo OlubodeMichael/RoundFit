@@ -65,22 +65,26 @@ export function SettingsScreen({
     <ScrollView
       style={{ flex: 1, backgroundColor: P.bg }}
       contentInsetAdjustmentBehavior="never"
-      contentContainerStyle={{ paddingTop: insets.top + 10, paddingBottom: insets.bottom + 40, gap: 8 }}
+      contentContainerStyle={{ paddingTop: insets.top + 6, paddingBottom: insets.bottom + 40, gap: 8 }}
       showsVerticalScrollIndicator={false}
     >
-      <View style={{ paddingHorizontal: 20, paddingBottom: 12 }}>
-        <TouchableOpacity
-          style={[s.backBtn, { backgroundColor: P.card, borderColor: P.edge }]}
-          onPress={() => router.back()}
-          activeOpacity={0.7}
-          hitSlop={8}
-        >
-          <ChevronLeft size={22} color={P.text} strokeWidth={2.6} />
-        </TouchableOpacity>
+      <View style={{ paddingBottom: 12 }}>
+        <View style={s.header}>
+          <TouchableOpacity
+            style={[s.headerBtn, { backgroundColor: P.card, borderColor: P.edge }]}
+            onPress={() => router.back()}
+            activeOpacity={0.7}
+            hitSlop={8}
+          >
+            <ChevronLeft size={22} color={P.text} strokeWidth={2.6} />
+          </TouchableOpacity>
 
-        <Text style={[s.eyebrow, { color: P.dim, marginTop: 12 }]}>{eyebrow}</Text>
-        <Text style={[s.title, { color: P.text }]}>{title}</Text>
-        {!!subtitle && <Text style={[s.titleSub, { color: P.dim }]}>{subtitle}</Text>}
+          <Text style={[s.headerTitle, { color: P.text }]} numberOfLines={1}>{title}</Text>
+
+          <View style={s.headerBtn} />
+        </View>
+
+        {!!subtitle && <Text style={[s.headerSub, { color: P.dim }]}>{subtitle}</Text>}
       </View>
 
       {children}
@@ -160,13 +164,25 @@ export function NavRow({
 // ── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  backBtn: {
-    width: 36, height: 36, borderRadius: 11, borderWidth: 1,
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    height: 44,
+  },
+  headerBtn: {
+    width: 38, height: 38, borderRadius: 19, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
-  eyebrow:  { fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
-  title:    { fontFamily: 'Syne_700Bold', fontSize: 28, letterSpacing: -0.6, lineHeight: 32, marginTop: 4 },
-  titleSub: { fontSize: 13, lineHeight: 19, marginTop: 6 },
+  headerTitle: {
+    flex: 1, textAlign: 'center',
+    fontSize: 22, fontWeight: '700', letterSpacing: -0.4,
+  },
+  headerSub: {
+    textAlign: 'center', fontSize: 13, lineHeight: 19, marginTop: 8,
+    paddingHorizontal: 20,
+  },
 
   sectionLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.9, marginLeft: 4 },
   card: { borderWidth: 1, overflow: 'hidden' },

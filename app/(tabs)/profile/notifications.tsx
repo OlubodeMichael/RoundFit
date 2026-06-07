@@ -407,19 +407,20 @@ export default function NotificationsScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={{ paddingHorizontal: 20, paddingBottom: 12 }}>
-          <TouchableOpacity
-            style={[s.backBtn, { backgroundColor: P.card, borderColor: P.edge }]}
-            onPress={() => router.back()}
-            activeOpacity={0.7}
-            hitSlop={8}
-          >
-            <Ionicons name="chevron-back" size={18} color={P.hi} />
-          </TouchableOpacity>
-
-          <Text style={[s.eyebrow, { color: P.mid, marginTop: 12 }]}>PREFERENCES</Text>
-          <Text style={[s.title, { color: P.hi }]}>Notifications</Text>
-          <Text style={[s.titleSub, { color: P.mid }]}>
+        <View style={{ paddingBottom: 12 }}>
+          <View style={s.header}>
+            <TouchableOpacity
+              style={[s.backBtn, { backgroundColor: P.card, borderColor: P.edge }]}
+              onPress={() => router.back()}
+              activeOpacity={0.7}
+              hitSlop={8}
+            >
+              <Ionicons name="chevron-back" size={20} color={P.hi} />
+            </TouchableOpacity>
+            <Text style={[s.headerTitle, { color: P.hi }]} numberOfLines={1}>Notifications</Text>
+            <View style={s.backBtn} />
+          </View>
+          <Text style={[s.titleSub, { color: P.mid, textAlign: 'center', paddingHorizontal: 20 }]}>
             Choose your reminders and when to receive them.
           </Text>
         </View>
@@ -688,10 +689,24 @@ function MealCard({
 
 const s = StyleSheet.create({
   // Header
+  header: {
+    flexDirection:   "row",
+    alignItems:      "center",
+    justifyContent:  "space-between",
+    paddingHorizontal: 20,
+    height:          44,
+  },
+  headerTitle: {
+    flex:            1,
+    textAlign:       "center",
+    fontSize:        22,
+    fontWeight:      "700",
+    letterSpacing:   -0.4,
+  },
   backBtn: {
-    width:           36,
-    height:          36,
-    borderRadius:    11,
+    width:           38,
+    height:          38,
+    borderRadius:    19,
     borderWidth:     1,
     alignItems:      "center",
     justifyContent:  "center",

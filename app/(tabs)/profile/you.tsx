@@ -1,17 +1,21 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { Flag, User } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import { ChevronLeft, Flag, User } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
+import { ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DailyTargetsGrid } from '@/components/profile/DailyTargetsGrid';
 import { DailyTargetsModal } from '@/components/profile/DailyTargetsModal';
 import { EditProfileModal } from '@/components/profile/EditProfileModal';
 import { GoalsActivityModal } from '@/components/profile/GoalsActivityModal';
 import {
-  NavRow,
-  Section,
-  SettingsScreen,
-  useSettingsPalette,
-} from '@/components/profile/settings-ui';
+  HeaderButton,
+  ProfileGroup,
+  ProfileHeader,
+  ProfileRow,
+} from '@/components/profile/profile-ui';
+import { useSettingsPalette } from '@/components/profile/settings-ui';
 import { useProfile } from '@/hooks/use-profile';
 import { getLocalTargets } from '@/utils/local-targets';
 import { registerTodayTargetsListener } from '@/utils/today-sync';
@@ -23,8 +27,10 @@ const GOAL_LABELS: Record<string, string> = {
   maintain:     'Maintain',
 };
 
-export default function YouScreen() {
+export default function BasicInformationScreen() {
   const P = useSettingsPalette();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { profile, stats } = useProfile();
 
   const [sleepTarget, setSleepTarget] = useState(8);
@@ -51,38 +57,49 @@ export default function YouScreen() {
   const goalDisplay = profile ? (GOAL_LABELS[profile.goal] ?? '—') : '—';
 
   return (
-    <SettingsScreen title="You" subtitle="Your details, goals and daily targets.">
-      <Section label="Personal Information" P={P}>
-        <NavRow
+    <ScrollView
+      style={{ flex: 1, backgroundColor: P.bg }}
+      contentInsetAdjustmentBehavior="never"
+      contentContainerStyle={{ paddingTop: insets.top + 6, paddingBottom: insets.bottom + 96 }}
+      showsVerticalScrollIndicator={false}
+    >
+      <ProfileHeader
+        P={P}
+        title="Basic Information"
+        left={<HeaderButton P={P} icon={ChevronLeft} onPress={() => router.back()} accessibilityLabel="Back" />}
+      />
+
+      <ProfileGroup P={P} title="Personal Information">
+        <ProfileRow
+          P={P}
           icon={User}
-          color="#A855F7"
           label="Personal details"
           value={profile?.name ?? undefined}
-          P={P}
           onPress={() => setEditProfileOpen(true)}
         />
-      </Section>
+      </ProfileGroup>
 
-      <Section label="Goals & Activity" P={P}>
-        <NavRow
+      <ProfileGroup P={P} title="Goals & Activity">
+        <ProfileRow
+          P={P}
           icon={Flag}
-          color="#F97316"
           label="Goals & Activity"
           value={goalDisplay}
-          P={P}
           onPress={() => setGoalsOpen(true)}
         />
-      </Section>
+      </ProfileGroup>
 
-      <DailyTargetsGrid
-        calories={caloriesTarget}
-        protein={proteinTarget}
-        water={waterTarget}
-        sleep={sleepTargetDisplay}
-        steps={stepsTargetDisplay}
-        colors={{ card: P.card, edge: P.edge, text: P.text, dim: P.dim, faint: P.faint, sunken: P.sunken, isDark: P.isDark }}
-        onEdit={() => setTargetsOpen(true)}
-      />
+      <View style={{ marginTop: 18 }}>
+        <DailyTargetsGrid
+          calories={caloriesTarget}
+          protein={proteinTarget}
+          water={waterTarget}
+          sleep={sleepTargetDisplay}
+          steps={stepsTargetDisplay}
+          colors={{ card: P.card, edge: P.edge, text: P.text, dim: P.dim, faint: P.faint, sunken: P.sunken, isDark: P.isDark }}
+          onEdit={() => setTargetsOpen(true)}
+        />
+      </View>
 
       <EditProfileModal visible={editProfileOpen} onClose={() => setEditProfileOpen(false)} />
       <GoalsActivityModal visible={goalsOpen} onClose={() => setGoalsOpen(false)} />
@@ -91,6 +108,6 @@ export default function YouScreen() {
         onClose={() => setTargetsOpen(false)}
         onSaved={() => { void reloadLocalTargets(); }}
       />
-    </SettingsScreen>
+    </ScrollView>
   );
 }

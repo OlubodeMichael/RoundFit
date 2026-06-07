@@ -1,10 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import {
-  formatInboxTimestamp,
-  metaForNotificationScreen,
-} from '@/components/notifications/notification-inbox-meta';
+import { formatInboxTimestamp } from '@/components/notifications/notification-inbox-meta';
 import type { InboxNotification } from '@/types/notification-inbox';
 
 export interface NotificationInboxPalette {
@@ -22,7 +19,6 @@ export interface NotificationInboxRowProps {
 }
 
 export function NotificationInboxRow({ item, P, onPress }: NotificationInboxRowProps) {
-  const meta = metaForNotificationScreen(item.screen);
   const unread = !item.read;
 
   return (
@@ -30,8 +26,8 @@ export function NotificationInboxRow({ item, P, onPress }: NotificationInboxRowP
       onPress={onPress}
       style={({ pressed }) => [s.row, pressed && s.pressed]}
     >
-      <View style={[s.icon, { backgroundColor: meta.iconBg }]}>
-        <Ionicons name={meta.icon} size={17} color="#FFF" />
+      <View style={[s.icon, { backgroundColor: P.accent }]}>
+        <Ionicons name="notifications-outline" size={17} color="#FFF" />
       </View>
 
       <View style={s.copy}>

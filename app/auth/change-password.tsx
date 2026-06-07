@@ -181,8 +181,6 @@ export default function ChangePasswordScreen() {
               returnKeyType="next"
             />
 
-            <View style={[s.separator, { backgroundColor: lo }]} />
-
             {/* New password + rules */}
             <PasswordField
               label="New password"
@@ -330,7 +328,6 @@ const s = StyleSheet.create({
   sub:       { fontSize: 15, fontWeight: '400', lineHeight: 22 },
 
   form:       { gap: 24 },
-  separator:  { height: 1, marginVertical: 4 },
 
   fieldWrap:  { gap: 0 },
   fieldInner: { flexDirection: 'row', alignItems: 'center', paddingBottom: 8 },

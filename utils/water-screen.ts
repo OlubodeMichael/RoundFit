@@ -36,7 +36,7 @@ export function whatsLeft(
   if (progress >= 0.9)
     return {
       head: "Almost there.",
-      body: `One small glass — about ${oz} oz — wraps it.`,
+      body: `One small glass, about ${oz} oz, wraps it.`,
     };
   if (progress >= 0.75)
     return { head: "Keep it up.", body: `Only ${oz} oz to go. Stay on track.` };

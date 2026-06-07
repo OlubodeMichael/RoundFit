@@ -7,6 +7,8 @@ export default function ProfileLayout() {
       <Stack.Screen name="you" />
       <Stack.Screen name="health" />
       <Stack.Screen name="preferences" />
+      <Stack.Screen name="theme" />
+      <Stack.Screen name="security" />
       <Stack.Screen name="account" />
       <Stack.Screen name="cycle" />
       <Stack.Screen name="notifications" />

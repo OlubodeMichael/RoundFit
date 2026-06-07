@@ -1,36 +1,44 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { useTheme } from '@/hooks/use-theme';
+import { Receipt, Star } from 'lucide-react-native';
+import { Linking, Platform } from 'react-native';
+
+import {
+  Divider,
+  NavRow,
+  Section,
+  SettingsScreen,
+  useSettingsPalette,
+} from '@/components/profile/settings-ui';
+
+const MANAGE_SUBSCRIPTION_URL = Platform.select({
+  ios: 'https://apps.apple.com/account/subscriptions',
+  android: 'https://play.google.com/store/account/subscriptions',
+  default: 'https://apps.apple.com/account/subscriptions',
+});
 
 export default function SubscriptionScreen() {
-  const { isDark } = useTheme();
-  const insets = useSafeAreaInsets();
+  const P = useSettingsPalette();
   const router = useRouter();
 
-  const bg  = isDark ? '#0A0B0F' : '#F7F7F5';
-  const hi  = isDark ? '#F4F4F5' : '#0C0C0C';
-  const mid = isDark ? '#909096' : '#888';
-
   return (
-    <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top + 8 }]}>
-      <TouchableOpacity style={s.back} onPress={() => router.back()} hitSlop={10}>
-        <Ionicons name="chevron-back" size={22} color={hi} />
-      </TouchableOpacity>
-      <Text style={[s.eyebrow, { color: mid }]}>Plan</Text>
-      <Text style={[s.title, { color: hi }]}>Subscription</Text>
-      <Text style={[s.sub, { color: mid }]}>
-        Current plan, manage subscription, and paywall entry for free users will live here.
-      </Text>
-    </View>
+    <SettingsScreen title="Subscription" subtitle="Manage your plan and billing.">
+      <Section label="Subscription" P={P}>
+        <NavRow
+          icon={Receipt}
+          color="#FBBF24"
+          label="Manage Subscription"
+          P={P}
+          onPress={() => Linking.openURL(MANAGE_SUBSCRIPTION_URL)}
+        />
+        <Divider P={P} inset={64} />
+        <NavRow
+          icon={Star}
+          color="#F59E0B"
+          label="Upgrade to Premium"
+          P={P}
+          onPress={() => router.push('/(tabs)/profile/paywall')}
+        />
+      </Section>
+    </SettingsScreen>
   );
 }
-
-const s = StyleSheet.create({
-  root:    { flex: 1, paddingHorizontal: 20 },
-  back:    { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', marginLeft: -8, marginBottom: 6 },
-  eyebrow: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.2 },
-  title:   { fontSize: 26, fontWeight: '800', letterSpacing: -0.5, marginTop: 3 },
-  sub:     { fontSize: 14, marginTop: 12, lineHeight: 20 },
-});
