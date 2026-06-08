@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   CreditCard,
   FileText,
+  Flower2,
   HeartPulse,
   HelpCircle,
   LogOut,
@@ -137,6 +138,14 @@ export default function ProfileScreen() {
         <ProfileRow P={P} icon={HeartPulse} label="Apple Health & Devices"
           onPress={() => router.push('/(tabs)/profile/health')} />
       </ProfileGroup>
+
+      {/* ── Tracking ──────────────────────────────────────────────────── */}
+      {profile?.sex === 'female' && (
+        <ProfileGroup P={P} title="Tracking">
+          <ProfileRow P={P} icon={Flower2} label="Cycle Tracking"
+            onPress={() => router.push('/(tabs)/profile/cycle')} />
+        </ProfileGroup>
+      )}
 
       {/* ── Personalization ───────────────────────────────────────────── */}
       <ProfileGroup P={P} title="Personalization">

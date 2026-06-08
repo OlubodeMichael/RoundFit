@@ -50,10 +50,12 @@ function PhaseBar({
   cycleDay,
   cycleLength,
   barWidth,
+  activePhase,
 }: {
   cycleDay: number | null;
   cycleLength: number;
   barWidth: number;
+  activePhase?: string | null;
 }) {
   const segments = buildSegments(cycleLength);
   const total    = segments.reduce((s, p) => s + p.days, 0);
@@ -131,31 +133,53 @@ function PhaseBar({
         />
       )}
 
-      {/* Phase labels */}
-      <View style={{ flexDirection: 'row', gap: GAP }}>
-        {buildSegments(cycleLength).map((seg, i) => {
-          const segW = (seg.days / total) * usableW;
-          return (
-            <Text
-              key={seg.key}
-              numberOfLines={1}
-              style={{
-                width: segW,
-                fontSize: 9,
-                fontWeight: '700',
-                letterSpacing: 0.3,
-                color: seg.color,
-                opacity: 0.75,
-                textAlign: i === 0 ? 'left' : i === segments.length - 1 ? 'right' : 'center',
-              }}
-            >
-              {seg.label.slice(0, 3).toUpperCase()}
-            </Text>
-          );
-        })}
+      {/* Phase labels — full names, current phase emphasized */}
+      <View style={{ height: 16, marginTop: 2 }}>
+        {(() => {
+          const currentKey =
+            activePhase ?? (cycleDay != null ? getCurrentPhaseKey(cycleDay, cycleLength) : null);
+          let cursor = 0;
+          const LW = 66;
+          return segments.map((seg, i) => {
+            const segW = (seg.days / total) * usableW;
+            const mid  = cursor + i * GAP + segW / 2;
+            cursor += segW;
+            const active = seg.key === currentKey;
+            return (
+              <Text
+                key={seg.key}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                style={{
+                  position: 'absolute',
+                  left: mid - LW / 2,
+                  width: LW,
+                  textAlign: 'center',
+                  fontSize: 10,
+                  fontWeight: active ? '800' : '600',
+                  letterSpacing: -0.1,
+                  color: seg.color,
+                  opacity: active ? 1 : 0.4,
+                }}
+              >
+                {seg.label}
+              </Text>
+            );
+          });
+        })()}
       </View>
     </View>
   );
+}
+
+function getCurrentPhaseKey(cycleDay: number, cycleLength: number): string {
+  const segs = buildSegments(cycleLength);
+  let cum = 0;
+  for (const seg of segs) {
+    cum += seg.days;
+    if (cycleDay <= cum) return seg.key;
+  }
+  return segs[segs.length - 1].key;
 }
 
 function getCurrentPhaseColor(cycleDay: number, cycleLength: number): string {
@@ -252,9 +276,11 @@ export default function CycleTrackingScreen() {
   };
 
   const cycleLen   = history[0]?.cycle_length ?? 28;
-  const cycleDay   = current?.days_remaining != null
-    ? Math.max(cycleLen - current.days_remaining, 1)
-    : null;
+  const cycleDay   = current?.day_of_cycle != null
+    ? current.day_of_cycle
+    : current?.days_remaining != null
+      ? Math.max(cycleLen - current.days_remaining, 1)
+      : null;
   const phaseMeta  = current?.phase ? PHASE_META[current.phase] : null;
   const nextPeriod = current?.predicted_next_period
     ? new Date(current.predicted_next_period)
@@ -334,7 +360,7 @@ export default function CycleTrackingScreen() {
                     </View>
                   )}
 
-                  {phaseMeta && (
+                  {phaseMeta && !current?.phase_insight && (
                     <Text style={[s.heroTip, { color: P.textFaint }]}>{phaseMeta.tip}</Text>
                   )}
                 </View>
@@ -356,7 +382,15 @@ export default function CycleTrackingScreen() {
               {/* Phase progress bar */}
               {cycleDay != null && (
                 <View style={{ marginTop: 20 }}>
-                  <PhaseBar cycleDay={cycleDay} cycleLength={cycleLen} barWidth={barW - 40} />
+                  <PhaseBar cycleDay={cycleDay} cycleLength={cycleLen} barWidth={barW - 40} activePhase={current?.phase ?? null} />
+                </View>
+              )}
+
+              {/* Phase insight — richer explanation of what's happening this phase */}
+              {phaseMeta && current?.phase_insight && (
+                <View style={[s.insightBox, { backgroundColor: ACC + '14', borderColor: P.cardEdge }]}>
+                  <Ionicons name="sparkles" size={13} color={ACC} style={{ marginTop: 1 }} />
+                  <Text style={[s.insightText, { color: P.textDim }]}>{current.phase_insight}</Text>
                 </View>
               )}
             </>
@@ -636,6 +670,11 @@ const s = StyleSheet.create({
   },
   phasePillText: { fontSize: 12, fontWeight: '700', letterSpacing: -0.1 },
   heroTip:       { fontSize: 12, lineHeight: 18, marginTop: 8, maxWidth: '90%', fontWeight: '400' },
+  insightBox: {
+    flexDirection: 'row', gap: 8, alignItems: 'flex-start',
+    padding: 12, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, marginTop: 16,
+  },
+  insightText:   { flex: 1, fontSize: 13, fontWeight: '500', lineHeight: 20 },
 
   nextBadge: {
     borderRadius: 14, borderWidth: StyleSheet.hairlineWidth,
