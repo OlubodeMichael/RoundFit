@@ -28,11 +28,11 @@ import { getLocalDateString } from '@/utils/date';
 function buildWeekDates(todayStr: string): string[] {
   const d = new Date(todayStr + "T12:00:00");
   const dow = d.getDay(); // 0=Sun … 6=Sat
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - ((dow + 6) % 7)); // rewind to Monday
+  const sunday = new Date(d);
+  sunday.setDate(d.getDate() - dow); // rewind to Sunday
   return Array.from({ length: 7 }, (_, i) => {
-    const day = new Date(monday);
-    day.setDate(monday.getDate() + i);
+    const day = new Date(sunday);
+    day.setDate(sunday.getDate() + i);
     const mm = String(day.getMonth() + 1).padStart(2, "0");
     const dd = String(day.getDate()).padStart(2, "0");
     return `${day.getFullYear()}-${mm}-${dd}`;
@@ -109,7 +109,7 @@ export default function ProgressScreen() {
     }).length;
   }, [weekly, profile?.calorieBudget, profile?.tdee]);
 
-  // ── Consistency day strip — always 7 days (Mon → Sun) ───────────────────
+  // ── Consistency day strip — always 7 days (Sun → Sat) ───────────────────
   // A day is marked "on" only when the backend says the user actually met
   // their targets that day (calorie ±200, protein 90%+, steps target, sleep
   // target — at least 75% of applicable slots). Falls back to the old
@@ -133,7 +133,7 @@ export default function ProgressScreen() {
     });
   }, [weekly, todayStr]);
 
-  // ── Calories chart — always 7 days (Mon → Sun) ───────────────────────────
+  // ── Calories chart — always 7 days (Sun → Sat) ───────────────────────────
   const calsGoal =
     profile?.calorieBudget ??
     profile?.tdee ??
