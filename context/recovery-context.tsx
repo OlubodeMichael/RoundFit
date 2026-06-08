@@ -1,12 +1,42 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useState,
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
-import { useAuth } from '@/context/auth-context';
+import { AppState, type AppStateStatus } from 'react-native';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
+import { useCheckin } from '@/context/checkin-context';
+import { useCycle } from '@/context/cycle-context';
+import { useHealth } from '@/context/health-context';
+import type { DailySummary } from '@/context/summary-context';
+import { useSummary } from '@/context/summary-context';
+import { useWorkouts } from '@/context/workout-context';
+import type { Workout } from '@/context/workout-context';
+import type { ComputedReadiness, ReadinessFactor, ReadinessHistoryPoint, ReadinessTip } from '@/types/readiness';
+import { buildReadinessInput } from '@/utils/build-readiness-input';
+import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
+import { computeBaseline } from '@/utils/baseline';
+import { localSleepDateString } from '@/utils/sleep-date';
+import { mergePriorDaySleepIntoRecovery } from '@/utils/sleep-display';
+import { calculateMacros } from '@/utils/nutrition';
+import {
+  buildReadinessTrend,
+  computeReadiness,
+  computeTrendDirection,
+} from '@/utils/readiness';
+import { apiFetch } from '@/utils/api';
+import { fetchDailySummaryBundle, TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
+import { notifyTodayDataChanged, registerTodayDataSyncListener } from '@/utils/today-sync';
+import { applyHealthReconcile } from '@/utils/today-health-reconcile';
+import { shouldRefetchRecoveryAfterMutation } from '@/utils/cache-invalidation';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  setResourceCached,
+  invalidateResourceCache,
+  ttlForDate,
+} from '@/utils/resource-cache';
 
-// ── Config ─────────────────────────────────────────────────────────────────
-
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
+const TTL_BASELINES = 4 * 60 * 60 * 1000; // 30-day history: 4-hour TTL
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -47,46 +77,38 @@ export interface LogRecoveryInput {
   soreness_level?:     number;
   notes?:              string;
   source?:             RecoverySource;
+  date?:               string;
+  bedtime_iso?:        string;
+  wakeup_iso?:         string;
+}
+
+export interface RecoveryDisplay {
+  score:          number | null;
+  recommendation: ReadinessRec | null;
+  reason:         string | null;
+  sleepScore:     number | null;
+  strainScore:    number | null;
+  factors:        ReadinessFactor[];
+  tips:           ReadinessTip[];
+  trend7d:        ReadinessHistoryPoint[];
+  trend30d:       ReadinessHistoryPoint[];
 }
 
 export interface RecoveryContextValue {
-  /** Today's recovery log, or null if not yet logged. */
   today: RecoveryLog | null;
-
-  /** Latest readiness score. */
   readiness: Readiness | null;
-
-  /** True while any fetch is in-flight. */
+  computed: ComputedReadiness | null;
+  display: RecoveryDisplay;
   isLoading: boolean;
-
-  /** Logs today's recovery — hits POST /recovery/log. Also updates readiness. */
-  logRecovery: (input: LogRecoveryInput) => Promise<RecoveryLog>;
-
-  /** Re-fetches today's log and readiness score from the server. */
-  refresh: () => Promise<void>;
-}
-
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function recoveryFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
+  initialized: boolean;
+  hasInsufficientData: boolean;
+  hrvBaseline: number | null;
+  restingHrBaseline: number | null;
+  logRecovery: (input: LogRecoveryInput, options?: { notifyListeners?: boolean }) => Promise<RecoveryLog>;
+  /** Recovery log for a wake-up calendar day (sleep log date picker). */
+  fetchRecoveryByDate: (date: string, force?: boolean) => Promise<RecoveryLog | null>;
+  /** Loads recovery bundle; uses AsyncStorage unless `force` is true. */
+  refresh: (options?: { force?: boolean }) => Promise<void>;
 }
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
@@ -125,6 +147,27 @@ function fromApiReadiness(row: Record<string, unknown>): Readiness {
   };
 }
 
+function datesLast7(): string[] {
+  const today = getLocalDateString();
+  const out: string[] = [];
+  for (let i = 6; i >= 0; i--) {
+    out.push(addLocalCalendarDays(today, -i));
+  }
+  return out;
+}
+
+const EMPTY_DISPLAY: RecoveryDisplay = {
+  score:          null,
+  recommendation: null,
+  reason:         null,
+  sleepScore:     null,
+  strainScore:    null,
+  factors:        [],
+  tips:           [],
+  trend7d:        [],
+  trend30d:       [],
+};
+
 // ── Context ────────────────────────────────────────────────────────────────
 
 const RecoveryContext = createContext<RecoveryContextValue | null>(null);
@@ -133,81 +176,537 @@ const RecoveryContext = createContext<RecoveryContextValue | null>(null);
 
 export function RecoveryProvider({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
+  const { today: healthToday } = useHealth();
+  const { today: checkinToday } = useCheckin();
+  const { current: cycle } = useCycle();
+  const { daily: summaryToday } = useSummary();
+  const { workouts: todayWorkouts, fetchForDate: fetchWorkoutsForDate } = useWorkouts();
 
-  const [today,     setToday]     = useState<RecoveryLog | null>(null);
-  const [readiness, setReadiness] = useState<Readiness | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [today,           setToday]           = useState<RecoveryLog | null>(null);
+  const [readiness,       setReadiness]       = useState<Readiness | null>(null);
+  const [isLoading,       setIsLoading]       = useState(false);
+  const [initialized,     setInitialized]     = useState(false);
+  const [workouts7d,      setWorkouts7d]      = useState<Workout[]>([]);
+  const [yesterdaySummary, setYesterdaySummary] = useState<DailySummary | null>(null);
+  const [dayBeforeSummary, setDayBeforeSummary] = useState<DailySummary | null>(null);
+  const [hrvBaseline,     setHrvBaseline]     = useState<number | null>(null);
+  const [restingHrBaseline, setRestingHrBaseline] = useState<number | null>(null);
+  const [historyScores,   setHistoryScores]   = useState<ReadinessHistoryPoint[]>([]);
 
-  // ── Fetch helpers ────────────────────────────────────────────────────────
-  const fetchToday = useCallback(async () => {
-    const { ok, body } = await recoveryFetch('/recovery/today');
-    if (ok && body.data) setToday(fromApiLog(body.data as Record<string, unknown>));
-  }, []);
+  const appStateRef       = useRef(AppState.currentState);
+  const lastFetchDateRef  = useRef('');
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
-  const fetchReadiness = useCallback(async () => {
-    const { ok, body } = await recoveryFetch('/recovery/readiness');
-    if (ok && body.data) setReadiness(fromApiReadiness(body.data as Record<string, unknown>));
-  }, []);
+  const proteinTarget = useMemo(() => {
+    if (!user) return 150;
+    try {
+      return calculateMacros({
+        sex:           user.sex,
+        age:           user.age,
+        heightCm:      user.heightCm,
+        weightKg:      user.weightKg,
+        activityLevel: user.activityLevel,
+        goal:          user.goal,
+      }).proteinG;
+    } catch {
+      return 150;
+    }
+  }, [user]);
+
+  const calorieBudget = user?.calorieBudget ?? user?.tdee ?? 2000;
+
+  const fetchRecoveryByDate = useCallback(async (date: string, force = false): Promise<RecoveryLog | null> => {
+    if (!user?.id) return null;
+    const key = buildResourceKey('recovery-today', user.id, date);
+    return fetchWithResourceCache<RecoveryLog | null>(
+      key,
+      ttlForDate(date),
+      async () => {
+        const { ok, body } = await apiFetch(`/recovery/today?date=${date}`);
+        if (ok && body.data) return fromApiLog(body.data as Record<string, unknown>);
+        return null;
+      },
+      { force },
+    );
+  }, [user?.id]);
+
+  const fetchToday = useCallback(async (force = false) => {
+    if (!user?.id) return;
+    const calendarToday = getLocalDateString();
+    const sleepDay = localSleepDateString();
+    const key = buildResourceKey('recovery-today', user.id, calendarToday);
+    const result = await fetchWithResourceCache<RecoveryLog | null>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const { ok, body } = await apiFetch('/recovery/today');
+        if (ok && body.data) return fromApiLog(body.data as Record<string, unknown>);
+        return null;
+      },
+      { force },
+    );
+    let merged = result ?? null;
+    if (sleepDay !== calendarToday) {
+      const prior = await fetchRecoveryByDate(sleepDay, force);
+      merged = mergePriorDaySleepIntoRecovery(merged, prior);
+    }
+    setToday(merged);
+  }, [user?.id, fetchRecoveryByDate]);
+
+  const fetchReadiness = useCallback(async (force = false) => {
+    if (!user?.id) return;
+    const today = getLocalDateString();
+    const key = buildResourceKey('recovery-readiness', user.id, today);
+    const result = await fetchWithResourceCache<Readiness | null>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const { ok, body } = await apiFetch('/recovery/readiness');
+        if (ok && body.data) return fromApiReadiness(body.data as Record<string, unknown>);
+        return null;
+      },
+      { force },
+    );
+    setReadiness(result ?? null);
+  }, [user?.id]);
+
+  const fetchReadinessHistory = useCallback(async (force = false) => {
+    if (!user?.id) return;
+    const today = getLocalDateString();
+    // Key is month-scoped so past-day scores stay cached across day rollovers.
+    const key = buildResourceKey('recovery-history', user.id, today.slice(0, 7));
+
+    // If the cached result is missing yesterday's score, force a fresh fetch so the
+    // backend backfill logic can compute and return it.
+    if (!force) {
+      const cached = await getResourceCached<ReadinessHistoryPoint[]>(key);
+      if (cached?.data) {
+        const yesterday = addLocalCalendarDays(today, -1);
+        const hasYesterday = cached.data.some((p) => p.date === yesterday && p.score > 0);
+        if (!hasYesterday) force = true;
+      }
+    }
+
+    const result = await fetchWithResourceCache<ReadinessHistoryPoint[]>(
+      key,
+      TTL_BASELINES,
+      async () => {
+        const { ok, body } = await apiFetch('/recovery/readiness/history?days=30');
+        if (!ok) return null;
+        const rows = Array.isArray(body.data)
+          ? body.data as Record<string, unknown>[]
+          : Array.isArray(body.history)
+            ? body.history as Record<string, unknown>[]
+            : [];
+        return rows
+          .map((row) => ({
+            date:  String(row.date ?? row.recorded_at ?? '').slice(0, 10),
+            score: typeof row.score === 'number' ? row.score : 0,
+          }))
+          .filter((p) => p.date.length === 10 && p.score > 0);
+      },
+      { force },
+    );
+    setHistoryScores(result ?? []);
+  }, [user?.id]);
+
+  const fetchHealthBaselines = useCallback(async (force = false) => {
+    if (!user?.id) return;
+    const today = getLocalDateString();
+    const key = buildResourceKey('health-baselines', user.id, today);
+    const result = await fetchWithResourceCache<{ hrv: number | null; hr: number | null }>(
+      key,
+      TTL_BASELINES,
+      async () => {
+        const { ok, body } = await apiFetch('/health/history?days=30');
+        if (!ok) return null;
+        const rows = Array.isArray(body.data)
+          ? body.data as Record<string, unknown>[]
+          : Array.isArray(body.history)
+            ? body.history as Record<string, unknown>[]
+            : [];
+
+        // EWMA needs chronological order (oldest → newest).
+        const sorted = [...rows].sort((a, b) => {
+          const da = String(a.date ?? a.recorded_at ?? a.created_at ?? '');
+          const db = String(b.date ?? b.recorded_at ?? b.created_at ?? '');
+          return da < db ? -1 : da > db ? 1 : 0;
+        });
+
+        const hrvValues = sorted
+          .map((r) => nullableNum(r.hrv))
+          .filter((v): v is number => v !== null && v > 0);
+        const hrValues = sorted
+          .map((r) => nullableNum(r.resting_heart_rate))
+          .filter((v): v is number => v !== null && v > 0);
+        return { hrv: computeBaseline(hrvValues), hr: computeBaseline(hrValues) };
+      },
+      { force },
+    );
+    if (result) {
+      setHrvBaseline(result.hrv);
+      setRestingHrBaseline(result.hr);
+    }
+  }, [user?.id]);
+
+  const fetchWorkoutWindow = useCallback(async () => {
+    const days = datesLast7();
+    const today = getLocalDateString();
+    const batches = await Promise.all(
+      days.map((d) => (d === today ? Promise.resolve(todayWorkouts) : fetchWorkoutsForDate(d))),
+    );
+    setWorkouts7d(batches.flat());
+  }, [fetchWorkoutsForDate, todayWorkouts]);
+
+  const fetchYesterdayNutrition = useCallback(async () => {
+    if (!user?.id) return;
+    const today = getLocalDateString();
+    const y  = addLocalCalendarDays(today, -1);
+    const d2 = addLocalCalendarDays(today, -2);
+    const [yBundle, d2Bundle] = await Promise.all([
+      fetchDailySummaryBundle(user.id, y),
+      fetchDailySummaryBundle(user.id, d2),
+    ]);
+    setYesterdaySummary(yBundle?.daily ?? null);
+    setDayBeforeSummary(d2Bundle?.daily ?? null);
+  }, [user?.id]);
+
+  /** Paint cached recovery data immediately (including stale) before network. */
+  const hydrateFromCache = useCallback(async (): Promise<boolean> => {
+    if (!user?.id) return false;
+
+    const today = getLocalDateString();
+    const uid   = user.id;
+    const [todayCached, readinessCached, historyCached, baselinesCached] =
+      await Promise.all([
+        getResourceCached<RecoveryLog | null>(
+          buildResourceKey('recovery-today', uid, today),
+        ),
+        getResourceCached<Readiness | null>(
+          buildResourceKey('recovery-readiness', uid, today),
+        ),
+        getResourceCached<ReadinessHistoryPoint[]>(
+          buildResourceKey('recovery-history', uid, today.slice(0, 7)),
+        ),
+        getResourceCached<{ hrv: number | null; hr: number | null }>(
+          buildResourceKey('health-baselines', uid, today),
+        ),
+      ]);
+
+    let hydrated = false;
+    if (todayCached) {
+      setToday(todayCached.data);
+      hydrated = true;
+    }
+    if (readinessCached) {
+      setReadiness(readinessCached.data);
+      hydrated = true;
+    }
+    if (historyCached) {
+      setHistoryScores(historyCached.data);
+      hydrated = true;
+    }
+    if (baselinesCached) {
+      setHrvBaseline(baselinesCached.data.hrv);
+      setRestingHrBaseline(baselinesCached.data.hr);
+      hydrated = true;
+    }
+    return hydrated;
+  }, [user?.id]);
 
   useEffect(() => {
-    if (status === 'loading') return;
-
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setToday(null);
       setReadiness(null);
       setIsLoading(false);
+      setInitialized(false);
+      setWorkouts7d([]);
+      setYesterdaySummary(null);
+      setDayBeforeSummary(null);
+      setHrvBaseline(null);
+      setRestingHrBaseline(null);
+      setHistoryScores([]);
       return;
     }
+    // Kick off the full load (cache-first) as soon as the user is authenticated,
+    // so baselines are ready before the Recovery screen is ever opened.
+    if (!initialized) void refresh();
+  }, [status, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    let cancelled = false;
-    setIsLoading(true);
-    setToday(null);
-    setReadiness(null);
-
-    (async () => {
-      try {
-        await Promise.all([fetchToday(), fetchReadiness()]);
-      } finally {
-        if (!cancelled) setIsLoading(false);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (prev.match(/inactive|background/) && next === 'active' && initialized) {
+        const todayDate = getLocalDateString();
+        if (lastFetchDateRef.current !== todayDate) {
+          lastFetchDateRef.current = todayDate;
+          void Promise.all([
+            fetchToday(false),
+            fetchReadiness(false),
+            fetchReadinessHistory(false),
+            fetchHealthBaselines(false),
+            fetchWorkoutWindow(),
+            fetchYesterdayNutrition(),
+          ]);
+        }
       }
-    })();
+    });
+    return () => sub.remove();
+  }, [
+    initialized,
+    fetchToday,
+    fetchReadiness,
+    fetchReadinessHistory,
+    fetchHealthBaselines,
+    fetchWorkoutWindow,
+    fetchYesterdayNutrition,
+  ]);
 
-    return () => { cancelled = true; };
-  }, [status, user?.id, fetchToday, fetchReadiness]);
+  const nutritionSummary = summaryToday ?? yesterdaySummary;
 
-  // ── Log recovery ─────────────────────────────────────────────────────────
-  const logRecovery = useCallback(async (input: LogRecoveryInput): Promise<RecoveryLog> => {
-    const { ok, body } = await recoveryFetch('/recovery/log', {
+  const computed = useMemo(() => {
+    if (status !== 'authenticated') return null;
+    const input = buildReadinessInput({
+      recoveryLog:         today,
+      healthToday,
+      checkinToday,
+      cycle,
+      userSex:             user?.sex ?? 'male',
+      yesterdaySummary:    nutritionSummary,
+      dayBeforeSummary,
+      workouts7d,
+      hrvBaseline,
+      restingHrBaseline,
+      proteinTarget,
+      calorieBudget,
+      waterGlassesToday:   summaryToday?.water_glasses ?? null,
+      waterGoalMl:         user?.waterGoalMl ?? 2000,
+    });
+    return computeReadiness(input);
+  }, [
+    status,
+    today,
+    healthToday,
+    checkinToday,
+    cycle,
+    user?.sex,
+    nutritionSummary,
+    dayBeforeSummary,
+    workouts7d,
+    hrvBaseline,
+    restingHrBaseline,
+    proteinTarget,
+    calorieBudget,
+    summaryToday?.water_glasses,
+    user?.waterGoalMl,
+  ]);
+
+  /** Always stamp today's live computed score into a trend array so the calendar matches the ring. */
+  const patchToday = useCallback((trend: ReadinessHistoryPoint[]): ReadinessHistoryPoint[] => {
+    const todayDate = getLocalDateString();
+    if (!computed) return trend;
+    // Always override today — DB-persisted value may lag behind live computation.
+    const without = trend.filter((p) => p.date !== todayDate);
+    return [...without, { date: todayDate, score: computed.score }];
+  }, [computed]);
+
+  const trend7d = useMemo(
+    () => patchToday(buildReadinessTrend(historyScores, undefined, 7)),
+    [historyScores, patchToday],
+  );
+
+  const trend30d = useMemo(
+    () => patchToday(buildReadinessTrend(historyScores, undefined, 30)),
+    [historyScores, patchToday],
+  );
+
+  const display = useMemo((): RecoveryDisplay => {
+    if (computed) {
+      // Append a trend-direction note (rising/falling) when there's enough history (item 4).
+      const trend = computeTrendDirection(trend7d, computed.score);
+      const reason = trend.message
+        ? `${computed.reason} ${trend.message}`.trim()
+        : computed.reason;
+      return {
+        score:          computed.score,
+        recommendation: computed.recommendation,
+        reason,
+        sleepScore:     computed.sleep_score,
+        strainScore:    computed.strain_score,
+        factors:        computed.factors,
+        tips:           computed.tips,
+        trend7d,
+        trend30d,
+      };
+    }
+    if (readiness) {
+      return {
+        score:          readiness.score,
+        recommendation: readiness.recommendation,
+        reason:         readiness.reason,
+        sleepScore:     null,
+        strainScore:    null,
+        factors:        [],
+        tips:           [],
+        trend7d,
+        trend30d,
+      };
+    }
+    return { ...EMPTY_DISPLAY, trend7d, trend30d };
+  }, [computed, readiness, trend7d, trend30d]);
+
+  const hasInsufficientData = computed === null && readiness === null;
+
+  const logRecovery = useCallback(async (
+    input: LogRecoveryInput,
+    options?: { notifyListeners?: boolean },
+  ): Promise<RecoveryLog> => {
+    const notifyListeners = options?.notifyListeners !== false;
+    const { ok, body } = await apiFetch('/recovery/log', {
       method: 'POST',
       body:   JSON.stringify(input),
     });
-    if (!ok || !body.data) throw new Error('Failed to log recovery');
+    if (!ok || !body.data) {
+      const msg = typeof body.error === 'string' ? body.error : 'Failed to log recovery';
+      throw new Error(msg);
+    }
 
     const data = body.data as Record<string, unknown>;
     const saved = fromApiLog(data);
-    setToday(saved);
+    const logDate = input.date ?? getLocalDateString();
 
-    // Server returns readiness inline — apply it immediately without a round-trip
+    if (logDate === getLocalDateString()) {
+      setToday(saved);
+    }
+
+    if (user?.id) {
+      const uid = user.id;
+      void setResourceCached(
+        buildResourceKey('recovery-today', uid, logDate),
+        saved,
+        TTL_COLD_START_MS,
+      );
+      void invalidateResourceCache(buildResourceKey('recovery-readiness', uid, logDate));
+
+      // Write-through the updated health row (it includes the new sleep) into the
+      // health context + cache. Health subscribes to this channel — previously it
+      // listened to nothing, so a manual sleep log never reached health state and
+      // only its cache was dropped. Falls back to invalidation if the row is absent.
+      if (data.health_data && typeof data.health_data === 'object') {
+        applyHealthReconcile({
+          date: logDate,
+          row: data.health_data as Record<string, unknown>,
+        });
+      } else {
+        void invalidateResourceCache(buildResourceKey('health', uid, logDate));
+      }
+    }
+
     if (data.readiness) {
-      setReadiness(fromApiReadiness(data.readiness as Record<string, unknown>));
+      const newReadiness = fromApiReadiness(data.readiness as Record<string, unknown>);
+      if (logDate === getLocalDateString()) {
+        setReadiness(newReadiness);
+      }
+
+      if (user?.id) {
+        const histKey  = buildResourceKey('recovery-history', user.id, logDate.slice(0, 7));
+        const cached   = await getResourceCached<ReadinessHistoryPoint[]>(histKey);
+        const existing = cached?.data ?? [];
+        const merged   = [
+          ...existing.filter((p) => p.date !== logDate),
+          { date: logDate, score: newReadiness.score },
+        ];
+        void setResourceCached(histKey, merged, TTL_BASELINES);
+        if (logDate === getLocalDateString()) {
+          setHistoryScores(merged);
+        }
+      }
+    }
+
+    if (notifyListeners && user?.id) {
+      // Pass the explicit sleep/log date so summary + insights invalidate the
+      // correct day/week — not getLocalDateString(), which diverges from the
+      // sleep-date before 06:00.
+      void notifyTodayDataChanged(user.id, 'recovery', logDate);
     }
 
     return saved;
-  }, []);
+  }, [user?.id]);
 
-  // ── Refresh ──────────────────────────────────────────────────────────────
-  const refresh = useCallback(async () => {
-    await Promise.all([fetchToday(), fetchReadiness()]);
-  }, [fetchToday, fetchReadiness]);
+  const refresh = useCallback(async (options?: { force?: boolean }) => {
+    if (refreshInFlightRef.current) {
+      await refreshInFlightRef.current;
+      return;
+    }
+
+    const force = options?.force ?? false;
+
+    const run = (async () => {
+      const hadCache = !force && (await hydrateFromCache());
+      if (!hadCache) setIsLoading(true);
+
+      lastFetchDateRef.current = getLocalDateString();
+      try {
+        await Promise.all([
+          fetchToday(force),
+          fetchReadiness(force),
+          fetchReadinessHistory(force),
+          fetchHealthBaselines(force),
+          fetchWorkoutWindow(),
+          fetchYesterdayNutrition(),
+        ]);
+      } finally {
+        setIsLoading(false);
+        setInitialized(true);
+      }
+    })().finally(() => {
+      refreshInFlightRef.current = null;
+    });
+
+    refreshInFlightRef.current = run;
+    await run;
+  }, [
+    hydrateFromCache,
+    fetchToday,
+    fetchReadiness,
+    fetchReadinessHistory,
+    fetchHealthBaselines,
+    fetchWorkoutWindow,
+    fetchYesterdayNutrition,
+  ]);
+
+  // Refetch when sleep / health / check-in / training data changes elsewhere so
+  // the Recovery screen reflects it without a re-login. Force-refresh bypasses
+  // the 2 h cache; refreshInFlightRef dedupes overlapping triggers. `initialized`
+  // stays true throughout, so no loading flash — cached values stay on screen.
+  useEffect(() => {
+    if (!hasActiveUserSession(status, user)) return;
+    return registerTodayDataSyncListener(({ domain }) => {
+      if (!shouldRefetchRecoveryAfterMutation(domain)) return;
+      void refresh({ force: true });
+    });
+  }, [status, user?.id, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <RecoveryContext.Provider value={{ today, readiness, isLoading, logRecovery, refresh }}>
+    <RecoveryContext.Provider value={{
+      today,
+      readiness,
+      computed,
+      display,
+      isLoading,
+      initialized,
+      hasInsufficientData,
+      hrvBaseline,
+      restingHrBaseline,
+      logRecovery,
+      fetchRecoveryByDate,
+      refresh,
+    }}>
       {children}
     </RecoveryContext.Provider>
   );
 }
-
-// ── Hook ──────────────────────────────────────────────────────────────────
 
 export function useRecovery(): RecoveryContextValue {
   const ctx = useContext(RecoveryContext);

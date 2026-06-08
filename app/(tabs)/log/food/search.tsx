@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import type { ComponentProps } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -14,8 +13,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { AnimatedCard, usePalette, useScreenPadding } from '@/lib/log-theme';
 import { FoodRow } from '@/components/log/FoodRow';
-
-type IoniconName = ComponentProps<typeof Ionicons>['name'];
+import { usePostHog } from 'posthog-react-native';
 
 // Mock catalog — swap for real search API results.
 const CATALOG = [
@@ -32,11 +30,6 @@ const CATALOG = [
 ];
 
 const RECENT = ['Chicken breast', 'Oatmeal', 'Banana', 'Greek yogurt'];
-const QUICK: { id: string; label: string; icon: IoniconName; href: string; accent: 'calories' | 'protein' | 'water' }[] = [
-  { id: 'photo',  label: 'Photo',   icon: 'camera',       href: '/(tabs)/log/food/photo',  accent: 'calories' },
-  { id: 'manual', label: 'Manual',  icon: 'create',       href: '/(tabs)/log/food/manual', accent: 'protein'  },
-  { id: 'scan',   label: 'Scan',    icon: 'barcode',      href: '/(tabs)/log/food/scan',   accent: 'water'    },
-];
 
 export default function FoodSearchScreen() {
   const P      = usePalette();
@@ -45,6 +38,7 @@ export default function FoodSearchScreen() {
   const insets = useSafeAreaInsets();
 
   const [query, setQuery] = useState('');
+  const posthog = usePostHog();
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -72,6 +66,7 @@ export default function FoodSearchScreen() {
             placeholderTextColor={P.textFaint}
             autoFocus
             returnKeyType="search"
+            onSubmitEditing={() => { if (query.trim()) posthog.capture('food_searched', { query: query.trim(), result_count: results.length }); }}
             style={{ flex: 1, color: P.text, fontSize: 15, fontWeight: '600', paddingVertical: 0 }}
           />
           {!!query && (
@@ -83,34 +78,12 @@ export default function FoodSearchScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {!showingResults ? (
           <>
-            {/* ── Quick actions ───────────────────────── */}
-            <View style={{ paddingHorizontal: 20, marginTop: 8, flexDirection: 'row', gap: 10 }}>
-              {QUICK.map((q, i) => (
-                <AnimatedCard key={q.id} delay={60 + i * 50} padding={14} style={{ flex: 1 }}>
-                  <Pressable
-                    onPress={() => router.push(q.href as any)}
-                    style={{ alignItems: 'center', gap: 8 }}
-                  >
-                    <View style={[
-                      styles.quickIcon,
-                      { backgroundColor: P[`${q.accent}Soft`] as string },
-                    ]}>
-                      <Ionicons name={q.icon} size={16} color={P[q.accent]} />
-                    </View>
-                    <Text style={[styles.quickLabel, { color: P.text }]}>
-                      {q.label}
-                    </Text>
-                  </Pressable>
-                </AnimatedCard>
-              ))}
-            </View>
-
             {/* ── Recent searches ─────────────────────── */}
             <View style={{ paddingHorizontal: 20, marginTop: 20 }}>
               <Text style={[styles.section, { color: P.textFaint }]}>RECENT</Text>
@@ -207,17 +180,6 @@ const styles = StyleSheet.create({
     width:          24, height: 24,
     alignItems:     'center',
     justifyContent: 'center',
-  },
-
-  quickIcon: {
-    width:          38, height: 38, borderRadius: 12,
-    alignItems:     'center',
-    justifyContent: 'center',
-  },
-  quickLabel: {
-    fontSize:      12,
-    fontWeight:    '800',
-    letterSpacing: -0.2,
   },
 
   section: {

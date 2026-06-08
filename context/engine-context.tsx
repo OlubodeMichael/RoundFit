@@ -1,12 +1,23 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useState,
+  createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
-import { useAuth } from '@/context/auth-context';
-
-// ── Config ─────────────────────────────────────────────────────────────────
-
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
+import { AppState, type AppStateStatus } from 'react-native';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
+import { getLocalDateString } from '@/utils/date';
+import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
+import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
+import { shouldRefetchEngineAfterMutation } from '@/utils/cache-invalidation';
+import { apiFetch } from '@/utils/api';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  invalidateResourceCache,
+  setResourceCached,
+} from '@/utils/resource-cache';
+import { registerTodayDataSyncListener, registerTodayTargetsListener } from '@/utils/today-sync';
+import { registerTodayOptimisticListener, type TodayDataDelta } from '@/utils/today-optimistic';
+import { registerTodayReconcileListener, type TodayReconcileBundle } from '@/utils/today-reconcile';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -53,28 +64,6 @@ export interface EngineContextValue {
   refresh: () => Promise<void>;
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function engineFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
@@ -129,24 +118,53 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
   const [daily,     setDaily]     = useState<DailyEngine | null>(null);
   const [patterns,  setPatterns]  = useState<DetectedPattern[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const appStateRef              = useRef(AppState.currentState);
+  const lastFetchDateRef         = useRef('');
+  const lastForegroundFetchRef   = useRef(0);
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
-  const fetchDaily = useCallback(async () => {
-    const { ok, body } = await engineFetch('/engine/daily');
-    if (ok && body.data) setDaily(fromApiDaily(body.data as Record<string, unknown>));
-  }, []);
+  const fetchDaily = useCallback(async (force = false) => {
+    if (!user?.id) return;
 
-  const fetchPatterns = useCallback(async () => {
-    const { ok, body } = await engineFetch('/engine/patterns');
-    if (!ok) return;
-    const rows = Array.isArray(body.data) ? body.data as Record<string, unknown>[] : [];
-    setPatterns(rows.map(fromApiPattern));
-  }, []);
+    const today = getLocalDateString();
+    const key   = buildResourceKey('engine-daily', user.id, today);
+    const row = await fetchWithResourceCache<DailyEngine | null>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const { ok, body } = await apiFetch('/engine/daily');
+        if (!ok || !body.data) return null;
+        return fromApiDaily(body.data as Record<string, unknown>);
+      },
+      { force },
+    );
+
+    if (row) setDaily(row);
+  }, [user?.id]);
+
+  const fetchPatterns = useCallback(async (force = false) => {
+    if (!user?.id) return;
+    const today = getLocalDateString();
+    const key   = buildResourceKey('engine-patterns', user.id, today);
+    const rows = await fetchWithResourceCache<DetectedPattern[]>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const { ok, body } = await apiFetch('/engine/patterns');
+        if (!ok) return null;
+        return Array.isArray(body.data)
+          ? (body.data as Record<string, unknown>[]).map(fromApiPattern)
+          : [];
+      },
+      { force },
+    );
+    if (rows) setPatterns(rows);
+  }, [user?.id]);
 
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setDaily(null);
       setPatterns([]);
       setIsLoading(false);
@@ -154,27 +172,122 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
     }
 
     let cancelled = false;
-    setIsLoading(true);
-    setDaily(null);
-    setPatterns([]);
 
     (async () => {
-      try {
-        await Promise.all([fetchDaily(), fetchPatterns()]);
-      } finally {
-        if (!cancelled) setIsLoading(false);
+      const today = getLocalDateString();
+      const key   = buildResourceKey('engine-daily', user.id, today);
+      const cached = await getResourceCached<DailyEngine>(key);
+      if (cached && !cancelled) {
+        setDaily(cached.data);
+        setIsLoading(false);
+      } else if (!cancelled) {
+        setIsLoading(true);
       }
+
+      if (!cancelled) setIsLoading(false);
     })();
 
     return () => { cancelled = true; };
   }, [status, user?.id, fetchDaily, fetchPatterns]);
 
+  // ── Reset to today when app returns to foreground on a new day ─────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (prev.match(/inactive|background/) && next === 'active') {
+        const today = getLocalDateString();
+        const dayRolled = lastFetchDateRef.current !== today;
+        if (
+          !shouldRefetchOnForeground({
+            lastFetchAt: lastForegroundFetchRef.current,
+            dayRolled,
+          })
+        ) {
+          return;
+        }
+
+        lastFetchDateRef.current = today;
+        lastForegroundFetchRef.current = Date.now();
+        if (dayRolled) setDaily(null);
+        void Promise.all([
+          fetchDaily(dayRolled),
+          dayRolled ? fetchPatterns() : Promise.resolve(),
+        ]);
+      }
+    });
+    return () => sub.remove();
+  }, [fetchDaily, fetchPatterns]);
+
+  useEffect(() => {
+    return registerTodayDataSyncListener(async ({ domain }) => {
+      if (!user?.id || !shouldRefetchEngineAfterMutation(domain)) return;
+      await invalidateResourceCache(
+        buildResourceKey('engine-daily', user.id, getLocalDateString()),
+      );
+      await fetchDaily(true);
+    });
+  }, [fetchDaily, user?.id]);
+
+  useEffect(() => {
+    return registerTodayOptimisticListener((delta: TodayDataDelta) => {
+      setDaily((prev) => {
+        if (!prev) return prev;
+        const calories_consumed = prev.calories_consumed + (delta.caloriesConsumed ?? 0);
+        const calories_burned   = prev.calories_burned   + (delta.caloriesBurned ?? 0);
+        return {
+          ...prev,
+          calories_consumed,
+          calories_burned,
+          delta: calories_consumed - prev.calorie_budget,
+        };
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const uid = user.id;
+    return registerTodayReconcileListener((bundle: TodayReconcileBundle) => {
+      // Engine only tracks today — ignore reconciles for any other day.
+      if (bundle.date !== getLocalDateString()) return;
+      setDaily((prev) => {
+        if (!prev) return prev;
+        const merged: DailyEngine = {
+          ...prev,
+          calorie_budget:    bundle.summary.calorie_budget,
+          calories_consumed: bundle.summary.calories_consumed,
+          calories_burned:   bundle.summary.calories_burned,
+          delta:             bundle.summary.delta,
+        };
+        void setResourceCached(
+          buildResourceKey('engine-daily', uid, bundle.date),
+          merged,
+          TTL_COLD_START_MS,
+        );
+        return merged;
+      });
+    });
+  }, [user?.id]);
+
+  useEffect(() => {
+    return registerTodayTargetsListener(() => {
+      const budget = user?.calorieBudget ?? user?.tdee;
+      if (budget == null) return;
+      setDaily((prev) => {
+        if (!prev) return prev;
+        if (prev.calorie_budget === budget) return prev;
+        return { ...prev, calorie_budget: budget };
+      });
+    });
+  }, [user?.calorieBudget, user?.tdee]);
+
   // ── Public refresh handles ───────────────────────────────────────────────
-  const refreshDaily    = useCallback(() => fetchDaily(),    [fetchDaily]);
-  const refreshPatterns = useCallback(() => fetchPatterns(), [fetchPatterns]);
+  const refreshDaily    = useCallback(() => fetchDaily(true),        [fetchDaily]);
+  const refreshPatterns = useCallback(() => fetchPatterns(true), [fetchPatterns]);
 
   const refresh = useCallback(async () => {
-    await Promise.all([fetchDaily(), fetchPatterns()]);
+    await Promise.all([fetchDaily(true), fetchPatterns(true)]);
   }, [fetchDaily, fetchPatterns]);
 
   return (

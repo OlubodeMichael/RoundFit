@@ -1,12 +1,15 @@
 import React, {
   createContext, useCallback, useContext, useEffect, useState,
 } from 'react';
-import { useAuth } from '@/context/auth-context';
-
-// ── Config ─────────────────────────────────────────────────────────────────
-
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
+import { apiFetch } from '@/utils/api';
+import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  invalidateResourceCache,
+} from '@/utils/resource-cache';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -58,9 +61,19 @@ export interface CycleStats {
 }
 
 export interface CycleContextValue {
-  current:   CurrentCycle | null;
-  history:   CycleLog[];
-  stats:     CycleStats | null;
+  /** False for male profiles — no cycle API calls are made. */
+  isEnabled: boolean;
+
+  /** Current cycle phase + adjusted nutrition targets. Null until loaded. */
+  current: CurrentCycle | null;
+
+  /** Last 6 logged cycles, newest first. */
+  history: CycleLog[];
+
+  /** Aggregate cycle statistics. Null until loaded. */
+  stats: CycleStats | null;
+
+  /** True while any fetch is in-flight. */
   isLoading: boolean;
 
   logPeriod:         (periodStartDate: string, cycleLength?: number, notes?: string) => Promise<CycleLog>;
@@ -70,28 +83,6 @@ export interface CycleContextValue {
   refresh:           ()                        => Promise<void>;
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function cycleFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
@@ -152,10 +143,17 @@ function fromApiStats(body: Record<string, unknown>): CycleStats {
 
 const CycleContext = createContext<CycleContextValue | null>(null);
 
+export function isCycleTrackingEnabled(
+  sex: string | undefined,
+): boolean {
+  return sex === 'female';
+}
+
 // ── Provider ───────────────────────────────────────────────────────────────
 
 export function CycleProvider({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
+  const isEnabled = isCycleTrackingEnabled(user?.sex);
 
   const [current,   setCurrent]   = useState<CurrentCycle | null>(null);
   const [history,   setHistory]   = useState<CycleLog[]>([]);
@@ -163,27 +161,57 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
-  const fetchCurrent = useCallback(async () => {
-    const { ok, body } = await cycleFetch('/cycle/current');
-    if (ok) setCurrent(fromApiCurrent(body));
-  }, []);
+  const fetchCycleBundle = useCallback(async (force = false) => {
+    if (!user?.id || !isCycleTrackingEnabled(user.sex)) return;
 
-  const fetchHistory = useCallback(async () => {
-    const { ok, body } = await cycleFetch('/cycle/history');
-    if (!ok) return;
-    const rows = Array.isArray(body.cycles) ? body.cycles as Record<string, unknown>[] : [];
-    setHistory(rows.map(fromApiLog));
-  }, []);
+    const key = buildResourceKey('cycle', user.id);
+    const bundle = await fetchWithResourceCache<{
+      current: CurrentCycle | null;
+      history: CycleLog[];
+    } | null>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const [currentRes, historyRes] = await Promise.all([
+          apiFetch('/cycle/current'),
+          apiFetch('/cycle/history'),
+        ]);
+        const history = historyRes.ok
+          ? (Array.isArray(historyRes.body.cycles)
+            ? historyRes.body.cycles as Record<string, unknown>[]
+            : []
+          ).map(fromApiLog)
+          : [];
+        const current = currentRes.ok
+          ? fromApiCurrent(currentRes.body)
+          : null;
+        return { current, history };
+      },
+      { force },
+    );
+
+    if (bundle) {
+      setCurrent(bundle.current);
+      setHistory(bundle.history);
+    }
+  }, [user?.id, user?.sex]);
 
   const fetchStats = useCallback(async () => {
-    const { ok, body } = await cycleFetch('/cycle/stats');
+    const { ok, body } = await apiFetch('/cycle/stats');
     if (ok) setStats(fromApiStats(body));
   }, []);
 
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
+      setCurrent(null);
+      setHistory([]);
+      setIsLoading(false);
+      return;
+    }
+
+    if (!isEnabled) {
       setCurrent(null);
       setHistory([]);
       setStats(null);
@@ -192,18 +220,30 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
     }
 
     let cancelled = false;
-    setIsLoading(true);
 
     (async () => {
+      const key = buildResourceKey('cycle', user.id);
+      const cached = await getResourceCached<{
+        current: CurrentCycle | null;
+        history: CycleLog[];
+      }>(key);
+      if (cached && !cancelled) {
+        setCurrent(cached.data.current);
+        setHistory(cached.data.history);
+        setIsLoading(false);
+      } else if (!cancelled) {
+        setIsLoading(true);
+      }
+
       try {
-        await Promise.all([fetchCurrent(), fetchHistory(), fetchStats()]);
+        await Promise.all([fetchCycleBundle(false), fetchStats()]);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, fetchCurrent, fetchHistory, fetchStats]);
+  }, [status, user?.id, user?.sex, isEnabled, fetchCycleBundle, fetchStats]);
 
   // ── Log period ───────────────────────────────────────────────────────────
   const logPeriod = useCallback(async (
@@ -211,7 +251,11 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
     cycleLength = 28,
     notes?: string,
   ): Promise<CycleLog> => {
-    const { ok, body } = await cycleFetch('/cycle/log', {
+    if (!isCycleTrackingEnabled(user?.sex)) {
+      throw new Error('Cycle tracking is not enabled for this profile');
+    }
+
+    const { ok, body } = await apiFetch('/cycle/log', {
       method: 'POST',
       body:   JSON.stringify({ period_start_date: periodStartDate, cycle_length: cycleLength, notes }),
     });
@@ -219,13 +263,22 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
 
     const saved = fromApiLog(body.cycle_log as Record<string, unknown>);
     setHistory((prev) => [saved, ...prev]);
-    await Promise.all([fetchCurrent(), fetchStats()]);
+
+    if (user?.id) {
+      await invalidateResourceCache(buildResourceKey('cycle', user.id));
+    }
+    await Promise.all([fetchCycleBundle(true), fetchStats()]);
+
     return saved;
-  }, [fetchCurrent, fetchStats]);
+  }, [fetchCycleBundle, fetchStats, user?.id, user?.sex]);
 
   // ── Update cycle length ──────────────────────────────────────────────────
   const updateCycleLength = useCallback(async (cycleLength: number) => {
-    const { ok, body } = await cycleFetch('/cycle/length', {
+    if (!isCycleTrackingEnabled(user?.sex)) {
+      throw new Error('Cycle tracking is not enabled for this profile');
+    }
+
+    const { ok, body } = await apiFetch('/cycle/length', {
       method: 'PATCH',
       body:   JSON.stringify({ cycle_length: cycleLength }),
     });
@@ -239,7 +292,7 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
 
   // ── Update life stage ────────────────────────────────────────────────────
   const updateLifeStage = useCallback(async (lifeStage: LifeStage) => {
-    const { ok, body } = await cycleFetch('/cycle/life-stage', {
+    const { ok, body } = await apiFetch('/cycle/life-stage', {
       method: 'PATCH',
       body:   JSON.stringify({ life_stage: lifeStage }),
     });
@@ -262,21 +315,28 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
 
   // ── Delete log ───────────────────────────────────────────────────────────
   const deleteLog = useCallback(async (id: string) => {
-    const { ok, body } = await cycleFetch(`/cycle/${id}`, { method: 'DELETE' });
+    const { ok, body } = await apiFetch(`/cycle/${id}`, { method: 'DELETE' });
     if (!ok) throw new Error((body.error as string) || 'Failed to delete cycle log');
 
     setHistory((prev) => prev.filter((c) => c.id !== id));
-    await Promise.all([fetchCurrent(), fetchStats()]);
-  }, [fetchCurrent, fetchStats]);
+    if (user?.id) {
+      await invalidateResourceCache(buildResourceKey('cycle', user.id));
+    }
+    await Promise.all([fetchCycleBundle(true), fetchStats()]);
+  }, [fetchCycleBundle, fetchStats, user?.id]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
-    await Promise.all([fetchCurrent(), fetchHistory(), fetchStats()]);
-  }, [fetchCurrent, fetchHistory, fetchStats]);
+    if (!isCycleTrackingEnabled(user?.sex)) return;
+    if (user?.id) {
+      await invalidateResourceCache(buildResourceKey('cycle', user.id));
+    }
+    await Promise.all([fetchCycleBundle(true), fetchStats()]);
+  }, [fetchCycleBundle, fetchStats, user?.id, user?.sex]);
 
   return (
     <CycleContext.Provider value={{
-      current, history, stats, isLoading,
+      isEnabled, current, history, stats, isLoading,
       logPeriod, updateCycleLength, updateLifeStage, deleteLog, refresh,
     }}>
       {children}

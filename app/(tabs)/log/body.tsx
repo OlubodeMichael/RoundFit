@@ -25,6 +25,7 @@ import {
 } from '@/lib/log-theme';
 import { SelectCellGrid } from '@/components/log/SelectCellGrid';
 import { useToast } from '@/components/ui/Toast';
+import { useRecovery } from '@/context/recovery-context';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -71,12 +72,21 @@ const MOODS: { id: Mood; label: string; icon: IoniconName }[] = [
   { id: 'great', label: 'Great', icon: 'sparkles-outline'   },
 ];
 
+// Maps qualitative soreness level + number of affected regions → 1–10 numeric.
+// Intensity sets the base; spread across the body raises it by up to +2.
+function computeSorenessLevel(level: Level, regionCount: number): number | null {
+  if (level === 'none') return null;
+  const base = level === 'mild' ? 2 : level === 'moderate' ? 5 : 8;
+  return Math.min(base + Math.floor(regionCount / 3), base + 2);
+}
+
 export default function BodyMetricsScreen() {
   const P      = usePalette();
   const router = useRouter();
   const pad    = useScreenPadding();
   const insets = useSafeAreaInsets();
   const toast  = useToast();
+  const { logRecovery } = useRecovery();
 
   const [selected, setSelected] = useState<Set<Region>>(new Set());
   const [level,    setLevel]    = useState<Level>('none');
@@ -97,13 +107,25 @@ export default function BodyMetricsScreen() {
 
   const handleSave = async () => {
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 400));
-    setSaving(false);
-    const summary = selected.size === 0 && level === 'none'
-      ? `Feeling ${mood} · Energy ${energy}/10`
-      : `${capital(level)} soreness in ${selected.size} ${selected.size === 1 ? 'area' : 'areas'}`;
-    toast.success('Body metrics saved', summary);
-    router.back();
+    try {
+      const sorenessLevel = computeSorenessLevel(level, selected.size);
+      if (sorenessLevel !== null || notes.trim()) {
+        await logRecovery({
+          soreness_level: sorenessLevel ?? undefined,
+          notes:          notes.trim() || undefined,
+          source:         'manual',
+        });
+      }
+      const summary = selected.size === 0 && level === 'none'
+        ? `Feeling ${mood} · Energy ${energy}/10`
+        : `${capital(level)} soreness in ${selected.size} ${selected.size === 1 ? 'area' : 'areas'}`;
+      toast.success('Body metrics saved', summary);
+      router.back();
+    } catch {
+      toast.error('Could not save', 'Please try again');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

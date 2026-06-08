@@ -6,6 +6,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 export default function NameScreen() {
   const router = useRouter();
@@ -56,49 +57,50 @@ export default function NameScreen() {
           <ProgressBar
             step={params.sex === 'female' ? 11 : 8}
             total={params.sex === 'female' ? 12 : 9}
-            onBack={() => router.back()}
+            backHref={{ pathname: '/onboarding/units', params }}
             isDark={false}
           />
         </View>
 
-        <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>
-          <Text style={[s.headline, { color: hi }]}>
-            {"What's your\nname?"}
-          </Text>
-          <Text style={[s.sub, { color: mid }]}>
-            {"We'll personalize everything for you."}
-          </Text>
-
-          {/* Input with animated underline */}
-          <View style={s.inputWrap}>
-            <TextInput
-              ref={inputRef}
-              style={[s.input, { color: hi }]}
-              value={name}
-              onChangeText={setName}
-              placeholder="Your first name"
-              placeholderTextColor={lo}
-              autoCapitalize="words"
-              returnKeyType="done"
-              onFocus={() => setFocus(true)}
-              onBlur={() => setFocus(false)}
-              onSubmitEditing={() => canContinue && router.push({ pathname: '/onboarding/health-connect', params: { ...params, name: name.trim() } })}
+        <View style={{ flex: 1 }}>
+          <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>
+            <Text style={[s.headline, { color: hi }]}>
+              {"What's your\nname?"}
+            </Text>
+            <WhyWeAsk
+              text="We use this to personalize your plan and dashboard."
+              style={s.whyWeAsk}
             />
-            {/* Underline */}
-            <View style={[s.underlineTrack, { backgroundColor: lo }]}>
-              <Animated.View style={[s.underlineFill, {
-                width: underline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-              }]} />
+
+            {/* Input with animated underline */}
+            <View style={s.inputWrap}>
+              <TextInput
+                ref={inputRef}
+                style={[s.input, { color: hi }]}
+                value={name}
+                onChangeText={setName}
+                placeholder="Your first name"
+                placeholderTextColor={lo}
+                autoCapitalize="words"
+                returnKeyType="done"
+                onFocus={() => setFocus(true)}
+                onBlur={() => setFocus(false)}
+                onSubmitEditing={() => canContinue && router.push({ pathname: '/onboarding/health-connect', params: { ...params, name: name.trim() } })}
+              />
+              {/* Underline */}
+              <View style={[s.underlineTrack, { backgroundColor: lo }]}>
+                <Animated.View style={[s.underlineFill, {
+                  width: underline.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                }]} />
+              </View>
             </View>
-          </View>
 
-          {/* Preview greeting */}
-          <Animated.Text style={[s.preview, { color: mid, opacity: previewFade }]}>
-            Hey, {name.trim()} 
-          </Animated.Text>
-        </Animated.View>
-
-        <View style={{ flex: 1 }} />
+            {/* Preview greeting */}
+            <Animated.Text style={[s.preview, { color: mid, opacity: previewFade }]}>
+              Hey, {name.trim()}
+            </Animated.Text>
+          </Animated.View>
+        </View>
 
         <TouchableOpacity
           style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
@@ -118,8 +120,8 @@ const s = StyleSheet.create({
   progress: { marginBottom: 8 },
 
   body:     { gap: 12 },
-  headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 4 },
-  sub:      { fontSize: 15, fontWeight: '400', lineHeight: 22 },
+  headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 8 },
+  whyWeAsk: { marginBottom: 4 },
 
   inputWrap:      { marginTop: 36, gap: 0 },
   input:          { fontSize: 38, fontWeight: '700', letterSpacing: -1, paddingVertical: 8, paddingHorizontal: 0 },
@@ -129,10 +131,8 @@ const s = StyleSheet.create({
   preview: { fontSize: 16, fontWeight: '500', marginTop: 16 },
 
   cta:    {
-    backgroundColor: '#F97316', borderRadius: 14,
+    backgroundColor: '#111111', borderRadius: 14,
     paddingVertical: 18, alignItems: 'center',
-    shadowColor: '#F97316', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35, shadowRadius: 12, elevation: 8,
   },
   ctaText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
 });

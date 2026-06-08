@@ -1,819 +1,721 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  Pressable, Alert, Animated, Easing, ActivityIndicator,
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import * as Haptics from 'expo-haptics';
 
+import { usePalette } from '@/lib/log-theme';
+import { useToast } from '@/components/ui/Toast';
+import { useCycle } from '@/context/cycle-context';
 import { useTheme } from '@/hooks/use-theme';
-import { useProfile } from '@/hooks/use-profile';
-import { useCycle } from '@/hooks/use-cycle';
-import type { LifeStage, CycleLog } from '@/hooks/use-cycle';
-import { AppModal } from '@/components/ui/AppModal';
-import { WheelColumn } from '@/components/onboarding/wheel-column';
 
-// ── Palette ────────────────────────────────────────────────────────────────
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
-function usePalette() {
+// ─── Accent ──────────────────────────────────────────────────────────────────
+function useAcc() {
   const { isDark } = useTheme();
-  return isDark ? {
-    bg:        '#0A0B0F',
-    card:      '#1C1D23',
-    cardEdge:  'rgba(255,255,255,0.10)',
-    sunken:    '#0E0F13',
-    text:      '#F4F4F5',
-    textDim:   '#C4C4C8',
-    textFaint: '#909096',
-    hair:      'rgba(255,255,255,0.10)',
-    accent:    '#A78BFA',
-    accentSoft:'rgba(167,139,250,0.18)',
-    danger:    '#F87171',
-    dangerSoft:'rgba(248,113,113,0.14)',
-    isDark:    true,
-  } : {
-    bg:        '#F6F6F8',
-    card:      '#FFFFFF',
-    cardEdge:  'rgba(15,23,42,0.06)',
-    sunken:    '#F1F1F4',
-    text:      '#09090B',
-    textDim:   '#52525B',
-    textFaint: '#A1A1AA',
-    hair:      'rgba(15,23,42,0.08)',
-    accent:    '#7C3AED',
-    accentSoft:'rgba(124,58,237,0.10)',
-    danger:    '#DC2626',
-    dangerSoft:'rgba(220,38,38,0.10)',
-    isDark:    false,
-  };
+  return isDark ? '#FB7185' : '#E11D48';
 }
 
-// ── Phase config ───────────────────────────────────────────────────────────
+// ─── Phase config ─────────────────────────────────────────────────────────────
+const PHASE_META: Record<string, { label: string; icon: IoniconName; color: string; tip: string }> = {
+  menstrual:  { label: 'Menstrual',  icon: 'water',      color: '#F43F5E', tip: 'Rest and gentle movement today.' },
+  follicular: { label: 'Follicular', icon: 'leaf',       color: '#F97316', tip: 'Energy rising, good time for new goals.' },
+  ovulation:  { label: 'Ovulation',  icon: 'sunny',      color: '#EAB308', tip: 'Peak strength and energy window.' },
+  luteal:     { label: 'Luteal',     icon: 'moon',       color: '#8B5CF6', tip: 'Wind down and prioritise recovery.' },
+};
 
-const PHASES = [
-  { key: 'menstrual',  label: 'Menstrual',  icon: 'water' as const,  days: '1–5' },
-  { key: 'follicular', label: 'Follicular', icon: 'leaf'  as const,  days: '6–13' },
-  { key: 'ovulation',  label: 'Ovulation',  icon: 'sunny' as const,  days: '14–16' },
-  { key: 'luteal',     label: 'Luteal',     icon: 'moon'  as const,  days: '17–end' },
-] as const;
-
-const LIFE_STAGES: { key: LifeStage; label: string; sub: string }[] = [
-  { key: 'regular',      label: 'Regular',      sub: 'Standard cycle tracking' },
-  { key: 'postpartum',   label: 'Postpartum',   sub: '+400 cal, +20g protein' },
-  { key: 'perimenopause',label: 'Perimenopause',sub: '+15g protein' },
-  { key: 'menopause',    label: 'Menopause',    sub: '–50 cal, +20g protein' },
-];
-
-// ── Date wheel helpers ─────────────────────────────────────────────────────
-
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-function daysInMonth(month: number, year: number) {
-  return new Date(year, month + 1, 0).getDate();
+// Phase segments (adjust luteal to fill remaining days)
+function buildSegments(cycleLength: number) {
+  const luteal = Math.max(cycleLength - 16, 10);
+  return [
+    { key: 'menstrual',  days: 5,      color: '#F43F5E', label: 'Menstrual' },
+    { key: 'follicular', days: 8,      color: '#F97316', label: 'Follicular' },
+    { key: 'ovulation',  days: 3,      color: '#EAB308', label: 'Ovulation' },
+    { key: 'luteal',     days: luteal, color: '#8B5CF6', label: 'Luteal' },
+  ];
 }
 
-function buildYears() {
-  const now = new Date();
-  const years: number[] = [];
-  for (let y = now.getFullYear(); y >= now.getFullYear() - 2; y--) years.push(y);
-  return years;
-}
-
-// ── Animated card ──────────────────────────────────────────────────────────
-
-function Card({ children, style, delay = 0 }: { children: React.ReactNode; style?: object; delay?: number }) {
-  const P   = usePalette();
-  const anim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(anim, {
-      toValue: 1, duration: 500, delay,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, []);
-
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] });
-
-  return (
-    <Animated.View style={[{
-      backgroundColor: P.card,
-      borderRadius: 20,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: P.cardEdge,
-      padding: 20,
-      opacity: anim,
-      transform: [{ translateY }],
-    }, style]}>
-      {children}
-    </Animated.View>
-  );
-}
-
-// ── Log Period Modal ───────────────────────────────────────────────────────
-
-function LogPeriodModal({
-  visible, onClose, onConfirm, defaultCycleLength, isDark,
+// ─── Phase Progress Bar ───────────────────────────────────────────────────────
+function PhaseBar({
+  cycleDay,
+  cycleLength,
+  barWidth,
 }: {
-  visible: boolean;
-  onClose: () => void;
-  onConfirm: (date: string, cycleLength: number, notes: string) => void;
-  defaultCycleLength: number;
-  isDark: boolean;
+  cycleDay: number | null;
+  cycleLength: number;
+  barWidth: number;
 }) {
-  const now = new Date();
-  const years = useMemo(() => buildYears(), []);
+  const segments = buildSegments(cycleLength);
+  const total    = segments.reduce((s, p) => s + p.days, 0);
+  const BAR_H    = 8;
+  const GAP      = 3;
+  const usableW  = barWidth - GAP * (segments.length - 1);
 
-  const [monthIdx, setMonthIdx] = useState(now.getMonth());
-  const [dayIdx,   setDayIdx]   = useState(now.getDate() - 1);
-  const [yearIdx,  setYearIdx]  = useState(0);
-  const [cycleLen, setCycleLen] = useState(defaultCycleLength);
-
-  const selectedYear  = years[yearIdx] ?? now.getFullYear();
-  const maxDay        = daysInMonth(monthIdx, selectedYear);
-  const dayLabels     = useMemo(
-    () => Array.from({ length: maxDay }, (_, i) => String(i + 1)),
-    [maxDay],
-  );
-  const safeDay = Math.min(dayIdx, maxDay - 1);
-
-  const cycleLenLabels = useMemo(
-    () => Array.from({ length: 25 }, (_, i) => `${i + 21} days`),
-    [],
-  );
-  const cycleLenIdx = Math.max(0, cycleLen - 21);
-
-  const bg  = isDark ? '#1C1D23' : '#FAFAF8';
-  const hi  = isDark ? '#F4F4F5' : '#111111';
-  const mid = isDark ? '#707078' : '#BBBBBB';
-  const lo  = isDark ? '#2A2A32' : '#EBEBEB';
-
-  function handleConfirm() {
-    const day   = safeDay + 1;
-    const month = monthIdx + 1;
-    const year  = selectedYear;
-    const today = new Date(); today.setHours(23, 59, 59, 999);
-    const picked = new Date(year, monthIdx, day);
-    if (picked > today) {
-      Alert.alert('Invalid date', 'Period start date cannot be in the future.');
-      return;
-    }
-    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    onConfirm(dateStr, cycleLen, '');
-    onClose();
-  }
+  let cumulativeDays = 0;
+  const progressX = cycleDay != null
+    ? Math.min((cycleDay / cycleLength) * barWidth, barWidth - 1)
+    : null;
 
   return (
-    <AppModal visible={visible} onClose={onClose} title="Log Period" sheetHeight={0.72}>
-      <View style={{ flex: 1 }}>
-        {/* Date wheels */}
-        <Text style={{ color: mid, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, paddingHorizontal: 24, marginTop: 4, marginBottom: 4 }}>
-          PERIOD START DATE
-        </Text>
-        <View style={{ flexDirection: 'row', height: 220, paddingHorizontal: 12 }}>
-          <WheelColumn
-            labels={MONTHS}
-            selectedIndex={monthIdx}
-            onChange={(i) => { setMonthIdx(i); setDayIdx((d) => Math.min(d, daysInMonth(i, selectedYear) - 1)); }}
-            isDark={isDark}
-          />
-          <WheelColumn
-            labels={dayLabels}
-            selectedIndex={safeDay}
-            onChange={setDayIdx}
-            isDark={isDark}
-          />
-          <WheelColumn
-            labels={years.map(String)}
-            selectedIndex={yearIdx}
-            onChange={setYearIdx}
-            isDark={isDark}
-          />
-        </View>
+    <View style={{ gap: 0 }}>
+      {/* Segment bar */}
+      <View style={{ flexDirection: 'row', gap: GAP, marginBottom: 10 }}>
+        {segments.map((seg, i) => {
+          const segW     = (seg.days / total) * usableW;
+          const dayStart = cumulativeDays + 1;
+          const dayEnd   = cumulativeDays + seg.days;
+          cumulativeDays += seg.days;
 
-        {/* Cycle length */}
-        <View style={[{ marginHorizontal: 24, marginTop: 8, borderTopWidth: 1, borderTopColor: lo, paddingTop: 16 }]}>
-          <Text style={{ color: mid, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, marginBottom: 8 }}>
-            CYCLE LENGTH
-          </Text>
-          <View style={{ height: 160 }}>
-            <WheelColumn
-              labels={cycleLenLabels}
-              selectedIndex={cycleLenIdx}
-              onChange={(i) => setCycleLen(i + 21)}
-              isDark={isDark}
-            />
-          </View>
-        </View>
+          let fillRatio = 0;
+          if (cycleDay != null) {
+            if (cycleDay > dayEnd)    fillRatio = 1;
+            else if (cycleDay >= dayStart) fillRatio = (cycleDay - dayStart + 1) / seg.days;
+          }
 
-        {/* Confirm button */}
-        <TouchableOpacity
-          onPress={handleConfirm}
-          activeOpacity={0.85}
+          const isFirst = i === 0;
+          const isLast  = i === segments.length - 1;
+          const brLeft  = { borderTopLeftRadius: 6, borderBottomLeftRadius: 6 };
+          const brRight = { borderTopRightRadius: 6, borderBottomRightRadius: 6 };
+
+          return (
+            <View
+              key={seg.key}
+              style={[
+                { width: segW, height: BAR_H, overflow: 'hidden', backgroundColor: seg.color + '22' },
+                isFirst && brLeft,
+                isLast  && brRight,
+                !isFirst && !isLast && {},
+              ]}
+            >
+              <View
+                style={[
+                  { width: segW * fillRatio, height: BAR_H, backgroundColor: seg.color },
+                  isFirst && brLeft,
+                  isLast && fillRatio === 1 && brRight,
+                ]}
+              />
+            </View>
+          );
+        })}
+      </View>
+
+      {/* Indicator dot */}
+      {progressX != null && (
+        <View
           style={{
-            marginHorizontal: 24,
-            marginTop: 12,
-            backgroundColor: '#A78BFA',
-            borderRadius: 14,
-            paddingVertical: 16,
-            alignItems: 'center',
+            position: 'absolute',
+            top: -4,
+            left: progressX - 8,
+            width: 16,
+            height: 16,
+            borderRadius: 8,
+            backgroundColor: '#fff',
+            borderWidth: 3,
+            borderColor: getCurrentPhaseColor(cycleDay ?? 0, cycleLength),
+            shadowColor: '#000',
+            shadowOpacity: 0.15,
+            shadowRadius: 4,
+            shadowOffset: { width: 0, height: 2 },
+            elevation: 4,
           }}
-        >
-          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: -0.2 }}>
-            Confirm Period
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </AppModal>
-  );
-}
-
-// ── Format helpers ─────────────────────────────────────────────────────────
-
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const [y, m, d] = iso.split('-').map(Number);
-  return `${MONTH_SHORT[(m ?? 1) - 1]} ${d}, ${y}`;
-}
-
-function daysUntil(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const target = new Date(iso);
-  const now    = new Date();
-  now.setHours(0, 0, 0, 0);
-  target.setHours(0, 0, 0, 0);
-  const diff = Math.round((target.getTime() - now.getTime()) / 86_400_000);
-  return diff;
-}
-
-// ── Screen ─────────────────────────────────────────────────────────────────
-
-export default function CycleTrackingScreen() {
-  const P      = usePalette();
-  const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const { profile } = useProfile();
-  const { current, history, stats, isLoading, logPeriod, updateCycleLength, updateLifeStage, deleteLog, refresh } = useCycle();
-
-  const [logModalOpen,    setLogModalOpen]    = useState(false);
-  const [cycleLenModal,   setCycleLenModal]   = useState(false);
-  const [lifeStageModal,  setLifeStageModal]  = useState(false);
-  const [isSaving,        setIsSaving]        = useState(false);
-
-  // Redirect males away
-  useEffect(() => {
-    if (profile && profile.sex !== 'female') router.replace('/(tabs)/profile');
-  }, [profile, router]);
-
-  const activePhaseIdx = PHASES.findIndex((p) => p.key === current?.phase);
-  const defaultCycleLen = current?.cycle_length ?? 28;
-
-  const daysLeft = daysUntil(current?.predicted_next_period);
-
-  // ── Log period ─────────────────────────────────────────────────────────
-  const handleLogPeriod = useCallback(async (date: string, cycleLen: number, notes: string) => {
-    setIsSaving(true);
-    try {
-      await logPeriod(date, cycleLen, notes);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Could not log period');
-    } finally {
-      setIsSaving(false);
-    }
-  }, [logPeriod]);
-
-  // ── Update cycle length ────────────────────────────────────────────────
-  const handleCycleLength = useCallback(async (len: number) => {
-    setIsSaving(true);
-    try {
-      await updateCycleLength(len);
-      setCycleLenModal(false);
-    } catch {
-      Alert.alert('Error', 'Could not update cycle length');
-    } finally {
-      setIsSaving(false);
-    }
-  }, [updateCycleLength]);
-
-  // ── Update life stage ──────────────────────────────────────────────────
-  const handleLifeStage = useCallback(async (stage: LifeStage) => {
-    setIsSaving(true);
-    try {
-      await updateLifeStage(stage);
-      setLifeStageModal(false);
-    } catch {
-      Alert.alert('Error', 'Could not update life stage');
-    } finally {
-      setIsSaving(false);
-    }
-  }, [updateLifeStage]);
-
-  // ── Delete log ─────────────────────────────────────────────────────────
-  const handleDelete = useCallback((log: CycleLog) => {
-    Alert.alert(
-      'Delete cycle log?',
-      `Remove the period logged on ${fmtDate(log.period_start_date)}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteLog(log.id);
-            } catch {
-              Alert.alert('Error', 'Could not delete cycle log');
-            }
-          },
-        },
-      ],
-    );
-  }, [deleteLog]);
-
-  const currentLifeStage = LIFE_STAGES.find((s) => s.key === current?.life_stage) ?? LIFE_STAGES[0];
-
-  return (
-    <View style={[s.root, { backgroundColor: P.bg }]}>
-      {/* ── Header ─────────────────────────────────────────────── */}
-      <View style={[s.header, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity style={s.back} onPress={() => router.back()} hitSlop={10}>
-          <Ionicons name="chevron-back" size={22} color={P.text} />
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={[s.eyebrow, { color: P.textFaint }]}>Women&apos;s Health</Text>
-          <Text style={[s.title, { color: P.text }]}>Cycle Tracking</Text>
-        </View>
-        <TouchableOpacity
-          onPress={() => refresh()}
-          style={{ padding: 8 }}
-          hitSlop={8}
-        >
-          <Ionicons name="refresh" size={18} color={P.textFaint} />
-        </TouchableOpacity>
-      </View>
-
-      {isLoading ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color={P.accent} />
-        </View>
-      ) : (
-        <ScrollView
-          contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: insets.bottom + 32 }}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* ── Phase card ────────────────────────────────────────── */}
-          {current?.available && current.phase ? (
-            <Card delay={0}>
-              {/* Phase row */}
-              <View style={s.phaseHead}>
-                <View style={[s.iconTile, { backgroundColor: P.accentSoft }]}>
-                  <Ionicons name={PHASES[Math.max(0, activePhaseIdx)].icon} size={18} color={P.accent} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.phaseTitle, { color: P.text }]}>
-                    {current.phase.charAt(0).toUpperCase() + current.phase.slice(1)}{' '}
-                    <Text style={{ color: P.textFaint, fontWeight: '500' }}>phase</Text>
-                  </Text>
-                  {current.day_of_cycle != null && current.cycle_length != null && (
-                    <Text style={[s.phaseSub, { color: P.textFaint }]}>
-                      Day {current.day_of_cycle} of {current.cycle_length}
-                    </Text>
-                  )}
-                </View>
-                {daysLeft != null && daysLeft >= 0 && (
-                  <View style={[s.pill, { backgroundColor: P.accentSoft }]}>
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: P.accent }}>
-                      {daysLeft === 0 ? 'Today' : `${daysLeft}d`}
-                    </Text>
-                    <Text style={{ fontSize: 9, fontWeight: '600', color: P.accent, marginTop: 1 }}>
-                      {daysLeft === 0 ? '' : 'until next'}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Phase timeline */}
-              <View style={s.phaseRow}>
-                {PHASES.map((p, i) => {
-                  const isActive = i === activePhaseIdx;
-                  return (
-                    <View key={p.key} style={s.phaseTick}>
-                      <View style={[s.phaseBar, {
-                        backgroundColor: isActive ? P.accent : P.hair,
-                        height: isActive ? 4 : 3,
-                      }]} />
-                      <Text style={[s.phaseCap, { color: isActive ? P.text : P.textFaint, fontWeight: isActive ? '700' : '500' }]}>
-                        {p.label}
-                      </Text>
-                      <Text style={{ fontSize: 9, color: P.textFaint, fontWeight: '600', marginTop: 1 }}>
-                        {p.days}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-
-              {/* Stats row */}
-              <View style={[s.statsRow, { borderTopColor: P.hair }]}>
-                <View style={s.statItem}>
-                  <Text style={[s.statVal, { color: P.text }]}>{fmtDate(current.last_period_date)}</Text>
-                  <Text style={[s.statLbl, { color: P.textFaint }]}>last period</Text>
-                </View>
-                <View style={[s.statDivider, { backgroundColor: P.hair }]} />
-                <View style={s.statItem}>
-                  <Text style={[s.statVal, { color: P.text }]}>{fmtDate(current.predicted_next_period)}</Text>
-                  <Text style={[s.statLbl, { color: P.textFaint }]}>next period</Text>
-                </View>
-                <View style={[s.statDivider, { backgroundColor: P.hair }]} />
-                <View style={s.statItem}>
-                  <Text style={[s.statVal, { color: P.text }]}>{current.cycle_length ?? 28}d</Text>
-                  <Text style={[s.statLbl, { color: P.textFaint }]}>cycle length</Text>
-                </View>
-              </View>
-
-              {/* Phase insight */}
-              {current.phase_insight && (
-                <View style={[s.insightBox, { backgroundColor: P.accentSoft, borderColor: P.cardEdge }]}>
-                  <Ionicons name="sparkles" size={13} color={P.accent} style={{ marginTop: 1 }} />
-                  <Text style={[s.insightText, { color: P.textDim ?? P.textFaint }]}>{current.phase_insight}</Text>
-                </View>
-              )}
-            </Card>
-          ) : (
-            // No period logged yet
-            <Card delay={0}>
-              <View style={s.phaseHead}>
-                <View style={[s.iconTile, { backgroundColor: P.accentSoft }]}>
-                  <Ionicons name="calendar" size={18} color={P.accent} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.phaseTitle, { color: P.text }]}>No period logged</Text>
-                  <Text style={[s.phaseSub, { color: P.textFaint }]}>
-                    Log your last period to enable tracking
-                  </Text>
-                </View>
-              </View>
-            </Card>
-          )}
-
-          {/* ── Log Period CTA ─────────────────────────────────────── */}
-          <TouchableOpacity
-            onPress={() => setLogModalOpen(true)}
-            activeOpacity={0.85}
-            disabled={isSaving}
-            style={[s.cta, { backgroundColor: P.accent }]}
-          >
-            {isSaving ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <>
-                <Ionicons name="add-circle" size={20} color="#fff" />
-                <Text style={s.ctaText}>Log New Period</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {/* ── Adjusted targets ──────────────────────────────────── */}
-          {current?.adjusted_targets && (
-            <Card delay={80}>
-              <Text style={[s.cardTitle, { color: P.text }]}>Adjusted Targets</Text>
-              {current.adjustment_reason && (
-                <Text style={[s.cardSub, { color: P.textFaint }]}>{current.adjustment_reason}</Text>
-              )}
-              <View style={[s.targetsRow, { marginTop: 16 }]}>
-                {[
-                  { label: 'Calories', val: `${current.adjusted_targets.calories}`, unit: 'kcal' },
-                  { label: 'Protein',  val: `${current.adjusted_targets.protein}`,  unit: 'g'    },
-                  { label: 'Carbs',    val: `${current.adjusted_targets.carbs}`,    unit: 'g'    },
-                  { label: 'Fat',      val: `${current.adjusted_targets.fat}`,      unit: 'g'    },
-                ].map((t) => (
-                  <View key={t.label} style={s.targetItem}>
-                    <Text style={[s.targetVal, { color: P.accent }]}>{t.val}</Text>
-                    <Text style={[s.targetUnit, { color: P.textFaint }]}>{t.unit}</Text>
-                    <Text style={[s.targetLbl, { color: P.textFaint }]}>{t.label}</Text>
-                  </View>
-                ))}
-              </View>
-            </Card>
-          )}
-
-          {/* ── Settings row ──────────────────────────────────────── */}
-          <Card delay={120}>
-            <Text style={[s.cardTitle, { color: P.text }]}>Settings</Text>
-
-            {/* Cycle length */}
-            <TouchableOpacity
-              onPress={() => setCycleLenModal(true)}
-              style={[s.settingRow, { borderBottomColor: P.hair }]}
-              activeOpacity={0.7}
-            >
-              <View style={[s.settingIcon, { backgroundColor: P.accentSoft }]}>
-                <Ionicons name="repeat" size={16} color={P.accent} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[s.settingLabel, { color: P.text }]}>Cycle Length</Text>
-                <Text style={[s.settingSub, { color: P.textFaint }]}>Used to predict your next period</Text>
-              </View>
-              <Text style={[s.settingVal, { color: P.accent }]}>{defaultCycleLen}d</Text>
-              <Ionicons name="chevron-forward" size={14} color={P.textFaint} />
-            </TouchableOpacity>
-
-            {/* Life stage */}
-            <TouchableOpacity
-              onPress={() => setLifeStageModal(true)}
-              style={[s.settingRow, { borderBottomWidth: 0 }]}
-              activeOpacity={0.7}
-            >
-              <View style={[s.settingIcon, { backgroundColor: P.accentSoft }]}>
-                <Ionicons name="person" size={16} color={P.accent} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[s.settingLabel, { color: P.text }]}>Life Stage</Text>
-                <Text style={[s.settingSub, { color: P.textFaint }]}>Adjusts calorie & macro targets</Text>
-              </View>
-              <Text style={[s.settingVal, { color: P.accent }]}>{currentLifeStage.label}</Text>
-              <Ionicons name="chevron-forward" size={14} color={P.textFaint} />
-            </TouchableOpacity>
-          </Card>
-
-          {/* ── Stats card ────────────────────────────────────────── */}
-          {stats?.available && stats.total_cycles > 0 && (
-            <Card delay={160}>
-              <Text style={[s.cardTitle, { color: P.text }]}>Cycle Stats</Text>
-              <Text style={[s.cardSub, { color: P.textFaint }]}>
-                Based on {stats.total_cycles} logged cycle{stats.total_cycles !== 1 ? 's' : ''}
-              </Text>
-              <View style={s.statsGrid}>
-                {[
-                  { label: 'Average',  val: stats.avg_cycle_length != null ? `${stats.avg_cycle_length}d` : '—' },
-                  { label: 'Shortest', val: stats.shortest_cycle   != null ? `${stats.shortest_cycle}d`   : '—' },
-                  { label: 'Longest',  val: stats.longest_cycle    != null ? `${stats.longest_cycle}d`    : '—' },
-                ].map((item) => (
-                  <View key={item.label} style={[s.statBox, { backgroundColor: P.accentSoft }]}>
-                    <Text style={[s.statBoxVal, { color: P.accent }]}>{item.val}</Text>
-                    <Text style={[s.statBoxLbl, { color: P.textFaint }]}>{item.label}</Text>
-                  </View>
-                ))}
-              </View>
-            </Card>
-          )}
-
-          {/* ── History ───────────────────────────────────────────── */}
-          {history.length > 0 && (
-            <Card delay={200}>
-              <Text style={[s.cardTitle, { color: P.text }]}>History</Text>
-              {history.map((log, i) => (
-                <View key={log.id}>
-                  {i > 0 && <View style={[s.divider, { backgroundColor: P.hair }]} />}
-                  <View style={s.historyRow}>
-                    <View style={[s.settingIcon, { backgroundColor: P.accentSoft }]}>
-                      <Ionicons name="water" size={14} color={P.accent} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[s.historyDate, { color: P.text }]}>
-                        {fmtDate(log.period_start_date)}
-                      </Text>
-                      <Text style={[s.historySub, { color: P.textFaint }]}>
-                        {log.cycle_length}d cycle
-                        {log.predicted_next_period ? ` · next ${fmtDate(log.predicted_next_period)}` : ''}
-                      </Text>
-                    </View>
-                    <Pressable
-                      onPress={() => handleDelete(log)}
-                      hitSlop={10}
-                      style={({ pressed }) => [
-                        s.deleteBtn,
-                        { backgroundColor: P.dangerSoft, opacity: pressed ? 0.6 : 1 },
-                      ]}
-                    >
-                      <Ionicons name="trash-outline" size={14} color={P.danger} />
-                    </Pressable>
-                  </View>
-                </View>
-              ))}
-            </Card>
-          )}
-        </ScrollView>
+        />
       )}
 
-      {/* ── Log period modal ──────────────────────────────────────── */}
-      <LogPeriodModal
-        visible={logModalOpen}
-        onClose={() => setLogModalOpen(false)}
-        onConfirm={handleLogPeriod}
-        defaultCycleLength={defaultCycleLen}
-        isDark={P.isDark}
-      />
-
-      {/* ── Cycle length picker modal ─────────────────────────────── */}
-      <CycleLengthModal
-        visible={cycleLenModal}
-        onClose={() => setCycleLenModal(false)}
-        onConfirm={handleCycleLength}
-        current={defaultCycleLen}
-        isDark={P.isDark}
-      />
-
-      {/* ── Life stage modal ──────────────────────────────────────── */}
-      <LifeStageModal
-        visible={lifeStageModal}
-        onClose={() => setLifeStageModal(false)}
-        onSelect={handleLifeStage}
-        current={current?.life_stage ?? 'regular'}
-        isDark={P.isDark}
-        P={P}
-      />
+      {/* Phase labels */}
+      <View style={{ flexDirection: 'row', gap: GAP }}>
+        {buildSegments(cycleLength).map((seg, i) => {
+          const segW = (seg.days / total) * usableW;
+          return (
+            <Text
+              key={seg.key}
+              numberOfLines={1}
+              style={{
+                width: segW,
+                fontSize: 9,
+                fontWeight: '700',
+                letterSpacing: 0.3,
+                color: seg.color,
+                opacity: 0.75,
+                textAlign: i === 0 ? 'left' : i === segments.length - 1 ? 'right' : 'center',
+              }}
+            >
+              {seg.label.slice(0, 3).toUpperCase()}
+            </Text>
+          );
+        })}
+      </View>
     </View>
   );
 }
 
-// ── Cycle length picker modal ──────────────────────────────────────────────
+function getCurrentPhaseColor(cycleDay: number, cycleLength: number): string {
+  const segs = buildSegments(cycleLength);
+  let cum = 0;
+  for (const seg of segs) {
+    cum += seg.days;
+    if (cycleDay <= cum) return seg.color;
+  }
+  return segs[segs.length - 1].color;
+}
 
-function CycleLengthModal({
-  visible, onClose, onConfirm, current, isDark,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onConfirm: (len: number) => void;
-  current: number;
-  isDark: boolean;
-}) {
-  const labels = useMemo(() => Array.from({ length: 25 }, (_, i) => `${i + 21} days`), []);
-  const [idx, setIdx] = useState(Math.max(0, current - 21));
+// ─── Calendar helpers ─────────────────────────────────────────────────────────
+const FULL_MONTHS = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+const DOW = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+
+function toIso(d: Date) {
+  const y  = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2,'0');
+  const da = String(d.getDate()).padStart(2,'0');
+  return `${y}-${mo}-${da}`;
+}
+
+function sameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear()
+      && a.getMonth()    === b.getMonth()
+      && a.getDate()     === b.getDate();
+}
+
+function buildWeeks(year: number, month: number): (Date | null)[][] {
+  const first  = new Date(year, month, 1);
+  const offset = first.getDay();
+  const total  = new Date(year, month + 1, 0).getDate();
+  const flat: (Date | null)[] = Array(offset).fill(null);
+  for (let d = 1; d <= total; d++) flat.push(new Date(year, month, d));
+  while (flat.length % 7 !== 0) flat.push(null);
+  const out: (Date | null)[][] = [];
+  for (let i = 0; i < flat.length; i += 7) out.push(flat.slice(i, i+7));
+  return out;
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+export default function CycleTrackingScreen() {
+  const P      = usePalette();
+  const ACC    = useAcc();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const toast  = useToast();
+  const { width: screenW } = useWindowDimensions();
+  const { current, history, isLoading, logPeriod } = useCycle();
+
+  const HPAD   = 20;
+  const barW   = screenW - HPAD * 2;
+  const CELL   = Math.floor((screenW - 72) / 7);
+  const today  = useMemo(() => new Date(), []);
+
+  const [calYear,     setCalYear]     = useState(today.getFullYear());
+  const [calMonth,    setCalMonth]    = useState(today.getMonth());
+  const [selected,    setSelected]    = useState<Date>(today);
+  const [cycleLength, setCycleLength] = useState(history[0]?.cycle_length ?? 28);
+  const [saving,      setSaving]      = useState(false);
+
+  const weeks       = useMemo(() => buildWeeks(calYear, calMonth), [calYear, calMonth]);
+  const loggedDates = useMemo(() => new Set(history.map(h => h.period_start_date)), [history]);
+
+  const canGoNext = calYear < today.getFullYear()
+    || (calYear === today.getFullYear() && calMonth < today.getMonth());
+
+  function prevMonth() {
+    if (calMonth === 0) { setCalYear(y => y-1); setCalMonth(11); }
+    else setCalMonth(m => m-1);
+  }
+  function nextMonth() {
+    if (!canGoNext) return;
+    if (calMonth === 11) { setCalYear(y => y+1); setCalMonth(0); }
+    else setCalMonth(m => m+1);
+  }
+
+  const handleLog = async () => {
+    setSaving(true);
+    try {
+      await logPeriod(toIso(selected), cycleLength);
+      toast.success('Period logged',
+        `Started ${selected.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`,
+      );
+    } catch {
+      toast.error('Could not save', 'Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cycleLen   = history[0]?.cycle_length ?? 28;
+  const cycleDay   = current?.days_remaining != null
+    ? Math.max(cycleLen - current.days_remaining, 1)
+    : null;
+  const phaseMeta  = current?.phase ? PHASE_META[current.phase] : null;
+  const nextPeriod = current?.predicted_next_period
+    ? new Date(current.predicted_next_period)
+    : null;
+  const nextPeriodStr = nextPeriod
+    ? nextPeriod.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : null;
+  const daysUntilNext = nextPeriod
+    ? Math.ceil((nextPeriod.getTime() - today.getTime()) / 86400000)
+    : null;
+
+  const isViewingCurrentMonth = calYear === today.getFullYear() && calMonth === today.getMonth();
 
   return (
-    <AppModal visible={visible} onClose={onClose} title="Cycle Length" sheetHeight={0.48}>
-      <View style={{ flex: 1, paddingHorizontal: 24 }}>
-        <View style={{ height: 200 }}>
-          <WheelColumn labels={labels} selectedIndex={idx} onChange={setIdx} isDark={isDark} />
-        </View>
+    <View style={{ flex: 1, backgroundColor: P.bg }}>
+
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <View style={[s.header, { paddingTop: insets.top + 10, paddingHorizontal: HPAD }]}>
         <TouchableOpacity
-          onPress={() => onConfirm(idx + 21)}
-          activeOpacity={0.85}
-          style={{
-            backgroundColor: '#A78BFA',
-            borderRadius: 14,
-            paddingVertical: 16,
-            alignItems: 'center',
-            marginTop: 12,
-          }}
+          onPress={() => router.back()}
+          hitSlop={12}
+          style={[s.backBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
+          activeOpacity={0.7}
         >
-          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }}>Save</Text>
+          <Ionicons name="chevron-back" size={18} color={P.text} />
         </TouchableOpacity>
+
+        <Text style={[s.headerTitle, { color: P.text }]} numberOfLines={1}>Cycle Tracking</Text>
+
+        {!isViewingCurrentMonth ? (
+          <TouchableOpacity
+            onPress={() => { setCalYear(today.getFullYear()); setCalMonth(today.getMonth()); setSelected(today); }}
+            style={[s.todayPill, { backgroundColor: ACC + '18', borderColor: ACC + '40' }]}
+            activeOpacity={0.75}
+          >
+            <Text style={[s.todayPillText, { color: ACC }]}>Today</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={s.backBtn} />
+        )}
       </View>
-    </AppModal>
+
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+        showsVerticalScrollIndicator={false}
+      >
+
+        {/* ── Hero ───────────────────────────────────────────────────────── */}
+        <View style={[s.heroCard, { backgroundColor: P.card, borderColor: P.cardEdge, marginHorizontal: HPAD }]}>
+          {isLoading ? (
+            <ActivityIndicator color={ACC} size="large" style={{ paddingVertical: 32 }} />
+          ) : (
+            <>
+              <View style={s.heroTop}>
+                {/* Left: day + phase */}
+                <View style={s.heroLeft}>
+                  <View style={s.heroNumRow}>
+                    <Text style={[s.heroDay, { color: P.text }]}>
+                      {cycleDay ?? '—'}
+                    </Text>
+                    <View style={{ paddingBottom: 10, paddingLeft: 6 }}>
+                      <Text style={[s.heroDaySub, { color: P.textFaint }]}>day of</Text>
+                      <Text style={[s.heroDaySub, { color: P.textFaint }]}>{cycleLen}</Text>
+                    </View>
+                  </View>
+
+                  {phaseMeta ? (
+                    <View style={[s.phasePill, { backgroundColor: phaseMeta.color + '18' }]}>
+                      <Ionicons name={phaseMeta.icon} size={11} color={phaseMeta.color} />
+                      <Text style={[s.phasePillText, { color: phaseMeta.color }]}>
+                        {phaseMeta.label} Phase
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={[s.phasePill, { backgroundColor: P.sunken }]}>
+                      <Text style={[s.phasePillText, { color: P.textFaint }]}>No cycle logged</Text>
+                    </View>
+                  )}
+
+                  {phaseMeta && (
+                    <Text style={[s.heroTip, { color: P.textFaint }]}>{phaseMeta.tip}</Text>
+                  )}
+                </View>
+
+                {/* Right: next period badge */}
+                {nextPeriodStr && daysUntilNext != null && (
+                  <View style={[s.nextBadge, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}>
+                    <Text style={[s.nextEye, { color: P.textFaint }]}>NEXT</Text>
+                    <Text style={[s.nextDate, { color: P.text }]}>{nextPeriodStr}</Text>
+                    <View style={[s.nextDot, { backgroundColor: ACC }]}>
+                      <Text style={s.nextDotText}>
+                        {daysUntilNext <= 0 ? 'today' : `${daysUntilNext}d`}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+
+              {/* Phase progress bar */}
+              {cycleDay != null && (
+                <View style={{ marginTop: 20 }}>
+                  <PhaseBar cycleDay={cycleDay} cycleLength={cycleLen} barWidth={barW - 40} />
+                </View>
+              )}
+            </>
+          )}
+        </View>
+
+        {/* ── Quick stats ─────────────────────────────────────────────────── */}
+        {!isLoading && (cycleDay != null || nextPeriodStr) && (
+          <View style={[s.statsRow, { paddingHorizontal: HPAD }]}>
+            <StatPill
+              label="Cycle day"
+              value={cycleDay != null ? `${cycleDay}` : '—'}
+              unit={`of ${cycleLen}`}
+              color={ACC}
+              P={P}
+            />
+            <StatPill
+              label="Next period"
+              value={daysUntilNext != null ? (daysUntilNext <= 0 ? 'Today' : `${daysUntilNext}`) : '—'}
+              unit={daysUntilNext != null && daysUntilNext > 0 ? 'days away' : ''}
+              color={PHASE_META.menstrual.color}
+              P={P}
+            />
+            <StatPill
+              label="Remaining"
+              value={current?.days_remaining != null ? `${current.days_remaining}` : '—'}
+              unit="days left"
+              color={PHASE_META.luteal.color}
+              P={P}
+            />
+          </View>
+        )}
+
+        {/* ── Calendar ────────────────────────────────────────────────────── */}
+        <View style={[s.card, { backgroundColor: P.card, borderColor: P.cardEdge, marginHorizontal: HPAD }]}>
+
+          {/* Month nav */}
+          <View style={[s.calNav, { borderBottomColor: P.hair }]}>
+            <Text style={[s.calMonth, { color: P.text }]}>
+              {FULL_MONTHS[calMonth]}{' '}
+              <Text style={{ color: P.textFaint }}>{calYear}</Text>
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              <Pressable onPress={prevMonth} style={[s.calArrow, { backgroundColor: P.sunken }]} hitSlop={8}>
+                <Ionicons name="chevron-back" size={14} color={P.textDim} />
+              </Pressable>
+              <Pressable
+                onPress={nextMonth}
+                style={[s.calArrow, { backgroundColor: P.sunken, opacity: canGoNext ? 1 : 0.25 }]}
+                hitSlop={8}
+              >
+                <Ionicons name="chevron-forward" size={14} color={P.textDim} />
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+            {/* DOW row */}
+            <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+              {DOW.map((d, i) => (
+                <View key={i} style={{ width: CELL, alignItems: 'center' }}>
+                  <Text style={[s.dow, { color: i === 0 ? ACC : P.textFaint }]}>{d}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Weeks */}
+            {weeks.map((week, wi) => (
+              <View key={wi} style={{ flexDirection: 'row', marginBottom: 2 }}>
+                {week.map((day, di) => {
+                  if (!day) return <View key={`b${wi}-${di}`} style={{ width: CELL, height: CELL }} />;
+
+                  const isSel    = sameDay(day, selected);
+                  const isToday  = sameDay(day, today);
+                  const isFuture = day > today;
+                  const isLogged = loggedDates.has(toIso(day));
+                  const isSun    = di === 0;
+                  const cs       = CELL - 8;
+
+                  return (
+                    <Pressable
+                      key={toIso(day)}
+                      disabled={isFuture}
+                      onPress={() => setSelected(day)}
+                      style={({ pressed }) => [
+                        { width: CELL, height: CELL, alignItems: 'center', justifyContent: 'center' },
+                        pressed && !isFuture && { opacity: 0.55 },
+                      ]}
+                    >
+                      <View style={[
+                        { width: cs, height: cs, borderRadius: cs/2, alignItems: 'center', justifyContent: 'center' },
+                        isSel   && { backgroundColor: ACC },
+                        !isSel && isToday && { borderWidth: 1.5, borderColor: ACC },
+                        isFuture && { opacity: 0.2 },
+                      ]}>
+                        <Text style={[
+                          s.dayNum,
+                          { color: isSel ? '#fff' : isToday ? ACC : isSun ? ACC : P.text },
+                        ]}>
+                          {day.getDate()}
+                        </Text>
+                      </View>
+                      {isLogged && !isSel && (
+                        <View style={[s.logDot, { backgroundColor: ACC }]} />
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+
+          {/* Selected date footer */}
+          <View style={[s.calFooter, { borderTopColor: P.hair }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={[s.footerDot, { backgroundColor: ACC }]} />
+              <Text style={[s.calFooterText, { color: P.textDim }]}>
+                Period started{' '}
+                <Text style={{ color: P.text, fontWeight: '700' }}>
+                  {selected.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                </Text>
+              </Text>
+            </View>
+            <Ionicons name="checkmark-circle" size={18} color={ACC} />
+          </View>
+        </View>
+
+        {/* ── Log controls ─────────────────────────────────────────────────── */}
+        <View style={[s.card, { backgroundColor: P.card, borderColor: P.cardEdge, marginHorizontal: HPAD }]}>
+
+          <View style={[s.lenRow, { borderBottomColor: P.hair }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.lenLabel, { color: P.text }]}>Cycle length</Text>
+              <Text style={[s.lenSub, { color: P.textFaint }]}>Average days per cycle</Text>
+            </View>
+            <View style={s.stepper}>
+              <Pressable
+                onPress={() => setCycleLength(l => Math.max(l-1, 21))}
+                style={[s.stepBtn, { borderColor: P.cardEdge, backgroundColor: P.sunken }]}
+              >
+                <Ionicons name="remove" size={16} color={P.textDim} />
+              </Pressable>
+              <Text style={[s.stepVal, { color: P.text }]}>{cycleLength}</Text>
+              <Pressable
+                onPress={() => setCycleLength(l => Math.min(l+1, 45))}
+                style={[s.stepBtn, { borderColor: P.cardEdge, backgroundColor: P.sunken }]}
+              >
+                <Ionicons name="add" size={16} color={P.textDim} />
+              </Pressable>
+            </View>
+          </View>
+
+          <Pressable
+            onPress={handleLog}
+            disabled={saving}
+            style={({ pressed }) => [
+              s.logBtn,
+              { backgroundColor: ACC, opacity: pressed ? 0.88 : 1 },
+            ]}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <>
+                <Ionicons name="flower-outline" size={16} color="#fff" />
+                <Text style={s.logBtnText}>Log Period</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+
+        {/* ── History ─────────────────────────────────────────────────────── */}
+        {history.length > 0 && (
+          <View style={[s.card, { backgroundColor: P.card, borderColor: P.cardEdge, marginHorizontal: HPAD }]}>
+            <View style={[s.histHead, { borderBottomColor: P.hair }]}>
+              <Text style={[s.histTitle, { color: P.text }]}>Period History</Text>
+              <View style={[s.histBadge, { backgroundColor: P.sunken }]}>
+                <Text style={[s.histBadgeText, { color: P.textFaint }]}>{history.length}</Text>
+              </View>
+            </View>
+
+            {history.map((log, i) => {
+              const start = new Date(log.period_start_date);
+              const nextD = log.predicted_next_period
+                ? new Date(log.predicted_next_period).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                : null;
+              return (
+                <View key={log.id} style={[s.histRow, { borderBottomColor: P.hair, borderBottomWidth: i < history.length - 1 ? StyleSheet.hairlineWidth : 0 }]}>
+                  <View style={[s.histDot, { backgroundColor: ACC + '20' }]}>
+                    <View style={[s.histDotInner, { backgroundColor: ACC }]} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.histDate, { color: P.text }]}>
+                      {start.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
+                    </Text>
+                    <Text style={[s.histMeta, { color: P.textFaint }]}>
+                      {log.cycle_length} days{nextD ? `  ·  next ~${nextD}` : ''}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+      </ScrollView>
+    </View>
   );
 }
 
-// ── Life stage picker modal ────────────────────────────────────────────────
-
-function LifeStageModal({
-  visible, onClose, onSelect, current, isDark, P,
+// ─── Stat Pill ────────────────────────────────────────────────────────────────
+function StatPill({
+  label, value, unit, color, P,
 }: {
-  visible: boolean;
-  onClose: () => void;
-  onSelect: (stage: LifeStage) => void;
-  current: LifeStage;
-  isDark: boolean;
+  label: string; value: string; unit: string; color: string;
   P: ReturnType<typeof usePalette>;
 }) {
   return (
-    <AppModal visible={visible} onClose={onClose} title="Life Stage" sheetHeight={0.54}>
-      <View style={{ paddingHorizontal: 24, paddingTop: 8, gap: 10 }}>
-        {LIFE_STAGES.map((stage) => {
-          const isActive = stage.key === current;
-          return (
-            <TouchableOpacity
-              key={stage.key}
-              onPress={() => onSelect(stage.key)}
-              activeOpacity={0.8}
-              style={[s.stageRow, {
-                backgroundColor: isActive ? P.accentSoft : P.sunken,
-                borderColor: isActive ? P.accent : P.cardEdge,
-              }]}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={[s.stageLabel, { color: isActive ? P.accent : P.text }]}>{stage.label}</Text>
-                <Text style={[s.stageSub, { color: P.textFaint }]}>{stage.sub}</Text>
-              </View>
-              {isActive && <Ionicons name="checkmark-circle" size={20} color={P.accent} />}
-            </TouchableOpacity>
-          );
-        })}
+    <View style={[sp.wrap, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
+      <View style={[sp.dot, { backgroundColor: color + '20' }]}>
+        <View style={[sp.dotInner, { backgroundColor: color }]} />
       </View>
-    </AppModal>
+      <Text style={[sp.value, { color: P.text }]}>{value}</Text>
+      <Text style={[sp.unit, { color: P.textFaint }]}>{unit || label}</Text>
+      {unit ? <Text style={[sp.label, { color: P.textFaint }]}>{label}</Text> : null}
+    </View>
   );
 }
 
-// ── Styles ─────────────────────────────────────────────────────────────────
+const sp = StyleSheet.create({
+  wrap:     { flex: 1, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 14, gap: 4 },
+  dot:      { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  dotInner: { width: 8, height: 8, borderRadius: 4 },
+  value:    { fontFamily: 'BarlowCondensed_800ExtraBold', fontSize: 28, letterSpacing: -0.5, lineHeight: 30 },
+  unit:     { fontSize: 11, fontWeight: '500', letterSpacing: 0.1 },
+  label:    { fontSize: 10, fontWeight: '400' },
+});
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  root: { flex: 1 },
-
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 8,
-    gap: 8,
+    flexDirection:  'row',
+    alignItems:     'center',
+    paddingBottom:  16,
+    gap:            12,
   },
-  back: {
-    width: 38, height: 38,
+  backBtn: {
+    width: 38, height: 38, borderRadius: 19,
     alignItems: 'center', justifyContent: 'center',
-    marginLeft: -8,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  eyebrow: {
-    fontSize: 10, fontWeight: '700',
-    textTransform: 'uppercase', letterSpacing: 1.4,
+  eyebrow:      { fontSize: 9, fontWeight: '700', letterSpacing: 2, marginBottom: 1 },
+  headerTitle:  { flex: 1, textAlign: 'center', fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
+  todayPill:    { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
+  todayPillText:{ fontSize: 12, fontWeight: '700' },
+
+  // Hero
+  heroCard: {
+    borderRadius: 20, borderWidth: StyleSheet.hairlineWidth,
+    padding: 20, marginBottom: 12,
   },
-  title: {
-    fontSize: 22, fontWeight: '800', letterSpacing: -0.5,
+  heroTop:    { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  heroLeft:   { flex: 1 },
+  heroNumRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 10 },
+  heroDay: {
+    fontFamily:    'BarlowCondensed_800ExtraBold',
+    fontSize:       80,
+    lineHeight:     72,
+    letterSpacing: -2,
+  },
+  heroDaySub: { fontFamily: 'BarlowCondensed_600SemiBold', fontSize: 13, letterSpacing: 0.3, lineHeight: 16 },
+
+  phasePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
+  },
+  phasePillText: { fontSize: 12, fontWeight: '700', letterSpacing: -0.1 },
+  heroTip:       { fontSize: 12, lineHeight: 18, marginTop: 8, maxWidth: '90%', fontWeight: '400' },
+
+  nextBadge: {
+    borderRadius: 14, borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12, paddingVertical: 10,
+    alignItems: 'center', gap: 3, minWidth: 80,
+  },
+  nextEye:     { fontSize: 8, fontWeight: '800', letterSpacing: 1.5 },
+  nextDate:    { fontFamily: 'Syne_700Bold', fontSize: 13, letterSpacing: -0.2 },
+  nextDot:     { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, marginTop: 2 },
+  nextDotText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+
+  // Stats row
+  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+
+  // Generic card
+  card: {
+    borderRadius: 20, borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden', marginBottom: 12,
   },
 
-  // Phase card
-  phaseHead: {
-    flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16,
+  // Calendar
+  calNav: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 18, paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  iconTile: {
-    width: 38, height: 38, borderRadius: 12,
+  calMonth: { fontFamily: 'Syne_700Bold', fontSize: 15, letterSpacing: -0.2 },
+  calArrow: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  dow:      { fontSize: 10, fontWeight: '700', letterSpacing: 0.3, paddingVertical: 4 },
+  dayNum:   { fontSize: 14, fontWeight: '600' },
+  logDot:   { position: 'absolute', bottom: 2, width: 3, height: 3, borderRadius: 2 },
+  calFooter: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 18, paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth, marginTop: 6,
+  },
+  footerDot:     { width: 6, height: 6, borderRadius: 3 },
+  calFooterText: { fontSize: 12, fontWeight: '500' },
+
+  // Controls
+  lenRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 20, paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  lenLabel: { fontSize: 14, fontWeight: '700', letterSpacing: -0.1 },
+  lenSub:   { fontSize: 11, marginTop: 2 },
+  stepper:  { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  stepBtn:  {
+    width: 32, height: 32, borderRadius: 9,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center', justifyContent: 'center',
   },
-  phaseTitle: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3 },
-  phaseSub:   { fontSize: 12, fontWeight: '500', marginTop: 1 },
-  pill: {
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderRadius: 999, alignItems: 'center',
+  stepVal: {
+    fontFamily: 'BarlowCondensed_800ExtraBold',
+    fontSize: 26, letterSpacing: -0.5,
+    minWidth: 30, textAlign: 'center',
   },
-  phaseRow: { flexDirection: 'row', gap: 6, marginBottom: 16 },
-  phaseTick: { flex: 1, gap: 5 },
-  phaseBar:  { borderRadius: 2 },
-  phaseCap:  { fontSize: 10, letterSpacing: 0.2 },
 
-  statsRow: {
-    flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 16,
-  },
-  statItem:    { flex: 1, alignItems: 'center', gap: 3 },
-  statDivider: { width: StyleSheet.hairlineWidth, marginHorizontal: 4 },
-  statVal:     { fontSize: 13, fontWeight: '800', letterSpacing: -0.3 },
-  statLbl:     { fontSize: 10, fontWeight: '600', textAlign: 'center' },
-
-  insightBox: {
-    flexDirection: 'row', gap: 8, alignItems: 'flex-start',
-    padding: 12, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, marginTop: 4,
-  },
-  insightText: { flex: 1, fontSize: 13, fontWeight: '500', lineHeight: 20 },
-
-  // CTA
-  cta: {
+  logBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, paddingVertical: 16, borderRadius: 16,
+    gap: 8, margin: 14, borderRadius: 13, paddingVertical: 14,
   },
-  ctaText: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: -0.2 },
-
-  // Targets
-  cardTitle: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3, marginBottom: 4 },
-  cardSub:   { fontSize: 12, fontWeight: '500' },
-  targetsRow: { flexDirection: 'row', justifyContent: 'space-around' },
-  targetItem: { alignItems: 'center', gap: 2 },
-  targetVal:  { fontSize: 20, fontWeight: '800', letterSpacing: -0.5 },
-  targetUnit: { fontSize: 10, fontWeight: '700', letterSpacing: 0.3 },
-  targetLbl:  { fontSize: 10, fontWeight: '600' },
-
-  // Settings
-  settingRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  settingIcon: {
-    width: 34, height: 34, borderRadius: 10,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  settingLabel: { fontSize: 14, fontWeight: '700' },
-  settingSub:   { fontSize: 11, fontWeight: '500', marginTop: 1 },
-  settingVal:   { fontSize: 13, fontWeight: '800', marginRight: 4 },
-
-  // Stats grid
-  statsGrid:   { flexDirection: 'row', gap: 10, marginTop: 14 },
-  statBox:     { flex: 1, borderRadius: 12, padding: 12, alignItems: 'center', gap: 4 },
-  statBoxVal:  { fontSize: 18, fontWeight: '800', letterSpacing: -0.5 },
-  statBoxLbl:  { fontSize: 10, fontWeight: '600' },
+  logBtnText: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: -0.1 },
 
   // History
-  divider:    { height: StyleSheet.hairlineWidth, marginVertical: 4 },
-  historyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
-  historyDate:{ fontSize: 14, fontWeight: '700' },
-  historySub: { fontSize: 11, fontWeight: '500', marginTop: 1 },
-  deleteBtn:  { padding: 8, borderRadius: 8 },
-
-  // Life stage modal
-  stageRow: {
-    flexDirection: 'row', alignItems: 'center',
-    padding: 14, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth,
+  histHead: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 20, paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  stageLabel: { fontSize: 14, fontWeight: '800' },
-  stageSub:   { fontSize: 11, fontWeight: '500', marginTop: 2 },
+  histTitle:     { fontFamily: 'Syne_700Bold', fontSize: 14, letterSpacing: -0.1, flex: 1 },
+  histBadge:     { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  histBadgeText: { fontSize: 11, fontWeight: '700' },
+  histRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingHorizontal: 20, paddingVertical: 14,
+  },
+  histDot:      { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  histDotInner: { width: 10, height: 10, borderRadius: 5 },
+  histDate:     { fontSize: 13, fontWeight: '700', letterSpacing: -0.1, marginBottom: 2 },
+  histMeta:     { fontSize: 11 },
 });

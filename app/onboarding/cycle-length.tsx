@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 import { NumericStepper } from '@/components/onboarding/numeric-stepper';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 const MIN_DAYS = 21;
 const MAX_DAYS = 45;
@@ -40,7 +41,7 @@ export default function CycleLengthScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={7} total={12} onBack={() => router.back()} isDark={false} />
+        <ProgressBar step={7} total={12} backHref={{ pathname: '/onboarding/activity', params }} isDark={false} />
       </View>
 
       <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>
@@ -48,6 +49,10 @@ export default function CycleLengthScreen() {
         <Text style={[s.sub, { color: mid }]}>
           Average number of days from the first day of your period to the start of the next.
         </Text>
+        <WhyWeAsk
+          text="We use this to tailor your calorie targets through your cycle."
+          style={s.whyWeAsk}
+        />
 
         <NumericStepper
           value={days}
@@ -79,5 +84,6 @@ const s = StyleSheet.create({
   body:     { gap: 28 },
   headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48 },
   sub:      { fontSize: 15, fontWeight: '400', lineHeight: 22, marginTop: -14 },
+  whyWeAsk: { marginTop: 4 },
   hint:     { fontSize: 13, fontWeight: '500', textAlign: 'center' },
 });

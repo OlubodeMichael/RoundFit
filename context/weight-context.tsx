@@ -1,13 +1,23 @@
 import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useState,
 } from 'react';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
+import { apiFetch } from '@/utils/api';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  setResourceCached,
+} from '@/utils/resource-cache';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
 const DEFAULT_LIMIT = 30;
+// Weight history only changes when the user logs a new weight, and logWeight
+// write-throughs that change into the cache. So treat the cache as effectively
+// permanent — it never goes stale on its own and is never refetched unless a new
+// entry is logged or the user pull-to-refreshes (force, which bypasses the TTL).
+const TTL_WEIGHT_HISTORY = 365 * 24 * 60 * 60 * 1000; // ~1 year
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -27,34 +37,14 @@ export interface WeightContextValue {
   /** True while the initial fetch is in-flight. */
   isLoading: boolean;
 
+  /** True once the first fetch has completed (set false until progress tab is visited). */
+  initialized: boolean;
+
   /** Logs a new weight entry — hits POST /weight. */
   logWeight: (weightKg: number, unit?: 'metric' | 'imperial') => Promise<WeightEntry>;
 
-  /** Re-fetches weight history from the server. */
-  refresh: (limit?: number) => Promise<void>;
-}
-
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function weightFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
+  /** Re-fetches weight history; uses AsyncStorage unless `force` is true. */
+  refresh: (options?: { limit?: number; force?: boolean }) => Promise<void>;
 }
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
@@ -62,7 +52,7 @@ async function weightFetch(
 function fromApiEntry(row: Record<string, unknown>): WeightEntry {
   return {
     id:        String(row.id ?? ''),
-    weight_kg: typeof row.weight_kg === 'number' ? row.weight_kg : 0,
+    weight_kg: typeof row.weight === 'number' ? row.weight : typeof row.weight_kg === 'number' ? row.weight_kg : 0,
     logged_at: typeof row.logged_at === 'string' ? row.logged_at : new Date().toISOString(),
   };
 }
@@ -76,66 +66,97 @@ const WeightContext = createContext<WeightContextValue | null>(null);
 export function WeightProvider({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
 
-  const [entries,   setEntries]   = useState<WeightEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [entries,     setEntries]     = useState<WeightEntry[]>([]);
+  const [isLoading,   setIsLoading]   = useState(false);
+  const [initialized, setInitialized] = useState(false);
 
   const latest = useMemo(() => entries[0] ?? null, [entries]);
 
-  // ── Fetch entries ────────────────────────────────────────────────────────
-  const fetchEntries = useCallback(async (limit = DEFAULT_LIMIT) => {
-    const { ok, body } = await weightFetch(`/weight?limit=${limit}`);
-    if (!ok) return;
-    const rows = Array.isArray(body.data) ? body.data as Record<string, unknown>[] : [];
-    setEntries(rows.map(fromApiEntry));
-  }, []);
+  const fetchEntries = useCallback(async (limit = DEFAULT_LIMIT, force = false) => {
+    if (!user?.id) return;
 
+    const key = buildResourceKey('weight', user.id, String(limit));
+    const rows = await fetchWithResourceCache<WeightEntry[]>(
+      key,
+      TTL_WEIGHT_HISTORY,
+      async () => {
+        const { ok, body } = await apiFetch(`/weight?limit=${limit}`);
+        if (!ok) return null;
+        const raw = Array.isArray(body.data) ? body.data as Record<string, unknown>[] : [];
+        return raw.map(fromApiEntry);
+      },
+      { force },
+    );
+
+    if (rows) setEntries(rows);
+  }, [user?.id]);
+
+  // Reset state on logout only — data is fetched lazily when progress tab is first visited.
   useEffect(() => {
-    if (status === 'loading') return;
-
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setEntries([]);
       setIsLoading(false);
-      return;
+      setInitialized(false);
     }
-
-    let cancelled = false;
-    setIsLoading(true);
-    setEntries([]);
-
-    (async () => {
-      try {
-        await fetchEntries();
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [status, user?.id, fetchEntries]);
+  }, [status, user?.id]);
 
   // ── Log weight ───────────────────────────────────────────────────────────
   const logWeight = useCallback(async (
     weightKg: number,
     unit: 'metric' | 'imperial' = 'metric',
   ): Promise<WeightEntry> => {
-    const { ok, body } = await weightFetch('/weight', {
+    const { ok, body } = await apiFetch('/weight', {
       method: 'POST',
       body:   JSON.stringify({ weight_kg: weightKg, unit }),
     });
     if (!ok || !body.data) throw new Error('Failed to log weight');
     const saved = fromApiEntry(body.data as Record<string, unknown>);
-    setEntries((prev) => [saved, ...prev]);
+    setEntries((prev) => {
+      const next = [saved, ...prev.filter((e) => e.id !== saved.id)];
+      if (user?.id) {
+        void setResourceCached(
+          buildResourceKey('weight', user.id, String(DEFAULT_LIMIT)),
+          next,
+          TTL_WEIGHT_HISTORY,
+        );
+      }
+      return next;
+    });
+
     return saved;
-  }, []);
+  }, [user?.id]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
-  const refresh = useCallback(async (limit?: number) => {
-    await fetchEntries(limit);
-  }, [fetchEntries]);
+  const refresh = useCallback(async (options?: { limit?: number; force?: boolean }) => {
+    const limit = options?.limit ?? DEFAULT_LIMIT;
+    const force = options?.force ?? false;
+
+    if (!force && user?.id) {
+      const cached = await getResourceCached<WeightEntry[]>(
+        buildResourceKey('weight', user.id, String(limit)),
+      );
+      if (cached) {
+        setEntries(cached.data);
+        setInitialized(true);
+        if (!cached.isStale) {
+          setIsLoading(false);
+          return;
+        }
+      }
+    }
+
+    setIsLoading(true);
+    try {
+      await fetchEntries(limit, force);
+    } finally {
+      setIsLoading(false);
+      setInitialized(true);
+    }
+  }, [fetchEntries, user?.id]);
 
   return (
     <WeightContext.Provider value={{
-      entries, latest, isLoading,
+      entries, latest, isLoading, initialized,
       logWeight, refresh,
     }}>
       {children}

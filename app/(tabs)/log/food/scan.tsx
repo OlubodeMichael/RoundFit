@@ -84,7 +84,7 @@ export default function BarcodeScanScreen() {
             <View style={{ gap: 12, marginTop: 12 }}>
               <Tip icon="sunny-outline"          tint={P.water}>Good lighting. Avoid glare on the barcode.</Tip>
               <Tip icon="scan-outline"           tint={P.water}>Hold the camera 6–12 inches from the label.</Tip>
-              <Tip icon="phone-portrait-outline" tint={P.water}>Keep the phone steady — no shaking hands.</Tip>
+              <Tip icon="phone-portrait-outline" tint={P.water}>Keep the phone steady, no shaking hands.</Tip>
             </View>
           </AnimatedCard>
         </View>

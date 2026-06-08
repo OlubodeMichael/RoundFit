@@ -1,0 +1,570 @@
+import ActivityKit
+import SwiftUI
+import WidgetKit
+
+private let orange    = Color(red: 0.976, green: 0.451, blue: 0.086)
+private let grey      = Color(red: 0.443, green: 0.443, blue: 0.475)
+private let liveGreen = Color(red: 0.20, green: 0.85, blue: 0.36)
+
+// Effective timer start: `state.startTime` if set (shifted on resume), else
+// the immutable `attributes.startTime`.
+private func effectiveStart(
+    attributes: WorkoutActivityAttributes,
+    state:      WorkoutActivityAttributes.ContentState
+) -> Date {
+    return state.startTime ?? attributes.startTime
+}
+
+// When paused, format the frozen elapsed interval as a static string so the
+// timer stops ticking. When running, use the auto-ticking system timer.
+private func timerView(
+    attributes: WorkoutActivityAttributes,
+    state:      WorkoutActivityAttributes.ContentState
+) -> Text {
+    let start = effectiveStart(attributes: attributes, state: state)
+    if let pausedAt = state.pausedAt {
+        let secs = max(0, Int(pausedAt.timeIntervalSince(start)))
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        let s = secs % 60
+        return Text(h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%d:%02d", m, s))
+    }
+    return Text(timerInterval: start...Date.distantFuture, countsDown: false)
+}
+
+private func sfSymbol(for workoutIcon: String) -> String {
+    let known = [
+        "figure.run", "figure.walk", "figure.outdoor.cycle", "figure.pool.swim",
+        "figure.outdoor.rowing", "figure.yoga", "figure.highintensity.intervaltraining",
+        "figure.strengthtraining.traditional", "dumbbell", "bolt.heart",
+        "figure.mixed.cardio", "map",
+    ]
+    return known.contains(workoutIcon) ? workoutIcon : "figure.mixed.cardio"
+}
+
+struct CompactLeading: View {
+    let attributes: WorkoutActivityAttributes
+    let state:      WorkoutActivityAttributes.ContentState
+    var body: some View {
+        Image(systemName: state.pausedAt != nil ? "pause.fill" : sfSymbol(for: attributes.workoutIcon))
+            .foregroundColor(state.pausedAt != nil ? grey : orange)
+            .font(.system(size: 14, weight: .semibold))
+    }
+}
+
+struct CompactTrailing: View {
+    let attributes: WorkoutActivityAttributes
+    let state:      WorkoutActivityAttributes.ContentState
+    var body: some View {
+        timerView(attributes: attributes, state: state)
+            .monospacedDigit()
+            .font(.system(size: 13, weight: .bold))
+            .foregroundColor(state.pausedAt != nil ? grey : .white)
+            .frame(minWidth: 44)
+    }
+}
+
+struct MinimalView: View {
+    let attributes: WorkoutActivityAttributes
+    let state:      WorkoutActivityAttributes.ContentState
+    var body: some View {
+        Image(systemName: state.pausedAt != nil ? "pause.fill" : sfSymbol(for: attributes.workoutIcon))
+            .foregroundColor(state.pausedAt != nil ? grey : orange)
+            .font(.system(size: 12, weight: .semibold))
+    }
+}
+
+struct ExpandedView: View {
+    let attributes: WorkoutActivityAttributes
+    let state:      WorkoutActivityAttributes.ContentState
+
+    var body: some View {
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill((state.pausedAt != nil ? grey : orange).opacity(0.18))
+                    .frame(width: 44, height: 44)
+                Image(systemName: sfSymbol(for: attributes.workoutIcon))
+                    .foregroundColor(state.pausedAt != nil ? grey : orange)
+                    .font(.system(size: 20, weight: .semibold))
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text((state.pausedAt != nil ? "PAUSED · " : "") + attributes.workoutName.uppercased())
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white.opacity(0.55))
+                    .kerning(1.2)
+                timerView(attributes: attributes, state: state)
+                    .monospacedDigit()
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(state.pausedAt != nil ? grey : .white)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(spacing: 4) {
+                    Image(systemName: "flame.fill")
+                        .foregroundColor(orange)
+                        .font(.system(size: 11))
+                    Text("\(Int(state.caloriesBurned)) kcal")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                if let hr = state.heartRate {
+                    HStack(spacing: 4) {
+                        Image(systemName: "heart.fill")
+                            .foregroundColor(.pink)
+                            .font(.system(size: 11))
+                        Text("\(hr) bpm")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.75))
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
+struct LockScreenView: View {
+    let attributes: WorkoutActivityAttributes
+    let state:      WorkoutActivityAttributes.ContentState
+
+    var calProgress: Double {
+        guard attributes.goalCalories > 0 else { return 0 }
+        return min(state.caloriesBurned / attributes.goalCalories, 1)
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            // ── Top row: icon | LIVE pill + name | timer + ELAPSED ──
+            HStack(alignment: .center, spacing: 12) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.white.opacity(0.10), lineWidth: 2.5)
+                    Circle()
+                        .trim(from: 0, to: calProgress)
+                        .stroke(state.pausedAt != nil ? grey : orange,
+                                style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Image(systemName: state.pausedAt != nil ? "pause.fill" : sfSymbol(for: attributes.workoutIcon))
+                        .foregroundColor(orange)
+                        .font(.system(size: 18, weight: .semibold))
+                }
+                .frame(width: 44, height: 44)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(state.pausedAt != nil ? grey : liveGreen)
+                            .frame(width: 6, height: 6)
+                        Text(state.pausedAt != nil ? "PAUSED" : "LIVE")
+                            .font(.system(size: 10, weight: .heavy))
+                            .kerning(0.8)
+                            .foregroundColor(state.pausedAt != nil ? grey : liveGreen)
+                    }
+                    Text(attributes.workoutName)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    timerView(attributes: attributes, state: state)
+                        .monospacedDigit()
+                        .font(.system(size: 20, weight: .heavy, design: .rounded))
+                        .foregroundColor(state.pausedAt != nil ? grey : .white)
+                    Text("ELAPSED")
+                        .font(.system(size: 9, weight: .heavy))
+                        .kerning(1.0)
+                        .foregroundColor(.white.opacity(0.45))
+                }
+            }
+
+            // ── Metric row: calories + horizontal bar | heart rate ──
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "flame.fill")
+                            .foregroundColor(orange)
+                            .font(.system(size: 12))
+                        Text("\(Int(state.caloriesBurned))")
+                            .font(.system(size: 18, weight: .heavy))
+                            .foregroundColor(.white)
+                        Text(" / \(Int(attributes.goalCalories)) kcal")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color.white.opacity(0.10))
+                            Capsule()
+                                .fill(state.pausedAt != nil ? grey : orange)
+                                .frame(width: geo.size.width * calProgress)
+                        }
+                    }
+                    .frame(height: 4)
+                }
+
+                if let hr = state.heartRate {
+                    HStack(spacing: 4) {
+                        Image(systemName: "heart.fill")
+                            .foregroundColor(.pink)
+                            .font(.system(size: 12))
+                        Text("\(hr)")
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundColor(.white)
+                        Text(" bpm")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(Color(red: 0.07, green: 0.07, blue: 0.09))
+    }
+}
+
+struct WorkoutLiveActivityWidget: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: WorkoutActivityAttributes.self) { context in
+            LockScreenView(attributes: context.attributes, state: context.state)
+                .activityBackgroundTint(.black)
+                .activitySystemActionForegroundColor(.white)
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    CompactLeading(attributes: context.attributes, state: context.state)
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    CompactTrailing(attributes: context.attributes, state: context.state)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    ExpandedView(attributes: context.attributes, state: context.state)
+                }
+            } compactLeading: {
+                CompactLeading(attributes: context.attributes, state: context.state)
+            } compactTrailing: {
+                CompactTrailing(attributes: context.attributes, state: context.state)
+            } minimal: {
+                MinimalView(attributes: context.attributes, state: context.state)
+            }
+            .keylineTint(orange)
+        }
+    }
+}
+
+// MARK: - Workout session (set tracker) Live Activity views
+// Same visual language as the burn-coach activity but tuned for set logging:
+// the right column shows set count + volume instead of calories.
+
+private let sessionAccent = Color(red: 0.39, green: 0.40, blue: 0.96) // indigo
+
+@available(iOS 16.2, *)
+private func sessionTimerView(
+    attributes: WorkoutSessionAttributes,
+    state:      WorkoutSessionAttributes.ContentState
+) -> Text {
+    let start = state.startTime ?? attributes.startTime
+    if let pausedAt = state.pausedAt {
+        let secs = max(0, Int(pausedAt.timeIntervalSince(start)))
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        let s = secs % 60
+        return Text(h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%d:%02d", m, s))
+    }
+    return Text(timerInterval: start...Date.distantFuture, countsDown: false)
+}
+
+@available(iOS 16.2, *)
+struct SessionCompactLeading: View {
+    let state: WorkoutSessionAttributes.ContentState
+    var body: some View {
+        // Both active and paused render as small monochrome glyphs so the
+        // compact leading hugs the Dynamic Island the same way Apple's own
+        // activities do. The icon shape (dumbbell vs pause) is enough to
+        // tell the two states apart without needing a brand-color tint.
+        Image(systemName: state.pausedAt != nil ? "pause.fill" : "dumbbell.fill")
+            .foregroundColor(.white)
+            .font(.system(size: 14, weight: .semibold))
+    }
+}
+
+@available(iOS 16.2, *)
+struct SessionCompactTrailing: View {
+    let attributes: WorkoutSessionAttributes
+    let state:      WorkoutSessionAttributes.ContentState
+    var body: some View {
+        sessionTimerView(attributes: attributes, state: state)
+            .monospacedDigit()
+            .font(.system(size: 13, weight: .bold))
+            .foregroundColor(state.pausedAt != nil ? grey : .white)
+            .frame(minWidth: 44)
+    }
+}
+
+@available(iOS 16.2, *)
+struct SessionMinimalView: View {
+    let state: WorkoutSessionAttributes.ContentState
+    var body: some View {
+        // Mirror SessionCompactLeading: white glyph regardless of state so
+        // the minimal Dynamic Island looks system-native.
+        Image(systemName: state.pausedAt != nil ? "pause.fill" : "dumbbell.fill")
+            .foregroundColor(.white)
+            .font(.system(size: 12, weight: .semibold))
+    }
+}
+
+@available(iOS 16.2, *)
+private func sessionShowsVitals(_ state: WorkoutSessionAttributes.ContentState) -> Bool {
+    state.caloriesBurned > 0 || state.heartRate != nil
+}
+
+@available(iOS 16.2, *)
+private struct SessionVitalsRow: View {
+    let state: WorkoutSessionAttributes.ContentState
+    let large: Bool
+
+    var body: some View {
+        HStack(spacing: large ? 14 : 10) {
+            if state.caloriesBurned > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "flame.fill")
+                        .foregroundColor(orange)
+                        .font(.system(size: large ? 12 : 11))
+                    Text("\(Int(state.caloriesBurned))")
+                        .font(.system(size: large ? 16 : 13, weight: .heavy))
+                        .foregroundColor(.white)
+                    Text("kcal")
+                        .font(.system(size: large ? 12 : 11, weight: .medium))
+                        .foregroundColor(.white.opacity(large ? 0.5 : 0.75))
+                }
+            }
+            if let hr = state.heartRate {
+                HStack(spacing: 4) {
+                    Image(systemName: "heart.fill")
+                        .foregroundColor(.pink)
+                        .font(.system(size: large ? 12 : 11))
+                    Text("\(hr)")
+                        .font(.system(size: large ? 16 : 12, weight: large ? .heavy : .semibold))
+                        .foregroundColor(large ? .white : .white.opacity(0.75))
+                    Text("bpm")
+                        .font(.system(size: large ? 12 : 11, weight: .medium))
+                        .foregroundColor(.white.opacity(large ? 0.5 : 0.75))
+                }
+            }
+        }
+    }
+}
+
+@available(iOS 16.2, *)
+struct SessionExpandedView: View {
+    let attributes: WorkoutSessionAttributes
+    let state:      WorkoutSessionAttributes.ContentState
+
+    var body: some View {
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill((state.pausedAt != nil ? grey : sessionAccent).opacity(0.18))
+                    .frame(width: 44, height: 44)
+                Image(systemName: "dumbbell.fill")
+                    .foregroundColor(state.pausedAt != nil ? grey : sessionAccent)
+                    .font(.system(size: 20, weight: .semibold))
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text((state.pausedAt != nil ? "PAUSED · " : "") + attributes.workoutName.uppercased())
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white.opacity(0.55))
+                    .kerning(1.2)
+                sessionTimerView(attributes: attributes, state: state)
+                    .monospacedDigit()
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(state.pausedAt != nil ? grey : .white)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(spacing: 4) {
+                    Image(systemName: "list.bullet")
+                        .foregroundColor(sessionAccent)
+                        .font(.system(size: 11))
+                    Text("\(state.setCount) \(state.setCount == 1 ? "set" : "sets")")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                if state.totalVolumeKg > 0 {
+                    Text("\(Int(state.totalVolumeKg)) kg total")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.65))
+                }
+                if sessionShowsVitals(state) {
+                    SessionVitalsRow(state: state, large: false)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
+@available(iOS 16.2, *)
+struct SessionLockScreenView: View {
+    let attributes: WorkoutSessionAttributes
+    let state:      WorkoutSessionAttributes.ContentState
+
+    private func lastSetLine() -> String? {
+        guard let ex = state.lastExercise else { return nil }
+        if let reps = state.lastSetReps, let kg = state.lastSetWeightKg, kg > 0 {
+            return "\(ex) · \(reps) × \(Int(kg))kg"
+        }
+        if let reps = state.lastSetReps {
+            return "\(ex) · \(reps) reps"
+        }
+        return ex
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // ── Top row: icon | LIVE pill + name | timer + ELAPSED ──
+            HStack(alignment: .center, spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill((state.pausedAt != nil ? grey : sessionAccent).opacity(0.18))
+                        .frame(width: 44, height: 44)
+                    Image(systemName: state.pausedAt != nil ? "pause.fill" : "dumbbell.fill")
+                        .foregroundColor(state.pausedAt != nil ? grey : sessionAccent)
+                        .font(.system(size: 18, weight: .semibold))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(state.pausedAt != nil ? grey : liveGreen)
+                            .frame(width: 6, height: 6)
+                        Text(state.pausedAt != nil ? "PAUSED" : "LIVE")
+                            .font(.system(size: 10, weight: .heavy))
+                            .kerning(0.8)
+                            .foregroundColor(state.pausedAt != nil ? grey : liveGreen)
+                    }
+                    Text(attributes.workoutName)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    sessionTimerView(attributes: attributes, state: state)
+                        .monospacedDigit()
+                        .font(.system(size: 20, weight: .heavy, design: .rounded))
+                        .foregroundColor(state.pausedAt != nil ? grey : .white)
+                    Text("ELAPSED")
+                        .font(.system(size: 9, weight: .heavy))
+                        .kerning(1.0)
+                        .foregroundColor(.white.opacity(0.45))
+                }
+            }
+
+            // ── Metric row: set count | volume | vitals ──
+            HStack(alignment: .center, spacing: 14) {
+                HStack(spacing: 6) {
+                    Image(systemName: "list.bullet")
+                        .foregroundColor(state.pausedAt != nil ? grey : sessionAccent)
+                        .font(.system(size: 12))
+                    Text("\(state.setCount)")
+                        .font(.system(size: 18, weight: .heavy))
+                        .foregroundColor(.white)
+                    Text(state.setCount == 1 ? "set" : "sets")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.55))
+                }
+
+                Spacer()
+
+                if state.totalVolumeKg > 0 {
+                    HStack(spacing: 4) {
+                        Text("\(Int(state.totalVolumeKg))")
+                            .font(.system(size: 16, weight: .heavy))
+                            .foregroundColor(.white)
+                        Text("kg total")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.55))
+                    }
+                }
+
+                if sessionShowsVitals(state) {
+                    SessionVitalsRow(state: state, large: true)
+                }
+            }
+
+            // ── Last set summary line (if any) ──
+            if let line = lastSetLine() {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(state.pausedAt != nil ? grey : liveGreen)
+                        .font(.system(size: 11))
+                    Text(line)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.75))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(Color(red: 0.07, green: 0.07, blue: 0.09))
+    }
+}
+
+// Deep link the lock screen + Dynamic Island taps open in the host app.
+// Matches the scheme registered in Info.plist (`roundfit`). The JS side
+// listens for this URL via expo-linking and pushes the live-session sheet.
+private let sessionDeepLink = URL(string: "roundfit://workout-session")
+
+@available(iOS 16.2, *)
+struct WorkoutSessionLiveActivityWidget: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: WorkoutSessionAttributes.self) { context in
+            SessionLockScreenView(attributes: context.attributes, state: context.state)
+                .activityBackgroundTint(.black)
+                .activitySystemActionForegroundColor(.white)
+                .widgetURL(sessionDeepLink)
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    SessionCompactLeading(state: context.state)
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    SessionCompactTrailing(attributes: context.attributes, state: context.state)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    SessionExpandedView(attributes: context.attributes, state: context.state)
+                }
+            } compactLeading: {
+                SessionCompactLeading(state: context.state)
+            } compactTrailing: {
+                SessionCompactTrailing(attributes: context.attributes, state: context.state)
+            } minimal: {
+                SessionMinimalView(state: context.state)
+            }
+            .widgetURL(sessionDeepLink)
+            .keylineTint(sessionAccent)
+        }
+    }
+}

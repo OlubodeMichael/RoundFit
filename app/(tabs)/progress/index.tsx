@@ -1,812 +1,246 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import {
-  Animated,
-  Easing,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import type { ComponentProps } from 'react';
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AnimatedCard, usePalette } from '@/lib/log-theme';
+import {
+  DistanceMetricCard,
+  StepsMetricCard,
+} from '@/components/home/ActivityCard';
+import { MirrorPromoCard } from '@/components/progress/MirrorPromoCard';
+import { ProgressCaloriesCard } from '@/components/progress/ProgressCaloriesCard';
+import { ProgressConsistencyCard } from '@/components/progress/ProgressConsistencyCard';
+import { ProgressHeadlineStats } from '@/components/progress/ProgressHeadlineStats';
+import { ProgressWeightCard } from '@/components/progress/ProgressWeightCard';
+import { usePalette } from '@/lib/log-theme';
+import { ReadinessWidget } from '@/components/home/ReadinessWidget';
 import { useHealth } from '@/hooks/use-health';
+import { useUnits } from '@/hooks/use-units';
+import { useSummary } from '@/hooks/use-summary';
+import { useWeight } from '@/hooks/use-weight';
+import { useProfile } from '@/hooks/use-profile';
+import { getLocalDateString } from '@/utils/date';
 
-type IoniconName = ComponentProps<typeof Ionicons>['name'];
+function buildWeekDates(todayStr: string): string[] {
+  const d = new Date(todayStr + "T12:00:00");
+  const dow = d.getDay(); // 0=Sun … 6=Sat
+  const sunday = new Date(d);
+  sunday.setDate(d.getDate() - dow); // rewind to Sunday
+  return Array.from({ length: 7 }, (_, i) => {
+    const day = new Date(sunday);
+    day.setDate(sunday.getDate() + i);
+    const mm = String(day.getMonth() + 1).padStart(2, "0");
+    const dd = String(day.getDate()).padStart(2, "0");
+    return `${day.getFullYear()}-${mm}-${dd}`;
+  });
+}
 
-// ─── Dummy data ─────────────────────────────────────────────────────────────
-const STREAK        = 12;
-const CONSISTENCY   = 84;
-const GOALS_HIT     = 5;
-const GOALS_TOTAL   = 7;
-
-const CONSISTENCY_DAYS: { label: string; on: boolean; today?: boolean }[] = [
-  { label: 'M', on: true  },
-  { label: 'T', on: true  },
-  { label: 'W', on: true  },
-  { label: 'T', on: false },
-  { label: 'F', on: true  },
-  { label: 'S', on: true  },
-  { label: 'S', on: true, today: true },
-];
-
-const CALS_GOAL = 2100;
-const CALS_WEEK = [
-  { day: 'M', cals: 1980 },
-  { day: 'T', cals: 2200 },
-  { day: 'W', cals: 1750 },
-  { day: 'T', cals: 2050 },
-  { day: 'F', cals: 1900 },
-  { day: 'S', cals: 2310 },
-  { day: 'S', cals: 1840 },
-];
-
-const WEIGHT_LOG = [
-  { date: 'Apr 6',  kg: 82.4 },
-  { date: 'Apr 7',  kg: 82.1 },
-  { date: 'Apr 8',  kg: 81.9 },
-  { date: 'Apr 9',  kg: 82.0 },
-  { date: 'Apr 10', kg: 81.7 },
-  { date: 'Apr 11', kg: 81.5 },
-  { date: 'Apr 12', kg: 81.3 },
-];
-
-const STEPS_GOAL = 10_000;
+const movementSectionStyles = StyleSheet.create({
+  metricsRow: { flexDirection: "row", gap: 10 },
+  notConnected: {
+    fontSize: 11,
+    fontWeight: "500",
+    textAlign: "center",
+    marginTop: 4,
+  },
+});
 
 function StepsCard({ delay = 0 }: { delay?: number }) {
   const P = usePalette();
   const { today, isConnected } = useHealth();
 
-  const steps       = today?.steps ?? 0;
-  const activeCals  = today?.active_calories ?? 0;
-  const pct         = Math.min(steps / STEPS_GOAL, 1);
-  const remaining   = Math.max(STEPS_GOAL - steps, 0);
-
-  const fillAnim = useRef(new Animated.Value(0)).current;
-  const [displayedSteps, setDisplayedSteps] = useState(0);
-
-  useEffect(() => {
-    const countAnim = new Animated.Value(0);
-    const id = countAnim.addListener(({ value }) => setDisplayedSteps(Math.round(value)));
-    Animated.parallel([
-      Animated.timing(fillAnim, {
-        toValue: pct,
-        duration: 900,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }),
-      Animated.timing(countAnim, {
-        toValue: steps,
-        duration: 900,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }),
-    ]).start(() => countAnim.removeListener(id));
-    return () => countAnim.removeListener(id);
-  }, [steps, pct]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const fillWidth = fillAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
-  const pctLabel  = Math.round(pct * 100);
-
   return (
-    <AnimatedCard delay={delay}>
-      <View style={stepsStyles.headRow}>
-        <View style={[stepsStyles.iconTile, { backgroundColor: P.waterSoft }]}>
-          <Ionicons name="footsteps" size={16} color={P.water} />
-        </View>
-        <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={[stepsStyles.eyebrow, { color: P.textFaint }]}>TODAY'S STEPS</Text>
-          <Text style={[stepsStyles.title, { color: P.text }]}>
-            {displayedSteps.toLocaleString()}
-            <Text style={[stepsStyles.goal, { color: P.textFaint }]}> / {STEPS_GOAL.toLocaleString()}</Text>
-          </Text>
-        </View>
-        <View style={[stepsStyles.pctPill, { backgroundColor: pct >= 1 ? P.proteinSoft : P.waterSoft }]}>
-          {pct >= 1
-            ? <Ionicons name="checkmark" size={11} color={P.protein} />
-            : null}
-          <Text style={[stepsStyles.pctText, { color: pct >= 1 ? P.protein : P.water }]}>
-            {pct >= 1 ? 'Done!' : `${pctLabel}%`}
-          </Text>
-        </View>
+    <View>
+      <View style={movementSectionStyles.metricsRow}>
+        <StepsMetricCard P={P} delay={delay} data={today} />
+        <DistanceMetricCard P={P} delay={delay + 20} data={today} />
       </View>
-
-      <View style={[stepsStyles.track, { backgroundColor: P.hair }]}>
-        <Animated.View
-          style={[
-            stepsStyles.fill,
-            {
-              width: fillWidth,
-              backgroundColor: pct >= 1 ? P.protein : P.water,
-            },
-          ]}
-        />
-      </View>
-
-      <View style={stepsStyles.footRow}>
-        <View style={stepsStyles.footCell}>
-          <Text style={[stepsStyles.footVal, { color: P.text }]}>
-            {remaining > 0 ? remaining.toLocaleString() : '0'}
-          </Text>
-          <Text style={[stepsStyles.footLbl, { color: P.textFaint }]}>steps left</Text>
-        </View>
-        <View style={[stepsStyles.footDivider, { backgroundColor: P.hair }]} />
-        <View style={stepsStyles.footCell}>
-          <Text style={[stepsStyles.footVal, { color: P.text }]}>
-            {activeCals.toLocaleString()}
-          </Text>
-          <Text style={[stepsStyles.footLbl, { color: P.textFaint }]}>active cal</Text>
-        </View>
-        <View style={[stepsStyles.footDivider, { backgroundColor: P.hair }]} />
-        <View style={stepsStyles.footCell}>
-          <Text style={[stepsStyles.footVal, { color: P.text }]}>
-            {today?.distance != null ? `${today.distance.toFixed(1)} ${today.distance_unit === 'km' ? 'km' : 'mi'}` : '—'}
-          </Text>
-          <Text style={[stepsStyles.footLbl, { color: P.textFaint }]}>distance</Text>
-        </View>
-      </View>
-
       {!isConnected && (
-        <Text style={[stepsStyles.notConnected, { color: P.textFaint }]}>
+        <Text
+          style={[movementSectionStyles.notConnected, { color: P.textFaint }]}
+        >
           Connect Apple Health to see live steps
         </Text>
       )}
-    </AnimatedCard>
+    </View>
   );
 }
 
-const stepsStyles = StyleSheet.create({
-  headRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
-  iconTile: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  eyebrow: { fontSize: 9, fontWeight: '800', letterSpacing: 1.4, marginBottom: 3 },
-  title: { fontSize: 22, fontWeight: '800', letterSpacing: -0.6 },
-  goal: { fontSize: 14, fontWeight: '600' },
-  pctPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
-  pctText: { fontSize: 11, fontWeight: '800' },
-  track: { height: 6, borderRadius: 3, overflow: 'hidden', marginBottom: 16 },
-  fill: { height: '100%', borderRadius: 3 },
-  footRow: { flexDirection: 'row', alignItems: 'center' },
-  footCell: { flex: 1, alignItems: 'center', gap: 3 },
-  footDivider: { width: 1, height: 28, marginHorizontal: 4 },
-  footVal: { fontSize: 15, fontWeight: '800', letterSpacing: -0.4, fontVariant: ['tabular-nums'] },
-  footLbl: { fontSize: 10, fontWeight: '600', letterSpacing: 0.2 },
-  notConnected: { fontSize: 11, fontWeight: '500', textAlign: 'center', marginTop: 12 },
-});
-
 export default function ProgressScreen() {
-  const P      = usePalette();
+  const P = usePalette();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
 
-  const maxCals = useMemo(() => Math.max(...CALS_WEEK.map(d => d.cals), CALS_GOAL), []);
-  const avgCals = useMemo(
-    () => Math.round(CALS_WEEK.reduce((a, d) => a + d.cals, 0) / CALS_WEEK.length),
-    [],
+  const { weekly } = useSummary();
+  const { entries } = useWeight();
+  const { weightUnit, toDisplayWeight } = useUnits();
+  const { profile } = useProfile();
+  const todayStr = getLocalDateString();
+
+  // ── Streak: prefer cached value from profile, fall back to computed ───────
+  const streak = useMemo(() => {
+    if (typeof profile?.currentStreak === "number")
+      return profile.currentStreak;
+    if (!weekly?.days?.length) return 0;
+    const sorted = [...weekly.days].sort((a, b) =>
+      b.date.localeCompare(a.date),
+    );
+    let count = 0;
+    for (const d of sorted) {
+      if (d.calories_consumed > 0) count++;
+      else break;
+    }
+    return count;
+  }, [profile?.currentStreak, weekly]);
+
+  // ── Consistency ───────────────────────────────────────────────────────────
+  const consistency = Math.round(weekly?.consistency_score ?? 0);
+
+  // ── Goals (days under calorie budget out of 7) ───────────────────────────
+  const goalsHit = useMemo(() => {
+    if (!weekly?.days?.length) return 0;
+    const budget = profile?.calorieBudget ?? profile?.tdee;
+    return weekly.days.filter((d) => {
+      const goal = budget ?? d.calorie_budget;
+      return d.calories_consumed > 0 && d.calories_consumed <= goal;
+    }).length;
+  }, [weekly, profile?.calorieBudget, profile?.tdee]);
+
+  // ── Consistency day strip — always 7 days (Sun → Sat) ───────────────────
+  // A day is marked "on" only when the backend says the user actually met
+  // their targets that day (calorie ±200, protein 90%+, steps target, sleep
+  // target — at least 75% of applicable slots). Falls back to the old
+  // "logged anything" check if the API doesn't return `met_targets` yet
+  // (e.g. cached responses from an older server).
+  const consistencyDays = useMemo(() => {
+    const dayMap = new Map((weekly?.days ?? []).map((d) => [d.date, d]));
+    return buildWeekDates(todayStr).map((date) => {
+      const day = dayMap.get(date);
+      const onTarget =
+        day?.met_targets !== undefined
+          ? day.met_targets
+          : (day?.calories_consumed ?? 0) > 0;
+      return {
+        label: new Date(date + "T12:00:00").toLocaleDateString(undefined, {
+          weekday: "short",
+        })[0],
+        on: onTarget,
+        today: date === todayStr,
+      };
+    });
+  }, [weekly, todayStr]);
+
+  // ── Calories chart — always 7 days (Sun → Sat) ───────────────────────────
+  const calsGoal =
+    profile?.calorieBudget ??
+    profile?.tdee ??
+    weekly?.days.find((d) => d.calorie_budget > 0)?.calorie_budget ??
+    2000;
+  const calsWeek = useMemo(() => {
+    const dayMap = new Map((weekly?.days ?? []).map((d) => [d.date, d]));
+    return buildWeekDates(todayStr).map((date) => ({
+      day: new Date(date + "T12:00:00").toLocaleDateString(undefined, {
+        weekday: "short",
+      })[0],
+      cals: dayMap.get(date)?.calories_consumed ?? 0,
+      today: date === todayStr,
+    }));
+  }, [weekly, todayStr]);
+
+  const avgCals = Math.round(weekly?.avg_calories ?? 0);
+  const maxCals = useMemo(
+    () => Math.max(...calsWeek.map((d) => d.cals), calsGoal, 1),
+    [calsWeek, calsGoal],
   );
-
-  const weightMin    = useMemo(() => Math.min(...WEIGHT_LOG.map(d => d.kg)), []);
-  const weightMax    = useMemo(() => Math.max(...WEIGHT_LOG.map(d => d.kg)), []);
-  const weightRange  = weightMax - weightMin || 1;
-  const weightDelta  = WEIGHT_LOG[WEIGHT_LOG.length - 1].kg - WEIGHT_LOG[0].kg;
-  const currentKg    = WEIGHT_LOG[WEIGHT_LOG.length - 1].kg;
-  const goalKg       = 78.0;
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <ScrollView
         contentContainerStyle={{
-          paddingTop:    insets.top + 12,
-          paddingBottom: insets.bottom + 48,
+          paddingTop: insets.top + 12,
+          paddingBottom: insets.bottom + 100,
         }}
         showsVerticalScrollIndicator={false}
       >
         {/* ── Header ──────────────────────────────────────────── */}
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.eyebrow, { color: P.textFaint }]}>THIS WEEK</Text>
+            <Text style={[styles.eyebrow, { color: P.textFaint }]}>
+              THIS WEEK
+            </Text>
             <Text style={[styles.title, { color: P.text }]}>
               Progress<Text style={{ color: P.calories }}>.</Text>
             </Text>
           </View>
-          <Pressable
-            hitSlop={10}
-            style={[styles.iconBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
-          >
-            <Ionicons name="calendar-outline" size={16} color={P.text} />
-          </Pressable>
         </View>
 
         <View style={styles.stack}>
-          {/* ── Headline stats ─────────────────────────────────── */}
-          <View style={styles.statsRow}>
-            <StatTile
-              delay={60}
-              tone="accent"
-              icon="flame"
-              label="Day streak"
-              value={`${STREAK}`}
-            />
-            <StatTile
-              delay={110}
-              icon="compass"
-              label="Consistency"
-              value={`${CONSISTENCY}`}
-              valueSuffix="/100"
-              accentColor={P.protein}
-            />
-            <StatTile
-              delay={160}
-              icon="trophy"
-              label="Goals met"
-              value={`${GOALS_HIT}`}
-              valueSuffix={`/${GOALS_TOTAL}`}
-              accentColor={P.carbs}
-            />
-          </View>
+          <ProgressHeadlineStats
+            streak={streak}
+            consistency={consistency}
+            goalsHit={goalsHit}
+          />
 
-          {/* ── Consistency index strip ────────────────────────── */}
-          <AnimatedCard delay={220}>
-            <View style={styles.headRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>CONSISTENCY INDEX</Text>
-                <Text style={[styles.cardTitle, { color: P.text }]}>
-                  {CONSISTENCY_DAYS.filter(d => d.on).length} of 7 days on target
-                </Text>
-              </View>
-              <View style={[styles.trendPill, { backgroundColor: P.proteinSoft }]}>
-                <Ionicons name="trending-up" size={11} color={P.protein} />
-                <Text style={[styles.trendText, { color: P.protein }]}>+6</Text>
-              </View>
-            </View>
+          {/* ── Readiness widget ───────────────────────────────── */}
+          <ReadinessWidget delay={180} />
 
-            <View style={styles.consistencyRow}>
-              {CONSISTENCY_DAYS.map((d, i) => {
-                const bg = d.on ? P.protein : P.sunken;
-                const border = d.on ? P.protein : P.cardEdge;
-                const isToday = d.today;
-                return (
-                  <View key={i} style={styles.consistencyCol}>
-                    <View
-                      style={[
-                        styles.consistencyCell,
-                        {
-                          backgroundColor: bg,
-                          borderColor:     isToday ? P.calories : border,
-                          borderWidth:     isToday ? 2 : StyleSheet.hairlineWidth,
-                        },
-                      ]}
-                    >
-                      {d.on && (
-                        <Ionicons name="checkmark" size={14} color="#fff" />
-                      )}
-                    </View>
-                    <Text
-                      style={[
-                        styles.consistencyLabel,
-                        { color: isToday ? P.calories : P.textFaint, fontWeight: isToday ? '800' : '700' },
-                      ]}
-                    >
-                      {d.label}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          </AnimatedCard>
+          <ProgressConsistencyCard
+            consistency={consistency}
+            days={consistencyDays}
+            delay={220}
+          />
 
           {/* ── Steps progress ────────────────────────────────── */}
           <StepsCard delay={280} />
 
-          {/* ── Calories bar chart ─────────────────────────────── */}
-          <AnimatedCard delay={340}>
-            <View style={styles.headRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>CALORIES</Text>
-                <Text style={[styles.cardTitle, { color: P.text }]}>
-                  Avg {avgCals.toLocaleString()}
-                </Text>
-              </View>
-              <View style={styles.goalLegend}>
-                <View style={[styles.dashLine, { borderColor: P.calories }]} />
-                <Text style={[styles.goalLegendText, { color: P.textFaint }]}>
-                  Goal {CALS_GOAL.toLocaleString()}
-                </Text>
-              </View>
-            </View>
+          <ProgressCaloriesCard
+            avgCals={avgCals}
+            calsGoal={calsGoal}
+            days={calsWeek}
+            maxCals={maxCals}
+            delay={340}
+          />
 
-            <View style={styles.barChart}>
-              {CALS_WEEK.map((d, i) => {
-                const pct      = d.cals / maxCals;
-                const goalPct  = CALS_GOAL / maxCals;
-                const isToday  = i === CALS_WEEK.length - 1;
-                const over     = d.cals > CALS_GOAL;
-                const color    = isToday ? P.calories : over ? P.danger : P.protein;
-                return (
-                  <View key={i} style={styles.barCol}>
-                    <View style={styles.barWrap}>
-                      <View style={[styles.goalLine, { bottom: `${goalPct * 100}%`, borderColor: P.calories, opacity: 0.4 }]} />
-                      <View
-                        style={[
-                          styles.bar,
-                          {
-                            height:          `${pct * 100}%`,
-                            backgroundColor: color,
-                            opacity:         isToday ? 1 : 0.75,
-                          },
-                        ]}
-                      />
-                    </View>
-                    <Text
-                      style={[
-                        styles.barDay,
-                        {
-                          color:      isToday ? P.calories : P.textFaint,
-                          fontWeight: isToday ? '800' : '600',
-                        },
-                      ]}
-                    >
-                      {d.day}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          </AnimatedCard>
+          <ProgressWeightCard
+            entries={entries}
+            profileWeightKg={profile?.weightKg ?? null}
+            weightUnit={weightUnit}
+            toDisplayWeight={toDisplayWeight}
+            delay={400}
+          />
 
-          {/* ── Weight card ────────────────────────────────────── */}
-          <AnimatedCard delay={400} padding={0}>
-            <Pressable
-              onPress={() => router.push('/(tabs)/progress/weight')}
-              style={({ pressed }) => [
-                { padding: 20, borderRadius: 24 },
-                pressed && { opacity: 0.9 },
-              ]}
-            >
-              <View style={styles.headRow}>
-                <View style={[styles.iconTile, { backgroundColor: P.weightSoft }]}>
-                  <Ionicons name="scale" size={16} color={P.weight} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[styles.cardEyebrow, { color: P.textFaint }]}>WEIGHT</Text>
-                  <Text style={[styles.cardTitle, { color: P.text }]}>Trending down</Text>
-                </View>
-                <View style={[styles.trendPill, { backgroundColor: P.proteinSoft }]}>
-                  <Ionicons name="trending-down" size={11} color={P.protein} />
-                  <Text style={[styles.trendText, { color: P.protein }]}>
-                    {weightDelta.toFixed(1)} kg
-                  </Text>
-                </View>
-              </View>
-
-              {/* Mini polyline chart using stacked dots + connecting lines (Views) */}
-              <View style={styles.weightChart}>
-                {WEIGHT_LOG.map((w, i) => {
-                  const normalized = (w.kg - weightMin) / weightRange;
-                  const bottom     = 6 + normalized * 48;
-                  const isLatest   = i === WEIGHT_LOG.length - 1;
-                  return (
-                    <View key={i} style={styles.weightCol}>
-                      <View style={styles.weightColInner}>
-                        <View
-                          style={[
-                            styles.weightDot,
-                            {
-                              bottom,
-                              backgroundColor: isLatest ? P.weight : P.textFaint,
-                              width:           isLatest ? 10 : 6,
-                              height:          isLatest ? 10 : 6,
-                              borderRadius:    isLatest ? 5 : 3,
-                              shadowColor:     isLatest ? P.weight : 'transparent',
-                              shadowOpacity:   isLatest ? 0.5 : 0,
-                              shadowRadius:    isLatest ? 8 : 0,
-                            },
-                          ]}
-                        />
-                      </View>
-                      <Text style={[styles.weightDate, { color: P.textFaint }]}>
-                        {w.date.split(' ')[1]}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-
-              <View style={styles.weightFoot}>
-                <View>
-                  <Text style={[styles.weightNum, { color: P.text }]}>
-                    {currentKg.toFixed(1)}
-                    <Text style={[styles.weightUnit, { color: P.textFaint }]}> kg</Text>
-                  </Text>
-                  <Text style={[styles.weightNote, { color: P.textFaint }]}>Current</Text>
-                </View>
-                <View style={{ alignItems: 'center' }}>
-                  <Text style={[styles.weightNum, { color: P.text }]}>
-                    −{Math.abs(weightDelta).toFixed(1)}
-                    <Text style={[styles.weightUnit, { color: P.textFaint }]}> kg</Text>
-                  </Text>
-                  <Text style={[styles.weightNote, { color: P.textFaint }]}>7-day</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.weightNum, { color: P.text }]}>
-                    {goalKg.toFixed(1)}
-                    <Text style={[styles.weightUnit, { color: P.textFaint }]}> kg</Text>
-                  </Text>
-                  <Text style={[styles.weightNote, { color: P.textFaint }]}>Goal</Text>
-                </View>
-              </View>
-            </Pressable>
-          </AnimatedCard>
-
-          {/* ── 30-day mirror promo ────────────────────────────── */}
-          <AnimatedCard delay={480} padding={0} style={{ overflow: 'hidden' }}>
-            <Pressable
-              onPress={() => router.push('/(tabs)/progress/mirror')}
-              style={({ pressed }) => [
-                styles.mirrorCard,
-                { backgroundColor: P.fat },
-                pressed && { opacity: 0.92 },
-              ]}
-            >
-              <View pointerEvents="none" style={[styles.mirrorGlow, { backgroundColor: 'rgba(255,255,255,0.14)' }]} />
-
-              <View style={[styles.premiumPill, { backgroundColor: 'rgba(255,255,255,0.18)' }]}>
-                <Ionicons name="diamond" size={10} color="#fff" />
-                <Text style={styles.premiumPillText}>PREMIUM</Text>
-              </View>
-
-              <Text style={styles.mirrorTitle}>30-day mirror</Text>
-              <Text style={styles.mirrorSub}>
-                Optimal sleep, optimal protein, best training days, and the strongest correlation in your last month.
-              </Text>
-
-              <View style={styles.mirrorFoot}>
-                <View style={styles.mirrorItem}>
-                  <Ionicons name="analytics" size={12} color="rgba(255,255,255,0.9)" />
-                  <Text style={styles.mirrorFootLabel}>4 correlations</Text>
-                </View>
-                <View style={styles.mirrorItem}>
-                  <Ionicons name="sparkles" size={12} color="rgba(255,255,255,0.9)" />
-                  <Text style={styles.mirrorFootLabel}>AI synthesis</Text>
-                </View>
-                <View style={[styles.mirrorCta, { backgroundColor: '#fff' }]}>
-                  <Text style={[styles.mirrorCtaText, { color: P.fat }]}>Open</Text>
-                  <Ionicons name="arrow-forward" size={13} color={P.fat} />
-                </View>
-              </View>
-            </Pressable>
-          </AnimatedCard>
+          <MirrorPromoCard P={P} delay={480} />
         </View>
       </ScrollView>
     </View>
   );
 }
 
-// ─── Headline stat tile ─────────────────────────────────────────────────────
-function StatTile({
-  icon, label, value, valueSuffix, tone, accentColor, delay,
-}: {
-  icon:         IoniconName;
-  label:        string;
-  value:        string;
-  valueSuffix?: string;
-  tone?:        'accent';
-  accentColor?: string;
-  delay:        number;
-}) {
-  const P = usePalette();
-
-  if (tone === 'accent') {
-    return (
-      <AnimatedCard delay={delay} padding={14} style={[styles.statTile, { backgroundColor: P.calories, borderColor: P.calories }]}>
-        <Ionicons name={icon} size={20} color="rgba(255,255,255,0.95)" />
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
-          <Text style={[styles.statValue, { color: '#fff' }]}>{value}</Text>
-          {!!valueSuffix && (
-            <Text style={[styles.statSuffix, { color: 'rgba(255,255,255,0.75)' }]}>{valueSuffix}</Text>
-          )}
-        </View>
-        <Text style={[styles.statLabel, { color: 'rgba(255,255,255,0.85)' }]}>{label.toUpperCase()}</Text>
-      </AnimatedCard>
-    );
-  }
-
-  return (
-    <AnimatedCard delay={delay} padding={14} style={styles.statTile}>
-      <Ionicons name={icon} size={20} color={accentColor ?? P.text} />
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
-        <Text style={[styles.statValue, { color: P.text }]}>{value}</Text>
-        {!!valueSuffix && (
-          <Text style={[styles.statSuffix, { color: P.textFaint }]}>{valueSuffix}</Text>
-        )}
-      </View>
-      <Text style={[styles.statLabel, { color: P.textFaint }]}>{label.toUpperCase()}</Text>
-    </AnimatedCard>
-  );
-}
-
 const styles = StyleSheet.create({
   header: {
-    flexDirection:     'row',
-    alignItems:        'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 20,
-    paddingTop:        4,
-    paddingBottom:     18,
-    gap:               12,
+    paddingTop: 4,
+    paddingBottom: 18,
+    gap: 12,
   },
   eyebrow: {
-    fontSize:      10,
-    fontWeight:    '700',
+    fontSize: 10,
+    fontWeight: "700",
     letterSpacing: 1.8,
-    marginBottom:  4,
+    marginBottom: 4,
   },
   title: {
-    fontSize:      30,
-    fontWeight:    '800',
+    fontSize: 30,
+    fontWeight: "800",
     letterSpacing: -0.8,
   },
-  iconBtn: {
-    width: 42, height: 42, borderRadius: 21,
-    alignItems:     'center',
-    justifyContent: 'center',
-    borderWidth:    StyleSheet.hairlineWidth,
-  },
-
   stack: {
     paddingHorizontal: 20,
-    gap:               14,
-  },
-
-  // ─── Stat tiles ──
-  statsRow: {
-    flexDirection: 'row',
-    gap:           10,
-  },
-  statTile: {
-    flex:       1,
-    alignItems: 'flex-start',
-    gap:        10,
-  },
-  statValue: {
-    fontSize:      24,
-    fontWeight:    '800',
-    letterSpacing: -0.8,
-  },
-  statSuffix: {
-    fontSize:   11,
-    fontWeight: '700',
-  },
-  statLabel: {
-    fontSize:      9,
-    fontWeight:    '800',
-    letterSpacing: 1.2,
-  },
-
-  // ─── Card chrome ──
-  headRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    marginBottom:  16,
-  },
-  cardEyebrow: {
-    fontSize:      9,
-    fontWeight:    '800',
-    letterSpacing: 1.4,
-    marginBottom:  4,
-  },
-  cardTitle: {
-    fontSize:      16,
-    fontWeight:    '800',
-    letterSpacing: -0.4,
-  },
-  trendPill: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               4,
-    paddingHorizontal: 8,
-    paddingVertical:   4,
-    borderRadius:      999,
-  },
-  trendText: {
-    fontSize:   10,
-    fontWeight: '800',
-  },
-  iconTile: {
-    width: 36, height: 36, borderRadius: 12,
-    alignItems:     'center',
-    justifyContent: 'center',
-  },
-
-  // ─── Consistency row ──
-  consistencyRow: {
-    flexDirection: 'row',
-    gap:           8,
-  },
-  consistencyCol: {
-    flex:       1,
-    alignItems: 'center',
-    gap:        8,
-  },
-  consistencyCell: {
-    width:           '100%',
-    aspectRatio:     0.85,
-    borderRadius:    12,
-    alignItems:      'center',
-    justifyContent:  'center',
-  },
-  consistencyLabel: {
-    fontSize:   11,
-    fontWeight: '700',
-  },
-
-  // ─── Calories bar chart ──
-  goalLegend: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           6,
-  },
-  dashLine: {
-    width:          16,
-    borderTopWidth: 1,
-    borderStyle:    'dashed',
-  },
-  goalLegendText: {
-    fontSize:   10,
-    fontWeight: '700',
-  },
-  barChart: {
-    flexDirection: 'row',
-    height:        128,
-    gap:           6,
-    alignItems:    'flex-end',
-  },
-  barCol: {
-    flex:       1,
-    alignItems: 'center',
-    gap:        8,
-  },
-  barWrap: {
-    flex:           1,
-    width:          '100%',
-    justifyContent: 'flex-end',
-    position:       'relative',
-  },
-  bar: {
-    width:        '100%',
-    borderRadius: 5,
-    minHeight:    4,
-  },
-  goalLine: {
-    position:      'absolute',
-    left:          0,
-    right:         0,
-    borderTopWidth:1,
-    borderStyle:   'dashed',
-  },
-  barDay: {
-    fontSize:   11,
-    fontWeight: '600',
-  },
-
-  // ─── Weight card ──
-  weightChart: {
-    flexDirection: 'row',
-    height:        72,
-    alignItems:    'flex-end',
-    gap:           2,
-    marginBottom:  14,
-  },
-  weightCol: {
-    flex:       1,
-    alignItems: 'center',
-  },
-  weightColInner: {
-    width:  '100%',
-    height: 60,
-    position: 'relative',
-  },
-  weightDot: {
-    position: 'absolute',
-    left:     '50%',
-    marginLeft: -5,
-  },
-  weightDate: {
-    fontSize:   9,
-    fontWeight: '600',
-    marginTop:  4,
-  },
-  weightFoot: {
-    flexDirection:  'row',
-    justifyContent: 'space-between',
-  },
-  weightNum: {
-    fontSize:      22,
-    fontWeight:    '800',
-    letterSpacing: -0.7,
-  },
-  weightUnit: {
-    fontSize:   13,
-    fontWeight: '600',
-  },
-  weightNote: {
-    fontSize:   11,
-    fontWeight: '500',
-    marginTop:  2,
-  },
-
-  // ─── Mirror promo ──
-  mirrorCard: {
-    padding:  22,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  mirrorGlow: {
-    position:     'absolute',
-    top:          -60,
-    right:        -80,
-    width:        220,
-    height:       220,
-    borderRadius: 110,
-  },
-  premiumPill: {
-    alignSelf:         'flex-start',
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               5,
-    paddingHorizontal: 8,
-    paddingVertical:   4,
-    borderRadius:      8,
-    marginBottom:      12,
-  },
-  premiumPillText: {
-    color:         '#fff',
-    fontSize:      9,
-    fontWeight:    '800',
-    letterSpacing: 1.2,
-  },
-  mirrorTitle: {
-    fontSize:      22,
-    fontWeight:    '800',
-    letterSpacing: -0.6,
-    color:         '#fff',
-    marginBottom:  6,
-  },
-  mirrorSub: {
-    fontSize:      13,
-    fontWeight:    '500',
-    lineHeight:    19,
-    color:         'rgba(255,255,255,0.85)',
-    marginBottom:  16,
-  },
-  mirrorFoot: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           14,
-  },
-  mirrorItem: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           5,
-  },
-  mirrorFootLabel: {
-    fontSize:   11,
-    fontWeight: '700',
-    color:      'rgba(255,255,255,0.9)',
-  },
-  mirrorCta: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               5,
-    paddingHorizontal: 12,
-    paddingVertical:   7,
-    borderRadius:      10,
-    marginLeft:        'auto',
-  },
-  mirrorCtaText: {
-    fontSize:   12,
-    fontWeight: '800',
+    gap: 14,
   },
 });

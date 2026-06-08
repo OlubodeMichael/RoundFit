@@ -1,14 +1,20 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRouter, type Href } from 'expo-router';
+import { safeBack } from '@/utils/navigation';
 
 interface Props {
   step:   number;
   total:  number;
-  onBack: () => void;
+  /** Used when there is nothing to pop (e.g. after `router.replace`). */
+  backHref: Href;
+  onBack?: () => void;
   isDark: boolean;
 }
 
-export function ProgressBar({ step, total, onBack, isDark }: Props) {
+export function ProgressBar({ step, total, backHref, onBack, isDark }: Props) {
+  const router = useRouter();
+  const handleBack = onBack ?? (() => safeBack(router, backHref));
   const hi  = isDark ? '#F5F5F5' : '#111111';
   const mid = isDark ? '#444'    : '#CCC';
   const lo  = isDark ? '#2A2A2A' : '#E8E3DC';
@@ -18,7 +24,7 @@ export function ProgressBar({ step, total, onBack, isDark }: Props) {
     <View style={s.root}>
       <TouchableOpacity
         style={s.back}
-        onPress={onBack}
+        onPress={handleBack}
         hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
       >
         <Ionicons name="chevron-back" size={20} color={hi} />

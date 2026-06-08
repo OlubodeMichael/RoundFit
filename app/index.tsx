@@ -7,5 +7,6 @@ export default function Index() {
 
   if (status === 'loading') return null;
   if (status === 'authenticated') return <Redirect href="/(tabs)" />;
+  if (status === 'needs-profile') return <Redirect href="/onboarding/complete-profile" />;
   return <Redirect href="/auth" />;
 }

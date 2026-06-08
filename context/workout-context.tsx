@@ -1,23 +1,51 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useMemo, useState,
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
-import { useAuth } from '@/context/auth-context';
-
-// ── Config ─────────────────────────────────────────────────────────────────
-
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
+import { AppState, type AppStateStatus } from 'react-native';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
+import { getLocalDateString } from '@/utils/date';
+import { apiFetch } from '@/utils/api';
+import { notifyTodayDataChanged } from '@/utils/today-sync';
+import { applyTodayOptimistic } from '@/utils/today-optimistic';
+import { applyTodayReconcile, type TodayReconcileBundle } from '@/utils/today-reconcile';
+import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  setResourceCached,
+  ttlForDate,
+} from '@/utils/resource-cache';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+/** Backend-canonical workout types */
 export type WorkoutType =
-  | 'run' | 'gym' | 'cycling' | 'hiit' | 'swimming'
-  | 'walking' | 'yoga' | 'rowing' | 'elliptical' | 'other';
+  | 'walking' | 'running' | 'cycling' | 'hiit' | 'gym'
+  | 'swimming' | 'yoga' | 'rowing' | 'elliptical' | 'other';
 
-export type WorkoutSource = 'healthkit' | 'googlefit' | 'manual';
-export type WorkoutIntensity = 'low' | 'moderate' | 'high';
-export type WeightUnit = 'kg' | 'lbs';
-export type DistanceUnit = 'km' | 'miles';
+/** Maps the screen's UI workout type to the backend type */
+export const UI_WORKOUT_TYPE_MAP: Record<string, WorkoutType> = {
+  strength: 'gym',
+  run:      'running',
+  cardio:   'cycling',
+  hiit:     'hiit',
+  yoga:     'yoga',
+  other:    'other',
+};
+
+export type WorkoutSource    = 'healthkit' | 'googlefit' | 'manual';
+export type WorkoutIntensity = 'light' | 'moderate' | 'hard';
+export type WeightUnit       = 'kg' | 'lbs';
+export type DistanceUnit     = 'km' | 'miles';
+
+/** Maps the screen's UI intensity to the backend intensity */
+export const UI_INTENSITY_MAP: Record<string, WorkoutIntensity> = {
+  low:      'light',
+  moderate: 'moderate',
+  high:     'hard',
+  max:      'hard',
+};
 
 export interface WorkoutSet {
   id:          string;
@@ -28,10 +56,16 @@ export interface WorkoutSet {
   weight_unit: WeightUnit;
 }
 
+export interface WorkoutMetrics {
+  strain_score?:     number;
+  hr_zone_minutes?:  Record<string, number>;
+  volume_kg?:        number;
+}
+
 export interface Workout {
   id:              string;
   type:            WorkoutType;
-  duration:        number;
+  duration_mins:   number;
   calories_burned: number;
   source:          WorkoutSource;
   intensity?:      WorkoutIntensity;
@@ -39,24 +73,32 @@ export interface Workout {
   distance_unit:   DistanceUnit;
   avg_heart_rate?: number;
   max_heart_rate?: number;
+  notes?:          string;
   started_at?:     string;
   ended_at?:       string;
+  date?:           string;
+  healthkit_uuid?: string;
+  metrics?:        WorkoutMetrics;
   created_at:      string;
   sets:            WorkoutSet[];
 }
 
 export interface LogWorkoutInput {
   type:             WorkoutType;
-  duration:         number;
-  calories_burned:  number;
-  source:           WorkoutSource;
-  intensity?:       WorkoutIntensity;
+  duration_mins:    number;
+  intensity:        WorkoutIntensity;
+  source?:          WorkoutSource;
+  calories_burned?: number;
   distance?:        number;
-  unit?:            'metric' | 'imperial';
+  distance_unit?:   DistanceUnit;
   avg_heart_rate?:  number;
   max_heart_rate?:  number;
+  notes?:           string;
+  date?:            string;
   started_at?:      string;
   ended_at?:        string;
+  healthkit_uuid?:  string;
+  metrics?:         WorkoutMetrics;
 }
 
 export interface LogSetInput {
@@ -68,55 +110,39 @@ export interface LogSetInput {
 }
 
 export interface WorkoutContextValue {
-  /** Workouts for the currently selected date. */
-  workouts: Workout[];
-
-  /** True while the initial fetch is in-flight. */
-  isLoading: boolean;
-
-  /** Total calories burned across all workouts for the selected date. */
+  workouts:            Workout[];
+  isLoading:           boolean;
   totalCaloriesBurned: number;
-
-  /** Logs a new workout — hits POST /workouts/log. */
-  logWorkout: (input: LogWorkoutInput) => Promise<Workout>;
-
-  /** Logs sets for an existing workout — hits POST /workouts/:id/sets. */
-  logSets: (workoutId: string, sets: LogSetInput[]) => Promise<WorkoutSet[]>;
-
-  /** Deletes a workout — hits DELETE /workouts/:id. */
-  deleteWorkout: (id: string) => Promise<void>;
-
-  /** Re-fetches workouts for the given date (defaults to today). */
-  refreshWorkouts: (date?: string) => Promise<void>;
+  historyVersion:      number;
+  logWorkout:          (input: LogWorkoutInput) => Promise<Workout>;
+  logSets:             (workoutId: string, sets: LogSetInput[]) => Promise<WorkoutSet[]>;
+  deleteWorkout:       (id: string) => Promise<void>;
+  refreshWorkouts:     (date?: string, force?: boolean) => Promise<void>;
+  fetchForDate:        (date: string, force?: boolean) => Promise<Workout[]>;
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function workoutFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
 function todayDateString(): string {
-  return new Date().toISOString().slice(0, 10);
+  return getLocalDateString();
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Pulls the `today` reconciliation block out of a mutation response, if present.
+ * Returns null when the backend does not (yet) include it — the legacy
+ * `notifyTodayDataChanged` path remains the fallback.
+ */
+function extractTodayBundle(body: Record<string, unknown>): TodayReconcileBundle | null {
+  if (!isPlainObject(body.today)) return null;
+  const t = body.today;
+  if (typeof t.date !== 'string') return null;
+  if (!isPlainObject(t.summary)) return null;
+  return body.today as unknown as TodayReconcileBundle;
 }
 
 function fromApiSet(row: Record<string, unknown>): WorkoutSet {
@@ -135,7 +161,7 @@ function fromApiWorkout(row: Record<string, unknown>): Workout {
   return {
     id:              String(row.id ?? ''),
     type:            (row.type as WorkoutType) ?? 'other',
-    duration:        typeof row.duration        === 'number' ? row.duration        : 0,
+    duration_mins:   typeof row.duration_mins === 'number' ? row.duration_mins : 0,
     calories_burned: typeof row.calories_burned === 'number' ? row.calories_burned : 0,
     source:          (row.source as WorkoutSource) ?? 'manual',
     intensity:       row.intensity  as WorkoutIntensity | undefined,
@@ -143,8 +169,12 @@ function fromApiWorkout(row: Record<string, unknown>): Workout {
     distance_unit:   (row.distance_unit as DistanceUnit) ?? 'km',
     avg_heart_rate:  typeof row.avg_heart_rate === 'number' ? row.avg_heart_rate : undefined,
     max_heart_rate:  typeof row.max_heart_rate === 'number' ? row.max_heart_rate : undefined,
+    notes:           typeof row.notes === 'string' ? row.notes : undefined,
     started_at:      typeof row.started_at === 'string' ? row.started_at : undefined,
     ended_at:        typeof row.ended_at   === 'string' ? row.ended_at   : undefined,
+    date:            typeof row.date       === 'string' ? row.date       : undefined,
+    healthkit_uuid:  typeof row.healthkit_uuid === 'string' ? row.healthkit_uuid : undefined,
+    metrics:         isPlainObject(row.metrics) ? row.metrics as WorkoutMetrics : undefined,
     created_at:      typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
     sets:            rawSets.map(fromApiSet),
   };
@@ -159,37 +189,72 @@ const WorkoutContext = createContext<WorkoutContextValue | null>(null);
 export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
 
-  const [workouts,  setWorkouts]  = useState<Workout[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [workouts,   setWorkouts]   = useState<Workout[]>([]);
+  const [isLoading,  setIsLoading]  = useState(true);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const [activeDate, setActiveDate] = useState(todayDateString);
+
+  const bumpHistory = useCallback(() => {
+    setHistoryVersion((version) => version + 1);
+  }, []);
+  const appStateRef = useRef(AppState.currentState);
+  const lastForegroundFetchRef = useRef(0);
 
   const totalCaloriesBurned = useMemo(
     () => workouts.reduce((sum, w) => sum + w.calories_burned, 0),
     [workouts],
   );
 
+  const syncToday = useCallback(async () => {
+    await notifyTodayDataChanged(user?.id, 'workout');
+  }, [user?.id]);
+
   // ── Fetch workouts ──────────────────────────────────────────────────────
-  const fetchWorkouts = useCallback(async (date: string) => {
-    const { ok, body } = await workoutFetch(`/workouts?date=${date}`);
-    if (!ok) return;
-    const rows = Array.isArray(body.data) ? body.data as Record<string, unknown>[] : [];
-    setWorkouts(rows.map(fromApiWorkout));
-  }, []);
+  const fetchWorkouts = useCallback(async (date: string, force = false) => {
+    if (!user?.id) return;
+
+    const isToday = date === todayDateString();
+    const path    = isToday ? '/workouts/today' : `/workouts/${date}`;
+    const key     = buildResourceKey('workouts', user.id, date);
+
+    const parsed = await fetchWithResourceCache<Workout[]>(
+      key,
+      ttlForDate(date),
+      async () => {
+        const { ok, body } = await apiFetch(path);
+        if (!ok) return null;
+        const rows = Array.isArray(body.workouts)
+          ? body.workouts as Record<string, unknown>[]
+          : [];
+        return rows.map(fromApiWorkout);
+      },
+      { force },
+    );
+
+    if (parsed) setWorkouts(parsed);
+  }, [user?.id]);
 
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setWorkouts([]);
       setIsLoading(false);
       return;
     }
 
     let cancelled = false;
-    setIsLoading(true);
-    setWorkouts([]);
 
     (async () => {
+      const key = buildResourceKey('workouts', user.id, activeDate);
+      const cached = await getResourceCached<Workout[]>(key);
+      if (cached && !cancelled) {
+        setWorkouts(cached.data);
+        setIsLoading(false);
+      } else if (!cancelled) {
+        setIsLoading(true);
+      }
+
       try {
         await fetchWorkouts(activeDate);
       } finally {
@@ -200,57 +265,154 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [status, user?.id, activeDate, fetchWorkouts]);
 
+  // ── Foreground: roll date or refresh stale today workouts ───────────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (!prev.match(/inactive|background/) || next !== 'active') return;
+
+      const today = todayDateString();
+      const dayRolled = activeDate !== today;
+      if (
+        !shouldRefetchOnForeground({
+          lastFetchAt: lastForegroundFetchRef.current,
+          dayRolled,
+        })
+      ) {
+        return;
+      }
+
+      lastForegroundFetchRef.current = Date.now();
+      setActiveDate((cur) => (cur !== today ? today : cur));
+      void fetchWorkouts(today, dayRolled);
+    });
+    return () => sub.remove();
+  }, [activeDate, fetchWorkouts]);
+
   // ── Log workout ──────────────────────────────────────────────────────────
   const logWorkout = useCallback(async (input: LogWorkoutInput): Promise<Workout> => {
-    const { ok, body } = await workoutFetch('/workouts/log', {
+    const { ok, body } = await apiFetch('/workouts/', {
       method: 'POST',
-      body:   JSON.stringify(input),
+      body:   JSON.stringify({ ...input, source: input.source ?? 'manual' }),
     });
-    if (!ok || !body.data) throw new Error('Failed to log workout');
-    const saved = fromApiWorkout(body.data as Record<string, unknown>);
-    setWorkouts((prev) => [...prev, saved]);
+    if (!ok) throw new Error((body.error as string) ?? 'Failed to log workout');
+    const saved = fromApiWorkout(body.workout as Record<string, unknown>);
+    setWorkouts((prev) => {
+      const next = [saved, ...prev];
+      if (user?.id) {
+        const today = todayDateString();
+        void setResourceCached(
+          buildResourceKey('workouts', user.id, today),
+          next,
+          ttlForDate(today),
+        );
+      }
+      return next;
+    });
+    applyTodayOptimistic({ caloriesBurned: saved.calories_burned });
+    const bundle = extractTodayBundle(body);
+    if (bundle) applyTodayReconcile(bundle);
+    bumpHistory();
+    void syncToday();
     return saved;
-  }, []);
+  }, [bumpHistory, syncToday, user?.id]);
 
   // ── Log sets ─────────────────────────────────────────────────────────────
   const logSets = useCallback(async (workoutId: string, sets: LogSetInput[]): Promise<WorkoutSet[]> => {
-    const { ok, body } = await workoutFetch(`/workouts/${workoutId}/sets`, {
+    const { ok, body } = await apiFetch(`/workouts/${workoutId}/sets`, {
       method: 'POST',
-      body:   JSON.stringify(sets),
+      body:   JSON.stringify({ sets }),
     });
-    if (!ok || !Array.isArray(body.data)) throw new Error('Failed to log sets');
-    const saved = (body.data as Record<string, unknown>[]).map(fromApiSet);
+    if (!ok) throw new Error((body.error as string) ?? 'Failed to log sets');
+    const saved = Array.isArray(body.sets)
+      ? (body.sets as Record<string, unknown>[]).map(fromApiSet)
+      : [];
     setWorkouts((prev) =>
       prev.map((w) =>
         w.id === workoutId ? { ...w, sets: [...w.sets, ...saved] } : w,
       ),
     );
+    const bundle = extractTodayBundle(body);
+    if (bundle) applyTodayReconcile(bundle);
+    void syncToday();
     return saved;
-  }, []);
+  }, [syncToday]);
 
   // ── Delete workout ───────────────────────────────────────────────────────
   const deleteWorkout = useCallback(async (id: string) => {
     const snapshot = workouts;
+    const removed  = workouts.find((w) => w.id === id);
     setWorkouts((prev) => prev.filter((w) => w.id !== id));
 
-    const { ok } = await workoutFetch(`/workouts/${id}`, { method: 'DELETE' });
+    if (removed) {
+      applyTodayOptimistic({ caloriesBurned: -removed.calories_burned });
+    }
+
+    const { ok, body } = await apiFetch(`/workouts/${id}`, { method: 'DELETE' });
     if (!ok) {
       setWorkouts(snapshot);
-      throw new Error('Failed to delete workout');
+      if (removed) {
+        applyTodayOptimistic({ caloriesBurned: removed.calories_burned });
+      }
+      throw new Error((body.error as string) ?? 'Failed to delete workout');
     }
-  }, [workouts]);
+
+    if (user?.id) {
+      const today = todayDateString();
+      const next = snapshot.filter((workout) => workout.id !== id);
+      void setResourceCached(
+        buildResourceKey('workouts', user.id, today),
+        next,
+        ttlForDate(today),
+      );
+    }
+
+    const bundle = extractTodayBundle(body);
+    if (bundle) applyTodayReconcile(bundle);
+    bumpHistory();
+    void syncToday();
+  }, [bumpHistory, syncToday, user?.id, workouts]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
-  const refreshWorkouts = useCallback(async (date?: string) => {
-    const target = date ?? activeDate;
-    if (date && date !== activeDate) setActiveDate(date);
-    await fetchWorkouts(target);
-  }, [activeDate, fetchWorkouts]);
+  // `force` defaults true so pull-to-refresh fetches fresh. Pass force=false for
+  // cache-first refreshes (e.g. screen focus) so a fresh 2h cache is served
+  // without a network round-trip (which otherwise costs a full request even for a 304).
+  const refreshWorkouts = useCallback(async (date?: string, force = true) => {
+    const target = date ?? todayDateString();
+    setActiveDate(target);
+    await fetchWorkouts(target, force);
+  }, [fetchWorkouts]);
+
+  // ── Fetch for any date without touching context state ─────────────────────
+  const fetchForDate = useCallback(async (date: string, force = false): Promise<Workout[]> => {
+    if (!user?.id) return [];
+
+    const today = todayDateString();
+    const path  = date === today ? '/workouts/today' : `/workouts/${date}`;
+    const key   = buildResourceKey('workouts', user.id, date);
+
+    const parsed = await fetchWithResourceCache<Workout[]>(
+      key,
+      ttlForDate(date),
+      async () => {
+        const { ok, body } = await apiFetch(path);
+        if (!ok) return null;
+        const rows = Array.isArray(body.workouts)
+          ? body.workouts as Record<string, unknown>[]
+          : [];
+        return rows.map(fromApiWorkout);
+      },
+      { force },
+    );
+
+    return parsed ?? [];
+  }, [user?.id]);
 
   return (
     <WorkoutContext.Provider value={{
-      workouts, isLoading, totalCaloriesBurned,
-      logWorkout, logSets, deleteWorkout, refreshWorkouts,
+      workouts, isLoading, totalCaloriesBurned, historyVersion,
+      logWorkout, logSets, deleteWorkout, refreshWorkouts, fetchForDate,
     }}>
       {children}
     </WorkoutContext.Provider>

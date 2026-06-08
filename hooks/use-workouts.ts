@@ -1,4 +1,4 @@
-export { useWorkouts } from '@/context/workout-context';
+export { useWorkouts, UI_WORKOUT_TYPE_MAP, UI_INTENSITY_MAP } from '@/context/workout-context';
 export type {
   Workout,
   WorkoutSet,

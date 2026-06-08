@@ -14,10 +14,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/hooks/use-theme';
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Types
-// ────────────────────────────────────────────────────────────────────────────────
-
 export type ToastKind = 'success' | 'error' | 'info' | 'warning';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
@@ -26,7 +22,7 @@ export type ToastOptions = {
   message: string;
   description?: string;
   kind?: ToastKind;
-  /** Milliseconds before auto-dismiss. Defaults to 2600. Set to 0 to disable. */
+  /** Milliseconds before auto-dismiss. Defaults to 4000. Set to 0 to disable. */
   duration?: number;
 };
 
@@ -47,12 +43,10 @@ type ToastContextValue = {
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Provider
-// ────────────────────────────────────────────────────────────────────────────────
-
 const MAX_TOASTS = 3;
-const DEFAULT_DURATION = 2600;
+const DEFAULT_DURATION = 4000;
+const ENTER_MS = 280;
+const EXIT_MS = 180;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -72,14 +66,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       const item: ToastItem = {
         id,
-        message:     options.message,
+        message: options.message,
         description: options.description,
-        kind:        options.kind ?? 'info',
-        duration:    options.duration ?? DEFAULT_DURATION,
+        kind: options.kind ?? 'info',
+        duration: options.duration ?? DEFAULT_DURATION,
       };
       setToasts((prev) => {
         const next = [...prev, item];
-        // Cap the stack — drop the oldest if we exceed the max.
         if (next.length > MAX_TOASTS) {
           const dropped = next.slice(0, next.length - MAX_TOASTS);
           dropped.forEach((t) => {
@@ -113,8 +106,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       show,
       dismiss,
       success: (message, description) => show({ message, description, kind: 'success' }),
-      error:   (message, description) => show({ message, description, kind: 'error' }),
-      info:    (message, description) => show({ message, description, kind: 'info' }),
+      error: (message, description) => show({ message, description, kind: 'error' }),
+      info: (message, description) => show({ message, description, kind: 'info' }),
       warning: (message, description) => show({ message, description, kind: 'warning' }),
     }),
     [show, dismiss],
@@ -128,10 +121,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Hook
-// ────────────────────────────────────────────────────────────────────────────────
-
 export function useToast(): ToastContextValue {
   const ctx = useContext(ToastContext);
   if (!ctx) {
@@ -139,10 +128,6 @@ export function useToast(): ToastContextValue {
   }
   return ctx;
 }
-
-// ────────────────────────────────────────────────────────────────────────────────
-// Viewport
-// ────────────────────────────────────────────────────────────────────────────────
 
 function ToastViewport({
   toasts,
@@ -158,7 +143,10 @@ function ToastViewport({
   return (
     <View
       pointerEvents="box-none"
-      style={[styles.viewport, { paddingBottom: insets.bottom + 18, paddingTop: insets.top + 12 }]}
+      style={[
+        s.viewport,
+        { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 12 },
+      ]}
     >
       {toasts.map((t) => (
         <ToastCard key={t.id} toast={t} onDismiss={() => onDismiss(t.id)} />
@@ -167,177 +155,229 @@ function ToastViewport({
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Card
-// ────────────────────────────────────────────────────────────────────────────────
-
 function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }) {
   const { isDark } = useTheme();
-  const opacity    = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(14)).current;
-  const scale      = useRef(new Animated.Value(0.96)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(-20)).current;
+  const scale = useRef(new Animated.Value(0.94)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(opacity,    { toValue: 1, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(translateY, { toValue: 0, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.spring(scale,      { toValue: 1, friction: 8,   tension: 120,                     useNativeDriver: true }),
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: ENTER_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: ENTER_MS + 40,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.spring(scale, {
+        toValue: 1,
+        friction: 9,
+        tension: 140,
+        useNativeDriver: true,
+      }),
     ]).start();
   }, [opacity, translateY, scale]);
 
   const handleDismiss = () => {
     Animated.parallel([
-      Animated.timing(opacity,    { toValue: 0, duration: 160, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(translateY, { toValue: 10, duration: 160, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: EXIT_MS,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: -12,
+        duration: EXIT_MS,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(scale, {
+        toValue: 0.96,
+        duration: EXIT_MS,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
     ]).start(() => onDismiss());
   };
 
   const tone = TONE[toast.kind];
-  const palette = isDark
+  const shell = isDark
     ? {
-        bg:      '#1C1D23',
-        edge:    'rgba(255,255,255,0.10)',
-        text:    '#F4F4F5',
-        faint:   'rgba(255,255,255,0.70)',
-        shadow:  '#000',
-        iconBg:  tone.darkIconBg,
+        bg: '#1A1B20',
+        edge: 'rgba(255,255,255,0.10)',
+        text: '#F4F4F5',
+        faint: 'rgba(255,255,255,0.62)',
+        shadow: '#000',
+        shadowOpacity: 0.38,
       }
     : {
-        bg:      '#FFFFFF',
-        edge:    'rgba(0,0,0,0.06)',
-        text:    '#0A0A0A',
-        faint:   'rgba(10,10,10,0.60)',
-        shadow:  '#000',
-        iconBg:  tone.lightIconBg,
+        bg: '#FFFFFF',
+        edge: 'rgba(15,23,42,0.08)',
+        text: '#09090B',
+        faint: '#71717A',
+        shadow: '#0F172A',
+        shadowOpacity: 0.1,
       };
 
   return (
     <Animated.View
       style={[
-        styles.card,
+        s.card,
         {
-          backgroundColor: palette.bg,
-          borderColor:     palette.edge,
-          shadowColor:     palette.shadow,
+          backgroundColor: shell.bg,
+          borderColor: shell.edge,
+          shadowColor: shell.shadow,
+          shadowOpacity: shell.shadowOpacity,
           opacity,
-          transform:       [{ translateY }, { scale }],
+          transform: [{ translateY }, { scale }],
         },
       ]}
     >
-      <Pressable onPress={handleDismiss} style={styles.pressable}>
-        <View style={[styles.iconWrap, { backgroundColor: palette.iconBg }]}>
-          <Ionicons name={tone.icon} size={16} color={tone.accent} />
+      <View
+        pointerEvents="none"
+        style={[s.tintWash, { backgroundColor: tone.wash }]}
+      />
+      <Pressable
+        onPress={handleDismiss}
+        style={({ pressed }) => [s.pressable, pressed && s.pressablePressed]}
+        accessibilityRole="button"
+        accessibilityLabel={`Dismiss: ${toast.message}`}
+      >
+        <View style={[s.iconRing, { backgroundColor: tone.iconSoft }]}>
+          <View style={[s.iconBox, { backgroundColor: tone.accent }]}>
+            <Ionicons name={tone.icon} size={16} color="#FFF" />
+          </View>
         </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text numberOfLines={2} style={[styles.message, { color: palette.text }]}>
+
+        <View style={s.copy}>
+          <Text numberOfLines={2} style={[s.message, { color: shell.text }]}>
             {toast.message}
           </Text>
           {toast.description ? (
-            <Text numberOfLines={2} style={[styles.description, { color: palette.faint }]}>
+            <Text numberOfLines={2} style={[s.description, { color: shell.faint }]}>
               {toast.description}
             </Text>
           ) : null}
         </View>
-        <View style={[styles.accent, { backgroundColor: tone.accent }]} />
+
+        <View style={[s.dismissHit, { backgroundColor: tone.iconSoft }]}>
+          <Ionicons name="close" size={14} color={tone.accent} />
+        </View>
       </Pressable>
     </Animated.View>
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Tone table
-// ────────────────────────────────────────────────────────────────────────────────
-
 type Tone = {
   icon: IoniconName;
   accent: string;
-  lightIconBg: string;
-  darkIconBg: string;
+  iconSoft: string;
+  wash: string;
 };
 
 const TONE: Record<ToastKind, Tone> = {
   success: {
-    icon:        'checkmark',
-    accent:      '#10B981',
-    lightIconBg: 'rgba(16,185,129,0.12)',
-    darkIconBg:  'rgba(16,185,129,0.18)',
+    icon: 'checkmark',
+    accent: '#10B981',
+    iconSoft: 'rgba(16,185,129,0.14)',
+    wash: 'rgba(16,185,129,0.07)',
   },
   error: {
-    icon:        'close',
-    accent:      '#EF4444',
-    lightIconBg: 'rgba(239,68,68,0.12)',
-    darkIconBg:  'rgba(239,68,68,0.18)',
+    icon: 'close',
+    accent: '#EF4444',
+    iconSoft: 'rgba(239,68,68,0.14)',
+    wash: 'rgba(239,68,68,0.07)',
   },
   info: {
-    icon:        'information',
-    accent:      '#3B82F6',
-    lightIconBg: 'rgba(59,130,246,0.12)',
-    darkIconBg:  'rgba(59,130,246,0.18)',
+    icon: 'information',
+    accent: '#38BDF8',
+    iconSoft: 'rgba(56,189,248,0.14)',
+    wash: 'rgba(56,189,248,0.07)',
   },
   warning: {
-    icon:        'alert',
-    accent:      '#F59E0B',
-    lightIconBg: 'rgba(245,158,11,0.12)',
-    darkIconBg:  'rgba(245,158,11,0.18)',
+    icon: 'alert',
+    accent: '#F59E0B',
+    iconSoft: 'rgba(245,158,11,0.14)',
+    wash: 'rgba(245,158,11,0.07)',
   },
 };
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Styles
-// ────────────────────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   viewport: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-    alignItems:     'center',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    gap: 8,
+    gap: 10,
     zIndex: 9999,
   },
   card: {
-    width:         '100%',
-    maxWidth:      460,
-    borderRadius:  16,
-    borderWidth:   StyleSheet.hairlineWidth,
-    overflow:      'hidden',
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
     ...Platform.select({
       ios: {
-        shadowOffset:  { width: 0, height: 8 },
-        shadowOpacity: 0.18,
-        shadowRadius:  24,
+        shadowOffset: { width: 0, height: 6 },
+        shadowRadius: 16,
       },
-      android: { elevation: 8 },
+      android: { elevation: 6 },
       default: {},
     }),
   },
-  pressable: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    paddingHorizontal: 14,
-    paddingVertical:   12,
-    gap:               12,
+  tintWash: {
+    ...StyleSheet.absoluteFillObject,
   },
-  iconWrap: {
-    width:           30,
-    height:          30,
-    borderRadius:    999,
-    alignItems:      'center',
-    justifyContent:  'center',
+  pressable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    gap: 12,
+  },
+  pressablePressed: {
+    opacity: 0.92,
+  },
+  iconRing: {
+    padding: 4,
+    borderRadius: 14,
+  },
+  iconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  copy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
   },
   message: {
-    fontSize:      14.5,
-    fontWeight:    '700',
-    letterSpacing: -0.1,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.25,
+    lineHeight: 19,
   },
   description: {
-    marginTop:  2,
-    fontSize:   12.5,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 17,
   },
-  accent: {
-    width:        3,
-    height:       26,
-    borderRadius: 2,
+  dismissHit: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

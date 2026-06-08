@@ -65,3 +65,14 @@ export function useTheme(): ThemeContextValue {
   }
   return ctx;
 }
+
+/** Wraps children in a context that forces dark mode regardless of user preference. */
+export function ForceDarkScope({ children }: { children: React.ReactNode }) {
+  const current = useTheme();
+  const forced  = React.useMemo(
+    () => ({ ...current, isDark: true, scheme: 'dark' as const }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  return <ThemeContext.Provider value={forced}>{children}</ThemeContext.Provider>;
+}

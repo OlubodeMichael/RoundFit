@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 import { TileGrid, Tile } from '@/components/onboarding/tile-grid';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 const STAGES: Tile[] = [
   { id: 'regular',       icon: 'sync-outline',     label: 'Regular cycle', desc: 'Predictable monthly cycle' },
@@ -43,12 +44,16 @@ export default function LifeStageScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={9} total={12} onBack={() => router.back()} isDark={false} />
+        <ProgressBar step={9} total={12} backHref={{ pathname: '/onboarding/cycle-phase', params }} isDark={false} />
       </View>
 
       <Animated.View style={{ opacity: fade, transform: [{ translateY: slideY }] }}>
         <Text style={[s.headline, { color: hi }]}>Your life{'\n'}stage.</Text>
         <Text style={[s.sub, { color: mid }]}>We tailor calories and macros to where you are.</Text>
+        <WhyWeAsk
+          text="We use this to account for hormonal shifts in your nutrition plan."
+          style={s.whyWeAsk}
+        />
       </Animated.View>
 
       <TileGrid tiles={STAGES} selected={selected} onSelect={setSelected} />
@@ -71,5 +76,6 @@ const s = StyleSheet.create({
   root:     { flex: 1, paddingHorizontal: 28 },
   progress: { marginBottom: 8 },
   headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 6 },
-  sub:      { fontSize: 15, fontWeight: '400', lineHeight: 22, marginBottom: 32 },
+  sub:      { fontSize: 15, fontWeight: '400', lineHeight: 22, marginBottom: 6 },
+  whyWeAsk: { marginBottom: 26 },
 });

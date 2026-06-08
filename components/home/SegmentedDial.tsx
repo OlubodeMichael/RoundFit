@@ -1,27 +1,26 @@
-import type { ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View } from 'react-native';
 
 const TICK_COUNT = 36;
-const TICK_WIDTH = 2;
-const TICK_HEIGHT = 7;
-const TICK_FILLED_WIDTH = 4;
-const TICK_FILLED_HEIGHT = 9;
-const TICK_RADIUS = 2;
-const LEADING_TICK_WIDTH = 5;
-const LEADING_TICK_HEIGHT = 11;
-const LEADING_HALO_SIZE = 14;
+const TICK_WIDTH = 3;
+const TICK_HEIGHT = 8;
+const TICK_FILLED_WIDTH = 5;
+const TICK_FILLED_HEIGHT = 11;
+const TICK_RADIUS = 2.5;
+const LEADING_TICK_WIDTH = 6;
+const LEADING_TICK_HEIGHT = 13;
+const LEADING_HALO_SIZE = 15;
 const LEADING_HALO_OFFSET = -2;
 const TICK_TOP_INSET = 3;
 
-type SegmentedDialProps = {
+export interface SegmentedDialProps {
   size: number;
   progress: number;
   trackColor: string;
   fillColor: string;
   haloColor: string;
   tickCount?: number;
-  children?: ReactNode;
-};
+  children?: React.ReactNode;
+}
 
 export function SegmentedDial({
   size,
@@ -41,29 +40,37 @@ export function SegmentedDial({
 
   return (
     <View style={{ width: size, height: size }}>
-      {Array.from({ length: tickCount }).map((_, index) => {
-        const isFilled = index < filledCount || isComplete;
-        const isLeading = index === leadingIdx;
+      {Array.from({ length: tickCount }).map((_, i) => {
+        const isFilled = i < filledCount || isComplete;
+        const isLeading = i === leadingIdx;
         const tickColor = isFilled || isLeading ? fillColor : trackColor;
-        const width = isLeading ? LEADING_TICK_WIDTH : isFilled ? TICK_FILLED_WIDTH : TICK_WIDTH;
-        const height = isLeading ? LEADING_TICK_HEIGHT : isFilled ? TICK_FILLED_HEIGHT : TICK_HEIGHT;
+        const w = isLeading
+          ? LEADING_TICK_WIDTH
+          : isFilled
+            ? TICK_FILLED_WIDTH
+            : TICK_WIDTH;
+        const h = isLeading
+          ? LEADING_TICK_HEIGHT
+          : isFilled
+            ? TICK_FILLED_HEIGHT
+            : TICK_HEIGHT;
 
         return (
           <View
-            key={index}
+            key={i}
             pointerEvents="none"
             style={{
-              position: "absolute",
+              position: 'absolute',
               width: size,
               height: size,
-              alignItems: "center",
-              transform: [{ rotate: `${index * tickAngleStep}deg` }],
+              alignItems: 'center',
+              transform: [{ rotate: `${i * tickAngleStep}deg` }],
             }}
           >
             {isLeading && (
               <View
                 style={{
-                  position: "absolute",
+                  position: 'absolute',
                   top: LEADING_HALO_OFFSET,
                   width: LEADING_HALO_SIZE,
                   height: LEADING_HALO_SIZE,
@@ -74,29 +81,31 @@ export function SegmentedDial({
             )}
             <View
               style={{
-                position: "absolute",
+                position: 'absolute',
                 top: TICK_TOP_INSET,
-                width,
-                height,
+                width: w,
+                height: h,
                 borderRadius: TICK_RADIUS,
                 backgroundColor: tickColor,
-                opacity: 1,
               }}
             />
           </View>
         );
       })}
 
-      <View style={[StyleSheet.absoluteFill, styles.center]} pointerEvents="none">
+      <View
+        style={[s.center, { width: size, height: size }]}
+        pointerEvents="none"
+      >
         {children}
       </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   center: {
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

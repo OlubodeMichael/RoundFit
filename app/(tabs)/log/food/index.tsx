@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ComponentProps } from 'react';
 import {
   ScrollView,
   View,
@@ -13,6 +12,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,18 +20,32 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
 import { useRouter } from 'expo-router';
-import { useFood, type MealItem } from '@/hooks/use-food';
+import { useFood, type BarcodePreview, type MealItem } from '@/hooks/use-food';
+import { BarcodeScanPreview } from '@/components/log/BarcodeScanPreview';
+import { AppModal } from '@/components/ui/AppModal';
 import { ManualMealInputModal, type MealLabel, type ManualMealInput } from '@/components/log/ManualMealInputModal';
 import { PhotoAnalysisModal } from '@/components/log/PhotoAnalysisModal';
+import { Image } from 'expo-image';
+import { persistCameraPhoto, prunePhotoCache } from '@/utils/photo-cache';
 import { useToast } from '@/components/ui/Toast';
-import { usePalette, type Palette } from '@/lib/log-theme';
+import { FoodLogActionsRow } from '@/components/log/food/FoodLogActionsRow';
+import { FoodLogCaloriesCard } from '@/components/log/food/FoodLogCaloriesCard';
+import { DayNavigator, usePalette, type Palette } from '@/lib/log-theme';
+import {
+  MEAL_ROW_GAP,
+  MEAL_ROW_MIN_HEIGHT,
+  MEAL_ROW_PADDING_LEFT,
+  MEAL_ROW_PADDING_RIGHT,
+  mealLogThumbStyles,
+  mealRowDividerInset,
+} from '@/lib/meal-log-row';
 
-type IoniconsName = ComponentProps<typeof Ionicons>['name'];
 type CameraMode = 'photo' | 'scan';
 type CameraRefLike = {
   takePictureAsync: (opts?: { quality?: number; skipProcessing?: boolean; base64?: boolean }) => Promise<{ uri?: string; base64?: string }>;
 };
 type BarcodeResult = { type: string; data: string };
+type PendingBarcode = { code: string; preview: BarcodePreview };
 
 const EXPO_CAMERA_NATIVE = 'ExpoCamera';
 const FOOD_BARCODE_TYPES = ['ean13', 'ean8', 'upc_a', 'upc_e', 'qr', 'code128', 'code39'];
@@ -43,12 +57,12 @@ type GroupKey = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
 
 const GROUP_ORDER: GroupKey[] = ['breakfast', 'lunch', 'dinner', 'snack', 'other'];
 
-const GROUP_META: Record<GroupKey, { title: string; icon: IoniconsName; accent: keyof Palette }> = {
-  breakfast: { title: 'Breakfast', icon: 'cafe',        accent: 'carbs'    },
-  lunch:     { title: 'Lunch',     icon: 'restaurant',  accent: 'protein'  },
-  dinner:    { title: 'Dinner',    icon: 'moon',        accent: 'fat'      },
-  snack:     { title: 'Snack',     icon: 'nutrition',   accent: 'water'    },
-  other:     { title: 'Other',     icon: 'fast-food',   accent: 'calories' },
+const GROUP_META: Record<GroupKey, { title: string; emoji: string; accent: keyof Palette }> = {
+  breakfast: { title: 'Breakfast', emoji: '🥞', accent: 'carbs'    },
+  lunch:     { title: 'Lunch',     emoji: '🥗', accent: 'protein'  },
+  dinner:    { title: 'Dinner',    emoji: '🍽️', accent: 'fat'      },
+  snack:     { title: 'Snack',     emoji: '🍎', accent: 'water'    },
+  other:     { title: 'Other',     emoji: '🍴', accent: 'calories' },
 };
 
 function groupFor(label: string): GroupKey {
@@ -121,7 +135,7 @@ export default function FoodLogScreen() {
   const router  = useRouter();
   const {
     meals, mealGoal, totalCalories, remaining,
-    addMeal, logBarcode, deleteMeal, refreshLogs, activeDate,
+    addMeal, previewBarcode, logBarcode, deleteMeal, refreshLogs, activeDate,
   } = useFood();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
@@ -183,7 +197,10 @@ export default function FoodLogScreen() {
   const [manualVisible, setManualVisible] = useState(false);
   const [manualPreset, setManualPreset]   = useState<MealLabel | undefined>(undefined);
   const [pendingPhoto, setPendingPhoto]   = useState<{ uri: string; base64: string } | null>(null);
-  const [barcodeLoading, setBarcodeLoading] = useState(false);
+  const [barcodeAdding, setBarcodeAdding] = useState(false);
+  const [pendingBarcode, setPendingBarcode] = useState<PendingBarcode | null>(null);
+  const [scanLookupLoading, setScanLookupLoading] = useState(false);
+  const [scanLookupError, setScanLookupError] = useState<string | null>(null);
   const [flash, setFlash] = useState<'off' | 'on' | 'auto'>('off');
 
   useEffect(() => {
@@ -258,8 +275,11 @@ export default function FoodLogScreen() {
   const openScan = async () => {
     const ok = await ensureCameraPermission();
     if (!ok) return;
+    setPendingBarcode(null);
     scanLock.current = false;
     setScanned(null);
+    setScanLookupError(null);
+    setScanLookupLoading(false);
     setCameraMode('scan');
     setTimeout(startScanLine, 300);
   };
@@ -272,14 +292,49 @@ export default function FoodLogScreen() {
   const resetScan = () => {
     scanLock.current = false;
     setScanned(null);
+    setScanLookupError(null);
+    setScanLookupLoading(false);
     startScanLine();
   };
+
+  useEffect(() => {
+    if (!scanned || cameraMode !== 'scan') return;
+
+    let cancelled = false;
+    setScanLookupError(null);
+    setScanLookupLoading(true);
+
+    void previewBarcode(scanned.data)
+      .then((preview) => {
+        if (cancelled) return;
+        setScanLookupLoading(false);
+        if (!preview) {
+          setScanLookupError('Product not found in database.');
+          return;
+        }
+        setPendingBarcode({ code: scanned.data, preview });
+        stopScanLine();
+        setScanned(null);
+        scanLock.current = false;
+        setCameraMode(null);
+        setFlash('off');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setScanLookupLoading(false);
+        setScanLookupError('Could not look up this product.');
+      });
+
+    return () => { cancelled = true; };
+  }, [scanned, cameraMode, previewBarcode]);
   const capturePhoto = async () => {
     try {
-      const photo = await cameraRef.current?.takePictureAsync({ quality: 0.7, skipProcessing: true, base64: true });
+      const photo = await cameraRef.current?.takePictureAsync({ quality: 0.8, skipProcessing: true, base64: true });
       if (!photo?.uri || !photo?.base64) return;
+      const persistedUri = persistCameraPhoto(photo.uri);
+      prunePhotoCache();
       setCameraMode(null);
-      setPendingPhoto({ uri: photo.uri, base64: photo.base64 });
+      setPendingPhoto({ uri: persistedUri, base64: photo.base64 });
     } catch {
       toast.error('Capture failed', 'Could not take a photo.');
     }
@@ -287,9 +342,54 @@ export default function FoodLogScreen() {
   const closeCamera = () => {
     stopScanLine();
     setScanned(null);
+    setScanLookupError(null);
+    setScanLookupLoading(false);
     scanLock.current = false;
     setCameraMode(null);
     setFlash('off');
+  };
+
+  const switchCameraMode = (newMode: CameraMode) => {
+    if (newMode === cameraMode) return;
+    setFlash('off');
+    if (newMode === 'scan') {
+      scanLock.current = false;
+      setScanned(null);
+      setScanLookupError(null);
+      setScanLookupLoading(false);
+      setCameraMode('scan');
+      setTimeout(startScanLine, 300);
+    } else {
+      stopScanLine();
+      scanLock.current = false;
+      setScanned(null);
+      setScanLookupError(null);
+      setScanLookupLoading(false);
+      setCameraMode('photo');
+    }
+  };
+
+  const closeBarcodeConfirm = () => {
+    setPendingBarcode(null);
+  };
+
+  const handleBarcodeAdd = async () => {
+    if (!pendingBarcode) return;
+    setBarcodeAdding(true);
+    try {
+      await logBarcode(pendingBarcode.code);
+      setPendingBarcode(null);
+      toast.success('Food logged', pendingBarcode.preview.name);
+    } catch {
+      toast.error('Lookup failed', 'Could not add this product.');
+    } finally {
+      setBarcodeAdding(false);
+    }
+  };
+
+  const handleBarcodeScanAgain = () => {
+    setPendingBarcode(null);
+    void openScan();
   };
   const cycleFlash = () => setFlash((f) => f === 'off' ? 'on' : f === 'on' ? 'auto' : 'off');
   const scanLineY = scanLineAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 220] });
@@ -299,7 +399,7 @@ export default function FoodLogScreen() {
       <ScrollView
         contentContainerStyle={{
           paddingTop:    insets.top + 12,
-          paddingBottom: insets.bottom + 64,
+          paddingBottom: insets.bottom + 24,
         }}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -328,116 +428,32 @@ export default function FoodLogScreen() {
               FOOD LOG
             </Text>
             {/* Date pill navigator */}
-            <View style={[styles.datePill, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
-              <TouchableOpacity
-                onPress={() => navigateDate(-1)}
-                hitSlop={8}
-                activeOpacity={0.6}
-                style={styles.dateArrow}
-              >
-                <Ionicons name="chevron-back" size={16} color={P.textDim} />
-              </TouchableOpacity>
-
-              <View style={styles.dateLabelWrap}>
-                {isToday && (
-                  <View style={[styles.todayDot, { backgroundColor: P.calories }]} />
-                )}
-                <Text style={[styles.dateLabel, { color: P.text }]}>
-                  {formatNavDate(activeDate)}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                onPress={() => navigateDate(1)}
-                hitSlop={8}
-                activeOpacity={isToday ? 1 : 0.6}
-                disabled={isToday}
-                style={styles.dateArrow}
-              >
-                <Ionicons
-                  name="chevron-forward"
-                  size={16}
-                  color={isToday ? P.cardEdge : P.textDim}
-                />
-              </TouchableOpacity>
-            </View>
+            <DayNavigator
+              label={formatNavDate(activeDate)}
+              isToday={isToday}
+              onPrev={() => navigateDate(-1)}
+              onNext={() => navigateDate(1)}
+              accentColor={P.calories}
+            />
           </View>
 
           {/* Spacer to balance the back button */}
           <View style={{ width: 40 }} />
         </View>
 
-        {/* ── SUMMARY CARD ─────────────────────────────────────── */}
-        <View style={{ paddingHorizontal: 20, marginTop: 18, marginBottom: 16 }}>
-          <AnimatedCard delay={80}>
-            <View style={styles.summaryRow}>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={[styles.summaryEyebrow, { color: P.textFaint }]}>
-                  CALORIES REMAINING
-                </Text>
-                <Text style={[styles.summaryBig, { color: P.text }]}>
-                  {Math.max(0, remaining).toLocaleString()}
-                </Text>
-              </View>
-              <View style={[styles.summaryPill, { backgroundColor: P.caloriesSoft }]}>
-                <Ionicons name="flame" size={13} color={P.calories} />
-                <Text style={[styles.summaryPillText, { color: P.calories }]}>
-                  {Math.round(eatenPct * 100)}%
-                </Text>
-              </View>
-            </View>
-
-            <View style={[styles.progressTrack, { backgroundColor: P.sunken }]}>
-              <View style={[styles.progressFill, { width: `${eatenPct * 100}%`, backgroundColor: P.calories }]} />
-            </View>
-
-            <View style={[styles.summaryFoot, { borderTopColor: P.hair }]}>
-              <SummaryStat
-                label={isToday ? 'EATEN' : 'ATE'}
-                value={totalCalories.toLocaleString()}
-                ink={P.text}
-                sub={P.textFaint}
-              />
-              <View style={[styles.vDiv, { backgroundColor: P.hair }]} />
-              <SummaryStat label="REMAINING" value={Math.max(0, remaining).toLocaleString()} ink={P.sage} sub={P.textFaint} />
-              <View style={[styles.vDiv, { backgroundColor: P.hair }]} />
-              <SummaryStat label="GOAL"      value={mealGoal.toLocaleString()}      ink={P.textDim}  sub={P.textFaint} />
-            </View>
-          </AnimatedCard>
-        </View>
-
-        {/* ── QUICK ACTIONS ────────────────────────────────────── */}
-        <View style={styles.actions}>
-          <ActionCard
-            label="Photo"
-            caption="AI detect"
-            icon="camera"
-            accent={P.calories}
-            accentSoft={P.caloriesSoft}
-            P={P}
-            delay={160}
-            onPress={openPhoto}
-            primary
+        {/* ── SUMMARY + QUICK ACTIONS ──────────────────────────── */}
+        <View style={{ paddingHorizontal: 20, marginTop: 18, gap: 16, marginBottom: 8 }}>
+          <FoodLogCaloriesCard
+            remaining={remaining}
+            totalCalories={totalCalories}
+            mealGoal={mealGoal}
+            eatenPct={eatenPct}
+            isToday={isToday}
           />
-          <ActionCard
-            label="Manual"
-            caption="Type entry"
-            icon="create"
-            accent={P.protein}
-            accentSoft={P.proteinSoft}
-            P={P}
-            delay={220}
-            onPress={() => openManual()}
-          />
-          <ActionCard
-            label="Scan"
-            caption="Barcode"
-            icon="barcode"
-            accent={P.water}
-            accentSoft={P.waterSoft}
-            P={P}
-            delay={280}
-            onPress={openScan}
+          <FoodLogActionsRow
+            onPhoto={openPhoto}
+            onManual={() => openManual()}
+            onSearch={() => router.push('/(tabs)/log/food/search')}
           />
         </View>
 
@@ -472,7 +488,8 @@ export default function FoodLogScreen() {
               ref={cameraMode === 'photo' ? cameraRef : undefined}
               style={cameraStyles.view}
               facing="back"
-              flash={flash}
+              flash={cameraMode === 'photo' ? flash : 'off'}
+              enableTorch={cameraMode === 'scan' && flash !== 'off'}
               {...(cameraMode === 'scan' ? {
                 barcodeScannerSettings: { barcodeTypes: FOOD_BARCODE_TYPES },
                 onBarcodeScanned: scanned ? undefined : onBarcodeScanned,
@@ -502,6 +519,18 @@ export default function FoodLogScreen() {
             </View>
           )}
 
+          {cameraMode === 'photo' && (
+            <View style={photoGuide.overlay} pointerEvents="none">
+              <View style={photoGuide.frame}>
+                <View style={[photoGuide.corner, photoGuide.tl]} />
+                <View style={[photoGuide.corner, photoGuide.tr]} />
+                <View style={[photoGuide.corner, photoGuide.bl]} />
+                <View style={[photoGuide.corner, photoGuide.br]} />
+              </View>
+              <Text style={photoGuide.hint}>Center your meal in the frame</Text>
+            </View>
+          )}
+
           <View style={[cameraStyles.topBar, { paddingTop: insets.top + 10 }]}>
             <TouchableOpacity style={cameraStyles.circle} onPress={closeCamera}>
               <Ionicons name="close" size={22} color="#FFF" />
@@ -509,74 +538,73 @@ export default function FoodLogScreen() {
             <Text style={cameraStyles.title}>
               {cameraMode === 'scan' ? 'Scan barcode' : 'Snap your meal'}
             </Text>
-            {cameraMode === 'photo' ? (
-              <TouchableOpacity
-                style={[cameraStyles.circle, flash !== 'off' && { backgroundColor: 'rgba(255,120,73,0.55)' }]}
-                onPress={cycleFlash}
-              >
-                <Ionicons
-                  name={flash === 'on' ? 'flash' : flash === 'auto' ? 'flash-outline' : 'flash-off-outline'}
-                  size={20}
-                  color="#FFF"
-                />
-              </TouchableOpacity>
-            ) : (
-              <View style={cameraStyles.circle} />
-            )}
+            <TouchableOpacity
+              style={[cameraStyles.circle, flash !== 'off' && { backgroundColor: 'rgba(255,120,73,0.55)' }]}
+              onPress={cycleFlash}
+            >
+              <Ionicons
+                name={flash === 'on' ? 'flash' : flash === 'auto' ? 'flash-outline' : 'flash-off-outline'}
+                size={20}
+                color="#FFF"
+              />
+            </TouchableOpacity>
           </View>
 
-          {cameraMode === 'photo' && (
-            <View style={[cameraStyles.bottomBar, { paddingBottom: insets.bottom + 20 }]}>
-              <View style={cameraStyles.circle} />
-              <TouchableOpacity style={cameraStyles.captureOuter} onPress={capturePhoto}>
-                <View style={cameraStyles.captureInner} />
-              </TouchableOpacity>
-              <View style={cameraStyles.circle} />
-            </View>
-          )}
-
-          {cameraMode === 'scan' && (
-            <View style={[cameraStyles.scanBottom, { paddingBottom: insets.bottom + 24 }]}>
-              {scanned ? (
-                <>
-                  <View style={cameraStyles.resultCard}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={cameraStyles.resultType}>{scanned.type.toUpperCase()}</Text>
-                      <Text style={cameraStyles.resultCode} numberOfLines={1}>{scanned.data}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={[cameraStyles.addBtn, barcodeLoading && { opacity: 0.6 }]}
-                      disabled={barcodeLoading}
-                      onPress={async () => {
-                        if (!scanned) return;
-                        setBarcodeLoading(true);
-                        try {
-                          await logBarcode(scanned.data);
-                          closeCamera();
-                          toast.success('Food logged', 'Added from barcode');
-                        } catch {
-                          toast.error('Lookup failed', 'Could not find this product.');
-                        } finally {
-                          setBarcodeLoading(false);
-                        }
-                      }}
-                    >
-                      <Ionicons name={barcodeLoading ? 'hourglass-outline' : 'add'} size={18} color="#FFF" />
-                      <Text style={cameraStyles.addBtnText}>{barcodeLoading ? 'Looking up…' : 'Add food'}</Text>
-                    </TouchableOpacity>
+          <View style={[cameraStyles.unifiedBottom, { paddingBottom: insets.bottom + 16 }]}>
+            {cameraMode === 'photo' ? (
+              <View style={cameraStyles.captureRow}>
+                <TouchableOpacity style={cameraStyles.captureOuter} onPress={capturePhoto}>
+                  <View style={cameraStyles.captureInner} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={cameraStyles.scanContent}>
+                {scanned ? (
+                  <View style={cameraStyles.lookupCard}>
+                    {scanLookupLoading ? (
+                      <>
+                        <ActivityIndicator color="#FF7849" />
+                        <Text style={cameraStyles.lookupText}>Looking up product…</Text>
+                      </>
+                    ) : scanLookupError ? (
+                      <>
+                        <Text style={cameraStyles.lookupError}>{scanLookupError}</Text>
+                        <TouchableOpacity style={cameraStyles.againBtn} onPress={resetScan}>
+                          <Text style={cameraStyles.againText}>Scan again</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : null}
                   </View>
-                  <TouchableOpacity style={cameraStyles.againBtn} onPress={resetScan}>
-                    <Text style={cameraStyles.againText}>Scan again</Text>
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <View style={cameraStyles.hint}>
-                  <Ionicons name="barcode-outline" size={18} color="rgba(255,255,255,0.7)" />
-                  <Text style={cameraStyles.hintText}>Point at a barcode or QR code</Text>
-                </View>
-              )}
+                ) : (
+                  <View style={cameraStyles.hint}>
+                    <Ionicons name="barcode-outline" size={18} color="rgba(255,255,255,0.7)" />
+                    <Text style={cameraStyles.hintText}>Point at a barcode or QR code</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            <View style={cameraStyles.modePill}>
+              <Pressable
+                onPress={() => switchCameraMode('photo')}
+                style={[cameraStyles.modeBtn, cameraMode === 'photo' && cameraStyles.modeBtnActive]}
+              >
+                <Ionicons name="aperture-outline" size={17} color={cameraMode === 'photo' ? '#111' : 'rgba(255,255,255,0.75)'} />
+                <Text style={[cameraStyles.modeBtnText, { color: cameraMode === 'photo' ? '#111' : 'rgba(255,255,255,0.75)' }]}>
+                  AI Photo
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => switchCameraMode('scan')}
+                style={[cameraStyles.modeBtn, cameraMode === 'scan' && cameraStyles.modeBtnActive]}
+              >
+                <Ionicons name="barcode-outline" size={17} color={cameraMode === 'scan' ? '#111' : 'rgba(255,255,255,0.75)'} />
+                <Text style={[cameraStyles.modeBtnText, { color: cameraMode === 'scan' ? '#111' : 'rgba(255,255,255,0.75)' }]}>
+                  Barcode
+                </Text>
+              </Pressable>
             </View>
-          )}
+          </View>
         </View>
       </Modal>
 
@@ -598,6 +626,28 @@ export default function FoodLogScreen() {
         />
       )}
 
+      <AppModal
+        visible={pendingBarcode != null}
+        onClose={closeBarcodeConfirm}
+        sheetHeight={0.42}
+      >
+        <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8 }}>
+          <Text style={[styles.barcodeSheetEyebrow, { color: P.calories }]}>BARCODE</Text>
+          <Text style={[styles.barcodeSheetTitle, { color: P.text }]}>Add to log?</Text>
+          {pendingBarcode && (
+            <BarcodeScanPreview
+              variant="sheet"
+              preview={pendingBarcode.preview}
+              loading={false}
+              error={null}
+              adding={barcodeAdding}
+              onAdd={handleBarcodeAdd}
+              onScanAgain={handleBarcodeScanAgain}
+            />
+          )}
+        </View>
+      </AppModal>
+
       {/* ── EDIT MODAL ───────────────────────────────────────── */}
       {editItem && (
         <ManualMealInputModal
@@ -615,6 +665,7 @@ export default function FoodLogScreen() {
             protein:  editItem.protein,
             carbs:    editItem.carbs,
             fat:      editItem.fat,
+            imageUrl: editItem.imageUrl,
           }}
         />
       )}
@@ -669,70 +720,6 @@ function AnimatedCard({
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Summary stat — tiny column
-// ───────────────────────────────────────────────────────────────────────────────
-function SummaryStat({ label, value, ink, sub }: { label: string; value: string; ink: string; sub: string }) {
-  return (
-    <View style={{ flex: 1, alignItems: 'center', gap: 4 }}>
-      <Text style={[styles.statLabel, { color: sub }]}>{label}</Text>
-      <Text style={[styles.statValue, { color: ink }]}>{value}</Text>
-    </View>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Action card — quick-add chips
-// ───────────────────────────────────────────────────────────────────────────────
-function ActionCard({
-  label, caption, icon, accent, accentSoft, P, delay, onPress, primary,
-}: {
-  label: string; caption: string; icon: IoniconsName;
-  accent: string; accentSoft: string; P: Palette;
-  delay: number; onPress: () => void; primary?: boolean;
-}) {
-  const anim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.timing(anim, {
-      toValue: 1, duration: 560, delay,
-      easing: Easing.out(Easing.cubic), useNativeDriver: true,
-    }).start();
-  }, [anim, delay]);
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [18, 0] });
-
-  return (
-    <Animated.View style={{ flex: 1, opacity: anim, transform: [{ translateY }] }}>
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.action,
-          {
-            backgroundColor: primary ? accent : P.card,
-            borderColor: primary ? accent : P.cardEdge,
-          },
-          pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
-        ]}
-      >
-        <View style={[
-          styles.actionIcon,
-          { backgroundColor: primary ? 'rgba(255,255,255,0.18)' : accentSoft },
-        ]}>
-          <Ionicons name={icon} size={18} color={primary ? '#fff' : accent} />
-        </View>
-        <Text style={[styles.actionLabel, { color: primary ? '#fff' : P.text }]}>
-          {label}
-        </Text>
-        <Text style={[
-          styles.actionCaption,
-          { color: primary ? 'rgba(255,255,255,0.75)' : P.textFaint },
-        ]}>
-          {caption}
-        </Text>
-      </Pressable>
-    </Animated.View>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
 // Meal group — header + swipeable rows
 // ───────────────────────────────────────────────────────────────────────────────
 const GROUP_TO_LABEL: Partial<Record<GroupKey, MealLabel>> = {
@@ -753,57 +740,54 @@ function MealGroup({
 }) {
   const meta       = GROUP_META[groupKey];
   const accent     = P[meta.accent] as string;
-  const accentSoft = P[`${String(meta.accent)}Soft` as keyof Palette] as string;
   const total      = items.reduce((a, m) => a + m.cals, 0);
   const presetForGroup = GROUP_TO_LABEL[groupKey];
 
   return (
     <AnimatedCard delay={delay} padding={0}>
-      {/* Header */}
-      <View style={[styles.groupHead, { borderBottomColor: P.hair }]}>
-        <View style={[styles.groupIcon, { backgroundColor: accentSoft }]}>
-          <Ionicons name={meta.icon} size={16} color={accent} />
-        </View>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={[styles.groupTitle, { color: P.text }]}>{meta.title}</Text>
-          <Text style={[styles.groupSub, { color: P.textFaint }]}>
-            {items.length === 0
-              ? 'Nothing logged yet'
-              : `${items.length} ${items.length === 1 ? 'item' : 'items'} · ${total} kcal`}
-          </Text>
-        </View>
-        <TouchableOpacity
-          onPress={() => onAdd(presetForGroup)}
-          hitSlop={8}
-          style={[styles.groupAdd, { borderColor: P.cardEdge }]}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="add" size={15} color={accent} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Rows */}
-      {items.length === 0 ? (
-        <Pressable onPress={() => onAdd(presetForGroup)} style={({ pressed }) => [styles.emptyRow, pressed && { backgroundColor: P.sunken }]}>
-          <View style={[styles.emptyDot, { backgroundColor: P.hair }]} />
-          <Text style={[styles.emptyText, { color: P.textFaint }]}>Tap to add</Text>
-        </Pressable>
-      ) : (
-        items.map((item, i) => (
-          <View key={item.id}>
-            {i > 0 && <View style={[styles.rowDivider, { backgroundColor: P.hair }]} />}
-            <MealRow
-              item={item}
-              accent={accent}
-              accentSoft={accentSoft}
-              icon={meta.icon}
-              P={P}
-              onDelete={() => onDelete(item.id)}
-              onEdit={() => onEdit(item)}
-            />
+      {/* Clip children to card radius without clipping the outer shadow */}
+      <View style={{ borderRadius: 24, overflow: 'hidden' }}>
+        {/* Header */}
+        <View style={[styles.groupHead, { borderBottomColor: P.hair }]}>
+          <View style={styles.groupHeadCopy}>
+            <Text style={[styles.groupTitle, { color: P.text }]}>{meta.title}</Text>
+            <Text style={[styles.groupSub, { color: P.textFaint }]}>
+              {items.length === 0
+                ? 'Nothing logged yet'
+                : `${items.length} ${items.length === 1 ? 'item' : 'items'} · ${total} kcal`}
+            </Text>
           </View>
-        ))
-      )}
+          <TouchableOpacity
+            onPress={() => onAdd(presetForGroup)}
+            hitSlop={8}
+            style={[styles.groupAdd, { borderColor: P.cardEdge }]}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add" size={15} color={accent} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Rows */}
+        {items.length === 0 ? (
+          <Pressable onPress={() => onAdd(presetForGroup)} style={({ pressed }) => [styles.emptyRow, pressed && { backgroundColor: P.sunken }]}>
+            <View style={[styles.emptyDot, { backgroundColor: P.hair }]} />
+            <Text style={[styles.emptyText, { color: P.textFaint }]}>Tap to add</Text>
+          </Pressable>
+        ) : (
+          items.map((item, i) => (
+            <View key={item.id}>
+              {i > 0 && <View style={[styles.rowDivider, { backgroundColor: P.hair }]} />}
+              <MealRow
+                item={item}
+                emoji={meta.emoji}
+                P={P}
+                onDelete={() => onDelete(item.id)}
+                onEdit={() => onEdit(item)}
+              />
+            </View>
+          ))
+        )}
+      </View>
     </AnimatedCard>
   );
 }
@@ -812,9 +796,9 @@ function MealGroup({
 // Swipeable row
 // ───────────────────────────────────────────────────────────────────────────────
 function MealRow({
-  item, accent, accentSoft, icon, P, onDelete, onEdit,
+  item, emoji, P, onDelete, onEdit,
 }: {
-  item: MealItem; accent: string; accentSoft: string; icon: IoniconsName;
+  item: MealItem; emoji: string;
   P: Palette; onDelete: () => void; onEdit: () => void;
 }) {
   const swipeRef = useRef<Swipeable>(null);
@@ -862,11 +846,25 @@ function MealRow({
         onPress={onEdit}
         style={({ pressed }) => [styles.mealRow, { backgroundColor: P.card }, pressed && { backgroundColor: P.sunken }]}
       >
-        <View style={[styles.thumb, { backgroundColor: accentSoft }]}>
-          <Ionicons name={icon} size={16} color={accent} />
-        </View>
+        {item.imageUrl ? (
+          <View style={mealLogThumbStyles.thumbPhoto}>
+            <Image
+              source={item.imageUrl}
+              style={mealLogThumbStyles.thumbImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={150}
+            />
+          </View>
+        ) : (
+          <View style={mealLogThumbStyles.emojiSlot}>
+            <Text style={mealLogThumbStyles.emoji} allowFontScaling={false}>
+              {emoji}
+            </Text>
+          </View>
+        )}
 
-        <View style={{ flex: 1, gap: 3 }}>
+        <View style={styles.mealCopy}>
           <Text style={[styles.mealName, { color: P.text }]} numberOfLines={1}>
             {firstFood}
           </Text>
@@ -884,8 +882,10 @@ function MealRow({
           </Text>
         </View>
 
-        <View style={{ alignItems: 'flex-end', gap: 1 }}>
-          <Text style={[styles.mealCals, { color: P.text }]}>{item.cals}</Text>
+        <View style={styles.mealStat}>
+          <Text style={[styles.mealCals, { color: P.text }]}>
+            {item.cals.toLocaleString()}
+          </Text>
           <Text style={[styles.mealUnit, { color: P.textFaint }]}>kcal</Text>
         </View>
       </Pressable>
@@ -900,9 +900,7 @@ function EmptyState({ P, onAdd }: { P: Palette; onAdd: () => void }) {
   return (
     <AnimatedCard delay={480}>
       <View style={{ alignItems: 'center', paddingVertical: 8, gap: 10 }}>
-        <View style={[styles.emptyIcon, { backgroundColor: P.caloriesSoft }]}>
-          <Ionicons name="restaurant-outline" size={26} color={P.calories} />
-        </View>
+        <Ionicons name="restaurant" size={36} color={P.calories} />
         <Text style={[styles.emptyTitle, { color: P.text }]}>Nothing logged yet</Text>
         <Text style={[styles.emptyBody, { color: P.textFaint, textAlign: 'center' }]}>
           Snap a photo, scan a barcode, or type a meal to get your day started.
@@ -951,109 +949,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
   },
-  datePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    gap: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    ...Platform.select({ android: { elevation: 1 } }),
-  },
-  dateArrow: {
-    width: 32,
-    height: 32,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dateLabelWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    minWidth: 90,
-    justifyContent: 'center',
-  },
-  todayDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  dateLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: -0.3,
-  },
-
-  // Summary
-  summaryRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-  },
-  summaryEyebrow: {
-    fontSize: 10, fontWeight: '800', letterSpacing: 1.5,
-  },
-  summaryBig: {
-    fontSize: 40, fontWeight: '800', letterSpacing: -1.6, lineHeight: 44,
-  },
-  summaryPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999,
-  },
-  summaryPillText: {
-    fontSize: 11, fontWeight: '800', letterSpacing: 0.4,
-  },
-  progressTrack: {
-    height: 6, borderRadius: 3, overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%', borderRadius: 3,
-  },
-  summaryFoot: {
-    flexDirection: 'row',
-    marginTop: 16,
-    paddingTop: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  vDiv: { width: StyleSheet.hairlineWidth },
-  statLabel: {
-    fontSize: 9, fontWeight: '800', letterSpacing: 1.4,
-  },
-  statValue: {
-    fontSize: 17, fontWeight: '800', letterSpacing: -0.4,
-  },
-
-  // Actions
-  actions: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-  },
-  action: {
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    gap: 8,
-  },
-  actionIcon: {
-    width: 38, height: 38, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  actionLabel: {
-    fontSize: 13, fontWeight: '800', letterSpacing: -0.2,
-  },
-  actionCaption: {
-    fontSize: 10, fontWeight: '600', letterSpacing: 0.3,
-  },
 
   // Group
   groupHead: {
@@ -1062,9 +957,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18, paddingVertical: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  groupIcon: {
-    width: 36, height: 36, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
+  groupHeadCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
   },
   groupTitle: {
     fontSize: 15, fontWeight: '800', letterSpacing: -0.3,
@@ -1081,30 +977,49 @@ const styles = StyleSheet.create({
   // Meal row
   rowDivider: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 70, // 18 (row padding) + 38 (thumb) + 14 (gap) = under text
+    marginLeft: mealRowDividerInset(),
   },
   mealRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    gap: MEAL_ROW_GAP,
+    paddingLeft: MEAL_ROW_PADDING_LEFT,
+    paddingRight: MEAL_ROW_PADDING_RIGHT,
+    paddingVertical: 12,
+    minHeight: MEAL_ROW_MIN_HEIGHT,
   },
-  thumb: {
-    width: 38, height: 38, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
+  mealCopy: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+    justifyContent: 'center',
   },
   mealName: {
-    fontSize: 14, fontWeight: '700', letterSpacing: -0.2,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.25,
+    lineHeight: 20,
   },
   mealMeta: {
-    fontSize: 11, fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  mealStat: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 3,
   },
   mealCals: {
-    fontSize: 16, fontWeight: '800', letterSpacing: -0.4,
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    fontVariant: ['tabular-nums'],
   },
   mealUnit: {
-    fontSize: 9, fontWeight: '700', letterSpacing: 0.8,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
   },
 
   // Delete action (revealed on swipe)
@@ -1133,10 +1048,6 @@ const styles = StyleSheet.create({
   },
 
   // Empty state (whole day)
-  emptyIcon: {
-    width: 56, height: 56, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
-  },
   emptyTitle: {
     fontSize: 16, fontWeight: '800', letterSpacing: -0.3,
   },
@@ -1152,6 +1063,20 @@ const styles = StyleSheet.create({
   },
   emptyCtaText: {
     color: '#fff', fontSize: 13, fontWeight: '800', letterSpacing: 0.1,
+  },
+
+  barcodeSheetEyebrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+    marginBottom: 4,
+  },
+  barcodeSheetTitle: {
+    fontFamily: 'Syne_700Bold',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    marginBottom: 16,
   },
 });
 
@@ -1171,9 +1096,38 @@ const cameraStyles = StyleSheet.create({
     position: 'absolute', left: 16, right: 16, top: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
-  bottomBar: {
+  unifiedBottom: {
     position: 'absolute', left: 16, right: 16, bottom: 0,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 20,
+  },
+  captureRow: {
+    alignItems: 'center', justifyContent: 'center',
+    width: '100%',
+  },
+  scanContent: {
+    width: '100%',
+    gap: 12,
+    alignItems: 'center',
+  },
+  modePill: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 999,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  modeBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    paddingHorizontal: 28, paddingVertical: 13,
+    borderRadius: 999,
+  },
+  modeBtnActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  modeBtnText: {
+    fontSize: 15, fontWeight: '700',
   },
   circle: {
     width: 44, height: 44, borderRadius: 22,
@@ -1210,20 +1164,80 @@ const cameraStyles = StyleSheet.create({
     shadowOpacity: 0.9, shadowRadius: 6,
   },
 
-  scanBottom: { position: 'absolute', left: 20, right: 20, bottom: 0, gap: 12 },
   hint:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12 },
   hintText:   { color: 'rgba(255,255,255,0.75)', fontSize: 14, fontWeight: '500' },
 
-  resultCard: {
-    flexDirection: 'row', alignItems: 'center',
+  lookupCard: {
+    alignItems: 'center',
+    gap: 10,
     backgroundColor: 'rgba(15,15,15,0.92)',
-    borderRadius: 16, padding: 16, gap: 14,
-    borderWidth: 1, borderColor: 'rgba(255,120,73,0.4)',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,120,73,0.35)',
   },
-  resultType: { fontSize: 10, fontWeight: '700', color: '#FF7849', letterSpacing: 1, marginBottom: 3 },
-  resultCode: { fontSize: 15, fontWeight: '700', color: '#FFF' },
-  addBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FF7849', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12 },
-  addBtnText: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  lookupText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  lookupError: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   againBtn:   { alignItems: 'center', paddingVertical: 6 },
   againText:  { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600' },
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Photo guide overlay
+// ───────────────────────────────────────────────────────────────────────────────
+const GUIDE = 300;
+
+const photoGuide = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems:     'center',
+    justifyContent: 'center',
+    gap:            18,
+  },
+  frame: {
+    width:    GUIDE,
+    height:   GUIDE,
+  },
+  corner: {
+    position:    'absolute',
+    width:        40,
+    height:       40,
+    borderColor:  'rgba(255,255,255,0.92)',
+    borderWidth:  0,
+  },
+  tl: {
+    top: 0, left: 0,
+    borderTopWidth: 3, borderLeftWidth: 3,
+    borderTopLeftRadius: 12,
+  },
+  tr: {
+    top: 0, right: 0,
+    borderTopWidth: 3, borderRightWidth: 3,
+    borderTopRightRadius: 12,
+  },
+  bl: {
+    bottom: 0, left: 0,
+    borderBottomWidth: 3, borderLeftWidth: 3,
+    borderBottomLeftRadius: 12,
+  },
+  br: {
+    bottom: 0, right: 0,
+    borderBottomWidth: 3, borderRightWidth: 3,
+    borderBottomRightRadius: 12,
+  },
+  hint: {
+    color:         'rgba(255,255,255,0.75)',
+    fontSize:      13,
+    fontWeight:    '500',
+    letterSpacing: 0.2,
+  },
 });

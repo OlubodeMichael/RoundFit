@@ -2,13 +2,21 @@ import React, {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import type { ManualMealInput } from '@/components/log/ManualMealInputModal';
-
-// ── Config ─────────────────────────────────────────────────────────────────
-
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
+import { getLocalDateString } from '@/utils/date';
+import { apiFetch } from '@/utils/api';
+import { notifyTodayDataChanged } from '@/utils/today-sync';
+import { applyTodayOptimistic } from '@/utils/today-optimistic';
+import { applyTodayReconcile, type TodayReconcileBundle } from '@/utils/today-reconcile';
+import { getCachedAnalysis, cacheAnalysis } from '@/utils/photo-cache';
+import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  ttlForDate,
+} from '@/utils/resource-cache';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -21,6 +29,23 @@ export interface MealItem {
   carbs?:    number;
   fat?:      number;
   time:      string;
+  imageUrl?: string;
+}
+
+export interface PhotoPreview {
+  name:    string;
+  cals:    number;
+  protein: number;
+  carbs:   number;
+  fat:     number;
+}
+
+export interface BarcodePreview {
+  name:     string;
+  cals:     number;
+  protein:  number;
+  carbs:    number;
+  fat:      number;
   imageUrl?: string;
 }
 
@@ -52,8 +77,18 @@ export interface FoodContextValue {
   /** True while the initial log fetch is in-flight. */
   isLoading: boolean;
 
-  /** Logs a meal from manual entry — hits POST /food/log. */
-  addMeal: (entry: ManualMealInput) => Promise<void>;
+  /** Logs a meal from manual entry — hits POST /food/log. Pass `imageUrl` to
+   *  attach an already-uploaded food photo (see `uploadMealPhoto`). */
+  addMeal: (entry: ManualMealInput, imageUrl?: string) => Promise<void>;
+
+  /** Uploads a base64 food photo and returns its public URL (no DB write). */
+  uploadMealPhoto: (base64Image: string) => Promise<string | null>;
+
+  /** Analyzes a base64 photo via AI — returns nutrition preview WITHOUT saving. */
+  previewPhoto: (base64Image: string) => Promise<PhotoPreview | null>;
+
+  /** Looks up a barcode — returns nutrition preview WITHOUT saving. */
+  previewBarcode: (barcode: string) => Promise<BarcodePreview | null>;
 
   /** Analyzes a base64 photo via AI, saves the result, and returns the MealItem. */
   analyzePhoto: (base64Image: string) => Promise<MealItem | null>;
@@ -66,6 +101,9 @@ export interface FoodContextValue {
 
   /** Re-fetches logs for the given date (defaults to today). Changes activeDate when a date is passed. */
   refreshLogs: (date?: string) => Promise<void>;
+
+  /** Fetches meals for any date WITHOUT updating context state. */
+  fetchForDate: (date: string, force?: boolean) => Promise<MealItem[]>;
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────
@@ -74,47 +112,6 @@ export interface FoodContextValue {
  * Same behaviour as auth `apiFetch`: cookies + timeout, and one retry on 401
  * after POST /auth/refresh so cold-start GETs succeed when the session rotates.
  */
-async function foodFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  const run = (signal: AbortSignal) =>
-    fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers,
-      credentials: 'include',
-      signal,
-    });
-
-  try {
-    const res = await run(controller.signal);
-
-    if (res.status === 401) {
-      const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
-        signal: controller.signal,
-      });
-      if (refreshRes.ok) {
-        const retryRes = await run(controller.signal);
-        const retryBody = await retryRes.json().catch(() => ({}));
-        return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
-      }
-    }
-
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 function foodLogRowsFromResponse(body: Record<string, unknown>): Record<string, unknown>[] {
   const d = body.data;
@@ -126,6 +123,20 @@ function foodLogRowsFromResponse(body: Record<string, unknown>): Record<string, 
   }
   if (Array.isArray(body.logs)) return body.logs as Record<string, unknown>[];
   return [];
+}
+
+/**
+ * Pulls the `today` reconciliation block out of a mutation response, if present.
+ * Returns null when the backend does not (yet) include it — the legacy
+ * `notifyTodayDataChanged` path remains the fallback.
+ */
+function extractTodayBundle(body: Record<string, unknown>): TodayReconcileBundle | null {
+  const today = body.today;
+  if (!today || typeof today !== 'object') return null;
+  const t = today as Record<string, unknown>;
+  if (typeof t.date !== 'string') return null;
+  if (!t.summary || typeof t.summary !== 'object') return null;
+  return today as TodayReconcileBundle;
 }
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
@@ -145,6 +156,15 @@ function prettifyMealLabel(raw: string): string {
     .filter(Boolean)
     .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
     .join(' ');
+}
+
+function toApiNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
 }
 
 function fromApiLog(row: Record<string, unknown>): MealItem {
@@ -185,20 +205,17 @@ function fromApiLog(row: Record<string, unknown>): MealItem {
     id:       String(row.id ?? ''),
     meal,
     name,
-    cals:     typeof row.calories === 'number' ? row.calories : 0,
-    protein:  typeof row.protein  === 'number' ? row.protein  : undefined,
-    carbs:    typeof row.carbs    === 'number' ? row.carbs    : undefined,
-    fat:      typeof row.fat      === 'number' ? row.fat      : undefined,
+    cals:     toApiNumber(row.calories) ?? 0,
+    protein:  toApiNumber(row.protein),
+    carbs:    toApiNumber(row.carbs),
+    fat:      toApiNumber(row.fat),
     time,
     imageUrl: typeof row.image_url === 'string' ? row.image_url : undefined,
   };
 }
 
 function todayDateString(): string {
-  const d = new Date();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${mm}-${dd}`;
+  return getLocalDateString();
 }
 
 function titleMealLabel(value: ManualMealInput['label']): string {
@@ -227,6 +244,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const [isLoading,  setIsLoading]  = useState(true);
   const [activeDate, setActiveDate] = useState(todayDateString);
   const appStateRef = useRef(AppState.currentState);
+  const lastForegroundFetchRef = useRef(0);
 
   // Meal goal tracks the current user's calorie budget. Falls back to TDEE,
   // then to the app-wide default when we haven't loaded a profile yet.
@@ -235,6 +253,10 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     return user.calorieBudget ?? user.tdee ?? DEFAULT_MEAL_GOAL;
   }, [user]);
 
+  const syncToday = useCallback(async () => {
+    await notifyTodayDataChanged(user?.id, 'food');
+  }, [user?.id]);
+
   const totalCalories = useMemo(() => meals.reduce((sum, m) => sum + m.cals,              0), [meals]);
   const totalProtein  = useMemo(() => meals.reduce((sum, m) => sum + (m.protein ?? 0),    0), [meals]);
   const totalCarbs    = useMemo(() => meals.reduce((sum, m) => sum + (m.carbs   ?? 0),    0), [meals]);
@@ -242,38 +264,55 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   const remaining     = mealGoal - totalCalories;
 
   // ── Fetch logs for a given date ─────────────────────────────────────────
-  const fetchLogs = useCallback(async (date: string) => {
-    const { ok, body } = await foodFetch(`/food/logs?date=${encodeURIComponent(date)}`);
-    if (!ok) return;
-    const rows = foodLogRowsFromResponse(body);
-    setMeals(rows.map(fromApiLog));
-  }, []);
+  const fetchLogs = useCallback(async (date: string, force = false) => {
+    if (!user?.id) return;
+
+    const key = buildResourceKey('food-logs', user.id, date);
+    const rows = await fetchWithResourceCache<MealItem[]>(
+      key,
+      ttlForDate(date),
+      async () => {
+        const { ok, body } = await apiFetch(`/food/logs?date=${encodeURIComponent(date)}`);
+        if (!ok) return null;
+        return foodLogRowsFromResponse(body).map(fromApiLog);
+      },
+      { force },
+    );
+
+    if (rows) setMeals(rows);
+  }, [user?.id]);
 
   // ── Reset to today when app returns to foreground on a new day ──────────
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       const prev = appStateRef.current;
       appStateRef.current = next;
-      if (prev.match(/inactive|background/) && next === 'active') {
-        const today = todayDateString();
-        setActiveDate((cur) => {
-          if (cur !== today) {
-            void fetchLogs(today);
-            return today;
-          }
-          return cur;
-        });
+      if (!prev.match(/inactive|background/) || next !== 'active') return;
+
+      const today = todayDateString();
+      const dayRolled = activeDate !== today;
+      if (
+        !shouldRefetchOnForeground({
+          lastFetchAt: lastForegroundFetchRef.current,
+          dayRolled,
+        })
+      ) {
+        return;
       }
+
+      lastForegroundFetchRef.current = Date.now();
+      setActiveDate((cur) => (cur !== today ? today : cur));
+      void fetchLogs(today, dayRolled);
     });
     return () => sub.remove();
-  }, [fetchLogs]);
+  }, [activeDate, fetchLogs]);
 
   useEffect(() => {
     // Wait for the auth layer to settle before deciding what to fetch.
     if (status === 'loading') return;
 
     // No session → make sure we never show another user's data.
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setMeals([]);
       setIsLoading(false);
       return;
@@ -284,13 +323,21 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     // switches too.
     const today = todayDateString();
     let cancelled = false;
-    setIsLoading(true);
-    setMeals([]);
     setActiveDate(today);
 
     (async () => {
+      const key = buildResourceKey('food-logs', user.id, today);
+      const cached = await getResourceCached<MealItem[]>(key);
+      if (cached && !cancelled) {
+        setMeals(cached.data);
+        setIsLoading(false);
+      } else if (!cancelled) {
+        setIsLoading(true);
+      }
+
       try {
         await fetchLogs(today);
+        lastForegroundFetchRef.current = Date.now();
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -300,7 +347,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   }, [status, user?.id, fetchLogs]);
 
   // ── Add meal (manual) ────────────────────────────────────────────────────
-  const addMeal = useCallback(async (entry: ManualMealInput) => {
+  const addMeal = useCallback(async (entry: ManualMealInput, imageUrl?: string) => {
     const now      = new Date();
     const tempId   = `optimistic-${Date.now()}`;
     const optimistic: MealItem = {
@@ -312,11 +359,18 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       carbs:   entry.carbs,
       fat:     entry.fat,
       time:    now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+      imageUrl,
     };
 
     setMeals((prev) => [...prev, optimistic]);
+    applyTodayOptimistic({
+      caloriesConsumed: entry.calories,
+      proteinConsumed:  entry.protein,
+      carbsConsumed:    entry.carbs,
+      fatConsumed:      entry.fat,
+    });
 
-    const { ok, body } = await foodFetch('/food/log', {
+    const { ok, body } = await apiFetch('/food/log', {
       method: 'POST',
       body:   JSON.stringify({
         meal_name:  entry.name,
@@ -326,73 +380,212 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
         carbs:      entry.carbs,
         fat:        entry.fat,
         log_date:   todayDateString(),
+        ...(imageUrl ? { image_url: imageUrl } : {}),
       }),
     });
 
     if (ok && body.data) {
       const saved = fromApiLog(body.data as Record<string, unknown>);
       setMeals((prev) => prev.map((m) => m.id === tempId ? saved : m));
+      const bundle = extractTodayBundle(body);
+      if (bundle) applyTodayReconcile(bundle);
+      void syncToday();
       return;
     }
 
     // rollback on failure
     setMeals((prev) => prev.filter((m) => m.id !== tempId));
+    applyTodayOptimistic({
+      caloriesConsumed: -entry.calories,
+      proteinConsumed:  -(entry.protein ?? 0),
+      carbsConsumed:    -(entry.carbs ?? 0),
+      fatConsumed:      -(entry.fat ?? 0),
+    });
     throw new Error('Failed to log meal');
+  }, [syncToday]);
+
+  function previewFromApiRow(row: Record<string, unknown>): PhotoPreview {
+    return {
+      name:    String(row.meal_name ?? ''),
+      cals:    toApiNumber(row.calories) ?? 0,
+      protein: toApiNumber(row.protein) ?? 0,
+      carbs:   toApiNumber(row.carbs) ?? 0,
+      fat:     toApiNumber(row.fat) ?? 0,
+    };
+  }
+
+  // ── Upload a food photo (storage only, no DB write) ──────────────────────
+  const uploadMealPhoto = useCallback(async (base64Image: string): Promise<string | null> => {
+    try {
+      const { ok, body } = await apiFetch('/food/upload-image', {
+        method: 'POST',
+        body:   JSON.stringify({ base64Image }),
+      });
+      if (!ok) return null;
+      return typeof body.image_url === 'string' ? body.image_url : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // ── Preview via photo (analyze only, no DB save) ─────────────────────────
+  const previewPhoto = useCallback(async (base64Image: string): Promise<PhotoPreview | null> => {
+    const { ok, body } = await apiFetch('/food/photo/preview', {
+      method: 'POST',
+      body:   JSON.stringify({ base64Image }),
+    });
+    if (!ok) {
+      if (body?.error === 'zero_calories') throw new ZeroCaloriesError();
+      return null;
+    }
+    const d = body.data as Record<string, unknown>;
+    if (!d) return null;
+    return previewFromApiRow(d);
+  }, []);
+
+  // ── Preview via barcode (lookup only, no DB save) ────────────────────────
+  const previewBarcode = useCallback(async (barcode: string): Promise<BarcodePreview | null> => {
+    const { ok, body } = await apiFetch('/food/barcode/preview', {
+      method: 'POST',
+      body:   JSON.stringify({ barcode }),
+    });
+    if (!ok) return null;
+    const d = body.data as Record<string, unknown>;
+    if (!d) return null;
+    const base = previewFromApiRow(d);
+    const imageUrl = typeof d.image_url === 'string' ? d.image_url : undefined;
+    return { ...base, imageUrl };
   }, []);
 
   // ── Analyze via photo ────────────────────────────────────────────────────
   const analyzePhoto = useCallback(async (base64Image: string): Promise<MealItem | null> => {
-    const { ok, body } = await foodFetch('/food/photo', {
+    // Return cached result immediately if we've seen this image before
+    const cached = await getCachedAnalysis(base64Image);
+    if (cached) {
+      setMeals((prev) => [...prev, cached]);
+      applyTodayOptimistic({
+        caloriesConsumed: cached.cals,
+        proteinConsumed:  cached.protein ?? 0,
+        carbsConsumed:    cached.carbs ?? 0,
+        fatConsumed:      cached.fat ?? 0,
+      });
+      void syncToday();
+      return cached;
+    }
+
+    const { ok, body } = await apiFetch('/food/photo', {
       method: 'POST',
-      body:   JSON.stringify({ base64Image, log_date: todayDateString() }),
+      body:   JSON.stringify({
+        base64Image,
+        log_date:   todayDateString(),
+        meal_label: deriveMealLabel(new Date()).toLowerCase(),
+      }),
     });
     if (!ok || !body.data) return null;
     const item = fromApiLog(body.data as Record<string, unknown>);
     if (item.cals === 0) {
       // Remove the server-saved entry and ask the user to retry
-      await foodFetch(`/food/log/${item.id}`, { method: 'DELETE' });
+      await apiFetch(`/food/log/${item.id}`, { method: 'DELETE' });
       throw new ZeroCaloriesError();
     }
     setMeals((prev) => [...prev, item]);
+    cacheAnalysis(base64Image, item);
+    applyTodayOptimistic({
+      caloriesConsumed: item.cals,
+      proteinConsumed:  item.protein ?? 0,
+      carbsConsumed:    item.carbs ?? 0,
+      fatConsumed:      item.fat ?? 0,
+    });
+    const bundle = extractTodayBundle(body);
+    if (bundle) applyTodayReconcile(bundle);
+    void syncToday();
     return item;
-  }, []);
+  }, [syncToday]);
 
   // ── Log via barcode ──────────────────────────────────────────────────────
   const logBarcode = useCallback(async (barcode: string) => {
-    const { ok, body } = await foodFetch('/food/barcode', {
+    const { ok, body } = await apiFetch('/food/barcode', {
       method: 'POST',
       body:   JSON.stringify({ barcode, log_date: todayDateString() }),
     });
     if (!ok || !body.data) {
       throw new Error('Failed to look up barcode');
     }
-    setMeals((prev) => [...prev, fromApiLog(body.data as Record<string, unknown>)]);
-  }, []);
+    const saved = fromApiLog(body.data as Record<string, unknown>);
+    setMeals((prev) => [...prev, saved]);
+    applyTodayOptimistic({
+      caloriesConsumed: saved.cals,
+      proteinConsumed:  saved.protein ?? 0,
+      carbsConsumed:    saved.carbs ?? 0,
+      fatConsumed:      saved.fat ?? 0,
+    });
+    const bundle = extractTodayBundle(body);
+    if (bundle) applyTodayReconcile(bundle);
+    void syncToday();
+  }, [syncToday]);
 
   // ── Delete meal ──────────────────────────────────────────────────────────
   const deleteMeal = useCallback(async (id: string) => {
     const snapshot = meals;
+    const removed  = meals.find((m) => m.id === id);
     setMeals((prev) => prev.filter((m) => m.id !== id));
 
-    const { ok } = await foodFetch(`/food/log/${id}`, { method: 'DELETE' });
+    if (removed) {
+      applyTodayOptimistic({
+        caloriesConsumed: -removed.cals,
+        proteinConsumed:  -(removed.protein ?? 0),
+        carbsConsumed:    -(removed.carbs ?? 0),
+        fatConsumed:      -(removed.fat ?? 0),
+      });
+    }
+
+    const { ok, body } = await apiFetch(`/food/log/${id}`, { method: 'DELETE' });
     if (!ok) {
-      setMeals(snapshot); // rollback
+      setMeals(snapshot);
+      if (removed) {
+        applyTodayOptimistic({
+          caloriesConsumed: removed.cals,
+          proteinConsumed:  removed.protein ?? 0,
+          carbsConsumed:    removed.carbs ?? 0,
+          fatConsumed:      removed.fat ?? 0,
+        });
+      }
       throw new Error('Failed to delete meal');
     }
-  }, [meals]);
+    const bundle = extractTodayBundle(body);
+    if (bundle) applyTodayReconcile(bundle);
+    void syncToday();
+  }, [meals, syncToday]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refreshLogs = useCallback(async (date?: string) => {
-    const target = date ?? activeDate;
-    if (date && date !== activeDate) setActiveDate(date);
-    await fetchLogs(target);
-  }, [activeDate, fetchLogs]);
+    const target = date ?? todayDateString();
+    setActiveDate(target);
+    await fetchLogs(target, true);
+  }, [fetchLogs]);
+
+  // ── Fetch for any date without touching context state ─────────────────────
+  const fetchForDate = useCallback(async (date: string, force = false): Promise<MealItem[]> => {
+    if (!user?.id) return [];
+    const key = buildResourceKey('food-logs', user.id, date);
+    const rows = await fetchWithResourceCache<MealItem[]>(
+      key,
+      ttlForDate(date),
+      async () => {
+        const { ok, body } = await apiFetch(`/food/logs?date=${encodeURIComponent(date)}`);
+        if (!ok) return null;
+        return foodLogRowsFromResponse(body).map(fromApiLog);
+      },
+      { force },
+    );
+    return rows ?? [];
+  }, [user?.id]);
 
   return (
     <FoodContext.Provider value={{
       meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
       remaining, activeDate, isLoading,
-      addMeal, analyzePhoto, logBarcode, deleteMeal, refreshLogs,
+      addMeal, uploadMealPhoto, previewPhoto, previewBarcode, analyzePhoto, logBarcode, deleteMeal, refreshLogs, fetchForDate,
     }}>
       {children}
     </FoodContext.Provider>

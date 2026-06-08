@@ -1,31 +1,58 @@
-import { useFood } from "@/context/food-context";
-import { useProfile } from "@/hooks/use-profile";
-import { useHealth } from "@/hooks/use-health";
-import { useCycle } from "@/hooks/use-cycle";
-import { calculateNutritionPlan } from "@/utils/nutrition";
-import { useRouter } from "expo-router";
-import { useToast } from "@/components/ui/Toast";
-import { CyclePhaseCard } from "@/components/home/CyclePhaseCard";
-import { HydrationCard } from "@/components/home/HydrationCard";
+import { BurnCoachStrip } from "@/components/home/burn-coach-strip";
+import { WorkoutLauncher } from "@/components/log/workout/WorkoutLauncher";
+import { WorkoutSessionRecapSheet } from "@/components/log/workout/WorkoutSessionRecapSheet";
+import type { CalorieBudgetPalette } from "@/components/home/CalorieBudgetCard";
+import { CalorieBudgetCard } from "@/components/home/CalorieBudgetCard";
+import { DailyBudgetMetricsRow } from "@/components/home/DailyBudgetMetricsRow";
 import { InsightCard } from "@/components/home/InsightCard";
+import { HydrationCard } from "@/components/home/HydrationCard";
 import { MacrosCard, type MacroItem } from "@/components/home/MacrosCard";
 import { MealsCard } from "@/components/home/MealsCard";
-import { SegmentedDial } from "@/components/home/SegmentedDial";
-import { WeekStrip } from "@/components/home/WeekStrip";
-import { BurnCoachStrip } from "@/components/home/burn-coach-strip";
-import { usePalette, type Palette } from "@/lib/log-theme";
+import { ReadinessWidget } from "@/components/home/ReadinessWidget";
+import { WorkoutCard } from "@/components/home/WorkoutCard";
+import { UserAvatar } from "@/components/profile/UserAvatar";
+import { useAvatarPhotoActions } from "@/hooks/use-avatar-photo-actions";
+import { AppModal } from "@/components/ui/AppModal";
+import { useToast } from "@/components/ui/Toast";
+import { useCycle } from "@/context/cycle-context";
+import { useFood } from "@/context/food-context";
+import { useInsights } from "@/context/insights-context";
+import { useWorkouts } from "@/context/workout-context";
+import { useWorkoutSession } from "@/context/workout-session-context";
 import {
-  BURN_ACTIVITIES,
-  BurnActivityPicker,
-  type BurnActivity,
-} from "@/components/home/burn-activity-picker";
+  getBurnCatalogEntries,
+  getCatalogEntryById,
+  type WorkoutCatalogEntry,
+} from "@/config/workout-catalog";
+import { sumTodayWorkoutCalories } from "@/components/log/workout/workout-display";
+import { useDayLogs } from "@/hooks/use-day-logs";
+import { usePendingWorkoutImports } from "@/hooks/use-pending-workout-imports";
+import { useHealth } from "@/hooks/use-health";
+import { useNotificationInbox } from "@/hooks/use-notification-inbox";
+import { useProfile } from "@/hooks/use-profile";
+import { useSummary } from "@/hooks/use-summary";
+import { useTheme } from "@/hooks/use-theme";
+import { useWorkoutLiveActivity } from "@/hooks/use-workout-live-activity";
+import {
+  catalogEntryToBurnActivity,
+  computeDurationMinutes,
+  formatCatalogPrescription,
+} from "@/utils/burn-prescription";
+import type { SessionRecapData } from "@/types/session-recap";
+import type { WorkoutSelection } from "@/types/workout-session";
+import { getLocalDateString } from "@/utils/date";
+import { finishAndSaveWorkoutSession } from "@/utils/finish-workout-session";
+import { calculateNutritionPlan } from "@/utils/nutrition";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import { useRouter } from "expo-router";
+import { usePostHog } from "posthog-react-native";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
     Animated,
     Easing,
-    Image,
     Platform,
+    Pressable,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -37,6 +64,92 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>["name"];
 
+// ───────────────────────────────────────────────────────────────────────────────
+// Palette — "Obsidian" premium theme.
+// Dark is the primary canvas (deeper blue-black), with a restrained coral
+// accent for calories, emerald / amber / violet for macros, and a cool sky
+// for hydration. Cards carry a whisper of elevation via translucent borders
+// and soft shadows — never chunky drop-shadows.
+// ───────────────────────────────────────────────────────────────────────────────
+function usePalette() {
+  const { isDark } = useTheme();
+
+  if (isDark) {
+    return {
+      bg: "#0A0B0F",
+      bgGlow: "rgba(255,120,73,0.06)",
+      card: "#1C1D23", // lifted from #141519 — cards now visually separate from the page bg
+      cardEdge: "rgba(255,255,255,0.10)", // up from 0.06 — hairline borders are now perceptible
+      sunken: "#0E0F13",
+      text: "#F4F4F5",
+      textDim: "#C4C4C8", // up from #A1A1AA — secondary labels pass WCAG AA on #1C1D23
+      textFaint: "#909096", // up from #71717A — tertiary text (units, timestamps) now readable
+      hair: "rgba(255,255,255,0.10)",
+
+      calories: "#FF7849",
+      caloriesSoft: "rgba(255,120,73,0.22)", // up from 0.14 — icon pill bgs are now clearly tinted
+      caloriesTrack: "rgba(255,120,73,0.22)", // up from 0.12 — progress track grooves are visible
+
+      protein: "#34D399",
+      proteinSoft: "rgba(52,211,153,0.22)", // up from 0.14
+      proteinTrack: "rgba(52,211,153,0.22)", // up from 0.14
+
+      carbs: "#FBBF24",
+      carbsSoft: "rgba(251,191,36,0.22)", // up from 0.14
+      carbsTrack: "rgba(251,191,36,0.22)", // up from 0.14
+
+      fat: "#A78BFA",
+      fatSoft: "rgba(167,139,250,0.22)", // up from 0.14
+      fatTrack: "rgba(167,139,250,0.22)", // up from 0.14
+
+      water: "#38BDF8",
+      waterSoft: "rgba(56,189,248,0.22)", // up from 0.14
+      waterTrack: "rgba(56,189,248,0.22)", // up from 0.14
+
+      flame: "#F97066",
+      sage: "#34D399",
+      isDark: true,
+    };
+  }
+
+  return {
+    bg: "#F6F6F8",
+    bgGlow: "rgba(234,88,12,0.03)",
+    card: "#FFFFFF",
+    cardEdge: "rgba(15,23,42,0.06)",
+    sunken: "#F1F1F4",
+    text: "#09090B",
+    textDim: "#52525B",
+    textFaint: "#A1A1AA",
+    hair: "rgba(15,23,42,0.08)",
+
+    calories: "#EA580C",
+    caloriesSoft: "rgba(234,88,12,0.10)",
+    caloriesTrack: "rgba(234,88,12,0.50)",
+
+    protein: "#10B981",
+    proteinSoft: "rgba(16,185,129,0.10)",
+    proteinTrack: "rgba(16,185,129,0.50)",
+
+    carbs: "#D97706",
+    carbsSoft: "rgba(217,119,6,0.10)",
+    carbsTrack: "rgba(217,119,6,0.50)",
+
+    fat: "#7C3AED",
+    fatSoft: "rgba(124,58,237,0.10)",
+    fatTrack: "rgba(124,58,237,0.50)",
+
+    water: "#0EA5E9",
+    waterSoft: "rgba(14,165,233,0.10)",
+    waterTrack: "rgba(14,165,233,0.50)",
+
+    flame: "#DC2626",
+    sage: "#059669",
+    isDark: false,
+  };
+}
+
+type Palette = ReturnType<typeof usePalette>;
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Card — the base container. One shape, three levels of elevation.
@@ -65,7 +178,10 @@ function Card({
     }).start();
   }, [anim, delay]);
 
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [28, 0] });
+  const translateY = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [28, 0],
+  });
 
   return (
     <Animated.View
@@ -113,271 +229,258 @@ function AnimatedHeader({
     }).start();
   }, [anim]);
 
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] });
+  const translateY = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-8, 0],
+  });
 
   return (
-    <Animated.View style={[style, { opacity: anim, transform: [{ translateY }] }]}>
+    <Animated.View
+      style={[style, { opacity: anim, transform: [{ translateY }] }]}
+    >
       {children}
     </Animated.View>
   );
 }
 
-type HeroCoach = {
-  caloriesToBurn: number;
-  activity:       { label: string; icon?: IoniconsName };
-  goalProgress:   number;
-  isLive?:        boolean;
-  onPress?:       () => void;
-};
-
 // ───────────────────────────────────────────────────────────────────────────────
-// HeroBudgetLedger — today's calorie budget, stripped to essentials.
-//
-// Composition (top → bottom):
-//   1. Date stamp
-//   2. Big display number (calories remaining) + quiet subhead
-//   3. One thin progress bar
-//   4. One inline row of numbers: eaten · burned · net
-//   5. Fused BurnCoachStrip when there's still burn to do
-// No status chip, no eyebrows, no legends, no boxed stat trio.
+// Week scrubber — 7-day horizontal strip centred on today.
 // ───────────────────────────────────────────────────────────────────────────────
-
-const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const DAYS_SHORT   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-function HeroBudgetLedger({
+function WeekStrip({
+  selected,
+  onSelect,
   P,
-  delay = 0,
-  eaten,
-  goal,
-  burned,
-  stepsToday,
-  remaining,
-  coach,
 }: {
+  selected: Date;
+  onSelect: (d: Date) => void;
   P: Palette;
-  delay?: number;
-  eaten: number;
-  goal: number;
-  burned: number;
-  /** Apple Health step count for today — shown next to burned when available. */
-  stepsToday?: number;
-  remaining: number;
-  coach?: HeroCoach;
 }) {
-  const eatenPct = Math.min(eaten / Math.max(goal, 1), 1);
+  const days = useMemo(() => {
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+    return Array.from({ length: 7 }).map((_, i) => {
+      const d = new Date(base);
+      d.setDate(base.getDate() - (6 - i));
+      return d;
+    });
+  }, []);
 
-  const animated = useRef(new Animated.Value(0)).current;
-  const [progress, setProgress] = useState(0);
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
 
-  useEffect(() => {
-    const id = animated.addListener(({ value }) => setProgress(value));
-    Animated.timing(animated, {
-      toValue: 1,
-      duration: 1100,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-    return () => animated.removeListener(id);
-  }, [animated]);
-
-  const displayed = Math.round(progress * Math.max(remaining, 0));
-
-  const now       = useMemo(() => new Date(), []);
-  const dateStamp = `${DAYS_SHORT[now.getDay()]}, ${MONTHS_SHORT[now.getMonth()]} ${now.getDate()}`;
-
-  const isOver = eaten > goal;
+  const today = new Date();
 
   return (
-    <Card padding={0} delay={delay} style={{ overflow: 'hidden' }}>
-      {/* ── Ambient halo ───────────────────────────────────────── */}
-      <View pointerEvents="none" style={styles.haloWrap}>
-        <View style={[styles.haloOuter, { backgroundColor: P.caloriesSoft, opacity: P.isDark ? 0.45 : 0.75 }]} />
-        <View style={[styles.haloInner, { backgroundColor: P.caloriesSoft, opacity: P.isDark ? 0.65 : 0.95 }]} />
+    <View style={weekStyles.row}>
+      {days.map((d, idx) => {
+        const isSel = sameDay(d, selected);
+        const isToday = sameDay(d, today);
+        const letter = d.toLocaleDateString(undefined, { weekday: "short" })[0];
+
+        return (
+          <WeekCell
+            key={d.toDateString()}
+            index={idx}
+            isSel={isSel}
+            isToday={isToday}
+            letter={letter}
+            day={d.getDate()}
+            onPress={() => onSelect(d)}
+            P={P}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+function WeekCell({
+  index,
+  isSel,
+  isToday,
+  letter,
+  day,
+  onPress,
+  P,
+}: {
+  index: number;
+  isSel: boolean;
+  isToday: boolean;
+  letter: string;
+  day: number;
+  onPress: () => void;
+  P: Palette;
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 420,
+      delay: 90 + index * 45,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [anim, index]);
+
+  const translateY = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [14, 0],
+  });
+  const scale = anim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] });
+
+  return (
+    <Animated.View
+      style={{ flex: 1, opacity: anim, transform: [{ translateY }, { scale }] }}
+    >
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          weekStyles.cell,
+          {
+            backgroundColor: isSel ? P.calories : P.card,
+            borderColor: isSel ? P.calories : P.cardEdge,
+          },
+          pressed && { opacity: 0.8 },
+        ]}
+      >
+        <Text style={[weekStyles.dow, { color: isSel ? "#fff" : P.textFaint }]}>
+          {letter}
+        </Text>
+
+        <Text style={[weekStyles.num, { color: isSel ? "#fff" : P.text }]}>
+          {day}
+        </Text>
+
+        {isToday && !isSel && (
+          <View
+            style={[weekStyles.todayDot, { backgroundColor: P.calories }]}
+          />
+        )}
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+const weekStyles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 20,
+  },
+  cell: {
+    alignSelf: "stretch",
+    aspectRatio: 0.72,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    position: "relative",
+  },
+  dow: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  num: {
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: -0.3,
+  },
+  todayDot: {
+    position: "absolute",
+    bottom: 8,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Cycle phase indicator — women only. Compact pill card with 4 phases, the
+// active one highlighted, plus a "Day N of M" caption.
+// ───────────────────────────────────────────────────────────────────────────────
+const CYCLE_PHASES = [
+  { key: "menstrual", label: "Menstrual", icon: "water" as const },
+  { key: "follicular", label: "Follicular", icon: "leaf" as const },
+  { key: "ovulation", label: "Ovulation", icon: "sunny" as const },
+  { key: "luteal", label: "Luteal", icon: "moon" as const },
+];
+
+function CyclePhaseCard({ P, delay = 0 }: { P: Palette; delay?: number }) {
+  const { current, history } = useCycle();
+
+  if (!current?.phase) return null;
+
+  const activeIndex = Math.max(
+    CYCLE_PHASES.findIndex((p) => p.key === current.phase),
+    0,
+  );
+  const phase = CYCLE_PHASES[activeIndex];
+  const cycleLen = history[0]?.cycle_length ?? 28;
+  const cycleDay =
+    current.days_remaining != null
+      ? Math.max(cycleLen - current.days_remaining, 1)
+      : null;
+
+  return (
+    <Card delay={delay} padding={18}>
+      <View style={styles.cycleHead}>
+        <View style={[styles.iconTile, { backgroundColor: P.fatSoft }]}>
+          <Ionicons name={phase.icon} size={16} color={P.fat} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={[styles.cycleTitle, { color: P.text }]}>
+            {phase.label}{" "}
+            <Text style={{ color: P.textFaint, fontWeight: "500" }}>phase</Text>
+          </Text>
+          <Text style={[styles.cycleSub, { color: P.textFaint }]}>
+            {cycleDay != null
+              ? `Day ${cycleDay} of ${cycleLen}`
+              : `${cycleLen}-day cycle`}
+          </Text>
+        </View>
       </View>
 
-      <View style={{ padding: 22 }}>
-        {/* ── Date row ─────────────────────────────────────────── */}
-        <View style={styles.ledgerTop}>
-          <Text style={[styles.dateStamp, { color: P.textDim }]}>{dateStamp}</Text>
-          <TouchableOpacity hitSlop={10} style={styles.moreBtnMini}>
-            <Ionicons name="ellipsis-horizontal" size={16} color={P.textFaint} />
-          </TouchableOpacity>
-        </View>
-
-        {/* ── Calorie ring ─────────────────────────────────────── */}
-        <View style={styles.calRingWrap}>
-          <SegmentedDial
-            size={200}
-            progress={progress * eatenPct}
-            trackColor={P.caloriesTrack}
-            fillColor={P.calories}
-            haloColor={P.caloriesSoft}
-            tickCount={60}
-          >
-            <Text
-              style={[styles.calRingNumber, { color: isOver ? P.calories : P.text }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.5}
-            >
-              {displayed.toLocaleString()}
-            </Text>
-            <Text style={[styles.calRingUnit, { color: P.textFaint }]}>cal</Text>
-            <Text style={[styles.calRingLabel, { color: P.textFaint }]}>
-              {isOver ? 'over budget' : 'remaining'}
-            </Text>
-            <View style={[styles.calRingGoalPill, { backgroundColor: P.hair }]}>
-              <Text style={[styles.calRingGoalText, { color: isOver ? P.calories : P.textDim }]}>
-                {goal.toLocaleString()} daily goal
+      <View style={styles.phaseRow}>
+        {CYCLE_PHASES.map((p, i) => {
+          const isActive = i === activeIndex;
+          return (
+            <View key={p.key} style={styles.phaseTick}>
+              <View
+                style={[
+                  styles.phaseBar,
+                  {
+                    backgroundColor: isActive ? P.fat : P.hair,
+                    opacity: isActive ? 1 : 0.7,
+                  },
+                ]}
+              />
+              <Text
+                style={[
+                  styles.phaseCap,
+                  {
+                    color: isActive ? P.text : P.textFaint,
+                    fontWeight: isActive ? "700" : "500",
+                  },
+                ]}
+              >
+                {p.label}
               </Text>
             </View>
-          </SegmentedDial>
-        </View>
-
-        {/* ── Stat chips ───────────────────────────────────────── */}
-        <View style={styles.chipRow}>
-          <View style={[styles.chip, { backgroundColor: P.proteinSoft }]}>
-            <Ionicons name="restaurant" size={12} color={P.protein} />
-            <Text style={[styles.chipVal, { color: P.text }]}>{eaten.toLocaleString()}</Text>
-            <Text style={[styles.chipLbl, { color: P.textFaint }]}>eaten</Text>
-          </View>
-          <View style={[styles.chip, { backgroundColor: P.caloriesSoft }]}>
-            <Ionicons name="flame" size={12} color={P.calories} />
-            <Text style={[styles.chipVal, { color: P.text }]}>{burned.toLocaleString()}</Text>
-            <Text style={[styles.chipLbl, { color: P.textFaint }]}>
-              burned
-              {stepsToday !== undefined ? ` · ${stepsToday.toLocaleString()} steps` : ''}
-            </Text>
-          </View>
-          <View style={[styles.chip, { backgroundColor: isOver ? P.caloriesSoft : P.waterSoft }]}>
-            <Ionicons name="trending-up" size={12} color={isOver ? P.calories : P.water} />
-            <Text style={[styles.chipVal, { color: P.text }]}>{(eaten - burned).toLocaleString()}</Text>
-            <Text style={[styles.chipLbl, { color: P.textFaint }]}>net</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* ── Burn coach ───────────────────────────────────────── */}
-      {coach && (
-        <BurnCoachStrip
-          caloriesToBurn={coach.caloriesToBurn}
-          activity={coach.activity}
-          goalProgress={coach.goalProgress}
-          isLive={coach.isLive ?? true}
-          onPress={coach.onPress}
-        />
-      )}
-    </Card>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Activity card — steps, distance, active calories from HealthKit (iOS only)
-// ───────────────────────────────────────────────────────────────────────────────
-const STEPS_GOAL = 10_000;
-
-function ActivityCard({ P, delay = 0, data }: { P: Palette; delay?: number; data: import('@/context/health-context').HealthData | null }) {
-  const steps      = data?.steps ?? 0;
-  const activeCals = data?.active_calories ?? 0;
-  const distance   = data?.distance ?? 0;
-
-  const stepPct  = Math.min(steps / STEPS_GOAL, 1);
-  const stepFill = useRef(new Animated.Value(0)).current;
-  const [displayedSteps, setDisplayedSteps] = useState(0);
-
-  useEffect(() => {
-    const countAnim = new Animated.Value(0);
-    const id = countAnim.addListener(({ value }) => setDisplayedSteps(Math.round(value)));
-    Animated.parallel([
-      Animated.timing(stepFill, {
-        toValue: stepPct,
-        duration: 900,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }),
-      Animated.timing(countAnim, {
-        toValue: steps,
-        duration: 900,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }),
-    ]).start(() => countAnim.removeListener(id));
-    return () => countAnim.removeListener(id);
-  }, [steps, stepPct]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const fillWidth = stepFill.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
-  const pctLabel  = Math.round(stepPct * 100);
-
-  const distLabel = data?.distance_unit === 'km' || data?.distance_unit === 'metric'
-    ? `${distance.toFixed(1)} km`
-    : `${distance.toFixed(1)} mi`;
-
-  return (
-    <Card delay={delay}>
-      <View style={styles.activityHead}>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={[styles.sectionTitle, { color: P.text }]}>Activity</Text>
-          <Text style={[styles.sectionCaption, { color: P.textFaint }]}>from Apple Health</Text>
-        </View>
-        <View style={[styles.stepsPctPill, { backgroundColor: stepPct >= 1 ? P.proteinSoft : P.waterSoft }]}>
-          {stepPct >= 1 && <Ionicons name="checkmark" size={10} color={P.protein} />}
-          <Text style={[styles.stepsPctText, { color: stepPct >= 1 ? P.protein : P.water }]}>
-            {stepPct >= 1 ? 'Goal!' : `${pctLabel}%`}
-          </Text>
-        </View>
-      </View>
-
-      {/* Steps progress bar */}
-      <View style={styles.stepsBarWrap}>
-        <View style={styles.stepsBarTop}>
-          <View style={styles.stepsBarLeft}>
-            <Ionicons name="footsteps" size={13} color={P.water} />
-            <Text style={[styles.stepsBarVal, { color: P.text }]}>{displayedSteps.toLocaleString()}</Text>
-            <Text style={[styles.stepsBarGoal, { color: P.textFaint }]}>/ {STEPS_GOAL.toLocaleString()}</Text>
-          </View>
-          <Text style={[styles.stepsBarRemain, { color: P.textFaint }]}>
-            {steps >= STEPS_GOAL ? 'Complete' : `${Math.max(STEPS_GOAL - steps, 0).toLocaleString()} to go`}
-          </Text>
-        </View>
-        <View style={[styles.stepsTrack, { backgroundColor: P.hair }]}>
-          <Animated.View
-            style={[
-              styles.stepsFill,
-              { width: fillWidth, backgroundColor: stepPct >= 1 ? P.protein : P.water },
-            ]}
-          />
-        </View>
-      </View>
-
-      <View style={styles.activityRow}>
-
-        {/* Distance */}
-        <View style={styles.activityStat}>
-          <View style={[styles.activityIconBox, { backgroundColor: P.proteinSoft }]}>
-            <Ionicons name="map" size={16} color={P.protein} />
-          </View>
-          <Text style={[styles.activityVal, { color: P.text }]}>{distLabel}</Text>
-          <Text style={[styles.activityLbl, { color: P.textFaint }]}>distance</Text>
-        </View>
-
-        <View style={[styles.activityDivider, { backgroundColor: P.hair }]} />
-
-        {/* Active calories */}
-        <View style={styles.activityStat}>
-          <View style={[styles.activityIconBox, { backgroundColor: P.caloriesSoft }]}>
-            <Ionicons name="flame" size={16} color={P.calories} />
-          </View>
-          <Text style={[styles.activityVal, { color: P.text }]}>
-            {activeCals.toLocaleString()}
-          </Text>
-          <Text style={[styles.activityLbl, { color: P.textFaint }]}>active cal</Text>
-        </View>
-
+          );
+        })}
       </View>
     </Card>
   );
 }
+
+type InsightStatusModalKind = "checkin" | "workout" | "ready";
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Greeting helper
@@ -388,92 +491,332 @@ function greetingFor(h = new Date().getHours()) {
   return "Good evening";
 }
 
+function offsetDateString(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return getLocalDateString(d);
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // Screen
 // ───────────────────────────────────────────────────────────────────────────────
+
 export default function HomeScreen() {
-  const P      = usePalette();
+  const P = usePalette();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { profile, avatarUrl, avatarLetter, firstName, refreshProfile } = useProfile();
-  const {
-    meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
-    remaining, refreshLogs,
-  } = useFood();
+  const { profile, avatarUrl, avatarLetter, firstName, refreshProfile, updateProfile } =
+    useProfile();
+  const { mealGoal, refreshLogs, fetchForDate: fetchMealsForDate } = useFood();
   const { today: healthToday, refresh: refreshHealth } = useHealth();
-  const { current: cycleData } = useCycle();
+  const { refresh: refreshSummary } = useSummary();
+  const { ensureLoaded: ensureInsightsLoaded } = useInsights();
   const toast = useToast();
+  const { unreadCount } = useNotificationInbox();
 
-  const [date, setDate]         = useState(new Date());
+  const { logWorkout, refreshWorkouts, fetchForDate: fetchWorkoutsForDate } =
+    useWorkouts();
+  const posthog = usePostHog();
+
+  const [date, setDate] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
+  const {
+    present: presentAvatarActions,
+    uploading: avatarUploading,
+    overlay: avatarOverlay,
+  } = useAvatarPhotoActions({
+    avatarUrl,
+    avatarLetter,
+    name: profile?.name || firstName || undefined,
+    onUpdated: (url) => updateProfile({ avatarUrl: url }),
+  });
+
+  const todayStr = useMemo(() => getLocalDateString(), []);
+  const dateStr = useMemo(() => getLocalDateString(date), [date]);
+  const isToday = dateStr === todayStr;
+
+  const { meals, workouts, refresh: refreshDayLogs } = useDayLogs(dateStr);
+  const pendingImports = usePendingWorkoutImports();
+
+  const pendingForDate = useMemo(() => {
+    const group = pendingImports.pendingGroups.find((g) => g.date === dateStr);
+    return group?.items ?? [];
+  }, [pendingImports.pendingGroups, dateStr]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void pendingImports.refresh();
+    }, [pendingImports.refresh]),
+  );
+
+  // Prefetch adjacent days (resource cache, no force).
+  useEffect(() => {
+    const prev = offsetDateString(dateStr, -1);
+    const next = offsetDateString(dateStr, 1);
+    void fetchMealsForDate(prev);
+    void fetchWorkoutsForDate(prev);
+    if (next <= todayStr) {
+      void fetchMealsForDate(next);
+      void fetchWorkoutsForDate(next);
+    }
+  }, [dateStr, todayStr, fetchMealsForDate, fetchWorkoutsForDate]);
+
+  // Load insights on home screen mount so the insight card shows real data
+  // even if the Insights tab has never been opened.
+  useEffect(() => {
+    void ensureInsightsLoaded();
+  }, [ensureInsightsLoaded]);
+  const totalCalories = useMemo(
+    () => meals.reduce((s, m) => s + m.cals, 0),
+    [meals],
+  );
+  const totalProtein = useMemo(
+    () => meals.reduce((s, m) => s + (m.protein ?? 0), 0),
+    [meals],
+  );
+  const totalCarbs = useMemo(
+    () => meals.reduce((s, m) => s + (m.carbs ?? 0), 0),
+    [meals],
+  );
+  const totalFat = useMemo(
+    () => meals.reduce((s, m) => s + (m.fat ?? 0), 0),
+    [meals],
+  );
+  const workoutCalsBurned = useMemo(() => {
+    const saved = workouts.reduce((s, w) => s + w.calories_burned, 0);
+    if (pendingForDate.length === 0) return saved;
+    return sumTodayWorkoutCalories(workouts, pendingForDate, saved, dateStr);
+  }, [workouts, pendingForDate, dateStr]);
+  const remaining = mealGoal - totalCalories;
+  const [isStatusModalVisible, setIsStatusModalVisible] = useState(false);
+  const [statusModalKind] = useState<InsightStatusModalKind>("ready");
 
   // Macro targets from the same nutrition plan used on the reveal screen
   const nutritionPlan = useMemo(() => {
     if (!profile) return null;
     return calculateNutritionPlan({
-      sex:           profile.sex,
-      age:           profile.age,
-      heightCm:      profile.heightCm,
-      weightKg:      profile.weightKg,
+      sex: profile.sex,
+      age: profile.age,
+      heightCm: profile.heightCm,
+      weightKg: profile.weightKg,
       activityLevel: profile.activityLevel,
-      goal:          profile.goal,
+      goal: profile.goal,
     });
   }, [profile]);
 
-  const macros = useMemo<MacroItem[]>(() => [
-    { key: 'protein', label: 'Protein', cur: Math.round(totalProtein), goal: nutritionPlan?.macros.proteinG ?? 140, accent: 'protein' },
-    { key: 'carbs',   label: 'Carbs',   cur: Math.round(totalCarbs),   goal: nutritionPlan?.macros.carbsG   ?? 250, accent: 'carbs'   },
-    { key: 'fat',     label: 'Fat',     cur: Math.round(totalFat),     goal: nutritionPlan?.macros.fatG     ??  65, accent: 'fat'     },
-  ], [totalProtein, totalCarbs, totalFat, nutritionPlan]);
+  const macros = useMemo<MacroItem[]>(
+    () => [
+      {
+        key: "protein",
+        label: "Protein",
+        cur: Math.round(totalProtein),
+        goal: nutritionPlan?.macros.proteinG ?? 140,
+        accent: "protein",
+      },
+      {
+        key: "carbs",
+        label: "Carbs",
+        cur: Math.round(totalCarbs),
+        goal: nutritionPlan?.macros.carbsG ?? 250,
+        accent: "carbs",
+      },
+      {
+        key: "fat",
+        label: "Fat",
+        cur: Math.round(totalFat),
+        goal: nutritionPlan?.macros.fatG ?? 65,
+        accent: "fat",
+      },
+    ],
+    [totalProtein, totalCarbs, totalFat, nutritionPlan],
+  );
 
   const weightKg = profile?.weightKg ?? 70;
-  const [coachActivity, setCoachActivity] = useState<BurnActivity>(
-    () => BURN_ACTIVITIES.find(a => a.id === 'walk') ?? BURN_ACTIVITIES[0],
+  const [coachCatalogEntry, setCoachCatalogEntry] = useState<WorkoutCatalogEntry>(
+    () => getCatalogEntryById("walk") ?? getBurnCatalogEntries()[0],
   );
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [burnRecapVisible, setBurnRecapVisible] = useState(false);
+  const [burnRecapData, setBurnRecapData] = useState<SessionRecapData | null>(
+    null,
+  );
+  const [burnFinishing, setBurnFinishing] = useState(false);
+
+  const { session: workoutSessionSnapshot, start: startWorkoutSession, end: endWorkoutSession } =
+    useWorkoutSession();
+
+  // Live Activity (iOS Lock Screen / Dynamic Island workout widget)
+  const {
+    active: liveWorkout,
+    start: startLiveWorkout,
+    pause: pauseLiveWorkout,
+    resume: resumeLiveWorkout,
+    end: endLiveWorkout,
+  } = useWorkoutLiveActivity();
+
+  // Calories burned during the live workout (delta from baseline at start)
+  const liveBurned = liveWorkout
+    ? Math.max(
+        0,
+        (healthToday?.active_calories ?? liveWorkout.baselineCals) -
+          liveWorkout.baselineCals,
+      )
+    : 0;
 
   // Burn coach — recommend burning 15% of daily goal; more if over budget.
   const coachData = useMemo(() => {
     const base = Math.round(mealGoal * 0.15);
     const over = Math.max(totalCalories - mealGoal, 0);
     const caloriesToBurn = Math.max(base + over, 80);
-    // minutes = cals / (MET × kg / 60)
-    const minutes = Math.round(caloriesToBurn / (coachActivity.met * weightKg / 60) / 5) * 5;
     const activeBurned = healthToday?.active_calories ?? 0;
+    const remaining = Math.max(caloriesToBurn - activeBurned, 0);
+    const met = coachCatalogEntry.met ?? 0;
+    const minutes = computeDurationMinutes(met, weightKg, remaining);
     return {
-      caloriesToBurn: Math.max(caloriesToBurn - activeBurned, 0),
-      activity: { label: `${coachActivity.verb} ${minutes} min`, icon: coachActivity.icon },
-      goalProgress: caloriesToBurn > 0 ? Math.min(activeBurned / caloriesToBurn, 1) : 0,
+      caloriesToBurn: remaining,
+      activity: {
+        label:
+          minutes > 0
+            ? formatCatalogPrescription(coachCatalogEntry, minutes)
+            : `Goal reached!`,
+        icon: coachCatalogEntry.icon,
+      },
+      goalProgress:
+        caloriesToBurn > 0 ? Math.min(activeBurned / caloriesToBurn, 1) : 0,
     };
-  }, [mealGoal, totalCalories, coachActivity, weightKg, healthToday]);
+  }, [mealGoal, totalCalories, coachCatalogEntry, weightKg, healthToday]);
+
+  const handleBurnLiveStart = useCallback(
+    (selection: WorkoutSelection) => {
+      setCoachCatalogEntry(selection.entry);
+      const goal = selection.calorieGoal ?? coachData.caloriesToBurn;
+      void startWorkoutSession({ ...selection, entrySurface: "home" });
+      void startLiveWorkout(
+        catalogEntryToBurnActivity(selection.entry),
+        goal,
+      );
+    },
+    [startWorkoutSession, startLiveWorkout, coachData.caloriesToBurn],
+  );
+
+  const handleBurnEnd = useCallback(async () => {
+    if (burnFinishing) return;
+
+    const sessionSnapshot = workoutSessionSnapshot;
+    const liveSnapshot = liveWorkout;
+
+    if (!liveSnapshot) {
+      await endLiveWorkout();
+      return;
+    }
+
+    setBurnFinishing(true);
+    try {
+      await endLiveWorkout();
+
+      if (!sessionSnapshot) {
+        await endWorkoutSession();
+        return;
+      }
+
+      const { recapData } = await finishAndSaveWorkoutSession({
+        session: sessionSnapshot,
+        completed: {
+          workoutType: liveSnapshot.activity.id,
+          workoutName: liveSnapshot.activity.label,
+          startedAt: liveSnapshot.startedAt,
+          sets: [],
+        },
+        logWorkout,
+        healthToday,
+        weightKg: profile?.weightKg,
+        userAge: profile?.age,
+        posthog,
+      });
+
+      setBurnRecapData(recapData);
+      setBurnRecapVisible(true);
+      await endWorkoutSession();
+    } catch {
+      toast.error("Could not save", "Workout ended; try logging manually.");
+      await endWorkoutSession();
+    } finally {
+      setBurnFinishing(false);
+    }
+  }, [
+    burnFinishing,
+    workoutSessionSnapshot,
+    liveWorkout,
+    endLiveWorkout,
+    endWorkoutSession,
+    logWorkout,
+    healthToday,
+    profile?.weightKg,
+    profile?.age,
+    posthog,
+    toast,
+  ]);
+
+  const handleBurnRecapDone = useCallback(() => {
+    setBurnRecapVisible(false);
+    setBurnRecapData(null);
+  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refreshLogs(), refreshProfile(), refreshHealth()]);
+      if (isToday) {
+        const today = getLocalDateString();
+        await Promise.all([
+          refreshLogs(today),
+          refreshProfile(),
+          refreshHealth(),
+          refreshWorkouts(today),
+          refreshSummary(),
+          pendingImports.refresh(),
+        ]);
+      } else {
+        await Promise.all([refreshDayLogs(), pendingImports.refresh()]);
+      }
     } catch {
-      toast.error('Could not refresh', 'Please try again.');
+      toast.error("Could not refresh", "Please try again.");
     } finally {
       setRefreshing(false);
     }
   };
 
-  const burnedToday = healthToday?.active_calories ?? 0;
-  const adjustedRemaining = remaining + burnedToday;
+  const handleInsightPress = () => {
+    router.push("/insights/daily");
+  };
 
-  const isFemale = profile?.sex === 'female';
-  const showCycleCard = isFemale && cycleData?.available === true && cycleData?.phase !== null;
-  const waterGoal = 8; // will wire to summary context later
+  const burnedToday = isToday
+    ? (healthToday?.active_calories ?? 0)
+    : workoutCalsBurned;
+
+  const isFemale = profile?.sex === "female";
+
+  const dayLabel = useMemo(
+    () => date.toLocaleDateString(undefined, { weekday: "long" }),
+    [date],
+  );
 
   const longDate = useMemo(
-    () => date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
+    () =>
+      date.toLocaleDateString(undefined, {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      }),
     [date],
   );
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <ScrollView
-        contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 48 }}
+        contentContainerStyle={{
+          paddingTop: insets.top + 12,
+          paddingBottom: insets.bottom + 96,
+        }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -488,79 +831,212 @@ export default function HomeScreen() {
         {/* ── Header ──────────────────────────────────────────── */}
         <AnimatedHeader style={styles.header}>
           <View style={{ flex: 1, gap: 4 }}>
-            <Text style={[styles.eyebrow, { color: P.textFaint }]}>{longDate.toUpperCase()}</Text>
+            <Text style={[styles.eyebrow, { color: P.textFaint }]}>
+              {longDate.toUpperCase()}
+            </Text>
             <Text style={[styles.greeting, { color: P.text }]}>
-              {greetingFor()},{'\n'}
-              <Text style={{ color: P.calories }}>{profile?.name || firstName || 'there'}</Text>
+              {greetingFor()},{"\n"}
+              <Text style={{ color: P.calories }}>
+                {profile?.name || firstName || "there"}
+              </Text>
             </Text>
           </View>
 
-          <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={{ flexDirection: "row", gap: 10 }}>
             <TouchableOpacity
               activeOpacity={0.7}
-              style={[styles.iconBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
+              style={[
+                styles.iconBtn,
+                { backgroundColor: P.card, borderColor: P.cardEdge },
+              ]}
+              onPress={() => router.push("/notifications")}
+              accessibilityLabel="Notifications"
             >
               <Ionicons name="notifications-outline" size={18} color={P.text} />
-              <View style={[styles.notifDot, { backgroundColor: P.calories, borderColor: P.bg }]} />
+              {unreadCount > 0 && (
+                <View
+                  style={[
+                    styles.notifDot,
+                    { backgroundColor: P.calories, borderColor: P.bg },
+                  ]}
+                />
+              )}
             </TouchableOpacity>
 
-            <View style={[styles.avatarRing, { borderColor: P.calories }]}>
-              <View style={[styles.avatar, { backgroundColor: P.sunken }]}>
-                {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
-                ) : (
-                  <Text style={[styles.avatarLetter, { color: P.calories }]}>{avatarLetter}</Text>
-                )}
-              </View>
-            </View>
+            <Pressable
+              onPress={presentAvatarActions}
+              disabled={avatarUploading}
+              hitSlop={8}
+            >
+              <UserAvatar
+                size="sm"
+                avatarUrl={avatarUrl}
+                avatarLetter={avatarLetter}
+                accentColor={P.calories}
+                fillColor={P.sunken}
+                uploading={avatarUploading}
+              />
+            </Pressable>
           </View>
         </AnimatedHeader>
 
         {/* ── Week strip ──────────────────────────────────────── */}
-        <WeekStrip selected={date} onSelect={setDate} />
+        <WeekStrip selected={date} onSelect={setDate} P={P} />
 
         {/* ── Content stack ───────────────────────────────────── */}
         <View style={styles.stack}>
-          {showCycleCard && cycleData && <CyclePhaseCard delay={60} current={cycleData} />}
-          <HeroBudgetLedger
-            P={P}
+          {isToday && isFemale && <CyclePhaseCard P={P} delay={60} />}
+          <CalorieBudgetCard
+            P={P as CalorieBudgetPalette}
             delay={120}
             eaten={totalCalories}
             goal={mealGoal}
-            burned={burnedToday}
-            stepsToday={healthToday?.steps}
-            remaining={adjustedRemaining}
-            coach={{
-              ...coachData,
-              isLive: true,
-              onPress: () => setPickerOpen(true),
-            }}
+            remaining={remaining}
+            earnedFromActivity={burnedToday}
           />
-          <InsightCard delay={280} />
-          <MacrosCard delay={360} macros={macros} />
-          {Platform.OS === 'ios' && (
-            <ActivityCard P={P} delay={430} data={healthToday} />
+          <DailyBudgetMetricsRow
+            P={P}
+            delay={160}
+            eaten={totalCalories}
+            goal={mealGoal}
+            burned={burnedToday}
+            healthData={healthToday}
+            showMovement={isToday && Platform.OS === "ios"}
+          />
+          {isToday && (
+            <BurnCoachStrip
+              caloriesToBurn={coachData.caloriesToBurn}
+              activity={
+                liveWorkout
+                  ? {
+                      label: liveWorkout.activity.label,
+                      icon: liveWorkout.activity.icon,
+                    }
+                  : coachData.activity
+              }
+              goalProgress={coachData.goalProgress}
+              isLive={true}
+              activeStartedAt={liveWorkout?.startedAt ?? null}
+              activeCaloriesBurned={liveBurned}
+              activePausedAt={liveWorkout?.pausedAt ?? null}
+              onPress={() => setPickerOpen(true)}
+              onStart={() => {
+                if (!liveWorkout) {
+                  handleBurnLiveStart({
+                    entry: coachCatalogEntry,
+                    intent: "burn",
+                    calorieGoal: coachData.caloriesToBurn,
+                  });
+                }
+              }}
+              onPause={() => void pauseLiveWorkout()}
+              onResume={() => void resumeLiveWorkout()}
+              onEnd={() => void handleBurnEnd()}
+            />
+          )}
+          {isToday && <ReadinessWidget delay={260} />}
+          {isToday && (
+            <InsightCard P={P} delay={320} onPress={handleInsightPress} />
+          )}
+          <MacrosCard P={P} delay={360} macros={macros} />
+          {isToday && (
+            <HydrationCard
+              P={P}
+              delay={430}
+              onViewAll={() => router.push("/(tabs)/log/water")}
+            />
           )}
           <MealsCard
+            P={P}
             delay={440}
             meals={meals}
             totalCalories={totalCalories}
-            onLogMore={() => router.replace('/(tabs)/log/food')}
+            title={isToday ? "Today's Meals" : `${dayLabel}'s Meals`}
+            onLogMore={
+              isToday ? () => router.replace("/(tabs)/log/food") : undefined
+            }
           />
-          <HydrationCard delay={520} waterGoal={waterGoal} />
+          <WorkoutCard
+            P={P}
+            delay={500}
+            workouts={workouts}
+            pendingWorkouts={pendingForDate}
+            totalCaloriesBurned={workoutCalsBurned}
+            onLogMore={
+              isToday ? () => router.push("/(tabs)/log/workout") : undefined
+            }
+            onOpenPending={(uuid) =>
+              router.push(`/(tabs)/log/workout/healthkit/${uuid}`)
+            }
+          />
         </View>
       </ScrollView>
 
-      <BurnActivityPicker
+      <WorkoutLauncher
         visible={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        caloriesToBurn={coachData.caloriesToBurn}
-        weightKg={weightKg}
-        currentId={coachActivity.id}
-        onSelect={(activity) => {
-          setCoachActivity(activity);
-        }}
+        intent="burn"
+        initialActivityId={coachCatalogEntry.id}
+        initialCalorieGoal={coachData.caloriesToBurn}
+        onLiveStart={handleBurnLiveStart}
       />
+
+      <WorkoutSessionRecapSheet
+        visible={burnRecapVisible}
+        data={burnRecapData}
+        onDone={handleBurnRecapDone}
+      />
+
+      <AppModal
+        visible={isStatusModalVisible}
+        onClose={() => setIsStatusModalVisible(false)}
+        title={
+          statusModalKind === "workout" ? "Workout Prompt" : "Insight Ready"
+        }
+        sheetHeight={0.4}
+      >
+        <View style={styles.statusModalBody}>
+          <Text style={[styles.statusModalText, { color: P.text }]}>
+            {statusModalKind === "workout"
+              ? "Your check-in is complete. Log a workout to unlock the next insight."
+              : "Everything is up to date. You can now view your weekly insight report."}
+          </Text>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={[
+              styles.statusModalPrimaryBtn,
+              { backgroundColor: P.calories },
+            ]}
+            onPress={() => {
+              setIsStatusModalVisible(false);
+              if (statusModalKind === "workout") {
+                router.replace("/(tabs)/log/workout");
+              } else {
+                router.replace("/(tabs)/insights/weekly");
+              }
+            }}
+          >
+            <Text style={styles.statusModalPrimaryText}>
+              {statusModalKind === "workout" ? "Log workout" : "Open report"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.7}
+            style={styles.statusModalSecondaryBtn}
+            onPress={() => setIsStatusModalVisible(false)}
+          >
+            <Text
+              style={[styles.statusModalSecondaryText, { color: P.textFaint }]}
+            >
+              Maybe later
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </AppModal>
+
+      {avatarOverlay}
     </View>
   );
 }
@@ -606,23 +1082,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     borderWidth: 1.5,
   },
-  avatarRing: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: 1.5,
-    padding: 2,
-  },
-  avatar: {
-    flex: 1,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  avatarImg: { width: "100%", height: "100%" },
-  avatarLetter: { fontSize: 14, fontWeight: "800", letterSpacing: -0.2 },
-
   // Main stack
   stack: {
     paddingHorizontal: 20,
@@ -633,230 +1092,239 @@ const styles = StyleSheet.create({
   // Atmospheric halo stack: two offset circles at different opacities fake a
   // soft radial gradient without pulling in a gradient library.
   haloWrap: {
-    position:       'absolute',
-    top:            60,
-    left:           -120,
-    width:          360,
-    height:         360,
-    alignItems:     'center',
-    justifyContent: 'center',
+    position: "absolute",
+    top: 60,
+    left: -120,
+    width: 360,
+    height: 360,
+    alignItems: "center",
+    justifyContent: "center",
   },
   haloOuter: {
-    position:     'absolute',
-    width:        360,
-    height:       360,
+    position: "absolute",
+    width: 360,
+    height: 360,
     borderRadius: 180,
   },
   haloInner: {
-    position:     'absolute',
-    width:        220,
-    height:       220,
+    position: "absolute",
+    width: 220,
+    height: 220,
     borderRadius: 110,
   },
 
   ledgerTop: {
-    flexDirection:  'row',
-    alignItems:     'center',
-    justifyContent: 'space-between',
-    marginBottom:   20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
   },
   dateStamp: {
-    fontFamily:    'BarlowCondensed_600SemiBold',
-    fontSize:      14,
+    fontFamily: "BarlowCondensed_600SemiBold",
+    fontSize: 14,
     letterSpacing: 1.4,
   },
   moreBtnMini: {
-    width:  24,
+    width: 24,
     height: 24,
-    alignItems:     'center',
-    justifyContent: 'center',
-    marginRight:    -6,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: -6,
   },
 
   chipRow: {
-    flexDirection: 'row',
-    gap:           8,
-    marginBottom:  20,
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 20,
   },
   chip: {
-    flex:           1,
-    flexDirection:  'row',
-    alignItems:     'center',
-    gap:            5,
-    paddingVertical: 8,
+    flex: 1,
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 3,
+    paddingVertical: 9,
     paddingHorizontal: 10,
-    borderRadius:   12,
+    borderRadius: 12,
+  },
+  chipTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   chipVal: {
-    fontSize:      13,
-    fontWeight:    '800',
+    fontSize: 13,
+    fontWeight: "800",
     letterSpacing: -0.3,
   },
   chipLbl: {
-    fontSize:   10,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: "600",
   },
 
   calRingWrap: {
-    alignItems:    'center',
-    marginBottom:  20,
-  },
-  calRingNumber: {
-    fontFamily:    'BarlowCondensed_800ExtraBold',
-    fontSize:      52,
-    lineHeight:    52,
-    letterSpacing: -1.5,
-    textAlign:     'center',
-  },
-  calRingUnit: {
-    fontFamily:    'BarlowCondensed_700Bold',
-    fontSize:      13,
-    letterSpacing: 1,
-    textAlign:     'center',
-    marginTop:     3,
-  },
-  calRingLabel: {
-    fontSize:      11,
-    fontWeight:    '500',
-    textAlign:     'center',
-    marginTop:     4,
-  },
-  calRingGoalPill: {
-    marginTop:         8,
-    paddingHorizontal: 10,
-    paddingVertical:   4,
-    borderRadius:      999,
-  },
-  calRingGoalText: {
-    fontSize:      10,
-    fontWeight:    '700',
-    letterSpacing: 0.3,
-    textAlign:     'center',
-  },
-
-  // Activity card
-  activityHead: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    marginBottom:  18,
-  },
-  stepsPctPill: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               4,
-    paddingHorizontal: 8,
-    paddingVertical:   3,
-    borderRadius:      999,
-  },
-  stepsPctText: {
-    fontSize:   10,
-    fontWeight: '800',
-  },
-  stepsBarWrap: {
+    alignItems: "center",
     marginBottom: 20,
   },
-  stepsBarTop: {
-    flexDirection:  'row',
-    alignItems:     'baseline',
-    justifyContent: 'space-between',
-    marginBottom:   8,
+  calRingNumber: {
+    fontFamily: "BarlowCondensed_800ExtraBold",
+    fontSize: 52,
+    lineHeight: 52,
+    letterSpacing: -1.5,
+    textAlign: "center",
   },
-  stepsBarLeft: {
-    flexDirection: 'row',
-    alignItems:    'baseline',
-    gap:           5,
+  calRingUnit: {
+    fontFamily: "BarlowCondensed_700Bold",
+    fontSize: 13,
+    letterSpacing: 1,
+    textAlign: "center",
+    marginTop: 3,
   },
-  stepsBarVal: {
-    fontSize:      20,
-    fontWeight:    '800',
-    letterSpacing: -0.5,
-    fontVariant:   ['tabular-nums'],
+  calRingLabel: {
+    fontSize: 11,
+    fontWeight: "500",
+    textAlign: "center",
+    marginTop: 4,
   },
-  stepsBarGoal: {
-    fontSize:   12,
-    fontWeight: '600',
+  calRingGoalPill: {
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
   },
-  stepsBarRemain: {
-    fontSize:   11,
-    fontWeight: '600',
-  },
-  stepsTrack: {
-    height:       6,
-    borderRadius: 3,
-    overflow:     'hidden',
-  },
-  stepsFill: {
-    height:       '100%',
-    borderRadius: 3,
-  },
-  activityRow: {
-    flexDirection: 'row',
-    alignItems:    'flex-start',
-  },
-  activityStat: {
-    flex:      1,
-    alignItems: 'center',
-    gap:        4,
-  },
-  activityIconBox: {
-    width:          36,
-    height:         36,
-    borderRadius:   12,
-    alignItems:     'center',
-    justifyContent: 'center',
-    marginBottom:   4,
-  },
-  activityVal: {
-    fontSize:      16,
-    fontWeight:    '800',
-    letterSpacing: -0.4,
-    fontVariant:   ['tabular-nums'],
-  },
-  activityLbl: {
-    fontSize:      10,
-    fontWeight:    '600',
+  calRingGoalText: {
+    fontSize: 10,
+    fontWeight: "700",
     letterSpacing: 0.3,
+    textAlign: "center",
   },
-  activityDivider: {
-    width:          StyleSheet.hairlineWidth,
-    alignSelf:      'stretch',
-    marginTop:      8,
-    marginBottom:   8,
+  earnedPill: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  earnedPillText: {
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.3,
   },
 
   statLine: {
-    flexDirection: 'row',
-    alignItems:    'baseline',
-    flexWrap:      'wrap',
-    marginTop:     16,
+    flexDirection: "row",
+    alignItems: "baseline",
+    flexWrap: "wrap",
+    marginTop: 16,
   },
   statNum: {
-    fontFamily:    'BarlowCondensed_700Bold',
-    fontSize:      15,
+    fontFamily: "BarlowCondensed_700Bold",
+    fontSize: 15,
     letterSpacing: 0.2,
   },
   statLbl: {
-    fontSize:      12,
-    fontWeight:    '500',
+    fontSize: 12,
+    fontWeight: "500",
     letterSpacing: 0.1,
   },
   statSep: {
-    fontSize:   12,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: "700",
   },
 
   coachSlot: { marginTop: 0 },
 
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    letterSpacing: -0.4,
+  // Cycle phase
+  cycleHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 16,
   },
-  sectionCaption: {
-    fontSize: 12,
+  cycleTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  cycleSub: {
+    fontSize: 11,
     fontWeight: "500",
   },
+  phaseRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  phaseTick: {
+    flex: 1,
+    gap: 6,
+  },
+  phaseBar: {
+    height: 3,
+    borderRadius: 2,
+  },
+  phaseCap: {
+    fontSize: 10,
+    letterSpacing: 0.3,
+  },
 
+  // Hydration
+  hydrationHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 18,
+  },
+  iconTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconTileSm: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hydrationTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  hydrationSub: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  hydrationNum: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 2,
+  },
+  hydrationCount: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.7,
+  },
+  hydrationGoal: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  dropRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  dropCell: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   // Quick stats row
   statsGrid: {
     flexDirection: "row",
@@ -882,5 +1350,54 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "500",
     marginTop: 2,
+  },
+
+  statusModalBody: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    gap: 14,
+  },
+  statusModalText: {
+    fontSize: 14,
+    fontWeight: "500",
+    lineHeight: 21,
+  },
+  statusModalPrimaryBtn: {
+    marginTop: 6,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusModalPrimaryText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  statusModalSecondaryBtn: {
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  statusModalSecondaryText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+
+  // Past-day read-only banner
+  pastBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  pastBannerText: {
+    fontSize: 12,
+    fontWeight: "600",
   },
 });

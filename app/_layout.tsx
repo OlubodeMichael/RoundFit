@@ -13,34 +13,47 @@ import {
     DefaultTheme,
     ThemeProvider as NavThemeProvider,
 } from "@react-navigation/native";
+import * as Notifications from "expo-notifications";
 import {
     Stack,
+    useGlobalSearchParams,
+    usePathname,
     useRootNavigationState,
     useRouter,
     useSegments,
 } from "expo-router";
+import { routeForNotificationScreen } from "@/utils/notification-routes";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { StyleSheet, View } from "react-native";
+
+import { configureForegroundBehaviour, setupNotificationChannel } from "@/utils/notifications";
+import { PostHogProvider } from "posthog-react-native";
+import { posthog } from "@/lib/posthog";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ToastProvider } from "@/components/ui/Toast";
-import { AuthProvider } from "@/context/auth-context";
+import { AuthProvider, hasActiveUserSession } from "@/context/auth-context";
 import { CheckinProvider } from "@/context/checkin-context";
 import { CycleProvider } from "@/context/cycle-context";
-import { EngineProvider } from "@/context/engine-context";
 import { FoodProvider } from "@/context/food-context";
 import { HealthProvider } from "@/context/health-context";
 import { InsightsProvider } from "@/context/insights-context";
+import { NotificationInboxProvider } from "@/context/notification-inbox-context";
 import { ProfileProvider } from "@/context/profile-context";
 import { RecoveryProvider } from "@/context/recovery-context";
 import { SummaryProvider } from "@/context/summary-context";
 import { ThemeProvider } from "@/context/theme-context";
+import { WaterProvider } from "@/context/water-context";
 import { WeightProvider } from "@/context/weight-context";
 import { WorkoutProvider } from "@/context/workout-context";
+import { WorkoutSessionProvider } from "@/context/workout-session-context";
+import { WorkoutImportReviewProvider } from "@/context/workout-import-review-context";
+import { WorkoutSessionLiveActivityProvider } from "@/hooks/use-workout-session-live-activity";
 import { useAuth } from "@/hooks/use-auth";
+import { useDailyInsightNotification } from "@/hooks/use-daily-insight-notification";
 import { useTheme } from "@/hooks/use-theme";
 
 export const unstable_settings = {
@@ -49,11 +62,34 @@ export const unstable_settings = {
 
 function AppNavigator() {
   const { isDark } = useTheme();
-  const { status } = useAuth();
+  const { status, user } = useAuth();
   const router = useRouter();
   const segments = useSegments();
   const navState = useRootNavigationState();
+  const pathname = usePathname();
+  const params = useGlobalSearchParams();
+  const previousPathname = useRef<string | undefined>(undefined);
   const navigatorReady = Boolean(navState?.key);
+
+  // Daily insight notification: sleep background delivery + generic fallback.
+  useDailyInsightNotification();
+
+  useEffect(() => {
+    if (previousPathname.current !== pathname) {
+      posthog.screen(pathname, { previous_screen: previousPathname.current ?? null, ...params });
+      previousPathname.current = pathname;
+    }
+  }, [pathname, params]);
+
+  // ── Notification tap handler ────────────────────────────────────────────
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const screen = response.notification.request.content.data?.screen as string | undefined;
+      const route = routeForNotificationScreen(screen);
+      if (route) router.push(route as never);
+    });
+    return () => sub.remove();
+  }, [router]);
 
   useEffect(() => {
     if (!navigatorReady) return;
@@ -62,21 +98,41 @@ function AppNavigator() {
     const top = segments[0];
     const inPublicOnboarding = top === "auth" || top === "onboarding";
 
-    if (status === "authenticated" && top === "auth") {
-      router.replace("/(tabs)");
+    const authScreen = segments[1];
+
+    // Valid session but no RoundFit profile row yet — finish onboarding to create one.
+    if (status === "needs-profile" && top !== "onboarding") {
+      router.replace("/onboarding/complete-profile");
       return;
+    }
+
+    const passwordScreen =
+      authScreen === "forgot-password" ||
+      authScreen === "reset-password" ||
+      authScreen === "change-password";
+    // Only redirect into the tabs when status is authenticated AND a profile
+    // is actually loaded (`hasActiveUserSession`). Status alone can briefly be
+    // "authenticated" with `user === null` between sign-in and /me hydration.
+    if (hasActiveUserSession(status, user) && (top === "auth" || top === "onboarding")) {
+      if (!passwordScreen) {
+        router.replace("/(tabs)");
+        return;
+      }
     }
 
     if (status === "unauthenticated" && !inPublicOnboarding) {
       router.replace("/auth");
     }
-  }, [navigatorReady, status, segments]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [navigatorReady, status, user, segments]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const top = segments[0];
   // Hide auth UI until session is known, and while an authenticated user is still on `auth`
   // (replace to tabs runs in the same layout pass — avoids a flash of the auth landing screen).
+  const passwordScreen = segments[1] === "forgot-password" || segments[1] === "reset-password" || segments[1] === "change-password";
   const showAuthSplash =
-    status === "loading" || (status === "authenticated" && top === "auth");
+    status === "loading" ||
+    (status === "needs-profile" && top !== "onboarding") ||
+    (status === "authenticated" && top === "auth" && !passwordScreen);
 
   return (
     <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
@@ -84,11 +140,15 @@ function AppNavigator() {
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
           <Stack.Screen name="auth" />
           <Stack.Screen name="onboarding" />
-          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="(tabs)" options={{ gestureEnabled: status !== "authenticated" }} />
           <Stack.Screen name="modal" options={{ presentation: "modal" }} />
           <Stack.Screen
             name="edit-profile"
-            options={{ presentation: "modal" }}
+            options={{ presentation: 'transparentModal', animation: 'fade' }}
+          />
+          <Stack.Screen
+            name="notifications"
+            options={{ animation: "slide_from_right" }}
           />
         </Stack>
         {showAuthSplash && (
@@ -106,6 +166,8 @@ function AppNavigator() {
   );
 }
 
+configureForegroundBehaviour();
+
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     Syne_700Bold,
@@ -115,40 +177,57 @@ export default function RootLayout() {
     BarlowCondensed_800ExtraBold,
   });
 
-  if (!fontsLoaded) return null;
+  useEffect(() => {
+    setupNotificationChannel();
+  }, []);
+
+  if (!fontsLoaded) return <View style={{ flex: 1, backgroundColor: '#FAFAF8' }} />;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
+        <PostHogProvider client={posthog} autocapture={{ captureScreens: false, captureTouches: true }}>
         <ThemeProvider>
           <ToastProvider>
             <AuthProvider>
               <ProfileProvider>
                 <FoodProvider>
                   <WorkoutProvider>
+                    <WorkoutImportReviewProvider>
                     <CycleProvider>
                       <WeightProvider>
+                        <WaterProvider>
                         <HealthProvider>
-                          <RecoveryProvider>
-                            <CheckinProvider>
-                              <SummaryProvider>
-                                <EngineProvider>
-                                  <InsightsProvider>
+                          <WorkoutSessionProvider>
+                          <WorkoutSessionLiveActivityProvider>
+                          <CheckinProvider>
+                            <SummaryProvider>
+                              <RecoveryProvider>
+                                {/* EngineProvider unmounted: no screen consumes useEngine();
+                                    it only generated unused /engine/daily + /engine/patterns
+                                    requests. Context/hook kept for when engine UI is wired. */}
+                                <InsightsProvider>
+                                  <NotificationInboxProvider>
                                     <AppNavigator />
-                                  </InsightsProvider>
-                                </EngineProvider>
-                              </SummaryProvider>
-                            </CheckinProvider>
-                          </RecoveryProvider>
+                                  </NotificationInboxProvider>
+                                </InsightsProvider>
+                              </RecoveryProvider>
+                            </SummaryProvider>
+                          </CheckinProvider>
+                          </WorkoutSessionLiveActivityProvider>
+                          </WorkoutSessionProvider>
                         </HealthProvider>
+                        </WaterProvider>
                       </WeightProvider>
                     </CycleProvider>
+                    </WorkoutImportReviewProvider>
                   </WorkoutProvider>
                 </FoodProvider>
               </ProfileProvider>
             </AuthProvider>
           </ToastProvider>
         </ThemeProvider>
+        </PostHogProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

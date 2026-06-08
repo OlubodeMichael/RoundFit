@@ -1,10 +1,29 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  Modal, View, Text, TouchableWithoutFeedback,
-  Animated, StyleSheet, PanResponder, Dimensions, Easing,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  View,
+  Text,
+  TouchableWithoutFeedback,
+  Animated,
+  StyleSheet,
+  PanResponder,
+  Dimensions,
+  Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/use-theme';
+
+/**
+ * Context that lets nested ScrollViews report their scroll position back to
+ * AppModal so swipe-to-dismiss only captures when the list is at the top.
+ */
+export const ModalScrollContext = React.createContext<{
+  onScroll: (y: number) => void;
+}>({ onScroll: () => {} });
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const DISMISS_THRESHOLD = 72;
@@ -20,11 +39,15 @@ export interface AppModalProps {
   /**
    * Height of the sheet.
    * - number 0–1 → fraction of screen height (default 0.55)
-   * - 'full'     → 92 % of screen height
+   * - 'full'     → from below status bar to bottom of screen
    */
   sheetHeight?: number | 'full';
   /** Use "ease" for smooth bottom-up timing animation instead of spring. */
   openAnimation?: 'spring' | 'ease';
+  /** Where users can start swipe-to-dismiss gesture. */
+  dismissGestureArea?: 'handle' | 'sheet';
+  /** Shifts the sheet when the software keyboard is visible. */
+  keyboardAvoiding?: boolean;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -36,11 +59,17 @@ export function AppModal({
   title,
   sheetHeight = 0.55,
   openAnimation = 'ease',
+  dismissGestureArea = 'handle',
+  keyboardAvoiding = false,
 }: AppModalProps) {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
 
-  const resolvedH = sheetHeight === 'full' ? SCREEN_H * 0.92 : SCREEN_H * (sheetHeight as number);
+  const FULL_SHEET_TOP_GAP = 8;
+  const resolvedH =
+    sheetHeight === 'full'
+      ? SCREEN_H - insets.top - FULL_SHEET_TOP_GAP
+      : SCREEN_H * (sheetHeight as number);
 
   // ── Animation values ──────────────────────────────────────────────────
   const slideY      = useRef(new Animated.Value(resolvedH)).current;
@@ -73,26 +102,55 @@ export function AppModal({
     } else {
       Animated.parallel([
         Animated.timing(slideY, {
-          toValue: resolvedH, duration: 240, useNativeDriver: true,
+          toValue: resolvedH,
+          duration: 240,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
         }),
         Animated.timing(backdropOp, {
-          toValue: 0, duration: 220, useNativeDriver: true,
+          toValue: 0,
+          duration: 220,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
         }),
       ]).start();
     }
   }, [openAnimation, visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Scroll tracking (used by sheet-mode dismiss gate) ─────────────────
+  const sheetScrollY = useRef(0);
+
+  // Stable refs so the PanResponder closure (created once) always calls
+  // the current onClose and reads the current dismissGestureArea prop.
+  const onCloseRef             = useRef(onClose);
+  const dismissGestureAreaRef  = useRef(dismissGestureArea);
+  onCloseRef.current            = onClose;
+  dismissGestureAreaRef.current = dismissGestureArea;
+
   // ── Drag to dismiss ────────────────────────────────────────────────────
   const pan = useRef(
     PanResponder.create({
+      // Handle mode: normal negotiation — wins if more vertical than horizontal.
       onMoveShouldSetPanResponder: (_, { dy, dx }) =>
+        dismissGestureAreaRef.current === 'handle' &&
         Math.abs(dy) > Math.abs(dx) && dy > 4,
+
+      // Sheet mode: use the capture phase so we win over a nested ScrollView,
+      // but only when the list is scrolled to the very top (y ≤ 0) and the
+      // user is pulling down — otherwise normal ScrollView scrolling applies.
+      onMoveShouldSetPanResponderCapture: (_, { dy, dx }) =>
+        dismissGestureAreaRef.current === 'sheet' &&
+        Math.abs(dy) > Math.abs(dx) &&
+        dy > 6 &&
+        sheetScrollY.current <= 0,
+
       onPanResponderMove: (_, { dy }) => {
         if (dy > 0) dragY.setValue(dy);
       },
       onPanResponderRelease: (_, { dy, vy }) => {
         if (dy > DISMISS_THRESHOLD || vy > 1.2) {
-          onClose();
+          onCloseRef.current();
+          Keyboard.dismiss();
           dragY.setValue(0);
         } else {
           Animated.spring(dragY, {
@@ -110,23 +168,35 @@ export function AppModal({
   const lo   = isDark ? '#2A2A32' : '#EBEBEB';
   const mid  = isDark ? '#707078' : '#BBBBBB';
 
+  const dismissModal = () => {
+    onClose();
+    Keyboard.dismiss();
+  };
+
+  const modalBody = (
+    <ModalScrollContext.Provider value={{ onScroll: (y) => { sheetScrollY.current = y; } }}>
+      {children}
+    </ModalScrollContext.Provider>
+  );
+
   return (
     <Modal
       transparent
       visible={visible}
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={dismissModal}
       statusBarTranslucent
     >
       <View style={s.overlay}>
 
         {/* Backdrop */}
-        <TouchableWithoutFeedback onPress={onClose}>
+        <TouchableWithoutFeedback onPress={dismissModal}>
           <Animated.View style={[s.backdrop, { opacity: backdropOp }]} />
         </TouchableWithoutFeedback>
 
         {/* Sheet */}
         <Animated.View
+          {...(dismissGestureArea === 'sheet' ? pan.panHandlers : {})}
           style={[
             s.sheet,
             {
@@ -137,21 +207,40 @@ export function AppModal({
             },
           ]}
         >
-          {/* ── Drag handle ── */}
+          {/* ── Drag handle — always swipeable regardless of dismissGestureArea ── */}
           <View {...pan.panHandlers} style={s.handleZone}>
             <View style={[s.handle, { backgroundColor: mid }]} />
           </View>
 
-          {/* ── Header ── */}
+          {/* Header stays outside KeyboardAvoidingView so ✕ closes in one tap */}
           {title ? (
             <View style={[s.header, { borderBottomColor: lo }]}>
               <View style={[s.headerAccent, { backgroundColor: '#F97316' }]} />
               <Text style={[s.headerTitle, { color: hi }]}>{title}</Text>
+              <Pressable
+                onPress={dismissModal}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                style={[s.closeBtn, { backgroundColor: lo }]}
+              >
+                <Text style={[s.closeBtnText, { color: mid }]}>✕</Text>
+              </Pressable>
             </View>
           ) : null}
 
-          {/* ── Content ── */}
-          {children}
+          {/* ── Content (keyboard shift only affects scrollable body) ── */}
+          {keyboardAvoiding ? (
+            <KeyboardAvoidingView
+              style={s.content}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+            >
+              {modalBody}
+            </KeyboardAvoidingView>
+          ) : (
+            <View style={s.content}>{modalBody}</View>
+          )}
         </Animated.View>
 
       </View>
@@ -209,8 +298,24 @@ const s = StyleSheet.create({
     borderRadius: 2,
   },
   headerTitle: {
+    flex: 1,
     fontFamily: 'Syne_700Bold',
     fontSize: 17,
     letterSpacing: 0.1,
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  content: {
+    flex: 1,
   },
 });

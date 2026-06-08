@@ -1,12 +1,82 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useState,
+  createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
-import { useAuth } from '@/context/auth-context';
+import { AppState, type AppStateStatus } from 'react-native';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
+import { getLocalDateString } from '@/utils/date';
+import {
+  buildSummaryCacheKey,
+  fetchDailySummaryBundle,
+  getCachedSummary,
+  setCachedSummary,
+  TTL_COLD_START_MS,
+} from '@/utils/daily-summary-cache';
+import {
+  buildResourceKey,
 
-// ── Config ─────────────────────────────────────────────────────────────────
 
-const API_BASE   = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS = 10_000;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  fetchWithResourceCache,
+  getResourceCached,
+  setResourceCached,
+} from '@/utils/resource-cache';
+import { getWeekStart } from '@/utils/insights-aggregator';
+import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
+import {
+  registerTodayDataSyncListener,
+  registerTodayTargetsListener,
+  notifyTodayDataChanged,
+} from '@/utils/today-sync';
+import { shouldRefetchSummaryAfterMutation } from '@/utils/cache-invalidation';
+import {
+  registerTodayOptimisticListener,
+  type TodayDataDelta,
+} from '@/utils/today-optimistic';
+import { registerTodayReconcileListener } from '@/utils/today-reconcile';
+import { apiFetch } from '@/utils/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -24,6 +94,10 @@ export interface DailySummary {
   fat_consumed:        number;
   water_glasses:       number;
   calorie_burn_source: CalorieBurnSource | null;
+  /** Backend-computed flag — true when the day's targets were actually met
+   *  (>=75% of applicable slots: calories ±200, protein 90%+, steps target,
+   *  sleep target). Optional for resilience against older API versions. */
+  met_targets?:        boolean;
 }
 
 export interface WeeklySummary {
@@ -54,33 +128,11 @@ export interface SummaryContextValue {
   refresh: () => Promise<void>;
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function summaryFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
 function todayDateString(): string {
-  return new Date().toISOString().slice(0, 10);
+  return getLocalDateString();
 }
 
 function num(v: unknown, fallback = 0): number {
@@ -102,6 +154,7 @@ function fromApiDaily(row: Record<string, unknown>): DailySummary {
     calorie_burn_source: typeof row.calorie_burn_source === 'string'
       ? (row.calorie_burn_source as CalorieBurnSource)
       : null,
+    met_targets: typeof row.met_targets === 'boolean' ? row.met_targets : undefined,
   };
 }
 
@@ -118,6 +171,47 @@ function fromApiWeekly(body: Record<string, unknown>): WeeklySummary {
   };
 }
 
+function patchDailyRow(day: DailySummary, delta: TodayDataDelta): DailySummary {
+  const calories_consumed = day.calories_consumed + (delta.caloriesConsumed ?? 0);
+  const protein_consumed  = day.protein_consumed  + (delta.proteinConsumed ?? 0);
+  const carbs_consumed    = day.carbs_consumed    + (delta.carbsConsumed ?? 0);
+  const fat_consumed      = day.fat_consumed      + (delta.fatConsumed ?? 0);
+  const calories_burned   = day.calories_burned   + (delta.caloriesBurned ?? 0);
+  const water_glasses     = delta.waterGlasses ?? day.water_glasses;
+  const net_calories      = calories_consumed - calories_burned;
+  const deltaVal          = calories_consumed - day.calorie_budget;
+
+  return {
+    ...day,
+    calories_consumed,
+    protein_consumed,
+    carbs_consumed,
+    fat_consumed,
+    calories_burned,
+    water_glasses,
+    net_calories,
+    delta: deltaVal,
+  };
+}
+
+function upsertTodayInWeekly(weekly: WeeklySummary, day: DailySummary): WeeklySummary {
+  const hasToday = weekly.days.some((d) => d.date === day.date);
+  const days = hasToday
+    ? weekly.days.map((d) => (d.date === day.date ? day : d))
+    : [...weekly.days, day];
+  const logged = days.filter((d) => d.calories_consumed > 0);
+  return {
+    ...weekly,
+    days,
+    avg_calories: logged.length
+      ? Math.round(logged.reduce((s, d) => s + d.calories_consumed, 0) / logged.length)
+      : weekly.avg_calories,
+    avg_protein: logged.length
+      ? Math.round(logged.reduce((s, d) => s + d.protein_consumed, 0) / logged.length)
+      : weekly.avg_protein,
+  };
+}
+
 // ── Context ────────────────────────────────────────────────────────────────
 
 const SummaryContext = createContext<SummaryContextValue | null>(null);
@@ -130,76 +224,289 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
   const [daily,     setDaily]     = useState<DailySummary | null>(null);
   const [weekly,    setWeekly]    = useState<WeeklySummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const appStateRef           = useRef(AppState.currentState);
+  const lastFetchDateRef      = useRef('');
+  const lastForegroundFetchRef = useRef(0);
 
-  // ── Fetch helpers ────────────────────────────────────────────────────────
-  const fetchTodayDaily = useCallback(async () => {
-    const { ok, body } = await summaryFetch(`/summary/daily/${todayDateString()}`);
-    if (ok && body.summary) setDaily(fromApiDaily(body.summary as Record<string, unknown>));
-  }, []);
+  const fetchWeekly = useCallback(async (force = false) => {
+    if (!user?.id) return;
 
-  const fetchWeekly = useCallback(async () => {
-    const { ok, body } = await summaryFetch('/summary/weekly');
-    if (ok) setWeekly(fromApiWeekly(body));
-  }, []);
+    const weekStart = getWeekStart();
+    const key       = buildResourceKey('summary-weekly', user.id, weekStart);
+    const raw = await fetchWithResourceCache<Record<string, unknown> | null>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const { ok, body } = await apiFetch(`/summary/weekly?weekStart=${weekStart}`);
+        if (!ok) return null;
+        return body as Record<string, unknown>;
+      },
+      { force },
+    );
+
+    if (raw) setWeekly(fromApiWeekly(raw));
+  }, [user?.id]);
+
+  const loadTodayDaily = useCallback(async (force = false): Promise<DailySummary | null> => {
+    if (!user?.id) return null;
+    const today = todayDateString();
+    const bundle = await fetchDailySummaryBundle(user.id, today, { force });
+    if (!bundle) return null;
+    setDaily(bundle.daily);
+    return bundle.daily;
+  }, [user?.id]);
 
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setDaily(null);
       setWeekly(null);
       setIsLoading(false);
+      lastFetchDateRef.current = '';
+      lastForegroundFetchRef.current = 0;
       return;
     }
 
     let cancelled = false;
-    setIsLoading(true);
-    setDaily(null);
-    setWeekly(null);
 
     (async () => {
+      const today     = todayDateString();
+      const weekStart = getWeekStart();
+      const dailyKey  = buildSummaryCacheKey(user.id, today);
+      const weeklyKey = buildResourceKey('summary-weekly', user.id, weekStart);
+
+      const [dailyCached, weeklyCached] = await Promise.all([
+        getCachedSummary(dailyKey),
+        getResourceCached<Record<string, unknown>>(weeklyKey),
+      ]);
+
+      if (!cancelled) {
+        if (dailyCached) setDaily(dailyCached.data.daily);
+        if (weeklyCached) setWeekly(fromApiWeekly(weeklyCached.data));
+        if (dailyCached || weeklyCached) setIsLoading(false);
+        else setIsLoading(true);
+      }
+
       try {
-        await Promise.all([fetchTodayDaily(), fetchWeekly()]);
+        lastFetchDateRef.current = today;
+        lastForegroundFetchRef.current = Date.now();
+        await Promise.all([loadTodayDaily(false), fetchWeekly(false)]);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, fetchTodayDaily, fetchWeekly]);
+  }, [status, user, loadTodayDaily, fetchWeekly]);
 
-  // ── Fetch daily by date ──────────────────────────────────────────────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (!prev.match(/inactive|background/) || next !== 'active') return;
+      if (status !== 'authenticated' || !user?.id) return;
+
+      const today = todayDateString();
+      const dayRolled = lastFetchDateRef.current !== today;
+      if (
+        !shouldRefetchOnForeground({
+          lastFetchAt: lastForegroundFetchRef.current,
+          dayRolled,
+        })
+      ) {
+        return;
+      }
+
+      lastFetchDateRef.current = today;
+      lastForegroundFetchRef.current = Date.now();
+      void Promise.all([
+        loadTodayDaily(dayRolled),
+        dayRolled ? fetchWeekly(true) : Promise.resolve(),
+      ]);
+    });
+    return () => sub.remove();
+  }, [status, user?.id, loadTodayDaily, fetchWeekly]);
+
+  useEffect(() => {
+    return registerTodayDataSyncListener(async ({ domain }) => {
+      if (!user?.id || !shouldRefetchSummaryAfterMutation(domain)) return;
+      const freshDaily = await loadTodayDaily(true);
+      if (domain === 'full') {
+        await fetchWeekly(true);
+      } else if (freshDaily) {
+        // Only today changed — patch the refreshed daily into the in-memory
+        // weekly instead of a full /summary/weekly round-trip.
+        setWeekly((prev) => (prev ? upsertTodayInWeekly(prev, freshDaily) : prev));
+      }
+    });
+  }, [user?.id, loadTodayDaily, fetchWeekly]);
+
+  const applyOptimisticDelta = useCallback((delta: TodayDataDelta) => {
+    const today = todayDateString();
+    const budget = user?.calorieBudget ?? user?.tdee ?? 2000;
+
+    setDaily((prev) => {
+      const base: DailySummary = prev ?? {
+        date:                today,
+        calorie_budget:      budget,
+        calories_consumed:   0,
+        calories_burned:     0,
+        net_calories:        0,
+        delta:               0,
+        protein_consumed:    0,
+        carbs_consumed:      0,
+        fat_consumed:        0,
+        water_glasses:       0,
+        calorie_burn_source: null,
+      };
+      return patchDailyRow(base, delta);
+    });
+
+    setWeekly((prev) => {
+      if (!prev) return prev;
+      const todayRow = prev.days.find((d) => d.date === today);
+      const base: DailySummary = todayRow ?? {
+        date:                today,
+        calorie_budget:      budget,
+        calories_consumed:   0,
+        calories_burned:     0,
+        net_calories:        0,
+        delta:               0,
+        protein_consumed:    0,
+        carbs_consumed:      0,
+        fat_consumed:        0,
+        water_glasses:       0,
+        calorie_burn_source: null,
+      };
+      const patched = patchDailyRow(base, delta);
+      return upsertTodayInWeekly(prev, patched);
+    });
+  }, [user?.calorieBudget, user?.tdee]);
+
+  useEffect(() => {
+    return registerTodayOptimisticListener(applyOptimisticDelta);
+  }, [applyOptimisticDelta]);
+
+  // Authoritative reconcile from a mutation response — overwrites the optimistic
+  // patch with server truth (incl. met_targets) and writes through both caches so
+  // a cold start right after a log reads the reconciled values.
+  useEffect(() => {
+    if (!user?.id) return;
+    const uid = user.id;
+
+    return registerTodayReconcileListener((bundle) => {
+      const { date, summary } = bundle;
+      const inCurrentWeek = getWeekStart(new Date(`${date}T12:00:00`)) === getWeekStart();
+
+      setDaily(summary);
+
+      // Daily write-through — match the stored DailySummaryBundle shape so the
+      // mount reader (getCachedSummary → data.daily) stays consistent.
+      void setCachedSummary(
+        buildSummaryCacheKey(uid, date),
+        { daily: summary, raw: summary as unknown as Record<string, unknown>, computed_at: new Date().toISOString() },
+        TTL_COLD_START_MS,
+      );
+
+      if (inCurrentWeek) {
+        setWeekly((prev) => {
+          if (!prev) return prev;
+          const next = upsertTodayInWeekly(prev, summary);
+          // Weekly write-through — the resource cache stores the RAW API weekly
+          // body read back via fromApiWeekly; WeeklySummary round-trips
+          // field-for-field (days[], consistency_score, avg_calories,
+          // avg_protein, best_day).
+          void setResourceCached(
+            buildResourceKey('summary-weekly', uid, getWeekStart()),
+            next,
+            TTL_COLD_START_MS,
+          );
+          return next;
+        });
+      }
+    });
+  }, [user?.id]);
+
+  useEffect(() => {
+    return registerTodayTargetsListener(() => {
+      const budget = user?.calorieBudget ?? user?.tdee;
+      if (budget == null) return;
+      setDaily((prev) => {
+        if (!prev) return prev;
+        if (prev.calorie_budget === budget) return prev;
+        return { ...prev, calorie_budget: budget, delta: prev.calories_consumed - budget };
+      });
+      setWeekly((weekly) => {
+        if (!weekly) return weekly;
+        return {
+          ...weekly,
+          days: weekly.days.map((d) => (
+            d.calorie_budget === budget
+              ? d
+              : { ...d, calorie_budget: budget, delta: d.calories_consumed - budget }
+          )),
+        };
+      });
+    });
+  }, [user?.calorieBudget, user?.tdee]);
+
+  useEffect(() => {
+    const budget = user?.calorieBudget ?? user?.tdee;
+    if (budget == null) return;
+    setDaily((prev) => {
+      if (!prev || prev.calorie_budget === budget) return prev;
+      return { ...prev, calorie_budget: budget, delta: prev.calories_consumed - budget };
+    });
+    setWeekly((weekly) => {
+      if (!weekly) return weekly;
+      const needsPatch = weekly.days.some((d) => d.calorie_budget !== budget);
+      if (!needsPatch) return weekly;
+      return {
+        ...weekly,
+        days: weekly.days.map((d) => ({
+          ...d,
+          calorie_budget: budget,
+          delta: d.calories_consumed - budget,
+        })),
+      };
+    });
+  }, [user?.calorieBudget, user?.tdee]);
+
   const fetchDaily = useCallback(async (date: string): Promise<DailySummary | null> => {
-    const { ok, body } = await summaryFetch(`/summary/daily/${date}`);
-    if (!ok || !body.summary) return null;
-    const result = fromApiDaily(body.summary as Record<string, unknown>);
-    if (date === todayDateString()) setDaily(result);
-    return result;
-  }, []);
+    if (!user?.id) return null;
+    const bundle = await fetchDailySummaryBundle(user.id, date);
+    if (!bundle) return null;
+    if (date === todayDateString()) setDaily(bundle.daily);
+    return bundle.daily;
+  }, [user?.id]);
 
-  // ── Update water ─────────────────────────────────────────────────────────
   const updateWater = useCallback(async (date: string, glasses: number) => {
-    const snapshot = daily;
-    // Optimistic update for today
+    const previousGlasses = daily?.water_glasses;
     if (date === todayDateString()) {
-      setDaily((prev) => prev ? { ...prev, water_glasses: glasses } : prev);
+      applyOptimisticDelta({ waterGlasses: glasses });
     }
 
-    const { ok } = await summaryFetch('/summary/water', {
+    const { ok } = await apiFetch('/summary/water', {
       method: 'PATCH',
       body:   JSON.stringify({ date, glasses }),
     });
 
     if (!ok) {
-      if (date === todayDateString()) setDaily(snapshot);
+      if (date === todayDateString() && previousGlasses != null) {
+        applyOptimisticDelta({ waterGlasses: previousGlasses });
+      }
       throw new Error('Failed to update water intake');
     }
-  }, [daily]);
 
-  // ── Refresh ──────────────────────────────────────────────────────────────
+    if (user?.id) void notifyTodayDataChanged(user.id, 'water');
+  }, [daily?.water_glasses, user?.id, applyOptimisticDelta]);
+
   const refresh = useCallback(async () => {
-    await Promise.all([fetchTodayDaily(), fetchWeekly()]);
-  }, [fetchTodayDaily, fetchWeekly]);
+    if (!user?.id) return;
+    lastForegroundFetchRef.current = Date.now();
+    await Promise.all([loadTodayDaily(true), fetchWeekly(true)]);
+  }, [user?.id, loadTodayDaily, fetchWeekly]);
 
   return (
     <SummaryContext.Provider value={{
@@ -210,6 +517,8 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
     </SummaryContext.Provider>
   );
 }
+
+
 
 // ── Hook ──────────────────────────────────────────────────────────────────
 

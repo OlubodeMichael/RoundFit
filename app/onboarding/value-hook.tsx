@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -48,13 +49,17 @@ export default function ValueHookScreen() {
   return (
     <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
-        <ProgressBar step={2} total={9} onBack={() => router.back()} isDark={false} />
+        <ProgressBar step={2} total={9} backHref="/auth" isDark={false} />
       </View>
 
       <Animated.View style={[s.headBlock, { opacity: headerFade, transform: [{ translateY: headerY }] }]}>
         <Text style={[s.headLine, { color: hi }]}>Train.</Text>
         <Text style={[s.headLine, { color: hi }]}>Track.</Text>
         <Text style={[s.headLineAccent]}>Recover.</Text>
+        <WhyWeAsk
+          text="A few quick questions help us calculate your personal calorie targets."
+          style={s.whyWeAsk}
+        />
       </Animated.View>
 
       <View style={s.cards}>
@@ -78,7 +83,7 @@ export default function ValueHookScreen() {
 
       <Animated.View style={[s.bottom, { opacity: btnFade }]}>
         <TouchableOpacity style={s.cta} activeOpacity={0.85} onPress={() => router.push('/onboarding/age-sex')}>
-          <Text style={s.ctaText}>Let's build your plan  →</Text>
+          <Text style={s.ctaText}>{"Let's build your plan  →"}</Text>
         </TouchableOpacity>
       </Animated.View>
     </View>
@@ -90,6 +95,7 @@ const s = StyleSheet.create({
   progress: { marginBottom: 8 },
 
   headBlock:      { marginBottom: 32, gap: 0 },
+  whyWeAsk:       { marginTop: 12, maxWidth: 300 },
   headLine:       { fontFamily: 'Syne_800ExtraBold', fontSize: 52, letterSpacing: -2.5, lineHeight: 56 },
   headLineAccent: { fontFamily: 'Syne_800ExtraBold', fontSize: 52, letterSpacing: -2.5, lineHeight: 56, color: '#F97316' },
 
@@ -106,14 +112,12 @@ const s = StyleSheet.create({
   },
   cardText:  { flex: 1, gap: 4 },
   cardLabel: { fontSize: 15, fontWeight: '700' },
-  cardSub:   { fontSize: 13, lineHeight: 18 },
+  cardSub:   { fontSize: 16, lineHeight: 22 },
 
   bottom: { paddingTop: 16 },
   cta:    {
-    backgroundColor: '#F97316', borderRadius: 14,
+    backgroundColor: '#111111', borderRadius: 14,
     paddingVertical: 18, alignItems: 'center',
-    shadowColor: '#F97316', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35, shadowRadius: 12, elevation: 8,
   },
   ctaText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
 });

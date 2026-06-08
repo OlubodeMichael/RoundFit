@@ -1,41 +1,95 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useMemo, useState,
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
-import { useAuth } from '@/context/auth-context';
+import { AppState, type AppStateStatus } from 'react-native';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
+import { getLocalDateString } from '@/utils/date';
+import { apiFetch } from '@/utils/api';
+import { notifyTodayDataChanged } from '@/utils/today-sync';
+import {
+  hasCheckedInToday as storageHasCheckedInToday,
+  markCheckedInToday,
+  clearCheckinStorage,
+} from '@/utils/checkin-storage';
+import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  invalidateResourceCache,
+  setResourceCached,
+} from '@/utils/resource-cache';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const API_BASE      = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS    = 10_000;
 const DEFAULT_LIMIT = 30;
+
+// Earliest local hour the check-in modal is allowed to appear. Anything before
+// this is treated as "still night" so the user doesn't get prompted the moment
+// the local date rolls over at midnight.
+const MORNING_HOUR = 5;
+
+function msUntilMorning(): number {
+  const now    = new Date();
+  const target = new Date(now);
+  target.setHours(MORNING_HOUR, 0, 0, 0);
+  return Math.max(0, target.getTime() - now.getTime());
+}
+
+function isMorningOrLater(): boolean {
+  return msUntilMorning() === 0;
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type EnergyLevel       = 'low' | 'medium' | 'high';
-export type WorkoutIntensity  = 'light' | 'moderate' | 'hard';
+export type EnergyLevel = 'low' | 'medium' | 'high';
 
 export interface CheckIn {
-  id:                      string;
-  date:                    string;
-  sleep_quality:           number | null;
-  energy_level:            EnergyLevel;
-  worked_out:              boolean;
-  workout_type:            string | null;
-  workout_duration_mins:   number | null;
-  workout_intensity:       WorkoutIntensity | null;
-  calories_burned_from_workout: number | null;
-  completed:               boolean;
-  created_at:              string;
+  id:              string;
+  user_id:         string;
+  date:            string;
+  sleep_quality:   number | null;
+  energy_level:    EnergyLevel;
+  planned_workout: boolean;
+  completed:       boolean;
+  skipped:         boolean;
+  completed_at:    string | null;
 }
 
-export interface LogCheckinInput {
-  date:                   string;
-  energy_level:           EnergyLevel;
-  sleep_quality?:         number;
-  worked_out?:            boolean;
-  workout_type?:          string;
-  workout_duration_mins?: number;
-  workout_intensity?:     WorkoutIntensity;
+export interface MorningCheckinInput {
+  date:              string;
+  sleep_quality:     number;
+  energy_level:      EnergyLevel;
+  planned_workout?:  boolean;
+}
+
+export interface CheckinInsight {
+  id:           string;
+  message:      string;
+  type:         string;
+  triggered_by: string;
+  date:         string;
+}
+
+export interface CheckinStatus {
+  should_show_checkin:       boolean;
+  should_show_workout_prompt: boolean;
+  checkin_completed:         boolean;
+  workout_logged:            boolean;
+  reason:                    string | null;
+}
+
+export interface CheckinStats {
+  total_days:        number;
+  completed_days:    number;
+  skipped_days:      number;
+  completion_rate:   number;
+  avg_sleep_quality: number;
+  energy_breakdown: {
+    low:    number;
+    medium: number;
+    high:   number;
+  };
 }
 
 export interface CheckinContextValue {
@@ -45,64 +99,115 @@ export interface CheckinContextValue {
   /** Recent check-in history, newest first. */
   history: CheckIn[];
 
+  /** Aggregate stats across the last 30 check-ins. */
+  stats: CheckinStats | null;
+
+  /**
+   * App-open status response — whether to show the check-in modal or
+   * workout prompt. Null until first fetch.
+   */
+  appStatus: CheckinStatus | null;
+
   /** True while any fetch is in-flight. */
   isLoading: boolean;
 
-  /** True if today's check-in has been completed. */
+  /** True if today's check-in has been logged (completed or skipped). */
   hasCheckedInToday: boolean;
 
-  /** Submits a check-in — hits POST /checkin. */
-  submitCheckin: (input: LogCheckinInput) => Promise<CheckIn>;
+  /** Convenience flag — true when the check-in modal should be shown. */
+  shouldShowCheckin: boolean;
+
+  /** Convenience flag — true when the workout prompt should be shown. */
+  shouldShowWorkoutPrompt: boolean;
+
+  /**
+   * Submits the morning check-in — hits POST /checkin/morning.
+   * Returns the saved check-in and the auto-generated insight.
+   */
+  submitMorningCheckin: (
+    input: MorningCheckinInput,
+  ) => Promise<{ checkin: CheckIn; insight: CheckinInsight | null }>;
+
+  /**
+   * Skips today's check-in — hits POST /checkin/skip.
+   * Still triggers a fallback insight server-side.
+   */
+  skipCheckin: (date: string) => Promise<CheckIn>;
 
   /** Fetches a single check-in by date — hits GET /checkin/:date. */
   fetchByDate: (date: string) => Promise<CheckIn | null>;
 
-  /** Re-fetches today's check-in and history. */
+  /** Re-fetches the app-open status — hits GET /checkin/status. */
+  refreshStatus: () => Promise<void>;
+
+  /** Re-fetches today's check-in, history, and stats. */
   refresh: () => Promise<void>;
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────
 
-async function checkinFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
 function todayDateString(): string {
-  return new Date().toISOString().slice(0, 10);
+  return getLocalDateString();
 }
 
 function fromApiCheckin(row: Record<string, unknown>): CheckIn {
+  const completed = row.completed === true
+    || row.status === 'completed'
+    || (typeof row.completed_at === 'string' && row.completed_at.length > 0);
+  const skipped = row.skipped === true || row.status === 'skipped';
+  const hasMorningLog = typeof row.sleep_quality === 'number' && typeof row.energy_level === 'string';
+
   return {
-    id:                           String(row.id ?? ''),
-    date:                         String(row.date ?? ''),
-    sleep_quality:                typeof row.sleep_quality === 'number' ? row.sleep_quality : null,
-    energy_level:                 (row.energy_level as EnergyLevel) ?? 'medium',
-    worked_out:                   row.worked_out === true,
-    workout_type:                 typeof row.workout_type === 'string' ? row.workout_type : null,
-    workout_duration_mins:        typeof row.workout_duration_mins === 'number' ? row.workout_duration_mins : null,
-    workout_intensity:            typeof row.workout_intensity === 'string' ? (row.workout_intensity as WorkoutIntensity) : null,
-    calories_burned_from_workout: typeof row.calories_burned_from_workout === 'number' ? row.calories_burned_from_workout : null,
-    completed:                    row.completed === true,
-    created_at:                   typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
+    id:              String(row.id ?? ''),
+    user_id:         String(row.user_id ?? ''),
+    date:            String(row.date ?? ''),
+    sleep_quality:   typeof row.sleep_quality === 'number' ? row.sleep_quality : null,
+    energy_level:    (row.energy_level as EnergyLevel) ?? 'medium',
+    planned_workout: row.planned_workout === true,
+    completed:       completed || (hasMorningLog && !skipped),
+    skipped,
+    completed_at:    typeof row.completed_at === 'string' ? row.completed_at : null,
+  };
+}
+
+/**
+ * A check-in "locks" the day only when it was actually completed (a real
+ * answer). A *skipped* check-in does NOT lock the day — we re-prompt on the
+ * next app open so the user gets another chance to fill it in ("ask once a day
+ * unless it was skipped"). Guard against the server stamping `completed_at` on
+ * a skip by explicitly excluding skipped rows.
+ */
+function isCheckinCompleted(checkin: CheckIn | null): boolean {
+  return !!checkin && checkin.completed && !checkin.skipped;
+}
+
+function fromApiInsight(row: Record<string, unknown>): CheckinInsight {
+  return {
+    id:           String(row.id ?? ''),
+    message:      String(row.message ?? ''),
+    type:         String(row.type ?? 'rules'),
+    triggered_by: String(row.triggered_by ?? ''),
+    date:         String(row.date ?? ''),
+  };
+}
+
+
+function fromApiStats(body: Record<string, unknown>): CheckinStats {
+  const eb = (body.energy_breakdown as Record<string, unknown>) ?? {};
+  return {
+    total_days:        typeof body.total_days        === 'number' ? body.total_days        : 0,
+    completed_days:    typeof body.completed_days    === 'number' ? body.completed_days    : 0,
+    skipped_days:      typeof body.skipped_days      === 'number' ? body.skipped_days      : 0,
+    completion_rate:   typeof body.completion_rate   === 'number' ? body.completion_rate   : 0,
+    avg_sleep_quality: typeof body.avg_sleep_quality === 'number' ? body.avg_sleep_quality : 0,
+    energy_breakdown: {
+      low:    typeof eb.low    === 'number' ? eb.low    : 0,
+      medium: typeof eb.medium === 'number' ? eb.medium : 0,
+      high:   typeof eb.high   === 'number' ? eb.high   : 0,
+    },
   };
 }
 
@@ -115,86 +220,319 @@ const CheckinContext = createContext<CheckinContextValue | null>(null);
 export function CheckinProvider({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
 
-  const [today,     setToday]     = useState<CheckIn | null>(null);
-  const [history,   setHistory]   = useState<CheckIn[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [today,              setToday]              = useState<CheckIn | null>(null);
+  const [history,            setHistory]            = useState<CheckIn[]>([]);
+  const [stats,              setStats]              = useState<CheckinStats | null>(null);
+  const [appStatus,          setAppStatus]          = useState<CheckinStatus | null>(null);
+  const [isLoading,          setIsLoading]          = useState(true);
+  const [shouldShowCheckin,  setShouldShowCheckin]  = useState(false);
+  const [localLoggedToday,   setLocalLoggedToday]   = useState(false);
+  const localLoggedTodayRef  = useRef(false);
+  const appStateRef      = useRef(AppState.currentState);
+  const lastFetchDateRef = useRef('');
+  const doneThisSession  = useRef(false);
+  // Timer that flips `shouldShowCheckin` on at the morning hour if we
+  // suppressed the modal because it was still night.
+  const morningTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const hasCheckedInToday = useMemo(() => today?.completed === true, [today]);
-
-  // ── Fetch helpers ────────────────────────────────────────────────────────
-  const fetchToday = useCallback(async () => {
-    const { ok, body } = await checkinFetch(`/checkin/${todayDateString()}`);
-    if (ok && body.checkin) setToday(fromApiCheckin(body.checkin as Record<string, unknown>));
+  const clearMorningTimer = useCallback(() => {
+    if (morningTimerRef.current) {
+      clearTimeout(morningTimerRef.current);
+      morningTimerRef.current = null;
+    }
   }, []);
 
+  const scheduleMorningShow = useCallback(() => {
+    clearMorningTimer();
+    const delay = msUntilMorning();
+    if (delay <= 0) return;
+    morningTimerRef.current = setTimeout(() => {
+      morningTimerRef.current = null;
+      // Re-check at fire time — user may have completed/skipped meanwhile.
+      if (doneThisSession.current) return;
+      setShouldShowCheckin(true);
+    }, delay);
+  }, [clearMorningTimer]);
+
+  useEffect(() => clearMorningTimer, [clearMorningTimer]);
+
+  const setLoggedToday = useCallback((logged: boolean) => {
+    localLoggedTodayRef.current = logged;
+    setLocalLoggedToday(logged);
+  }, []);
+
+  const hasCheckedInToday = useMemo(
+    () => localLoggedToday || isCheckinCompleted(today),
+    [localLoggedToday, today],
+  );
+  const shouldShowWorkoutPrompt = useMemo(() => appStatus?.should_show_workout_prompt ?? false, [appStatus]);
+
+  // ── Fetch helpers ────────────────────────────────────────────────────────
+
+  // Fetches today's check-in from the DB and derives shouldShowCheckin from
+  // the server response — the single source of truth. Local storage is a
+  // secondary cache so the modal doesn't flash before the network resolves.
+  const applyCheckinToday = useCallback(async (checkin: CheckIn | null, userId: string) => {
+    // Only a completed check-in locks the day. A skipped one falls through to
+    // the "show" path below so the user is re-prompted on the next app open.
+    if (checkin && isCheckinCompleted(checkin)) {
+      setToday(checkin);
+      doneThisSession.current = true;
+      clearMorningTimer();
+      setShouldShowCheckin(false);
+      setLoggedToday(true);
+      await markCheckedInToday(userId);
+      return;
+    }
+
+    const localDone = await storageHasCheckedInToday(userId);
+    if (localDone) {
+      setLoggedToday(true);
+      doneThisSession.current = true;
+      clearMorningTimer();
+      setShouldShowCheckin(false);
+      if (checkin) setToday(checkin);
+      return;
+    }
+
+    setToday(checkin);
+    const showNow = isMorningOrLater();
+    setShouldShowCheckin(showNow);
+    if (!showNow) scheduleMorningShow();
+  }, [clearMorningTimer, scheduleMorningShow, setLoggedToday]);
+
+  const fetchToday = useCallback(async (force = false) => {
+    if (!user?.id) return;
+
+    if (doneThisSession.current || localLoggedTodayRef.current) {
+      setShouldShowCheckin(false);
+      if (!force) return;
+    }
+
+    const todayDate = getLocalDateString();
+    const key       = buildResourceKey('checkin-today', user.id, todayDate);
+    const localDone = await storageHasCheckedInToday(user.id);
+    if (localDone) {
+      setLoggedToday(true);
+      doneThisSession.current = true;
+      setShouldShowCheckin(false);
+    }
+
+    const cached = await fetchWithResourceCache<CheckIn | null>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        // Send our LOCAL date so the server resolves "today" the same way we
+        // do — otherwise a UTC-based server day disagrees for non-UTC users and
+        // never reports the completed check-in, re-prompting on every open.
+        const { ok, body } = await apiFetch(`/checkin/today?date=${todayDate}`);
+        if (ok && body.checkin) {
+          return fromApiCheckin(body.checkin as Record<string, unknown>);
+        }
+        return null;
+      },
+      { force: force || localDone },
+    );
+
+    await applyCheckinToday(cached, user.id);
+  }, [user?.id, applyCheckinToday, setLoggedToday]);
+
   const fetchHistory = useCallback(async () => {
-    const { ok, body } = await checkinFetch(`/checkin/history?limit=${DEFAULT_LIMIT}`);
+    const { ok, body } = await apiFetch(`/checkin/history?limit=${DEFAULT_LIMIT}`);
     if (!ok) return;
     const rows = Array.isArray(body.checkins) ? body.checkins as Record<string, unknown>[] : [];
     setHistory(rows.map(fromApiCheckin));
   }, []);
 
+  const fetchStats = useCallback(async () => {
+    const { ok, body } = await apiFetch('/checkin/stats');
+    if (ok) setStats(fromApiStats(body));
+  }, []);
+
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setToday(null);
       setHistory([]);
+      setStats(null);
+      setAppStatus(null);
+      setShouldShowCheckin(false);
+      setLoggedToday(false);
+      doneThisSession.current = false;
+      void clearCheckinStorage(user?.id);
       setIsLoading(false);
       return;
     }
 
     let cancelled = false;
-    setIsLoading(true);
-    setToday(null);
-    setHistory([]);
 
     (async () => {
+      const todayDate = getLocalDateString();
+      const key       = buildResourceKey('checkin-today', user.id, todayDate);
+
+      const localDone = await storageHasCheckedInToday(user.id);
+      if (localDone && !cancelled) {
+        setLoggedToday(true);
+        doneThisSession.current = true;
+        setShouldShowCheckin(false);
+      }
+
+      const cached = await getResourceCached<CheckIn | null>(key);
+      if (cached && !cancelled) {
+        await applyCheckinToday(cached.data, user.id);
+        setIsLoading(false);
+      } else if (!cancelled) {
+        setIsLoading(true);
+      }
+
       try {
-        await Promise.all([fetchToday(), fetchHistory()]);
+        lastFetchDateRef.current = todayDate;
+        await fetchToday(false);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, fetchToday, fetchHistory]);
+  }, [status, user?.id, fetchToday, fetchHistory, fetchStats, applyCheckinToday]);
 
-  // ── Submit check-in ──────────────────────────────────────────────────────
-  const submitCheckin = useCallback(async (input: LogCheckinInput): Promise<CheckIn> => {
-    const { ok, body } = await checkinFetch('/checkin', {
+  // ── Reset to today when app returns to foreground on a new day ─────────
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (prev.match(/inactive|background/) && next === 'active') {
+        const todayDate = getLocalDateString();
+        if (lastFetchDateRef.current !== todayDate) {
+          lastFetchDateRef.current = todayDate;
+          doneThisSession.current = false;
+          setLoggedToday(false);
+          setToday(null);
+          void fetchToday();
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [fetchToday]);
+
+  // ── Submit morning check-in ──────────────────────────────────────────────
+  const submitMorningCheckin = useCallback(async (
+    input: MorningCheckinInput,
+  ): Promise<{ checkin: CheckIn; insight: CheckinInsight | null }> => {
+    const dateStr = todayDateString();
+    if (input.date === dateStr && (localLoggedToday || isCheckinCompleted(today))) {
+      throw new Error('Check-in already logged for today');
+    }
+
+    const { ok, body } = await apiFetch('/checkin/morning', {
       method: 'POST',
-      body:   JSON.stringify(input),
+      body:   JSON.stringify({
+        date:             input.date,
+        sleep_quality:    input.sleep_quality,
+        energy_level:     input.energy_level,
+        planned_workout:  input.planned_workout ?? false,
+      }),
     });
-    if (!ok || !body.checkin) throw new Error('Failed to submit check-in');
-    const saved = fromApiCheckin(body.checkin as Record<string, unknown>);
+    if (!ok || !body.checkin) {
+      throw new Error((body.error as string) || 'Failed to submit check-in');
+    }
 
-    // Update today and upsert into history
-    if (saved.date === todayDateString()) setToday(saved);
+    const checkin = fromApiCheckin(body.checkin as Record<string, unknown>);
+    const insight = body.insight
+      ? fromApiInsight(body.insight as Record<string, unknown>)
+      : null;
+
+    if (checkin.date === dateStr) setToday(checkin);
     setHistory((prev) => {
-      const without = prev.filter((c) => c.date !== saved.date);
-      return [saved, ...without];
+      const without = prev.filter((c) => c.date !== checkin.date);
+      return [checkin, ...without];
     });
 
-    return saved;
-  }, []);
+    doneThisSession.current = true;
+    clearMorningTimer();
+    setShouldShowCheckin(false);
+    setLoggedToday(true);
+    if (user?.id) {
+      await markCheckedInToday(user.id);
+      await setResourceCached(
+        buildResourceKey('checkin-today', user.id, dateStr),
+        checkin,
+        TTL_COLD_START_MS,
+      );
+      void notifyTodayDataChanged(user.id, 'checkin');
+    }
+
+    return { checkin, insight };
+  }, [user?.id, today, localLoggedToday, clearMorningTimer, setLoggedToday]);
+
+  // ── Skip check-in ────────────────────────────────────────────────────────
+  const skipCheckin = useCallback(async (date: string): Promise<CheckIn> => {
+    const todayStr = todayDateString();
+    if (date === todayStr && (localLoggedToday || isCheckinCompleted(today))) {
+      throw new Error('Check-in already logged for today');
+    }
+
+    const { ok, body } = await apiFetch('/checkin/skip', {
+      method: 'POST',
+      body:   JSON.stringify({ date }),
+    });
+    if (!ok || !body.checkin) {
+      throw new Error((body.error as string) || 'Failed to skip check-in');
+    }
+
+    const checkin = fromApiCheckin(body.checkin as Record<string, unknown>);
+    if (checkin.date === todayStr) setToday(checkin);
+    setHistory((prev) => {
+      const without = prev.filter((c) => c.date !== checkin.date);
+      return [checkin, ...without];
+    });
+
+    // A skip only dismisses the modal for THIS session — it must NOT persist
+    // the day as done. We deliberately omit markCheckedInToday()/setLoggedToday()
+    // so the next app open re-prompts. Only a completed check-in locks the day.
+    doneThisSession.current = true;
+    clearMorningTimer();
+    setShouldShowCheckin(false);
+    if (user?.id) {
+      await setResourceCached(
+        buildResourceKey('checkin-today', user.id, todayStr),
+        checkin,
+        TTL_COLD_START_MS,
+      );
+      void notifyTodayDataChanged(user.id, 'checkin');
+    }
+
+    return checkin;
+  }, [user?.id, today, localLoggedToday, clearMorningTimer]);
 
   // ── Fetch by date ────────────────────────────────────────────────────────
   const fetchByDate = useCallback(async (date: string): Promise<CheckIn | null> => {
-    const { ok, body } = await checkinFetch(`/checkin/${date}`);
+    const { ok, body } = await apiFetch(`/checkin/${date}`);
     if (!ok || !body.checkin) return null;
     return fromApiCheckin(body.checkin as Record<string, unknown>);
   }, []);
 
-  // ── Refresh ──────────────────────────────────────────────────────────────
+  // ── Refresh status ───────────────────────────────────────────────────────
+  const refreshStatus = useCallback(async () => {
+    await fetchToday(true);
+  }, [fetchToday]);
+
+  // ── Full refresh ─────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
-    await Promise.all([fetchToday(), fetchHistory()]);
-  }, [fetchToday, fetchHistory]);
+    if (user?.id) {
+      await invalidateResourceCache(
+        buildResourceKey('checkin-today', user.id, getLocalDateString()),
+      );
+    }
+    await Promise.all([fetchToday(true), fetchHistory(), fetchStats()]);
+  }, [fetchToday, fetchHistory, fetchStats, user?.id]);
 
   return (
     <CheckinContext.Provider value={{
-      today, history, isLoading, hasCheckedInToday,
-      submitCheckin, fetchByDate, refresh,
+      today, history, stats, appStatus, isLoading,
+      hasCheckedInToday, shouldShowCheckin, shouldShowWorkoutPrompt,
+      submitMorningCheckin, skipCheckin, fetchByDate, refreshStatus, refresh,
     }}>
       {children}
     </CheckinContext.Provider>

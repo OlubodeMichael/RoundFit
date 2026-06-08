@@ -1,12 +1,23 @@
 import React, {
-  createContext, useCallback, useContext, useEffect, useState,
+  createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
-import { useAuth } from '@/context/auth-context';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
+import { apiFetch } from '@/utils/api';
+import {
+  registerTodayDataSyncListener,
+} from '@/utils/today-sync';
+import { shouldRefetchInsightsTodayAfterMutation } from '@/utils/cache-invalidation';
+import { getLocalDateString } from '@/utils/date';
+import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  invalidateResourceCache,
+} from '@/utils/resource-cache';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-const API_BASE      = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const TIMEOUT_MS    = 10_000;
 const DEFAULT_LIMIT = 30;
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -15,6 +26,7 @@ export type InsightType = 'rules' | 'claude';
 
 export interface Insight {
   id:        string;
+  title:     string;
   message:   string;
   type:      InsightType;
   date:      string;
@@ -37,6 +49,15 @@ export interface InsightsContextValue {
   /** True when the daily Claude insight limit (3) has been reached. */
   claudeLimitReached: boolean;
 
+  /** True when the report is waiting for yesterday's sleep data to sync from HealthKit. */
+  pendingSleepSync: boolean;
+
+  /**
+   * Saves manually entered sleep hours for a given date into health_data,
+   * then refreshes the insight so the report generates immediately.
+   */
+  submitManualSleep: (date: string, sleepHours: number) => Promise<void>;
+
   /**
    * Fetches a new Claude insight — hits GET /insights/claude.
    * Sets claudeLimitReached if the server returns 429.
@@ -48,36 +69,18 @@ export interface InsightsContextValue {
 
   /** Re-fetches today's insight and history. */
   refresh: () => Promise<void>;
+
+  /** Loads insights when the Insights tab is first opened. */
+  ensureLoaded: () => Promise<void>;
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
-
-async function insightsFetch(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res  = await fetch(`${API_BASE}${path}`, {
-      ...options, headers, credentials: 'include', signal: controller.signal,
-    });
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
 function fromApiInsight(row: Record<string, unknown>): Insight {
   return {
     id:        String(row.id ?? ''),
+    title:     String(row.title ?? ''),
     message:   String(row.message ?? ''),
     type:      (row.type as InsightType) ?? 'rules',
     date:      String(row.date ?? ''),
@@ -99,53 +102,126 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
   const [history,          setHistory]          = useState<Insight[]>([]);
   const [isLoading,        setIsLoading]        = useState(true);
   const [claudeLimitReached, setClaudeLimitReached] = useState(false);
+  const [pendingSleepSync, setPendingSleepSync] = useState(false);
+  const bootedRef = useRef(false);
+
+  const applyTodayPayload = useCallback((payload: {
+    insight: Insight | null;
+    pendingSleepSync: boolean;
+  }) => {
+    setTodayInsight(payload.insight);
+    setPendingSleepSync(payload.pendingSleepSync);
+  }, []);
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
-  const fetchToday = useCallback(async () => {
-    const { ok, body } = await insightsFetch('/insights/today');
-    if (ok && body.insight) setTodayInsight(fromApiInsight(body.insight as Record<string, unknown>));
-  }, []);
+  const fetchToday = useCallback(async (force = false) => {
+    if (!user?.id) return;
 
-  const fetchHistory = useCallback(async () => {
-    const { ok, body } = await insightsFetch(`/insights/history?limit=${DEFAULT_LIMIT}`);
-    if (!ok) return;
-    const rows = Array.isArray(body.insights) ? body.insights as Record<string, unknown>[] : [];
-    setHistory(rows.map(fromApiInsight));
-  }, []);
+    const today = getLocalDateString();
+    const key   = buildResourceKey('insights-today', user.id, today);
+    const payload = await fetchWithResourceCache<{
+      insight: Insight | null;
+      pendingSleepSync: boolean;
+    } | null>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const { ok, body } = await apiFetch(`/insights/today?date=${today}`);
+        if (!ok) return null;
+        if (body.insight) {
+          return {
+            insight: fromApiInsight(body.insight as Record<string, unknown>),
+            pendingSleepSync: false,
+          };
+        }
+        if (body.pending) {
+          return { insight: null, pendingSleepSync: true };
+        }
+        return { insight: null, pendingSleepSync: false };
+      },
+      { force },
+    );
+
+    if (payload) applyTodayPayload(payload);
+  }, [user?.id, applyTodayPayload]);
+
+  const fetchHistory = useCallback(async (force = false) => {
+    if (!user?.id) return;
+    const today = getLocalDateString();
+    const key   = buildResourceKey('insights-history', user.id, today);
+    const rows = await fetchWithResourceCache<Insight[]>(
+      key,
+      TTL_COLD_START_MS,
+      async () => {
+        const { ok, body } = await apiFetch(`/insights/history?limit=${DEFAULT_LIMIT}&date=${today}`);
+        if (!ok) return null;
+        const items = Array.isArray(body.insights) ? body.insights as Record<string, unknown>[] : [];
+        return items.map(fromApiInsight).filter(i => i.date <= today);
+      },
+      { force },
+    );
+    if (rows) setHistory(rows);
+  }, [user?.id]);
+
+  const ensureLoaded = useCallback(async () => {
+    if (!hasActiveUserSession(status, user)) return;
+    if (bootedRef.current) return;
+    bootedRef.current = true;
+    setIsLoading(true);
+    try {
+      await Promise.all([fetchToday(false), fetchHistory(false)]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [status, user?.id, fetchToday, fetchHistory]);
 
   useEffect(() => {
     if (status === 'loading') return;
 
-    if (status === 'unauthenticated') {
+    if (!hasActiveUserSession(status, user)) {
       setTodayInsight(null);
       setClaudeInsight(null);
       setHistory([]);
       setClaudeLimitReached(false);
+      setPendingSleepSync(false);
       setIsLoading(false);
+      bootedRef.current = false;
       return;
     }
 
     let cancelled = false;
-    setIsLoading(true);
-    setTodayInsight(null);
-    setClaudeInsight(null);
-    setHistory([]);
-    setClaudeLimitReached(false);
 
     (async () => {
-      try {
-        await Promise.all([fetchToday(), fetchHistory()]);
-      } finally {
-        if (!cancelled) setIsLoading(false);
+      const today = getLocalDateString();
+      const key   = buildResourceKey('insights-today', user.id, today);
+      const cached = await getResourceCached<{
+        insight: Insight | null;
+        pendingSleepSync: boolean;
+      }>(key);
+      if (cached && !cancelled) {
+        applyTodayPayload(cached.data);
+        setIsLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, fetchToday, fetchHistory]);
+  }, [status, user?.id, applyTodayPayload]);
+
+  useEffect(() => {
+    return registerTodayDataSyncListener(async ({ domain }) => {
+      if (!user?.id || !shouldRefetchInsightsTodayAfterMutation(domain)) return;
+      await invalidateResourceCache(
+        buildResourceKey('insights-today', user.id, getLocalDateString()),
+      );
+      if (bootedRef.current) {
+        await fetchToday(true);
+      }
+    });
+  }, [fetchToday, user?.id]);
 
   // ── Fetch Claude insight ─────────────────────────────────────────────────
   const fetchClaudeInsight = useCallback(async (): Promise<Insight | null> => {
-    const { ok, status: httpStatus, body } = await insightsFetch('/insights/claude');
+    const { ok, status: httpStatus, body } = await apiFetch('/insights/ai');
 
     if (httpStatus === 429) {
       setClaudeLimitReached(true);
@@ -175,7 +251,7 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
     if (claudeInsight?.id === id) setClaudeInsight((prev) => prev  ? markDismissed(prev)  : prev);
     setHistory((prev) => prev.map(markDismissed));
 
-    const { ok } = await insightsFetch(`/insights/${id}`, { method: 'DELETE' });
+    const { ok } = await apiFetch(`/insights/${id}/dismiss`, { method: 'PATCH' });
     if (!ok) {
       setTodayInsight(snapshotToday);
       setClaudeInsight(snapshotClaude);
@@ -184,15 +260,27 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
     }
   }, [todayInsight, claudeInsight, history]);
 
+  // ── Manual sleep entry ───────────────────────────────────────────────────
+  const submitManualSleep = useCallback(async (date: string, sleepHours: number) => {
+    const { ok } = await apiFetch('/insights/manual-sleep', {
+      method: 'POST',
+      body: JSON.stringify({ date, sleep_hours: sleepHours }),
+    });
+    if (!ok) throw new Error('Failed to save sleep hours');
+    setPendingSleepSync(false);
+    await Promise.all([fetchToday(true), fetchHistory(true)]);
+  }, [fetchToday, fetchHistory]);
+
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
-    await Promise.all([fetchToday(), fetchHistory()]);
+    await Promise.all([fetchToday(true), fetchHistory(true)]);
   }, [fetchToday, fetchHistory]);
 
   return (
     <InsightsContext.Provider value={{
       todayInsight, claudeInsight, history, isLoading, claudeLimitReached,
-      fetchClaudeInsight, dismissInsight, refresh,
+      pendingSleepSync,
+      fetchClaudeInsight, dismissInsight, refresh, submitManualSleep, ensureLoaded,
     }}>
       {children}
     </InsightsContext.Provider>

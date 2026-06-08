@@ -52,8 +52,8 @@ export function usePalette() {
       waterSoft:    'rgba(56,189,248,0.22)',   // up from 0.14
       sleep:        '#818CF8',
       sleepSoft:    'rgba(129,140,248,0.22)',  // up from 0.14
-      weight:       '#F472B6',
-      weightSoft:   'rgba(244,114,182,0.22)',  // up from 0.14
+      weight:       '#60A5FA',
+      weightSoft:   'rgba(96,165,250,0.22)',
       workout:      '#22D3EE',
       workoutSoft:  'rgba(34,211,238,0.22)',   // up from 0.14
       body:         '#FB7185',
@@ -92,8 +92,8 @@ export function usePalette() {
     waterSoft:    'rgba(14,165,233,0.10)',
     sleep:        '#4F46E5',
     sleepSoft:    'rgba(79,70,229,0.10)',
-    weight:       '#DB2777',
-    weightSoft:   'rgba(219,39,119,0.10)',
+    weight:       '#2563EB',
+    weightSoft:   'rgba(37,99,235,0.10)',
     workout:      '#0891B2',
     workoutSoft:  'rgba(8,145,178,0.10)',
     body:         '#E11D48',
@@ -116,11 +116,13 @@ export function AnimatedCard({
   delay = 0,
   padding = 20,
   style,
+  onPress,
 }: {
   children: React.ReactNode;
   delay?: number;
   padding?: number;
   style?: ViewStyle | ViewStyle[];
+  onPress?: () => void;
 }) {
   const P    = usePalette();
   const anim = useRef(new Animated.Value(0)).current;
@@ -137,26 +139,39 @@ export function AnimatedCard({
 
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
 
+  const cardStyle = [
+    {
+      backgroundColor: P.card,
+      borderRadius:    24,
+      borderWidth:     StyleSheet.hairlineWidth,
+      borderColor:     P.cardEdge,
+      padding,
+      shadowColor:     '#000',
+      shadowOpacity:   P.isDark ? 0.35 : 0.06,
+      shadowRadius:    P.isDark ? 18 : 12,
+      shadowOffset:    { width: 0, height: 6 },
+      ...Platform.select({ android: { elevation: 2 } }),
+      opacity:         anim,
+      transform:       [{ translateY }],
+    },
+    style,
+  ];
+
+  if (onPress) {
+    return (
+      <Animated.View style={cardStyle}>
+        <Pressable
+          onPress={onPress}
+          style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}
+        >
+          {children}
+        </Pressable>
+      </Animated.View>
+    );
+  }
+
   return (
-    <Animated.View
-      style={[
-        {
-          backgroundColor: P.card,
-          borderRadius:    24,
-          borderWidth:     StyleSheet.hairlineWidth,
-          borderColor:     P.cardEdge,
-          padding,
-          shadowColor:     '#000',
-          shadowOpacity:   P.isDark ? 0.35 : 0.06,
-          shadowRadius:    P.isDark ? 18 : 12,
-          shadowOffset:    { width: 0, height: 6 },
-          ...Platform.select({ android: { elevation: 2 } }),
-          opacity:         anim,
-          transform:       [{ translateY }],
-        },
-        style,
-      ]}
-    >
+    <Animated.View style={cardStyle}>
       {children}
     </Animated.View>
   );
@@ -170,29 +185,33 @@ export function ScreenHeader({
   accent,
   right,
   onBack,
+  showBack = true,
 }: {
-  eyebrow?: string;
-  title:    string;
-  accent?:  string;
-  right?:   React.ReactNode;
-  onBack?:  () => void;
+  eyebrow?:  string;
+  title:     string;
+  accent?:   string;
+  right?:    React.ReactNode;
+  onBack?:   () => void;
+  showBack?: boolean;
 }) {
   const P      = usePalette();
   const router = useRouter();
   const back   = onBack ?? (() => router.back());
 
   return (
-    <View style={s.header}>
-      <TouchableOpacity
-        onPress={back}
-        hitSlop={10}
-        style={[s.backBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="chevron-back" size={20} color={P.text} />
-      </TouchableOpacity>
+    <View style={[s.header, !showBack && s.headerFlush]}>
+      {showBack ? (
+        <TouchableOpacity
+          onPress={back}
+          hitSlop={10}
+          style={[s.backBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="chevron-back" size={20} color={P.text} />
+        </TouchableOpacity>
+      ) : null}
 
-      <View style={{ flex: 1, marginLeft: 14 }}>
+      <View style={[s.headerText, showBack && s.headerTextWithBack]}>
         {!!eyebrow && (
           <Text style={[s.eyebrow, { color: P.textFaint }]}>
             {eyebrow.toUpperCase()}
@@ -414,12 +433,111 @@ export function StatDivider() {
   return <View style={{ width: StyleSheet.hairlineWidth, backgroundColor: P.hair }} />;
 }
 
+// ─── DayNavigator ────────────────────────────────────────────────────────────
+// Pill-shaped date navigator matching the food log style.
+
+export function DayNavigator({
+  label,
+  isToday,
+  onPrev,
+  onNext,
+  accentColor,
+  large = false,
+}: {
+  label:       string;
+  isToday:     boolean;
+  onPrev:      () => void;
+  onNext:      () => void;
+  accentColor?: string;
+  /** Slightly larger label and arrows (e.g. insights daily). */
+  large?: boolean;
+}) {
+  const P      = usePalette();
+  const accent = accentColor ?? P.calories;
+  const arrowSize = large ? 18 : 16;
+
+  return (
+    <View style={[dn.pill, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
+      <TouchableOpacity onPress={onPrev} hitSlop={8} activeOpacity={0.6} style={dn.arrow}>
+        <Ionicons name="chevron-back" size={arrowSize} color={P.textDim} />
+      </TouchableOpacity>
+
+      <View style={dn.labelWrap}>
+        {isToday && <View style={[dn.dot, { backgroundColor: accent }]} />}
+        <Text style={[large ? dn.labelLarge : dn.label, { color: P.text }]}>{label}</Text>
+      </View>
+
+      <TouchableOpacity
+        onPress={onNext}
+        hitSlop={8}
+        activeOpacity={isToday ? 1 : 0.6}
+        disabled={isToday}
+        style={dn.arrow}
+      >
+        <Ionicons name="chevron-forward" size={arrowSize} color={isToday ? P.cardEdge : P.textDim} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const dn = StyleSheet.create({
+  pill: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    borderRadius:      999,
+    borderWidth:       StyleSheet.hairlineWidth,
+    paddingVertical:   8,
+    paddingHorizontal: 6,
+    gap:               2,
+    shadowColor:       '#000',
+    shadowOpacity:     0.05,
+    shadowRadius:      6,
+    shadowOffset:      { width: 0, height: 2 },
+    ...Platform.select({ android: { elevation: 1 } }),
+  },
+  arrow: {
+    width: 32, height: 32, borderRadius: 999,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  labelWrap: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    gap:            6,
+    paddingHorizontal: 10,
+    minWidth:       90,
+    justifyContent: 'center',
+  },
+  dot: {
+    width: 6, height: 6, borderRadius: 3,
+  },
+  label: {
+    fontSize:      15,
+    fontWeight:    '700',
+    letterSpacing: -0.3,
+  },
+  labelLarge: {
+    fontSize:      17,
+    fontWeight:    '700',
+    letterSpacing: -0.3,
+  },
+});
+
 const s = StyleSheet.create({
   header: {
     flexDirection:    'row',
     alignItems:       'center',
     paddingHorizontal:20,
     marginBottom:     14,
+  },
+  headerFlush: {
+    alignItems: 'flex-start',
+  },
+  headerText: {
+    flex: 1,
+    alignSelf: 'stretch',
+  },
+  headerTextWithBack: {
+    marginLeft: 14,
   },
   backBtn: {
     width:           40, height: 40, borderRadius: 14,

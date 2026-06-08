@@ -11,12 +11,14 @@ import {
   usePalette,
   useScreenPadding,
 } from '@/lib/log-theme';
+import { usePostHog } from 'posthog-react-native';
 
 export default function PhotoAnalysisScreen() {
-  const P      = usePalette();
-  const router = useRouter();
-  const pad    = useScreenPadding();
-  const insets = useSafeAreaInsets();
+  const P       = usePalette();
+  const router  = useRouter();
+  const pad     = useScreenPadding();
+  const insets  = useSafeAreaInsets();
+  const posthog = usePostHog();
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
@@ -61,7 +63,7 @@ export default function PhotoAnalysisScreen() {
               <Step
                 n={1}
                 title="Snap your meal"
-                body="Plate, bowl, or food on the table — one item or many."
+                body="Plate, bowl, or food on the table, one item or many."
                 P={P}
               />
               <Step
@@ -99,7 +101,7 @@ export default function PhotoAnalysisScreen() {
           <PrimaryButton
             label="Open camera"
             icon="camera"
-            onPress={() => router.replace('/(tabs)/log/food')}
+            onPress={() => { posthog.capture('food_photo_capture_started'); router.replace('/(tabs)/log/food'); }}
             accent={P.calories}
           />
           <Text style={[styles.footNote, { color: P.textFaint }]}>

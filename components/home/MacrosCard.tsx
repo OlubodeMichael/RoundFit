@@ -1,46 +1,113 @@
-import { useEffect, useRef, useState } from "react";
-import { Animated, Easing, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { SegmentedDial } from "@/components/home/SegmentedDial";
-import { AnimatedCard, usePalette } from "@/lib/log-theme";
-import { SectionHead } from "@/components/home/SectionHead";
+import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
+import { SegmentedDial } from '@/components/home/SegmentedDial';
 
-const MACRO_DIAL_SIZE = 102;
+const MACRO_DIAL_SIZE = 94;
+const HEADER_ICON_SIZE = 32;
 
-export type MacroItem = {
+export type MacroAccentKey = 'protein' | 'carbs' | 'fat';
+
+export interface MacroItem {
   key: string;
   label: string;
   cur: number;
   goal: number;
-  accent: "protein" | "carbs" | "fat";
-};
+  accent: MacroAccentKey;
+}
 
-type MacroCellProps = {
+export interface MacrosCardPalette {
+  card: string;
+  cardEdge: string;
+  text: string;
+  textDim: string;
+  textFaint: string;
+  hair: string;
+  protein: string;
+  proteinSoft: string;
+  proteinTrack: string;
+  carbs: string;
+  carbsSoft: string;
+  carbsTrack: string;
+  fat: string;
+  fatSoft: string;
+  fatTrack: string;
+  isDark: boolean;
+}
+
+export interface MacrosCardProps {
+  P: MacrosCardPalette;
+  delay?: number;
+  macros: MacroItem[];
+}
+
+export function MacrosCard({ P, delay = 0, macros }: MacrosCardProps) {
+  const accent = getCardAccent('macros', P.isDark);
+  const palette = { card: P.card, cardEdge: P.cardEdge, isDark: P.isDark };
+  const totalGrams = macros.reduce((sum, m) => sum + m.cur, 0);
+
+  return (
+    <GradientCard variant="macros" palette={palette} delay={delay}>
+      <View style={s.header}>
+        <Ionicons name="nutrition" size={HEADER_ICON_SIZE} color={accent.iconBg} />
+        <View style={s.headerCopy}>
+          <Text style={[s.headerTitle, { color: P.text }]}>Macros</Text>
+          <Text style={[s.headerCaption, { color: P.textDim }]}>
+            Grams today
+          </Text>
+        </View>
+        <View style={s.totalMetaBlock}>
+          <View style={s.totalRow}>
+            <Text style={[s.totalValue, { color: P.text }]}>
+              {totalGrams.toLocaleString()}
+            </Text>
+            <Text style={[s.totalGram, { color: accent.iconBg }]}>g</Text>
+          </View>
+          <Text style={[s.totalMeta, { color: P.textDim }]}>logged today</Text>
+        </View>
+      </View>
+
+      <View style={[s.divider, { backgroundColor: P.hair }]} />
+
+      <View style={s.macrosRow}>
+        {macros.map((m, i) => (
+          <MacroCell
+            key={m.key}
+            label={m.label}
+            cur={m.cur}
+            goal={m.goal}
+            accent={m.accent}
+            P={P}
+            animDelay={delay + 120 + i * 80}
+          />
+        ))}
+      </View>
+    </GradientCard>
+  );
+}
+
+interface MacroCellProps {
   label: string;
   cur: number;
   goal: number;
-  accent: MacroItem["accent"];
-  delay: number;
-};
-
-type MacrosCardProps = {
-  macros: MacroItem[];
-  delay?: number;
-};
-
-function getMacroColors(palette: ReturnType<typeof usePalette>, accent: MacroItem["accent"]) {
-  if (accent === "protein") {
-    return { fill: palette.protein, soft: palette.proteinSoft, track: palette.proteinSoft };
-  }
-  if (accent === "carbs") {
-    return { fill: palette.carbs, soft: palette.carbsSoft, track: palette.carbsSoft };
-  }
-  return { fill: palette.fat, soft: palette.fatSoft, track: palette.fatSoft };
+  accent: MacroAccentKey;
+  P: MacrosCardPalette;
+  animDelay: number;
 }
 
-function MacroCell({ label, cur, goal, accent, delay }: MacroCellProps) {
-  const P = usePalette();
-  const { fill, track, soft } = getMacroColors(P, accent);
+function MacroCell({
+  label,
+  cur,
+  goal,
+  accent,
+  P,
+  animDelay,
+}: MacroCellProps) {
+  const fill = P[accent];
+  const track = P[`${accent}Track`];
+  const soft = P[`${accent}Soft`];
 
   const target = goal > 0 ? Math.min(cur / goal, 1) : 0;
   const animated = useRef(new Animated.Value(0)).current;
@@ -51,15 +118,17 @@ function MacroCell({ label, cur, goal, accent, delay }: MacroCellProps) {
     Animated.timing(animated, {
       toValue: target,
       duration: 900,
-      delay,
+      delay: animDelay,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
     return () => animated.removeListener(id);
-  }, [animated, target, delay]);
+  }, [animated, target, animDelay]);
+
+  const pctLabel = Math.round(progress * 100);
 
   return (
-    <View style={styles.macroCell}>
+    <View style={s.macroCell}>
       <SegmentedDial
         size={MACRO_DIAL_SIZE}
         progress={progress}
@@ -67,90 +136,118 @@ function MacroCell({ label, cur, goal, accent, delay }: MacroCellProps) {
         fillColor={fill}
         haloColor={soft}
       >
-        <Text style={[styles.macroCur, { color: P.text }]}>{cur}</Text>
-        <View style={[styles.macroDivider, { backgroundColor: fill }]} />
-        <Text style={[styles.macroOf, { color: P.textFaint }]}>OF {goal}G</Text>
+        <Text style={[s.macroCur, { color: P.text }]}>{cur}</Text>
+        <Text style={[s.macroOf, { color: P.textFaint }]}>/{goal}g</Text>
       </SegmentedDial>
 
-      <View style={[styles.macroPill, { backgroundColor: soft }]}>
-        <Text style={[styles.macroPillLabel, { color: fill }]}>{label.toUpperCase()}</Text>
-        <View style={[styles.macroPillDot, { backgroundColor: fill }]} />
-        <Text style={[styles.macroPillPct, { color: fill }]}>{Math.round(progress * 100)}%</Text>
+      <View style={s.macroFoot}>
+        <View style={[s.macroDot, { backgroundColor: fill }]} />
+        <Text style={[s.macroLabel, { color: P.text }]}>{label}</Text>
+        <Text style={[s.macroPct, { color: fill }]}>{pctLabel}%</Text>
       </View>
     </View>
   );
 }
 
-export function MacrosCard({ macros, delay = 0 }: MacrosCardProps) {
-  return (
-    <AnimatedCard delay={delay}>
-      <SectionHead title="Macros" caption="grams today" />
-      <View style={styles.macrosRow}>
-        {macros.map((macro, index) => (
-          <MacroCell
-            key={macro.key}
-            label={macro.label}
-            cur={macro.cur}
-            goal={macro.goal}
-            accent={macro.accent}
-            delay={delay + 200 + index * 100}
-          />
-        ))}
-      </View>
-    </AnimatedCard>
-  );
-}
-
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
+    gap: 8,
+  },
+  headerCopy: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.45,
+    lineHeight: 24,
+  },
+  headerCaption: {
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: -0.15,
+    lineHeight: 18,
+  },
+  totalMetaBlock: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 2,
+  },
+  totalValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    fontVariant: ['tabular-nums'],
+  },
+  totalGram: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  totalMeta: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.1,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 16,
+  },
   macrosRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 6,
+    paddingTop: 14,
+    paddingBottom: 18,
   },
   macroCell: {
-    alignItems: "center",
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
+    flex: 1,
   },
   macroCur: {
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-    lineHeight: 26,
-  },
-  macroDivider: {
-    width: 14,
-    height: 1,
-    marginTop: 4,
-    marginBottom: 4,
-    opacity: 0.45,
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+    lineHeight: 22,
+    fontVariant: ['tabular-nums'],
   },
   macroOf: {
-    fontSize: 8.5,
-    fontWeight: "700",
-    letterSpacing: 1.1,
-  },
-  macroPill: {
-    marginTop: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  macroPillLabel: {
     fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.7,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    marginTop: 1,
   },
-  macroPillDot: {
-    width: 2,
-    height: 2,
-    borderRadius: 1,
-    opacity: 0.6,
+  macroFoot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
-  macroPillPct: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-    fontVariant: ["tabular-nums"],
+  macroDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  macroLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: -0.1,
+  },
+  macroPct: {
+    fontSize: 11,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
   },
 });

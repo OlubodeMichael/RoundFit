@@ -1,106 +1,152 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { useRouter } from "expo-router";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { AnimatedCard, usePalette } from "@/lib/log-theme";
+import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
+import { useInsights } from '@/context/insights-context';
 
-type InsightCardProps = {
+export interface InsightCardPalette {
+  card: string;
+  cardEdge: string;
+  text: string;
+  textDim: string;
+  textFaint: string;
+  isDark: boolean;
+}
+
+export interface InsightCardProps {
+  P: InsightCardPalette;
   delay?: number;
-};
+  onPress: () => void;
+}
 
-export function InsightCard({ delay = 0 }: InsightCardProps) {
-  const P = usePalette();
-  const router = useRouter();
+/** Home-screen daily insight — subtle grey wash from the top-right. */
+export function InsightCard({ P, delay = 0, onPress }: InsightCardProps) {
+  const { todayInsight, claudeInsight } = useInsights();
+  const insight = claudeInsight ?? todayInsight;
+
+  if (!insight) return null;
+
+  const isAi = insight.type === 'claude';
+  const title = insight.title || insight.message.split('. ')[0];
+  const label = isAi ? 'RIS insight' : 'Daily insight';
+  const accent = getCardAccent('insightGrey', P.isDark);
+  const palette = { card: P.card, cardEdge: P.cardEdge, isDark: P.isDark };
 
   return (
-    <AnimatedCard delay={delay} style={styles.card}>
-      <View pointerEvents="none" style={[styles.insightGlow, { backgroundColor: P.fatSoft }]} />
-
-      <View style={styles.insightHead}>
-        <View style={[styles.iconTile, { backgroundColor: P.fatSoft }]}>
-          <Ionicons name="sparkles" size={15} color={P.fat} />
-        </View>
-        <View style={styles.headContent}>
-          <Text style={[styles.insightEyebrow, { color: P.fat }]}>DAILY INSIGHT</Text>
-          <Text style={[styles.insightMeta, { color: P.textFaint }]}>Personalised for you</Text>
-        </View>
-      </View>
-
-      <Text style={[styles.insightBody, { color: P.text }]}>
-        Your protein dips below target every afternoon. Try a{" "}
-        <Text style={{ color: P.protein, fontWeight: "700" }}>Greek yogurt</Text> or a{" "}
-        <Text style={{ color: P.protein, fontWeight: "700" }}>handful of almonds</Text> around 3 PM to
-        stay steady through dinner.
-      </Text>
-
-      <TouchableOpacity
-        activeOpacity={0.8}
-        style={[styles.insightCta, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}
-        onPress={() => router.replace("/(tabs)/insights/weekly")}
+    <GradientCard variant="insightGrey" palette={palette} corner="top-right" delay={delay}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}, ${title}`}
+        style={({ pressed }) => [pressed && s.pressed]}
       >
-        <Text style={[styles.insightCtaText, { color: P.text }]}>See weekly report</Text>
-        <Ionicons name="arrow-forward" size={14} color={P.text} />
-      </TouchableOpacity>
-    </AnimatedCard>
+        <View style={s.header}>
+          <View style={s.headerMain}>
+            <View style={[s.iconRing, { backgroundColor: accent.iconSoft }]}>
+              <View style={[s.iconBox, { backgroundColor: accent.iconBg }]}>
+                <Ionicons name="sparkles" size={16} color="#FFF" />
+              </View>
+            </View>
+            <View style={s.headerCopy}>
+              <Text style={[s.headerLabel, { color: P.textDim }]}>{label}</Text>
+              <Text style={[s.headerMeta, { color: P.textFaint }]}>
+                Personalised for you
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={P.textFaint} />
+        </View>
+
+        <Text
+          style={[s.title, { color: P.text }]}
+          numberOfLines={2}
+        >
+          {title}
+        </Text>
+        <Text style={[s.body, { color: P.textDim }]} numberOfLines={3}>
+          {insight.message}
+        </Text>
+
+        <View style={s.cta}>
+          <Text style={[s.ctaText, { color: P.textDim }]}>View daily insight</Text>
+          <Ionicons name="arrow-forward" size={16} color={P.textFaint} />
+        </View>
+      </Pressable>
+    </GradientCard>
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    overflow: "hidden",
+const s = StyleSheet.create({
+  pressed: {
+    opacity: 0.88,
   },
-  iconTile: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 4,
+    gap: 8,
   },
-  headContent: {
+  headerMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     flex: 1,
+    minWidth: 0,
   },
-  insightGlow: {
-    position: "absolute",
-    top: -70,
-    right: -55,
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    opacity: 0.95,
+  headerCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
   },
-  insightHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 14,
-  },
-  insightEyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.4,
-    marginBottom: 2,
-  },
-  insightMeta: {
-    fontSize: 11,
-    fontWeight: "500",
-  },
-  insightBody: {
-    fontSize: 14,
-    fontWeight: "600",
-    lineHeight: 21,
-    marginBottom: 16,
-  },
-  insightCta: {
+  iconRing: {
+    padding: 3,
     borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
   },
-  insightCtaText: {
-    fontSize: 12,
-    fontWeight: "700",
+  iconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: -0.1,
+  },
+  headerMeta: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    lineHeight: 26,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  body: {
+    fontSize: 16,
+    fontWeight: '500',
+    lineHeight: 24,
+    letterSpacing: -0.1,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 14,
+  },
+  cta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  ctaText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
