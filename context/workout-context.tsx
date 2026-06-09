@@ -15,6 +15,7 @@ import {
   fromApiSet,
   fromApiWorkout,
   invalidateWorkoutSetsCache,
+  patchWorkoutHistoryCache,
   writeWorkoutSetsCache,
 } from '@/utils/workout-cache';
 import {
@@ -271,6 +272,10 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       if (user?.id) writeTodayWorkoutsCache(user.id, next);
       return next;
     });
+    if (user?.id) {
+      // Await so the patched cache is in place before bumpHistory() re-reads it.
+      await patchWorkoutHistoryCache(user.id, (rows) => [withClientTimes, ...rows]);
+    }
     applyTodayOptimistic({ caloriesBurned: withClientTimes.calories_burned });
     const bundle = extractTodayBundle(body);
     if (bundle) applyTodayReconcile(bundle);
@@ -328,6 +333,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
 
     if (user?.id) {
       writeTodayWorkoutsCache(user.id, snapshot.filter((workout) => workout.id !== id));
+      // Await so the patched cache is in place before bumpHistory() re-reads it.
+      await patchWorkoutHistoryCache(user.id, (rows) => rows.filter((w) => w.id !== id));
       void invalidateWorkoutSetsCache(user.id, id);
     }
 

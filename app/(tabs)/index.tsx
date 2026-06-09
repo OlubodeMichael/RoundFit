@@ -934,7 +934,7 @@ export default function HomeScreen() {
               onEnd={() => void handleBurnEnd()}
             />
           )}
-          {isToday && <ReadinessWidget delay={260} />}
+          {isToday && <ReadinessWidget delay={260} returnTo="/(tabs)" />}
           {isToday && (
             <InsightCard P={P} delay={320} onPress={handleInsightPress} />
           )}

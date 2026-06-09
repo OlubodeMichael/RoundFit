@@ -705,10 +705,21 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     fetchYesterdayNutrition,
   ]);
 
-  // Refetch when sleep / health / check-in / training data changes elsewhere so
-  // the Recovery screen reflects it without a re-login. Force-refresh bypasses
-  // the 2 h cache; refreshInFlightRef dedupes overlapping triggers. `initialized`
-  // stays true throughout, so no loading flash — cached values stay on screen.
+  // A workout edit only moves training strain → the readiness score. Recompute
+  // the 7-day workout window from in-memory `todayWorkouts` (past days come from
+  // the 2 h cache) whenever today's workouts change, so the readiness ring stays
+  // live WITHOUT force-refetching the whole recovery bundle on every set/delete.
+  useEffect(() => {
+    if (!initialized) return;
+    void fetchWorkoutWindow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayWorkouts, initialized]);
+
+  // Refetch when sleep / health / check-in data changes elsewhere so the Recovery
+  // screen reflects it without a re-login. Force-refresh bypasses the 2 h cache;
+  // refreshInFlightRef dedupes overlapping triggers. `initialized` stays true
+  // throughout, so no loading flash — cached values stay on screen. Workouts are
+  // intentionally excluded (handled reactively above).
   useEffect(() => {
     if (!hasActiveUserSession(status, user)) return;
     return registerTodayDataSyncListener(({ domain }) => {

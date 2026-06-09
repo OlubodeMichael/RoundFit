@@ -19,6 +19,7 @@ import { getLocalDateString, normalizeStoredTimestampForDeviceLocal } from '@/ut
 import {
   buildResourceKey,
   fetchWithResourceCache,
+  getResourceCached,
   invalidateByPrefix,
   invalidateResourceCache,
   setResourceCached,
@@ -201,6 +202,21 @@ export async function fetchWorkoutHistoryCached(
     },
     { force, allowStale: !force },
   );
+}
+
+/**
+ * Write-through the workout-history cache after a create/delete so the history
+ * list (useWorkoutHistory) reflects the change WITHOUT a GET /workouts/history.
+ * No-ops when nothing is cached yet — the next cold read fetches fresh anyway.
+ */
+export async function patchWorkoutHistoryCache(
+  userId: string,
+  mutate: (rows: Workout[]) => Workout[],
+): Promise<void> {
+  const key = buildWorkoutsHistoryCacheKey(userId);
+  const cached = await getResourceCached<Workout[]>(key);
+  if (!cached) return;
+  await setResourceCached(key, mutate(cached.data), TTL_COLD_START_MS);
 }
 
 /**

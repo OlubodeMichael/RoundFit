@@ -75,10 +75,10 @@ export async function invalidateAfterMutation({
       keys.push(buildResourceKey('food-logs', userId, targetDate))
       break
     case 'workout':
-      keys.push(
-        buildResourceKey('workouts', userId, targetDate),
-        buildResourceKey('workouts-history', userId, '30'),
-      )
+      // workouts-history is NOT invalidated here: the workout context
+      // write-throughs the new/removed row into that cache (patchWorkoutHistoryCache)
+      // so the history list updates without a GET /workouts/history refetch.
+      keys.push(buildResourceKey('workouts', userId, targetDate))
       await Promise.all([
         invalidateHealthKitWorkoutScanCache(userId),
         invalidatePendingAppleFitnessDisplayCache(userId),
@@ -195,12 +195,16 @@ export function shouldRefetchRecoveryAfterMutation(domain: MutationDomain): bool
   // 'recovery' excluded: it is only ever emitted by logRecovery, which already
   // write-throughs recovery state + readiness + the health row. Re-fetching the
   // full recovery bundle (6 endpoints) on its own notify is pure redundancy.
-  // Recovery still refreshes on external inputs (health/checkin/workout/full).
+  // 'workout' excluded: a workout edit only changes training strain → the
+  // readiness *score*, which recovery recomputes client-side from its 7-day
+  // workout window. That window is refreshed reactively from in-memory workout
+  // state (see recovery-context), so a full forced bundle refetch — sleep, HRV/
+  // RHR baselines, readiness, 30-day history — is pure waste on every set/delete.
+  // Recovery still refreshes on external inputs (health/checkin/full).
   return (
     domain === 'full' ||
     domain === 'health' ||
-    domain === 'checkin' ||
-    domain === 'workout'
+    domain === 'checkin'
   )
 }
 

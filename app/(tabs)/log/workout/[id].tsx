@@ -1,10 +1,13 @@
 import { useCallback } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
+import { Alert, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { WorkoutAppleHealthDetail } from '@/components/log/workout/WorkoutAppleHealthDetail';
 import { WorkoutDetailContent } from '@/components/log/workout/WorkoutDetailContent';
+import { WorkoutDetailSkeleton } from '@/components/log/workout/WorkoutDetailSkeleton';
+import { WORKOUT_META } from '@/components/log/workout/workout-display';
+import { getHealthKitActivityDisplayLabel } from '@/config/workout-catalog';
 import { useToast } from '@/components/ui/Toast';
 import { useWorkouts } from '@/hooks/use-workouts';
 import { useWorkoutDetail } from '@/hooks/use-workout-detail';
@@ -60,12 +63,16 @@ export default function WorkoutDetailScreen() {
   }, [deleteWorkout, router, toast, workout]);
 
   if (isLoading || (shouldLoadHealthKit && isHealthKitLoading)) {
+    const skeletonVariant = shouldLoadHealthKit ? 'apple' : 'standard';
     return (
       <View style={{ flex: 1, backgroundColor: P.bg, paddingTop: pad.paddingTop }}>
-        <ScreenHeader eyebrow="Training" title="Workout" accent={P.workout} onBack={() => router.back()} />
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color={P.workout} />
-        </View>
+        <ScreenHeader
+          eyebrow={shouldLoadHealthKit ? 'Apple Fitness' : 'Training'}
+          title="Workout"
+          accent={P.workout}
+          onBack={() => router.back()}
+        />
+        <WorkoutDetailSkeleton variant={skeletonVariant} />
       </View>
     );
   }
@@ -83,41 +90,26 @@ export default function WorkoutDetailScreen() {
     );
   }
 
+  const meta = WORKOUT_META[workout.type] ?? WORKOUT_META.other;
+  const activityTitle = healthKitSample
+    ? getHealthKitActivityDisplayLabel(healthKitSample.workoutActivityType)
+    : meta.label;
+
   return (
     <View style={{ flex: 1, backgroundColor: P.bg, paddingTop: pad.paddingTop }}>
       <ScreenHeader
-        eyebrow={healthKitSample ? 'Apple Fitness' : 'Training'}
-        title="Workout"
+        eyebrow={healthKitSample ? 'Apple Fitness' : 'Training log'}
+        title={activityTitle}
         accent={P.workout}
         onBack={() => router.back()}
       />
       {healthKitSample ? (
-        <>
-          <WorkoutAppleHealthDetail
-            sample={healthKitSample}
-            savedWorkoutId={workout.id}
-          />
-          <View style={{ paddingHorizontal: 20, gap: 10, paddingBottom: insets.bottom + 12 }}>
-            <Pressable
-              onPress={handleEdit}
-              style={({ pressed }) => [
-                { backgroundColor: P.sunken, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
-                pressed && { opacity: 0.85 },
-              ]}
-            >
-              <Text style={{ color: P.text, fontWeight: '700' }}>Edit workout</Text>
-            </Pressable>
-            <Pressable
-              onPress={handleDelete}
-              style={({ pressed }) => [
-                { backgroundColor: P.sunken, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
-                pressed && { opacity: 0.85 },
-              ]}
-            >
-              <Text style={{ color: '#EF4444', fontWeight: '700' }}>Delete workout</Text>
-            </Pressable>
-          </View>
-        </>
+        <WorkoutAppleHealthDetail
+          sample={healthKitSample}
+          savedWorkoutId={workout.id}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+        />
       ) : (
         <WorkoutDetailContent
           workout={workout}
@@ -125,7 +117,7 @@ export default function WorkoutDetailScreen() {
           onDelete={handleDelete}
         />
       )}
-      {!healthKitSample && <View style={{ height: insets.bottom }} />}
+      <View style={{ height: insets.bottom }} />
     </View>
   );
 }
