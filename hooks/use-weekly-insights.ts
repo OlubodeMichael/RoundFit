@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '@/context/auth-context'
 import type { UserProfile } from '@/context/auth-context'
+import { useHealth } from '@/hooks/use-health'
+import { useRecovery } from '@/context/recovery-context'
 import { apiFetch } from '@/utils/api'
 import {
   apiWeeklyToSummary,
@@ -9,6 +11,7 @@ import {
   getWeekStart,
   isValidIsoDate,
   recomputeNormalizedDay,
+  resolveInsightsSleepHours,
   type InsightTargets,
   type NormalizedDay,
   type WeeklyInsightSummary,
@@ -22,28 +25,45 @@ import {
   TTL_CURRENT_WEEK,
   TTL_PAST_WEEK,
 } from '@/utils/insights-cache'
+import { getLocalDateString } from '@/utils/date'
 import { getLocalTargets, type LocalTargets } from '@/utils/local-targets'
 import { registerTodayDataSyncListener, registerTodayTargetsListener } from '@/utils/today-sync'
 import { registerTodayReconcileListener } from '@/utils/today-reconcile'
-import { calculateMacros } from '@/utils/nutrition'
+import {
+  patchWeeklyInsightSummary,
+  registerInsightsMetricsPatchListener,
+} from '@/utils/insights-metrics-patch'
+import { resolveProteinTargetG } from '@/utils/nutrition'
 
 const DEFAULT_CALORIE_BUDGET = 2000
 const DEFAULT_PROTEIN_TARGET = 150
 
+/**
+ * Effective protein target — same source of truth the profile/home use:
+ * the manually-set value when present, otherwise the goal-aware calc.
+ */
 function deriveProteinTarget(user: UserProfile | null | undefined): number {
   if (!user) return DEFAULT_PROTEIN_TARGET
   try {
-    return calculateMacros({
-      sex:           user.sex,
-      age:           user.age,
-      heightCm:      user.heightCm,
-      weightKg:      user.weightKg,
-      activityLevel: user.activityLevel,
-      goal:          user.goal,
-    }).proteinG
+    return resolveProteinTargetG(
+      {
+        sex:           user.sex,
+        age:           user.age,
+        heightCm:      user.heightCm,
+        weightKg:      user.weightKg,
+        activityLevel: user.activityLevel,
+        goal:          user.goal,
+      },
+      user.proteinTarget,
+    )
   } catch {
     return DEFAULT_PROTEIN_TARGET
   }
+}
+
+/** Effective calorie budget — the profile's budget, then its TDEE goal. */
+function deriveCalorieBudget(user: UserProfile | null | undefined): number | null {
+  return user?.calorieBudget ?? user?.tdee ?? null
 }
 
 function ensureValidTargets(t: InsightTargets, fallbackProtein: number): InsightTargets {
@@ -65,6 +85,8 @@ interface UseWeeklyInsightsResult {
 
 export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
   const { user } = useAuth()
+  const { today: healthToday } = useHealth()
+  const { today: recoveryToday } = useRecovery()
   const week     = weekStart ?? getWeekStart()
   const isCurrentWeek = week === getWeekStart()
 
@@ -119,8 +141,8 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
       ...apiData,
       targets_snapshot: ensureValidTargets(
         {
-          calorie_budget: snapshot.calorie_budget ?? DEFAULT_CALORIE_BUDGET,
-          protein_target: snapshot.protein_target ?? DEFAULT_PROTEIN_TARGET,
+          calorie_budget: deriveCalorieBudget(user) ?? snapshot.calorie_budget ?? DEFAULT_CALORIE_BUDGET,
+          protein_target: user ? fallbackProtein : snapshot.protein_target ?? DEFAULT_PROTEIN_TARGET,
           steps_target:   local.steps_target ?? snapshot.steps_target ?? user?.stepsTarget ?? 10000,
           sleep_target:   local.sleep_target ?? snapshot.sleep_target ?? null,
         },
@@ -138,6 +160,8 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
       const fallbackProtein = deriveProteinTarget(user)
       const merged: InsightTargets = {
         ...d.targets_snapshot,
+        calorie_budget: deriveCalorieBudget(user) ?? d.targets_snapshot.calorie_budget,
+        protein_target: user ? fallbackProtein : d.targets_snapshot.protein_target,
         steps_target: local.steps_target ?? d.targets_snapshot.steps_target ?? user?.stepsTarget ?? 10000,
         sleep_target: local.sleep_target ?? d.targets_snapshot.sleep_target,
       }
@@ -158,6 +182,25 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
     [user],
   )
 
+  const applyLiveSleep = useCallback((weekSummary: WeeklyInsightSummary): WeeklyInsightSummary => {
+    if (!isCurrentWeek) return weekSummary
+
+    const today = getLocalDateString()
+    const weekSleep = weekSummary.days.find((d) => d.date === today)?.sleep_hours
+    const liveSleep = resolveInsightsSleepHours(
+      healthToday?.sleep_hours,
+      weekSleep,
+      recoveryToday?.sleep_hours,
+    )
+    if (!liveSleep) return weekSummary
+
+    const updated = patchWeeklyInsightSummary(
+      weekSummary,
+      { date: today, sleep_hours: liveSleep },
+    )
+    return updated ?? weekSummary
+  }, [isCurrentWeek, healthToday?.sleep_hours, recoveryToday?.sleep_hours])
+
   const load = useCallback(async (background = false) => {
     if (!user?.id) return
 
@@ -169,7 +212,7 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
       const cached = await getCached<WeeklyInsightSummary>(cacheKey)
       if (cached && isValidIsoDate(cached.data.week_start)) {
         if (mountedRef.current) {
-          setData(applyDerivedTargets(cached.data, local))
+          setData(applyLiveSleep(applyDerivedTargets(cached.data, local)))
           setIsLoading(false)
           setError(null)
         }
@@ -183,7 +226,7 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
       const fresh = await fetchFromServer(local, background)
       await setCached(cacheKey, fresh, ttl)
       if (mountedRef.current) {
-        setData(fresh)
+        setData(applyLiveSleep(applyDerivedTargets(fresh, local)))
         setIsStale(false)
         setError(null)
       }
@@ -197,7 +240,7 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
         setIsRefreshing(false)
       }
     }
-  }, [user?.id, week, isCurrentWeek, fetchFromServer, applyDerivedTargets, data])
+  }, [user?.id, week, isCurrentWeek, fetchFromServer, applyDerivedTargets, applyLiveSleep, data])
 
   // Reload when week or user changes
   useEffect(() => {
@@ -208,6 +251,26 @@ export function useWeeklyInsights(weekStart?: string): UseWeeklyInsightsResult {
     load()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [week, user?.id])
+
+  useEffect(() => {
+    if (!isCurrentWeek) return
+    const current = dataRef.current
+    if (!current || !mountedRef.current) return
+    const updated = applyLiveSleep(current)
+    if (updated !== current) setData(updated)
+  }, [isCurrentWeek, applyLiveSleep, healthToday?.sleep_hours, recoveryToday?.sleep_hours])
+
+  useEffect(() => {
+    if (!isCurrentWeek) return
+    return registerInsightsMetricsPatchListener((patch) => {
+      const current = dataRef.current
+      if (!current || !mountedRef.current) return
+      const updated = patchWeeklyInsightSummary(current, patch)
+      if (!updated) return
+      setData(updated)
+      setIsStale(false)
+    })
+  }, [isCurrentWeek])
 
   useEffect(() => {
     if (!isCurrentWeek) return

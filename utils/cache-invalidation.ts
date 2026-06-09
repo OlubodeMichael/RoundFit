@@ -141,7 +141,9 @@ export async function invalidateAfterMutation({
       break
   }
 
-  if (domain !== 'full' && targetDate === today) {
+  // Recovery logs sleep into health_data — nutrition summary is unchanged and
+  // insights caches are patched in-place (see insights-metrics-patch).
+  if (domain !== 'full' && domain !== 'recovery' && targetDate === today) {
     await invalidateUserDayCaches(userId, targetDate)
     await invalidateWeeklyCaches(userId, weekStart)
   }
@@ -209,6 +211,7 @@ export function shouldRefetchDailyInsightsAfterMutation(domain: MutationDomain):
     domain === 'food' ||
     domain === 'workout' ||
     domain === 'water' ||
-    domain === 'health'
+    domain === 'health' ||
+    domain === 'recovery'
   )
 }

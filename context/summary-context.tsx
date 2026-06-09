@@ -224,9 +224,10 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
   const [daily,     setDaily]     = useState<DailySummary | null>(null);
   const [weekly,    setWeekly]    = useState<WeeklySummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const appStateRef           = useRef(AppState.currentState);
-  const lastFetchDateRef      = useRef('');
+  const appStateRef            = useRef(AppState.currentState);
+  const lastFetchDateRef       = useRef('');
   const lastForegroundFetchRef = useRef(0);
+  const initialLoadDoneRef     = useRef(false);
 
   const fetchWeekly = useCallback(async (force = false) => {
     if (!user?.id) return;
@@ -265,6 +266,7 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
       lastFetchDateRef.current = '';
       lastForegroundFetchRef.current = 0;
+      initialLoadDoneRef.current = false;
       return;
     }
 
@@ -281,6 +283,9 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
         getResourceCached<Record<string, unknown>>(weeklyKey),
       ]);
 
+      const dailyFresh  = !!(dailyCached && !dailyCached.isStale);
+      const weeklyFresh = !!(weeklyCached && !weeklyCached.isStale);
+
       if (!cancelled) {
         if (dailyCached) setDaily(dailyCached.data.daily);
         if (weeklyCached) setWeekly(fromApiWeekly(weeklyCached.data));
@@ -291,14 +296,24 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
       try {
         lastFetchDateRef.current = today;
         lastForegroundFetchRef.current = Date.now();
-        await Promise.all([loadTodayDaily(false), fetchWeekly(false)]);
+
+        if (dailyFresh && weeklyFresh) {
+          initialLoadDoneRef.current = true;
+          return;
+        }
+
+        await Promise.all([
+          dailyFresh ? Promise.resolve() : loadTodayDaily(false),
+          weeklyFresh ? Promise.resolve() : fetchWeekly(false),
+        ]);
+        initialLoadDoneRef.current = true;
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status, user, loadTodayDaily, fetchWeekly]);
+  }, [status, user?.id, loadTodayDaily, fetchWeekly]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
@@ -308,11 +323,14 @@ export function SummaryProvider({ children }: { children: React.ReactNode }) {
       if (status !== 'authenticated' || !user?.id) return;
 
       const today = todayDateString();
-      const dayRolled = lastFetchDateRef.current !== today;
+      const dayRolled =
+        lastFetchDateRef.current !== ''
+        && lastFetchDateRef.current !== today;
       if (
         !shouldRefetchOnForeground({
           lastFetchAt: lastForegroundFetchRef.current,
           dayRolled,
+          booted: initialLoadDoneRef.current,
         })
       ) {
         return;

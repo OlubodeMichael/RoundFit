@@ -235,7 +235,10 @@ export default function DailyInsightScreen() {
   const cals    = day?.calories    ?? 0;
   const protein = day?.protein     ?? 0;
   const steps   = day?.steps       ?? null;
-  const sleep   = day?.sleep_hours ?? null;
+  const sleep =
+    day?.sleep_hours != null && day.sleep_hours > 0
+      ? day.sleep_hours
+      : null;
 
   // Progress percentages (0–100, capped)
   const calPct   = calBudget   > 0 ? Math.min((cals    / calBudget)   * 100, 100) : 0;

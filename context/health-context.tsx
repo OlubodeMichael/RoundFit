@@ -32,9 +32,6 @@ export const LAST_HEALTH_SYNC_KEY = '@roundfit/last_health_sync';
 /** Throttle expensive per-day backfill only — today's HK read always runs. */
 const HEALTH_BACKFILL_THROTTLE_MS = 3 * 60 * 1000;
 
-/** Per-day fingerprint of the last successfully-synced payload — gates redundant POSTs. */
-const HEALTH_SIG_KEY_PREFIX = '@roundfit/health_sig';
-const healthSigStorageKey = (date: string) => `${HEALTH_SIG_KEY_PREFIX}:${date}`;
 /** Re-read today's steps/calories while the app stays in the foreground. */
 const HEALTH_TODAY_POLL_MS = 60 * 1000;
 
@@ -178,6 +175,32 @@ function hasStepsButNoDistance(steps: number, distance: number): boolean {
   return steps >= STEPS_WITH_MISSING_DISTANCE && distance <= 0;
 }
 
+/** Movement metrics only — used to gate mutation fan-out, not POST dedup. */
+function healthKitSummaryChanged(
+  current: HealthData | null,
+  summary: HealthKitSummary,
+): boolean {
+  if (!current) return true;
+
+  const effectiveDistance =
+    summary.distance <= 0
+    && current.distance > 0
+    && hasStepsButNoDistance(summary.steps, summary.distance)
+      ? current.distance
+      : summary.distance;
+
+  return (
+    current.steps !== summary.steps
+    || current.active_calories !== summary.active_calories
+    || current.resting_calories !== summary.resting_calories
+    || current.total_calories_burned !== summary.total_calories_burned
+    || current.distance !== effectiveDistance
+    || (current.stand_hours ?? 0) !== summary.stand_hours
+    || (current.active_minutes ?? 0) !== summary.active_minutes
+    || (current.mindfulness_minutes ?? 0) !== summary.mindfulness_minutes
+  );
+}
+
 /** Daily cumulative metrics from HealthKit should never regress after sync. */
 function mergeCumulativeFromSyncInput(
   saved: HealthData,
@@ -301,26 +324,6 @@ function toSyncInput(s: HealthKitSummary): SyncHealthInput {
   return input;
 }
 
-/**
- * Stable fingerprint of the metric fields we POST, so we only sync when the data
- * actually changed. Covers EVERY field in the payload (sleep, HRV, RHR, sleep
- * stages, vo2_max, …) — unlike the old movement-only comparison — and ignores
- * `source`/`date`. Numbers are rounded to absorb HealthKit float jitter that
- * would otherwise read as a change.
- */
-function signHealthPayload(input: SyncHealthInput): string {
-  const rest: Record<string, unknown> = { ...input };
-  delete rest.source;
-  delete rest.date;
-  return Object.keys(rest)
-    .sort()
-    .map((k) => {
-      const v = rest[k];
-      return `${k}:${typeof v === 'number' ? Math.round(v * 1000) / 1000 : v}`;
-    })
-    .join('|');
-}
-
 /** Remember that the user is connected so the AsyncStorage fallback works. */
 async function persistConnectedFlag(): Promise<void> {
   try {
@@ -404,7 +407,12 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const [isConnected, setIsConnected] = useState(false);
   const hasFetchedRef = useRef(false);
   const todayRef      = useRef<HealthData | null>(null);
-  useEffect(() => { todayRef.current = today; }, [today]);
+
+  /** Keep todayRef in sync immediately — useEffect alone races syncFromDevice on cache hits. */
+  const paintToday = useCallback((data: HealthData | null) => {
+    todayRef.current = data;
+    setToday(data);
+  }, []);
 
   // ── Fetch today ──────────────────────────────────────────────────────────
   const fetchByDate = useCallback(async (
@@ -437,9 +445,9 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       const priorSleep = await fetchByDate(sleepDay, force);
       parsed = mergePriorDaySleepIntoHealth(parsed, priorSleep);
     }
-    setToday(parsed);
+    paintToday(parsed);
     return parsed !== null;
-  }, [fetchByDate]);
+  }, [fetchByDate, paintToday]);
 
   // ── Sync health ──────────────────────────────────────────────────────────
   const saveHealthSnapshot = useCallback(async (
@@ -466,7 +474,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       };
     }
     if (applyTodayState) {
-      setToday(merged);
+      paintToday(merged);
       if (user?.id) {
         const date = saved.date ?? getLocalDateString();
         void setResourceCached(
@@ -476,13 +484,17 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
         );
         if (notify) {
           const bundle = extractTodayBundle(body);
-          if (bundle) applyTodayReconcile(bundle);
-          void notifyTodayDataChanged(user.id, 'health');
+          if (bundle) {
+            // Write-through summary/engine caches — do not fan out invalidation.
+            applyTodayReconcile(bundle);
+          } else {
+            void notifyTodayDataChanged(user.id, 'health');
+          }
         }
       }
     }
     return merged;
-  }, [user?.id]);
+  }, [user?.id, paintToday]);
 
   const syncHealth = useCallback(async (input: SyncHealthInput): Promise<HealthData> => {
     return saveHealthSnapshot(input, true);
@@ -556,23 +568,19 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       const applied = applyKitSummary(prior, summary, todayDate);
 
       // Paint fresh HealthKit data immediately — do not wait on cache or API.
-      setToday(applied);
+      paintToday(applied);
 
-      // Only POST when the payload differs from what we last synced for this day.
-      // The signature covers every posted field (sleep/HRV/RHR included), and a new
-      // day has no stored signature so the first sync of the day always posts — a
-      // built-in once-a-day floor. The backend upsert is idempotent, so skipping an
-      // identical post is risk-free.
-      const sig = signHealthPayload(payload);
-      const storedSig = await AsyncStorage.getItem(healthSigStorageKey(todayDate));
-      const changed = sig !== storedSig;
-      const shouldPost = force || changed;
+      const metricsChanged = healthKitSummaryChanged(prior, summary);
+      const shouldPost =
+        force
+        || metricsChanged
+        || msSinceLastSync >= HEALTH_BACKFILL_THROTTLE_MS;
 
       if (shouldPost) {
-        // Broadcast a 'health' mutation only when data changed (or forced), so an
-        // unchanged sync never fans out a force-refetch across other contexts.
-        await saveHealthSnapshot(payload, true, changed || force);
-        await AsyncStorage.setItem(healthSigStorageKey(todayDate), sig);
+        // POST on a time-based re-sync, but only broadcast when movement metrics
+        // actually changed (or forced). Unchanged launch syncs must not force-
+        // refetch recovery, summary, and insights for identical data.
+        await saveHealthSnapshot(payload, true, metricsChanged || force);
       } else if (user?.id) {
         void setResourceCached(
           buildResourceKey('health', user.id, todayDate),
@@ -591,14 +599,14 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // HealthKit not available in Expo Go or simulator without data
     }
-  }, [fetchByDate, saveHealthSnapshot, user?.createdAt, user?.id]);
+  }, [fetchByDate, paintToday, saveHealthSnapshot, user?.createdAt, user?.id]);
 
   // ── Mount: fetch once per authenticated session ───────────────────────────
   useEffect(() => {
     if (status === 'loading') return;
 
     if (!hasActiveUserSession(status, user)) {
-      setToday(null);
+      paintToday(null);
       setIsLoading(false);
       hasFetchedRef.current = false;
       return;
@@ -617,7 +625,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
           buildResourceKey('health', user.id, today),
         );
         if (cached && !cancelled) {
-          setToday(cached.data);
+          paintToday(cached.data);
           setIsLoading(false);
         } else if (!cancelled) {
           setIsLoading(true);
@@ -658,14 +666,16 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     const uid = user.id;
     return registerHealthReconcileListener(({ date, row }) => {
       const parsed = fromApiData(row);
-      if (date === getLocalDateString()) setToday(parsed);
+      if (date === getLocalDateString() || date === localSleepDateString()) {
+        paintToday(parsed);
+      }
       void setResourceCached(
         buildResourceKey('health', uid, date),
         parsed,
         ttlForDate(date),
       );
     });
-  }, [user?.id]);
+  }, [user?.id, paintToday]);
 
   // ── Check HealthKit connection status ────────────────────────────────────
   // Re-runs on user change so switching accounts resets the flag correctly.

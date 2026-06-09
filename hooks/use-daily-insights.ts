@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '@/context/auth-context'
 import type { UserProfile } from '@/context/auth-context'
+import { useHealth } from '@/hooks/use-health'
+import { useRecovery } from '@/context/recovery-context'
 import {
   apiDayToNormalized,
   recomputeNormalizedDay,
+  resolveInsightsSleepHours,
   type DailyInsightSummary,
   type InsightTargets,
 } from '@/utils/insights-aggregator'
@@ -15,27 +18,44 @@ import {
 } from '@/utils/daily-summary-cache'
 import { getLocalDateString } from '@/utils/date'
 import { shouldRefetchDailyInsightsAfterMutation } from '@/utils/cache-invalidation'
+import {
+  patchNormalizedDayMetrics,
+  registerInsightsMetricsPatchListener,
+} from '@/utils/insights-metrics-patch'
 import { registerTodayDataSyncListener, registerTodayTargetsListener } from '@/utils/today-sync'
 import { getLocalTargets, type LocalTargets } from '@/utils/local-targets'
-import { calculateMacros } from '@/utils/nutrition'
+import { resolveProteinTargetG } from '@/utils/nutrition'
 
 const DEFAULT_CALORIE_BUDGET = 2000
 const DEFAULT_PROTEIN_TARGET = 150
 
+/**
+ * Effective protein target — same source of truth the profile/home use:
+ * the manually-set value when present, otherwise the goal-aware calc.
+ * Keeps the insights targets in lockstep with the Daily Targets the user sees.
+ */
 function deriveProteinTarget(user: UserProfile | null | undefined): number {
   if (!user) return DEFAULT_PROTEIN_TARGET
   try {
-    return calculateMacros({
-      sex:           user.sex,
-      age:           user.age,
-      heightCm:      user.heightCm,
-      weightKg:      user.weightKg,
-      activityLevel: user.activityLevel,
-      goal:          user.goal,
-    }).proteinG
+    return resolveProteinTargetG(
+      {
+        sex:           user.sex,
+        age:           user.age,
+        heightCm:      user.heightCm,
+        weightKg:      user.weightKg,
+        activityLevel: user.activityLevel,
+        goal:          user.goal,
+      },
+      user.proteinTarget,
+    )
   } catch {
     return DEFAULT_PROTEIN_TARGET
   }
+}
+
+/** Effective calorie budget — the profile's budget, then its TDEE goal. */
+function deriveCalorieBudget(user: UserProfile | null | undefined): number | null {
+  return user?.calorieBudget ?? user?.tdee ?? null
 }
 
 function ensureValidTargets(t: InsightTargets, fallbackProtein: number): InsightTargets {
@@ -57,6 +77,8 @@ interface UseDailyInsightsResult {
 
 export function useDailyInsights(date?: string): UseDailyInsightsResult {
   const { user }  = useAuth()
+  const { today: healthToday } = useHealth()
+  const { today: recoveryToday } = useRecovery()
   const today     = getLocalDateString()
   const targetDate = date ?? today
 
@@ -91,6 +113,8 @@ export function useDailyInsights(date?: string): UseDailyInsightsResult {
       const fallbackProtein = deriveProteinTarget(user)
       const merged: InsightTargets = {
         ...serverTargets,
+        calorie_budget: deriveCalorieBudget(user) ?? serverTargets.calorie_budget,
+        protein_target: user ? fallbackProtein : serverTargets.protein_target,
         steps_target: local.steps_target ?? serverTargets.steps_target ?? user?.stepsTarget ?? 10000,
         sleep_target: local.sleep_target ?? serverTargets.sleep_target,
       }
@@ -105,11 +129,34 @@ export function useDailyInsights(date?: string): UseDailyInsightsResult {
     [targetDate, user],
   )
 
+  const applyLiveSleep = useCallback(
+    (insight: DailyInsightSummary): DailyInsightSummary => {
+      if (targetDate !== today) return insight
+
+      const liveSleep = resolveInsightsSleepHours(
+        healthToday?.sleep_hours,
+        insight.day.sleep_hours,
+        recoveryToday?.sleep_hours,
+      )
+      if (!liveSleep) return insight
+
+      const day = patchNormalizedDayMetrics(
+        insight.day,
+        { date: targetDate, sleep_hours: liveSleep },
+        insight.targets,
+      )
+      return { ...insight, day }
+    },
+    [targetDate, today, healthToday?.sleep_hours, recoveryToday?.sleep_hours],
+  )
+
   const applyDerivedTargets = useCallback(
     (d: DailyInsightSummary, local: LocalTargets): DailyInsightSummary => {
       const fallbackProtein = deriveProteinTarget(user)
       const merged: InsightTargets = {
         ...d.targets,
+        calorie_budget: deriveCalorieBudget(user) ?? d.targets.calorie_budget,
+        protein_target: user ? fallbackProtein : d.targets.protein_target,
         steps_target: local.steps_target ?? d.targets.steps_target ?? user?.stepsTarget ?? 10000,
         sleep_target: local.sleep_target ?? d.targets.sleep_target,
       }
@@ -130,7 +177,7 @@ export function useDailyInsights(date?: string): UseDailyInsightsResult {
       if (cached && mountedRef.current) {
         const fromCache = await bundleToInsight(local, false)
         if (fromCache) {
-          setData(applyDerivedTargets(fromCache, local))
+          setData(applyLiveSleep(applyDerivedTargets(fromCache, local)))
           setIsLoading(false)
           setError(null)
           if (!cached.isStale) return
@@ -144,7 +191,7 @@ export function useDailyInsights(date?: string): UseDailyInsightsResult {
       if (!fresh) throw new Error('Failed to load daily summary')
 
       if (mountedRef.current) {
-        setData(applyDerivedTargets(fresh, local))
+        setData(applyLiveSleep(applyDerivedTargets(fresh, local)))
         setIsStale(false)
         setError(null)
       }
@@ -158,7 +205,7 @@ export function useDailyInsights(date?: string): UseDailyInsightsResult {
         setIsRefreshing(false)
       }
     }
-  }, [user?.id, bundleToInsight, applyDerivedTargets, data])
+  }, [user?.id, bundleToInsight, applyDerivedTargets, applyLiveSleep, data])
 
   useEffect(() => {
     setIsLoading(true)
@@ -168,6 +215,24 @@ export function useDailyInsights(date?: string): UseDailyInsightsResult {
     load()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetDate, user?.id])
+
+  useEffect(() => {
+    const current = dataRef.current
+    if (!current || targetDate !== today || !mountedRef.current) return
+    const updated = applyLiveSleep(current)
+    if (updated !== current) setData(updated)
+  }, [targetDate, today, applyLiveSleep, healthToday?.sleep_hours, recoveryToday?.sleep_hours])
+
+  useEffect(() => {
+    return registerInsightsMetricsPatchListener((patch) => {
+      if (patch.date !== targetDate || !mountedRef.current) return
+      const current = dataRef.current
+      if (!current) return
+      const day = patchNormalizedDayMetrics(current.day, patch, current.targets)
+      setData({ ...current, day })
+      setIsStale(false)
+    })
+  }, [targetDate])
 
   useEffect(() => {
     const today = getLocalDateString()
