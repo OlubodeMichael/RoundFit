@@ -79,6 +79,24 @@ export function normalizeIsoDate(value: unknown): string {
   return isValidIsoDate(head) ? head : ''
 }
 
+/**
+ * Insights sleep comes from health_data (manual + HealthKit) first, but a manual
+ * sleep log lives in recovery_logs and is what the sleep-log screen displays —
+ * its health_data mirror can be stale or missing, so fall back to the recovery
+ * value before giving up. The weekly summary aggregate is the last resort.
+ * Treat 0 as missing.
+ */
+export function resolveInsightsSleepHours(
+  healthSleep: number | null | undefined,
+  summarySleep?: number | null | undefined,
+  recoverySleep?: number | null | undefined,
+): number | null {
+  if (healthSleep != null && healthSleep > 0) return healthSleep
+  if (recoverySleep != null && recoverySleep > 0) return recoverySleep
+  if (summarySleep != null && summarySleep > 0) return summarySleep
+  return null
+}
+
 export function dayHasChartData(day: NormalizedDay | undefined): boolean {
   if (!day) return false
   return (

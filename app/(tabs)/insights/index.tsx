@@ -381,7 +381,10 @@ function TodayView({
   const cals = todayDay?.calories ?? 0;
   const protein = todayDay?.protein ?? 0;
   const steps = todayDay?.steps ?? null;
-  const sleep = todayDay?.sleep_hours ?? null;
+  const sleep =
+    todayDay?.sleep_hours != null && todayDay.sleep_hours > 0
+      ? todayDay.sleep_hours
+      : null;
 
   // Progress percentages (0–100, capped)
   const calPct = calBudget > 0 ? Math.min((cals / calBudget) * 100, 100) : 0;

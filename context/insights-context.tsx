@@ -164,16 +164,39 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id]);
 
   const ensureLoaded = useCallback(async () => {
-    if (!hasActiveUserSession(status, user)) return;
+    if (!hasActiveUserSession(status, user) || !user?.id) return;
     if (bootedRef.current) return;
     bootedRef.current = true;
-    setIsLoading(true);
+
+    const today      = getLocalDateString();
+    const todayKey   = buildResourceKey('insights-today', user.id, today);
+    const historyKey = buildResourceKey('insights-history', user.id, today);
+    const [todayCached, historyCached] = await Promise.all([
+      getResourceCached<{ insight: Insight | null; pendingSleepSync: boolean }>(todayKey),
+      getResourceCached<Insight[]>(historyKey),
+    ]);
+
+    const todayFresh   = !!(todayCached && !todayCached.isStale);
+    const historyFresh = !!(historyCached && !historyCached.isStale);
+
+    if (todayCached) applyTodayPayload(todayCached.data);
+    if (historyCached) setHistory(historyCached.data);
+
+    if (todayFresh && historyFresh) {
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(!(todayCached || historyCached));
     try {
-      await Promise.all([fetchToday(false), fetchHistory(false)]);
+      await Promise.all([
+        todayFresh ? Promise.resolve() : fetchToday(false),
+        historyFresh ? Promise.resolve() : fetchHistory(false),
+      ]);
     } finally {
       setIsLoading(false);
     }
-  }, [status, user?.id, fetchToday, fetchHistory]);
+  }, [status, user?.id, fetchToday, fetchHistory, applyTodayPayload]);
 
   useEffect(() => {
     if (status === 'loading') return;

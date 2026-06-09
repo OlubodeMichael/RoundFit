@@ -13,8 +13,8 @@ import type { Workout } from '@/context/workout-context';
 import type { ComputedReadiness, ReadinessFactor, ReadinessHistoryPoint, ReadinessTip } from '@/types/readiness';
 import { buildReadinessInput } from '@/utils/build-readiness-input';
 import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
-import { computeBaseline } from '@/utils/baseline';
 import { localSleepDateString } from '@/utils/sleep-date';
+import { computeBaseline } from '@/utils/baseline';
 import { mergePriorDaySleepIntoRecovery } from '@/utils/sleep-display';
 import { calculateMacros } from '@/utils/nutrition';
 import {
@@ -27,6 +27,10 @@ import { fetchDailySummaryBundle, TTL_COLD_START_MS } from '@/utils/daily-summar
 import { notifyTodayDataChanged, registerTodayDataSyncListener } from '@/utils/today-sync';
 import { applyHealthReconcile } from '@/utils/today-health-reconcile';
 import { shouldRefetchRecoveryAfterMutation } from '@/utils/cache-invalidation';
+import {
+  applyInsightsMetricsPatch,
+  writeThroughInsightsDayMetrics,
+} from '@/utils/insights-metrics-patch';
 import {
   buildResourceKey,
   fetchWithResourceCache,
@@ -576,7 +580,9 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     const saved = fromApiLog(data);
     const logDate = input.date ?? getLocalDateString();
 
-    if (logDate === getLocalDateString()) {
+    const calendarToday = getLocalDateString();
+    const sleepDay = localSleepDateString();
+    if (logDate === calendarToday || logDate === sleepDay) {
       setToday(saved);
     }
 
@@ -594,18 +600,41 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
       // listened to nothing, so a manual sleep log never reached health state and
       // only its cache was dropped. Falls back to invalidation if the row is absent.
       if (data.health_data && typeof data.health_data === 'object') {
+        const healthRow = data.health_data as Record<string, unknown>;
         applyHealthReconcile({
           date: logDate,
-          row: data.health_data as Record<string, unknown>,
+          row: healthRow,
         });
+
+        const healthSleep =
+          typeof healthRow.sleep_hours === 'number' && healthRow.sleep_hours > 0
+            ? healthRow.sleep_hours
+            : null;
+        const savedSleep =
+          saved.sleep_hours != null && saved.sleep_hours > 0 ? saved.sleep_hours : null;
+        const sleepHours = healthSleep ?? savedSleep;
+        const steps =
+          typeof healthRow.steps === 'number' && healthRow.steps > 0
+            ? healthRow.steps
+            : null;
+        if (sleepHours != null || steps != null) {
+          const patch = { date: logDate, sleep_hours: sleepHours, steps };
+          await writeThroughInsightsDayMetrics(uid, patch);
+          applyInsightsMetricsPatch(patch);
+        }
       } else {
         void invalidateResourceCache(buildResourceKey('health', uid, logDate));
+        if (saved.sleep_hours != null && saved.sleep_hours > 0) {
+          const patch = { date: logDate, sleep_hours: saved.sleep_hours };
+          await writeThroughInsightsDayMetrics(uid, patch);
+          applyInsightsMetricsPatch(patch);
+        }
       }
     }
 
     if (data.readiness) {
       const newReadiness = fromApiReadiness(data.readiness as Record<string, unknown>);
-      if (logDate === getLocalDateString()) {
+      if (logDate === calendarToday || logDate === sleepDay) {
         setReadiness(newReadiness);
       }
 
