@@ -2,6 +2,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import {
+  APPLE_FITNESS_HEART_COLOR,
   fmtWorkoutDuration,
   formatHistoryDateLabel,
   formatWorkoutDistance,
@@ -67,7 +68,7 @@ export function WorkoutDetailContent({ workout, onEdit, onDelete }: WorkoutDetai
           <Text style={[styles.title, { color: P.text }]}>{meta.label}</Text>
           {sourceLabel != null && (
             <View style={styles.sourceRow}>
-              <Ionicons name="heart-outline" size={13} color={P.workout} />
+              <Ionicons name="heart" size={13} color={APPLE_FITNESS_HEART_COLOR} />
               <Text style={[styles.sourceText, { color: P.textFaint }]}>{sourceLabel}</Text>
             </View>
           )}

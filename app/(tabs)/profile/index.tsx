@@ -1,7 +1,6 @@
 import { useRouter } from 'expo-router';
 import {
   Bell,
-  ChevronLeft,
   CreditCard,
   FileText,
   Flower2,
@@ -23,7 +22,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DeleteAccountModal } from '@/components/profile/DeleteAccountModal';
 import { UserAvatar } from '@/components/profile/UserAvatar';
 import {
-  HeaderButton,
   ProfileDivider,
   ProfileGroup,
   ProfileHeader,
@@ -72,13 +70,7 @@ export default function ProfileScreen() {
       contentContainerStyle={{ paddingTop: insets.top + 6, paddingBottom: insets.bottom + 96 }}
       showsVerticalScrollIndicator={false}
     >
-      <ProfileHeader
-        P={P}
-        title="My Profile"
-        left={router.canGoBack() ? (
-          <HeaderButton P={P} icon={ChevronLeft} onPress={() => router.back()} accessibilityLabel="Back" />
-        ) : undefined}
-      />
+      <ProfileHeader P={P} title="My Profile" />
 
       {/* ── Avatar ───────────────────────────────────────────────────── */}
       <View style={s.avatarWrap}>

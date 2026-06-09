@@ -5,6 +5,8 @@ import type { WorkoutIntensity, WorkoutSource, DistanceUnit, Workout } from '@/c
 import type { WorkoutImportReviewItem } from '@/services/workout-import';
 import {
   addLocalCalendarDays,
+  formatDeviceLocalTime,
+  formatDeviceLocalTimeRange,
   formatMonthDayLocal,
   getLocalDateString,
   localWeekdayShort,
@@ -78,6 +80,9 @@ export function countTodayWorkoutSessions(
   return savedWorkouts.length + pendingToday;
 }
 
+/** Apple Fitness / HealthKit source badge heart color. */
+export const APPLE_FITNESS_HEART_COLOR = '#FF2D55';
+
 export function workoutSourceLabel(source: WorkoutSource): string | null {
   if (source === 'healthkit') return 'Apple Fitness';
   if (source === 'googlefit') return 'Google Fit';
@@ -99,23 +104,11 @@ export const INTENSITY_LABEL: Record<WorkoutIntensity, string> = {
   hard: 'Hard',
 };
 
-export function formatWorkoutTime(iso?: string): string | null {
-  if (!iso) return null;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  const hours = date.getHours();
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const period = hours >= 12 ? 'PM' : 'AM';
-  const hour12 = hours % 12 || 12;
-  return `${hour12}:${minutes} ${period}`;
-}
+/** @deprecated Use `formatDeviceLocalTime` from `@/utils/date`. */
+export const formatWorkoutTime = formatDeviceLocalTime;
 
-export function formatWorkoutTimeRange(startedAt?: string, endedAt?: string): string | null {
-  const start = formatWorkoutTime(startedAt);
-  const end = formatWorkoutTime(endedAt);
-  if (start && end) return `${start} – ${end}`;
-  return start ?? end;
-}
+/** @deprecated Use `formatDeviceLocalTimeRange` from `@/utils/date`. */
+export const formatWorkoutTimeRange = formatDeviceLocalTimeRange;
 
 export function formatWorkoutDistance(
   distance?: number,

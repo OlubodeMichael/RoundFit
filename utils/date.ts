@@ -1,3 +1,65 @@
+/** Parse any ISO-ish timestamp; getters reflect the device local timezone. */
+export function toDeviceLocalDate(iso: string): Date | null {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Format a timestamp as device-local time (e.g. "9:18 AM").
+ * Uses the device locale and timezone — never UTC clock face.
+ */
+export function formatDeviceLocalTime(iso?: string): string | null {
+  if (!iso) return null;
+  const date = toDeviceLocalDate(iso);
+  if (!date) return null;
+  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+export function formatDeviceLocalTimeRange(
+  startedAt?: string,
+  endedAt?: string,
+): string | null {
+  const start = formatDeviceLocalTime(startedAt);
+  const end = formatDeviceLocalTime(endedAt);
+  if (start && end) return `${start} – ${end}`;
+  return start ?? end;
+}
+
+/**
+ * Normalise API timestamps for device-local display.
+ * Manual rows sometimes return wall-clock with a bogus `Z`; strip it so the
+ * face value is read in the device timezone. Health imports keep UTC semantics.
+ */
+export function normalizeStoredTimestampForDeviceLocal(
+  iso: string | undefined,
+  source: 'healthkit' | 'googlefit' | 'manual' | string,
+): string | undefined {
+  if (!iso) return undefined;
+  if (source === 'healthkit' || source === 'googlefit') return iso;
+  if (/[+-]\d{2}:\d{2}$/.test(iso)) return iso;
+  if (/Z$/i.test(iso)) {
+    return iso.replace(/\.\d{1,3}Z$/i, '').replace(/Z$/i, '');
+  }
+  return iso;
+}
+
+/** ISO-8601 with explicit local UTC offset (e.g. `2024-06-09T09:18:00-07:00`). */
+export function toLocalOffsetIso(ms: number): string {
+  const d = new Date(ms);
+  const offsetMinutes = -d.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const abs = Math.abs(offsetMinutes);
+  const offsetHours = String(Math.floor(abs / 60)).padStart(2, '0');
+  const offsetMins = String(abs % 60).padStart(2, '0');
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const seconds = String(d.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offsetHours}:${offsetMins}`;
+}
+
 export function getLocalDateString(date: Date = new Date()): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');

@@ -1,39 +1,55 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import type { Workout } from '@/context/workout-context';
+
 import {
   APPLE_FITNESS_HEART_COLOR,
-  formatHistoryDateLabel,
-  workoutSourceLabel,
-  WORKOUT_META,
+  fmtWorkoutDuration,
+  formatWorkoutTimeRange,
+  pendingWorkoutDurationMinutes,
 } from '@/components/log/workout/workout-display';
-import { getLocalDateString } from '@/utils/date';
 import { getCardAccent, GradientCard } from '@/components/ui/GradientCard';
 import { usePalette } from '@/lib/log-theme';
+import type { WorkoutImportReviewItem } from '@/services/workout-import';
 
-export interface WorkoutHistoryRowProps {
-  workout: Workout;
-  /** Local calendar day `YYYY-MM-DD` for the right-side date label. */
-  dateKey: string;
-  onPress?: (workout: Workout) => void;
-  delay?: number;
+export interface WorkoutPendingHistoryRowProps {
+  item: WorkoutImportReviewItem;
+  onPress: () => void;
 }
 
-export function WorkoutHistoryRow({ workout, dateKey, onPress }: WorkoutHistoryRowProps) {
+function buildStatLine(item: WorkoutImportReviewItem): string {
+  const parts: string[] = [];
+
+  const calories = item.caloriesBurned;
+  if (calories != null && calories > 0) {
+    parts.push(`${Math.round(calories).toLocaleString()} kcal`);
+  }
+
+  const durationMins = pendingWorkoutDurationMinutes(item);
+  if (durationMins > 0) {
+    parts.push(fmtWorkoutDuration(durationMins));
+  }
+
+  if (item.avgHeartRate != null && item.avgHeartRate > 0) {
+    parts.push(`${Math.round(item.avgHeartRate)} bpm`);
+  }
+
+  return parts.join(' · ');
+}
+
+export function WorkoutPendingHistoryRow({ item, onPress }: WorkoutPendingHistoryRowProps) {
   const P = usePalette();
   const accent = getCardAccent('workouts', P.isDark);
   const palette = { card: P.card, cardEdge: P.cardEdge, isDark: P.isDark };
-  const meta = WORKOUT_META[workout.type] ?? WORKOUT_META.other;
-  const calories = Math.round(workout.calories_burned);
-  const interactive = onPress != null;
-  const dateLabel = formatHistoryDateLabel(dateKey, getLocalDateString());
-  const sourceLabel = workoutSourceLabel(workout.source);
+  const statLine = buildStatLine(item);
+  const timeLabel = formatWorkoutTimeRange(
+    item.sample.startDate.toISOString(),
+    item.sample.endDate.toISOString(),
+  );
 
   return (
     <Pressable
-      onPress={interactive ? () => onPress(workout) : undefined}
-      disabled={!interactive}
-      style={({ pressed }) => [styles.wrap, interactive && pressed && styles.pressed]}
+      onPress={onPress}
+      style={({ pressed }) => [styles.wrap, pressed && styles.pressed]}
     >
       <GradientCard
         variant="workouts"
@@ -44,33 +60,37 @@ export function WorkoutHistoryRow({ workout, dateKey, onPress }: WorkoutHistoryR
         style={styles.card}
         contentStyle={[styles.inner, { borderColor: accent.iconSoft }]}
       >
-        <Ionicons name={meta.icon} size={26} color={accent.iconBg} />
+        <Ionicons name={item.catalogEntry.icon} size={26} color={accent.iconBg} />
 
         <View style={styles.body}>
           <View style={styles.titleRow}>
             <Text style={[styles.title, { color: P.text }]} numberOfLines={1}>
-              {meta.label}
+              {item.label}
             </Text>
-            {sourceLabel != null ? (
-              <View style={[styles.sourceBadge, { backgroundColor: P.sunken }]}>
-                <Ionicons name="heart" size={10} color={APPLE_FITNESS_HEART_COLOR} />
-                <Text style={[styles.sourceText, { color: P.textFaint }]}>{sourceLabel}</Text>
-              </View>
-            ) : null}
+            <View style={[styles.sourceBadge, { backgroundColor: P.sunken }]}>
+              <Ionicons name="heart" size={10} color={APPLE_FITNESS_HEART_COLOR} />
+              <Text style={[styles.sourceText, { color: P.textFaint }]}>Apple Fitness</Text>
+            </View>
           </View>
           <View style={styles.metaRow}>
-            <View style={styles.calRow}>
-              <Text style={[styles.calValue, { color: P.text }]}>
-                {calories.toLocaleString()}
+            {statLine.length > 0 ? (
+              <Text
+                style={[styles.statLine, { color: P.textFaint }]}
+                numberOfLines={1}
+              >
+                {statLine}
               </Text>
-              <Text style={[styles.calUnit, { color: P.textFaint }]}>kcal</Text>
-            </View>
-            <Text
-              style={[styles.dateLabel, { color: P.textFaint }]}
-              numberOfLines={2}
-            >
-              {dateLabel}
-            </Text>
+            ) : (
+              <View />
+            )}
+            {timeLabel != null ? (
+              <Text
+                style={[styles.timeLabel, { color: P.textFaint }]}
+                numberOfLines={2}
+              >
+                {timeLabel}
+              </Text>
+            ) : null}
           </View>
         </View>
       </GradientCard>
@@ -138,28 +158,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
-  calRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-    flexShrink: 0,
-  },
-  calValue: {
-    fontSize: 15,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-    letterSpacing: -0.2,
-  },
-  calUnit: {
+  statLine: {
+    flex: 1,
     fontSize: 12,
     fontWeight: '600',
+    letterSpacing: -0.1,
   },
-  dateLabel: {
-    flexShrink: 1,
+  timeLabel: {
+    flexShrink: 0,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.1,
     textAlign: 'right',
     lineHeight: 14,
+    maxWidth: '42%',
   },
 });

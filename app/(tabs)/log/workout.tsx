@@ -12,7 +12,7 @@ import type {
 } from "@/components/log/workout/types";
 import { AppModal } from "@/components/ui/AppModal";
 import { useToast } from "@/components/ui/Toast";
-import type { Workout, WorkoutSet } from "@/context/workout-context";
+import type { Workout } from "@/context/workout-context";
 import {
     UI_INTENSITY_MAP,
     UI_WORKOUT_TYPE_MAP,
@@ -26,8 +26,8 @@ import {
 } from "@/lib/log-theme";
 import { LiveSessionSheet } from "@/components/log/workout/LiveSessionSheet";
 import { WorkoutHistorySection } from "@/components/log/workout/WorkoutHistorySection";
+import { WorkoutTodaySection } from "@/components/log/workout/WorkoutTodaySection";
 import { WorkoutLauncher } from "@/components/log/workout/WorkoutLauncher";
-import { workoutFooterLabel, workoutSourceLabel } from "@/components/log/workout/workout-display";
 import { WorkoutActionRow } from "@/components/log/workout/WorkoutActionRow";
 import { WorkoutDurationPicker } from "@/components/log/workout/WorkoutDurationPicker";
 import { WorkoutContinueCard } from "@/components/log/workout/WorkoutContinueCard";
@@ -39,15 +39,17 @@ import { useWorkoutSessionLiveActivity } from "@/hooks/use-workout-session-live-
 import { useWorkoutHistory } from "@/hooks/use-workout-history";
 import { useWorkoutImportReview } from "@/hooks/use-workout-import-review";
 import { usePendingWorkoutImports } from "@/hooks/use-pending-workout-imports";
+import { getLocalDateString } from "@/utils/date";
 import type { WorkoutLauncherIntent, WorkoutSelection } from "@/types/workout-session";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { usePostHog } from "posthog-react-native";
-import type { ComponentProps } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+    ActivityIndicator,
     Pressable,
+    RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
@@ -56,34 +58,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-type IoniconName = ComponentProps<typeof Ionicons>["name"];
-
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-const WORKOUT_META: Record<string, { icon: IoniconName; label: string }> = {
-  gym: { icon: "barbell-outline", label: "Strength" },
-  running: { icon: "footsteps-outline", label: "Running" },
-  cycling: { icon: "bicycle-outline", label: "Cycling" },
-  hiit: { icon: "flash-outline", label: "HIIT" },
-  yoga: { icon: "leaf-outline", label: "Yoga" },
-  swimming: { icon: "water-outline", label: "Swimming" },
-  walking: { icon: "footsteps-outline", label: "Walking" },
-  rowing: { icon: "boat-outline", label: "Rowing" },
-  elliptical: { icon: "reload-outline", label: "Elliptical" },
-  other: { icon: "apps-outline", label: "Workout" },
-};
-
-const INTENSITY_LABEL: Record<string, string> = {
-  light: "Light",
-  moderate: "Moderate",
-  hard: "Hard",
-};
-
-const INTENSITY_LEVEL: Record<string, number> = {
-  light: 1,
-  moderate: 2,
-  hard: 3,
-};
 
 const INTENSITY_CAL_RATE = {
   light: CALORIES_PER_MINUTE.low,
@@ -101,13 +76,6 @@ const EX_COLORS = [
   "#F472B6",
 ] as const;
 
-function fmtDuration(mins: number): string {
-  if (mins < 60) return `${mins}m`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
-}
-
 function newSet(): SetRow {
   return {
     id: `s${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -115,356 +83,6 @@ function newSet(): SetRow {
     weight: "",
   };
 }
-
-// ── WorkoutEntry ──────────────────────────────────────────────────────────────
-// Performance-log card. Numbers are the hero — BarlowCondensed for all stats,
-// Syne for exercise names. Each set gets a relative weight bar.
-
-function WorkoutEntry({
-  workout,
-  onOpen,
-}: {
-  workout: Workout;
-  onOpen: (workout: Workout) => void;
-}) {
-  const P = usePalette();
-  const meta = WORKOUT_META[workout.type] ?? WORKOUT_META.other;
-
-  // Group sets by exercise, preserving insertion order
-  const exerciseGroups = useMemo((): [string, WorkoutSet[], string][] => {
-    const order: string[] = [];
-    const map: Record<string, WorkoutSet[]> = {};
-    for (const set of workout.sets ?? []) {
-      if (!map[set.exercise]) {
-        map[set.exercise] = [];
-        order.push(set.exercise);
-      }
-      map[set.exercise].push(set);
-    }
-    return order.map((name, i) => [
-      name,
-      map[name],
-      EX_COLORS[i % EX_COLORS.length],
-    ]);
-  }, [workout.sets]);
-
-  const hasSets = exerciseGroups.length > 0;
-  const intLevel = INTENSITY_LEVEL[workout.intensity ?? "moderate"] ?? 2;
-  const topColor = EX_COLORS[0];
-  const sourceLabel = workoutSourceLabel(workout.source);
-
-  return (
-    <Pressable
-      onPress={() => onOpen(workout)}
-      style={({ pressed }) => [
-        card.wrap,
-        { backgroundColor: P.card, borderColor: P.cardEdge },
-        pressed && { opacity: 0.92 },
-      ]}
-    >
-      <View style={card.topLine}>
-        <View style={[card.topAccent, { backgroundColor: topColor }]} />
-      </View>
-      <View style={card.head}>
-        <View
-          style={[
-            card.iconRing,
-            { backgroundColor: P.sunken, borderColor: P.cardEdge },
-          ]}
-        >
-          <Ionicons name={meta.icon} size={18} color={P.workout} />
-        </View>
-
-        <View style={{ flex: 1 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <Text style={[card.workoutName, { color: P.text }]}>
-              {meta.label}
-            </Text>
-            {sourceLabel != null && (
-              <View style={[card.sourceBadge, { backgroundColor: P.sunken }]}>
-                <Ionicons name="heart-outline" size={10} color={P.workout} />
-                <Text style={[card.sourceText, { color: P.textFaint }]}>{sourceLabel}</Text>
-              </View>
-            )}
-          </View>
-          <View style={card.metaRow}>
-            <Text style={[card.metaText, { color: P.textFaint }]}>
-              {fmtDuration(workout.duration_mins)}
-            </Text>
-            {workout.avg_heart_rate != null && (
-              <>
-                <View style={[card.metaDot, { backgroundColor: P.cardEdge }]} />
-                <Text style={[card.metaText, { color: P.textFaint }]}>
-                  {Math.round(workout.avg_heart_rate)} bpm
-                </Text>
-              </>
-            )}
-            {workout.intensity && (
-              <>
-                <View style={[card.metaDot, { backgroundColor: P.cardEdge }]} />
-                <View style={card.intRow}>
-                  {[1, 2, 3].map((d) => (
-                    <View
-                      key={d}
-                      style={[
-                        card.intSegment,
-                        {
-                          backgroundColor:
-                            d <= intLevel ? P.workout : P.cardEdge,
-                        },
-                      ]}
-                    />
-                  ))}
-                </View>
-                <Text style={[card.metaText, { color: P.textFaint }]}>
-                  {INTENSITY_LABEL[workout.intensity]}
-                </Text>
-              </>
-            )}
-          </View>
-        </View>
-
-        <View style={card.rightCol}>
-          <Text style={[card.calsNum, { color: P.text }]}>
-            {Math.round(workout.calories_burned)}
-          </Text>
-          <Text style={[card.calsUnit, { color: P.textFaint }]}>kcal</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
-      </View>
-
-      {hasSets && (
-        <View style={[card.setsWrap, { borderTopColor: P.hair }]}>
-          {exerciseGroups.map(([exName, sets, color], gi) => {
-            const maxWeight = Math.max(...sets.map((s) => s.weight ?? 0), 1);
-            return (
-              <View key={exName} style={gi > 0 ? { marginTop: 16 } : undefined}>
-                <View style={card.exHead}>
-                  <View
-                    style={[card.exAccentDot, { backgroundColor: color }]}
-                  />
-                  <Text style={[card.exTitle, { color: P.text }]}>
-                    {exName}
-                  </Text>
-                  <View
-                    style={[card.exSetBadge, { backgroundColor: P.sunken }]}
-                  >
-                    <Text style={[card.exSetCount, { color: P.textFaint }]}>
-                      {sets.length} {sets.length === 1 ? "SET" : "SETS"}
-                    </Text>
-                  </View>
-                </View>
-                {sets.map((set, si) => {
-                  const w = set.weight ?? 0;
-                  const relPct = maxWeight > 0 ? w / maxWeight : 0;
-                  const isTop = w === maxWeight && w > 0;
-                  return (
-                    <View
-                      key={set.id}
-                      style={[
-                        card.setRow,
-                        si < sets.length - 1 && {
-                          borderBottomWidth: StyleSheet.hairlineWidth,
-                          borderBottomColor: P.hair,
-                        },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          card.setNumBadge,
-                          { backgroundColor: P.sunken },
-                        ]}
-                      >
-                        <Text style={[card.setNum, { color: P.textFaint }]}>
-                          {si + 1}
-                        </Text>
-                      </View>
-                      <View style={card.metricPill}>
-                        <Text style={[card.metricVal, { color: P.text }]}>
-                          {set.reps ?? "—"}
-                        </Text>
-                        <Text style={[card.metricUnit, { color: P.textFaint }]}>
-                          reps
-                        </Text>
-                      </View>
-                      <View style={card.metricPillWide}>
-                        <Text
-                          style={[
-                            card.metricVal,
-                            { color: isTop ? color : P.text },
-                          ]}
-                        >
-                          {w > 0 ? w : "—"}
-                        </Text>
-                        <Text style={[card.metricUnit, { color: P.textFaint }]}>
-                          {set.weight_unit}
-                        </Text>
-                      </View>
-                      <View style={card.barCol}>
-                        <View
-                          style={[
-                            card.barTrack,
-                            { backgroundColor: P.cardEdge },
-                          ]}
-                        >
-                          <View
-                            style={[
-                              card.barFill,
-                              {
-                                width: `${Math.round(relPct * 100)}%`,
-                                backgroundColor: color,
-                              },
-                            ]}
-                          />
-                        </View>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            );
-          })}
-        </View>
-      )}
-
-      <View style={[card.footerRow, { borderTopColor: P.hair }]}>
-        <Text style={[card.footerText, { color: P.textFaint }]}>
-          {workoutFooterLabel(workout.source)}
-        </Text>
-        <Text style={[card.footerText, { color: P.textFaint }]}>View details</Text>
-      </View>
-    </Pressable>
-  );
-}
-
-const card = StyleSheet.create({
-  wrap: {
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-    marginBottom: 12,
-  },
-  topLine: { height: 3 },
-  topAccent: {
-    width: 64,
-    height: 3,
-    borderTopRightRadius: 3,
-    borderBottomRightRadius: 3
-  },
-  head: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 12,
-  },
-  iconRing: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  workoutName: {
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: -0.2,
-  },
-  sourceBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-  },
-  sourceText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.2 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
-  metaText: { fontSize: 11, fontWeight: "600" },
-  metaDot: { width: 3, height: 3, borderRadius: 2, opacity: 0.75 },
-  intRow: { flexDirection: "row", alignItems: "center", gap: 3 },
-  intSegment: { width: 8, height: 3, borderRadius: 2 },
-  rightCol: { alignItems: "flex-end", gap: 1, marginTop: 2 },
-  calsNum: {
-    fontFamily: "BarlowCondensed_800ExtraBold",
-    fontSize: 26,
-    lineHeight: 26,
-    letterSpacing: -0.4,
-  },
-  calsUnit: { fontSize: 10, fontWeight: "600" },
-  trash: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  setsWrap: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 10,
-  },
-  exHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 8,
-  },
-  exAccentDot: { width: 8, height: 8, borderRadius: 4 },
-  exTitle: { flex: 1, fontSize: 13, fontWeight: "700", letterSpacing: -0.1 },
-  exSetBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
-  exSetCount: { fontSize: 10, fontWeight: "700" },
-  setRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 2,
-  },
-  setNumBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 7,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  setNum: { fontSize: 11, fontWeight: "700" },
-  metricPill: {
-    width: 72,
-    borderRadius: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    backgroundColor: "transparent",
-  },
-  metricPillWide: {
-    flex: 1,
-    borderRadius: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    backgroundColor: "transparent",
-  },
-  metricVal: {
-    fontFamily: "BarlowCondensed_700Bold",
-    fontSize: 22,
-    lineHeight: 22,
-  },
-  metricUnit: { fontSize: 10, fontWeight: "600", marginTop: 2 },
-  barCol: { width: 52, alignItems: "flex-end" },
-  barTrack: { width: 52, height: 4, borderRadius: 3, overflow: "hidden" },
-  barFill: { height: "100%", borderRadius: 3 },
-  footerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  footerText: { fontSize: 11, fontWeight: "500" },
-});
 
 // ── Log workout sheet ─────────────────────────────────────────────────────────
 
@@ -1659,6 +1277,7 @@ export default function WorkoutLogScreen() {
   const [launcherIntent, setLauncherIntent] = useState<WorkoutLauncherIntent>("live");
   const [liveSheetOpen, setLiveSheetOpen] = useState(false);
   const [liveSelection, setLiveSelection] = useState<WorkoutSelection | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const openLiveLauncher = useCallback(() => {
     setLauncherIntent("live");
@@ -1670,15 +1289,26 @@ export default function WorkoutLogScreen() {
     setLauncherOpen(true);
   }, []);
 
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        refreshWorkouts(undefined, true),
+        workoutHistory.refresh(true),
+        pendingImports.refresh(true),
+        importReview.runImport(),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [importReview, pendingImports, refreshWorkouts, workoutHistory]);
+
   const syncOnFocusRef = useRef<() => void>(() => {});
   syncOnFocusRef.current = () => {
-    // Cache-first on focus — serve the 2h workouts cache without a network
-    // round-trip. Mutations + foreground/day-roll keep today current; only an
-    // explicit pull-to-refresh forces a fetch.
+    // Cache-first on focus — serve cached workouts without a network round-trip.
     void refreshWorkouts(undefined, false);
-    void workoutHistory.refresh();
-    void importReview.runImport();
-    void pendingImports.refresh();
+    void workoutHistory.refresh(false);
+    void pendingImports.refresh(false);
   };
 
   useFocusEffect(
@@ -1704,6 +1334,17 @@ export default function WorkoutLogScreen() {
     session.active != null ||
     workoutSession.status === "active" ||
     workoutSession.status === "paused";
+
+  const todayKey = getLocalDateString();
+  const todayPendingGroup = useMemo(
+    () => pendingImports.pendingGroups.find((group) => group.date === todayKey) ?? null,
+    [pendingImports.pendingGroups, todayKey],
+  );
+  const olderPendingGroups = useMemo(
+    () => pendingImports.pendingGroups.filter((group) => group.date !== todayKey),
+    [pendingImports.pendingGroups, todayKey],
+  );
+  const hasTodayContent = workouts.length > 0 || todayPendingGroup != null;
 
   const activeLiveDisplay = useMemo(() => {
     if (session.active) return session.active;
@@ -1856,6 +1497,13 @@ export default function WorkoutLogScreen() {
           paddingBottom: insets.bottom + 32,
         }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { void handleRefresh(); }}
+            tintColor={P.workout}
+          />
+        }
       >
         <ScreenHeader eyebrow="Training" title="Workouts" accent={P.workout} />
 
@@ -1882,17 +1530,16 @@ export default function WorkoutLogScreen() {
 
         {/* List or empty state */}
         <View style={{ paddingHorizontal: 20, marginTop: 12 }}>
-          {workouts.length > 0 && (
-            <Text style={[ms.sectionTitle, { color: P.textFaint, marginBottom: 10 }]}>Today</Text>
-          )}
-          <WorkoutPendingSection
-            groups={pendingImports.pendingGroups}
-            isLoading={pendingImports.isLoading}
-            onOpenItem={(uuid) => {
-              router.push(`/(tabs)/log/workout/healthkit/${uuid}`);
-            }}
-          />
-          {workouts.length === 0 && pendingImports.totalPending === 0 ? (
+          {pendingImports.isLoading &&
+          workouts.length === 0 &&
+          pendingImports.totalPending === 0 ? (
+            <View style={ms.loading}>
+              <ActivityIndicator color={P.workout} />
+              <Text style={[ms.loadingText, { color: P.textFaint }]}>
+                Loading Apple Fitness workouts…
+              </Text>
+            </View>
+          ) : workouts.length === 0 && pendingImports.totalPending === 0 ? (
             <View
               style={[
                 ms.empty,
@@ -1910,20 +1557,32 @@ export default function WorkoutLogScreen() {
               </Text>
             </View>
           ) : (
-            workouts.map((w) => (
-              <WorkoutEntry
-                key={w.id}
-                workout={w}
-                onOpen={handleOpenDetail}
+            <>
+              {hasTodayContent ? (
+                <WorkoutTodaySection
+                  pendingItems={todayPendingGroup?.items ?? []}
+                  workouts={workouts}
+                  onOpenPending={(uuid) => {
+                    router.push(`/(tabs)/log/workout/healthkit/${uuid}`);
+                  }}
+                  onOpenWorkout={handleOpenDetail}
+                />
+              ) : null}
+
+              <WorkoutPendingSection
+                groups={olderPendingGroups}
+                onOpenItem={(uuid) => {
+                  router.push(`/(tabs)/log/workout/healthkit/${uuid}`);
+                }}
               />
-            ))
+            </>
           )}
 
           <WorkoutHistorySection
             groups={workoutHistory.groups}
             isLoading={workoutHistory.isLoading}
             error={workoutHistory.error}
-            onRetry={() => { void workoutHistory.refresh(); }}
+            onRetry={() => { void workoutHistory.refresh(true); }}
             onEditWorkout={handleOpenDetail}
           />
         </View>
@@ -1962,6 +1621,12 @@ const ms = StyleSheet.create({
     letterSpacing: 0.3,
     textTransform: "uppercase",
   },
+  loading: {
+    alignItems: 'center',
+    paddingVertical: 28,
+    gap: 10,
+  },
+  loadingText: { fontSize: 13, fontWeight: '600' },
   empty: {
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,

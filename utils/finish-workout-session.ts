@@ -4,6 +4,7 @@ import type { LogSetInput, LogWorkoutInput, Workout } from '@/context/workout-co
 import { resolveSessionMetricsDelta } from '@/hooks/use-session-metrics';
 import type { SessionRecapData } from '@/types/session-recap';
 import type { SessionSet, WorkoutSession } from '@/types/workout-session';
+import { toLocalOffsetIso } from '@/utils/date';
 import { computeSessionScores } from '@/utils/session-scores';
 import { DEFAULT_SESSION_WEIGHT_KG } from '@/utils/session-metrics';
 import type { PostHog } from 'posthog-react-native';
@@ -69,14 +70,16 @@ export async function finishAndSaveWorkoutSession(
   });
 
   const totalVolume = scores.volume_kg ?? 0;
+  const startedAtIso = toLocalOffsetIso(completed.startedAt);
+  const endedAtIso = toLocalOffsetIso(endedAt);
 
   const workout = await logWorkout({
     type: backendType,
     duration_mins: durationMins,
     intensity: 'moderate',
     source: 'manual',
-    started_at: new Date(completed.startedAt).toISOString(),
-    ended_at: new Date(endedAt).toISOString(),
+    started_at: startedAtIso,
+    ended_at: endedAtIso,
     ...(resolvedMetrics.caloriesBurned > 0
       ? { calories_burned: resolvedMetrics.caloriesBurned }
       : {}),

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   KeyboardAvoidingView,
@@ -161,12 +162,17 @@ export function LiveSessionSheet({ visible, onClose, selection }: Props) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
+  const [finishing, setFinishing] = useState(false);
+  const finishingRef = useRef(false);
+  const [confirmFinish, setConfirmFinish] = useState(false);
+
   // No session when opened — close instead of showing a type picker.
+  // Skip while saving or showing recap (session is cleared before recap mounts).
   useEffect(() => {
-    if (visible && !activeSession && !recapVisible) {
+    if (visible && !activeSession && !recapVisible && !finishing) {
       onCloseRef.current();
     }
-  }, [visible, activeSession, recapVisible]);
+  }, [visible, activeSession, recapVisible, finishing]);
 
   // Seed preset exercises from launcher selection or persisted session.
   useEffect(() => {
@@ -180,12 +186,8 @@ export function LiveSessionSheet({ visible, onClose, selection }: Props) {
     setActiveExercise((prev) => prev ?? preset[0] ?? null);
   }, [visible, activeSession?.isStrength, selection, workoutSession.session?.presetExercises]);
 
-  // ── Finish flow ──────────────────────────────────────────────────────────
-  const [finishing, setFinishing] = useState(false);
-  const finishingRef = useRef(false);
-  const [confirmFinish, setConfirmFinish] = useState(false);
-
-  // Reset state when sheet re-opens with no session yet.
+  // Reset form when the sheet closes. Recap is cleared in handleRecapDone so a
+  // dismiss animation does not race with the recap overlay.
   useEffect(() => {
     if (!visible) {
       setChosenExercises([]);
@@ -195,12 +197,13 @@ export function LiveSessionSheet({ visible, onClose, selection }: Props) {
       setWeightUnit(units.weightUnit);
       setPickerOpen(false);
       setConfirmFinish(false);
-      setRecapVisible(false);
-      setRecapData(null);
+      setFinishing(false);
+      finishingRef.current = false;
     }
   }, [visible, units.weightUnit]);
 
   const handleRecapDone = useCallback(() => {
+    setFinishing(false);
     setRecapVisible(false);
     setRecapData(null);
     onClose();
@@ -256,7 +259,9 @@ export function LiveSessionSheet({ visible, onClose, selection }: Props) {
   const handleFinish = useCallback(async () => {
     if (finishingRef.current) return;
     finishingRef.current = true;
+    setConfirmFinish(false);
     setFinishing(true);
+    let didShowRecap = false;
     try {
       const sessionSnapshot = workoutSession.session;
       const completed = await session.end();
@@ -273,7 +278,7 @@ export function LiveSessionSheet({ visible, onClose, selection }: Props) {
       const weightKg =
         user?.weightKg != null && user.weightKg > 0 ? user.weightKg : undefined;
 
-      const { recapData } = await finishAndSaveWorkoutSession({
+      const { recapData: savedRecap } = await finishAndSaveWorkoutSession({
         session: sessionSnapshot,
         completed: {
           workoutType: completed.workoutType,
@@ -289,8 +294,9 @@ export function LiveSessionSheet({ visible, onClose, selection }: Props) {
         posthog,
       });
 
-      setRecapData(recapData);
+      setRecapData(savedRecap);
       setRecapVisible(true);
+      didShowRecap = true;
 
       await workoutSession.end();
     } catch (e) {
@@ -299,8 +305,10 @@ export function LiveSessionSheet({ visible, onClose, selection }: Props) {
       onClose();
     } finally {
       finishingRef.current = false;
-      setFinishing(false);
       setConfirmFinish(false);
+      if (!didShowRecap) {
+        setFinishing(false);
+      }
     }
   }, [
     session,
@@ -314,17 +322,35 @@ export function LiveSessionSheet({ visible, onClose, selection }: Props) {
     onClose,
   ]);
 
-  if (recapVisible && recapData) {
-    return (
-      <WorkoutSessionRecapSheet
-        visible={recapVisible}
-        data={recapData}
-        onDone={handleRecapDone}
-      />
-    );
+  const showRecap = recapVisible && recapData != null;
+  const showSaving = visible && finishing && activeSession == null && !showRecap;
+  const showSession = visible && activeSession != null && !showRecap;
+
+  if (!showSession && !showSaving && !showRecap) {
+    return null;
   }
 
-  if (!activeSession) return null;
+  if (!activeSession) {
+    return (
+      <>
+        {showSaving ? (
+          <Modal visible animationType="fade" transparent onRequestClose={() => {}}>
+            <View style={[styles.savingOverlay, { backgroundColor: P.bg }]}>
+              <ActivityIndicator size="large" color={P.workout} />
+              <Text style={[styles.savingText, { color: P.textFaint }]}>Saving workout…</Text>
+            </View>
+          </Modal>
+        ) : null}
+        {showRecap ? (
+          <WorkoutSessionRecapSheet
+            visible={recapVisible}
+            data={recapData}
+            onDone={handleRecapDone}
+          />
+        ) : null}
+      </>
+    );
+  }
 
   const isPaused = activeSession.pausedAt != null;
   const isStrength = activeSession.isStrength;
@@ -351,7 +377,8 @@ export function LiveSessionSheet({ visible, onClose, selection }: Props) {
   })();
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <>
+    <Modal visible={showSession} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={{ flex: 1, backgroundColor: P.bg }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -716,6 +743,14 @@ export function LiveSessionSheet({ visible, onClose, selection }: Props) {
         </Modal>
       </KeyboardAvoidingView>
     </Modal>
+    {showRecap ? (
+      <WorkoutSessionRecapSheet
+        visible={recapVisible}
+        data={recapData}
+        onDone={handleRecapDone}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -947,6 +982,13 @@ const styles = StyleSheet.create({
   finishBtnText: { fontSize: 14, fontWeight: '800', color: '#fff' },
 
   // Confirm modal
+  savingOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+  },
+  savingText: { fontSize: 14, fontWeight: '600' },
   confirmOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center', justifyContent: 'center',

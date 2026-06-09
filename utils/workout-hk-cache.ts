@@ -13,7 +13,7 @@ import {
 export const TTL_HK_WORKOUT_SCAN_MS = 3 * 60 * 1000;
 export const TTL_HK_WORKOUT_SAMPLE_MS = 24 * 60 * 60 * 1000;
 
-interface SerializedHealthKitWorkoutSample {
+export interface SerializedHealthKitWorkoutSample {
   uuid: string;
   workoutActivityType: number;
   startDate: string;
@@ -27,7 +27,9 @@ interface SerializedHealthKitWorkoutSample {
   sourceName?: string;
 }
 
-function serializeSample(sample: HealthKitWorkoutSample): SerializedHealthKitWorkoutSample {
+export function serializeHealthKitWorkoutSample(
+  sample: HealthKitWorkoutSample,
+): SerializedHealthKitWorkoutSample {
   return {
     uuid: sample.uuid,
     workoutActivityType: sample.workoutActivityType,
@@ -43,7 +45,9 @@ function serializeSample(sample: HealthKitWorkoutSample): SerializedHealthKitWor
   };
 }
 
-function deserializeSample(raw: SerializedHealthKitWorkoutSample): HealthKitWorkoutSample {
+export function deserializeHealthKitWorkoutSample(
+  raw: SerializedHealthKitWorkoutSample,
+): HealthKitWorkoutSample {
   return {
     uuid: raw.uuid,
     workoutActivityType: raw.workoutActivityType,
@@ -80,12 +84,12 @@ export async function fetchHealthKitWorkoutsScanCached(
     TTL_HK_WORKOUT_SCAN_MS,
     async () => {
       const samples = await fetchWorkoutsSince(lookbackStart);
-      return samples.map(serializeSample);
+      return samples.map(serializeHealthKitWorkoutSample);
     },
     { force },
   );
 
-  return (rows ?? []).map(deserializeSample);
+  return (rows ?? []).map(deserializeHealthKitWorkoutSample);
 }
 
 export async function invalidateHealthKitWorkoutScanCache(userId: string): Promise<void> {

@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { APPLE_FITNESS_HEART_COLOR } from '@/components/log/workout/workout-display';
 import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
 import { usePalette } from '@/lib/log-theme';
 
@@ -15,6 +16,8 @@ export interface WorkoutListStat {
 export interface WorkoutListCardProps {
   icon: IoniconName;
   title: string;
+  /** Clock time shown between the header and title (e.g. `12:57 PM – 1:19 PM`). */
+  timeRange?: string | null;
   eyebrow?: string | null;
   stats: WorkoutListStat[];
   calories?: number | null;
@@ -26,6 +29,7 @@ export interface WorkoutListCardProps {
 export function WorkoutListCard({
   icon,
   title,
+  timeRange,
   eyebrow,
   stats,
   calories,
@@ -62,18 +66,28 @@ export function WorkoutListCard({
       >
         <View style={styles.header}>
           <Ionicons name={icon} size={26} color={accent.iconBg} />
-          {isNew && (
-            <View style={[styles.newPill, { backgroundColor: accent.iconBg }]}>
-              <Text style={styles.newText}>NEW</Text>
-            </View>
-          )}
+          <View style={styles.headerRight}>
+            {eyebrow != null && eyebrow.length > 0 ? (
+              <View style={[styles.sourceBadge, { backgroundColor: P.sunken }]}>
+                <Ionicons name="heart" size={10} color={APPLE_FITNESS_HEART_COLOR} />
+                <Text style={[styles.sourceText, { color: P.textFaint }]} numberOfLines={1}>
+                  {eyebrow}
+                </Text>
+              </View>
+            ) : null}
+            {isNew ? (
+              <View style={[styles.newPill, { backgroundColor: accent.iconBg }]}>
+                <Text style={styles.newText}>NEW</Text>
+              </View>
+            ) : null}
+          </View>
         </View>
 
-        {eyebrow != null && eyebrow.length > 0 && (
-          <Text style={[styles.eyebrow, { color: P.textFaint }]} numberOfLines={1}>
-            {eyebrow}
+        {timeRange != null && timeRange.length > 0 ? (
+          <Text style={[styles.timeRange, { color: P.textFaint }]} numberOfLines={1}>
+            {timeRange}
           </Text>
-        )}
+        ) : null}
 
         <Text style={[styles.title, { color: P.text }]} numberOfLines={2}>
           {title}
@@ -142,6 +156,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+    flexShrink: 1,
+    maxWidth: '62%',
+  },
+  sourceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    flexShrink: 1,
+  },
+  sourceText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+    flexShrink: 1,
+  },
   newPill: {
     paddingHorizontal: 7,
     paddingVertical: 3,
@@ -153,12 +190,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     color: '#FFFFFF',
   },
-  eyebrow: {
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
   title: {
     fontSize: 14,
     fontWeight: '700',
@@ -169,10 +200,18 @@ const styles = StyleSheet.create({
     marginTop: 2,
     gap: 1,
   },
+  timeRange: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: -0.1,
+    marginTop: 2,
+  },
   heroValue: {
-    fontSize: 22,
-    lineHeight: 24,
+    fontFamily: 'BarlowCondensed_700Bold',
+    fontSize: 28,
+    lineHeight: 30,
     fontVariant: ['tabular-nums'],
+    letterSpacing: -0.3,
   },
   heroLabel: {
     fontSize: 11,

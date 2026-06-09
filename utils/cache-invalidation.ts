@@ -15,6 +15,10 @@ import {
   invalidateKeys,
   invalidateResourceCache,
 } from '@/utils/resource-cache'
+import {
+  invalidatePendingAppleFitnessDisplayCache,
+  invalidateWorkoutSetsCache,
+} from '@/utils/workout-cache'
 import { invalidateHealthKitWorkoutScanCache } from '@/utils/workout-hk-cache'
 
 export type MutationDomain =
@@ -75,7 +79,10 @@ export async function invalidateAfterMutation({
         buildResourceKey('workouts', userId, targetDate),
         buildResourceKey('workouts-history', userId, '30'),
       )
-      await invalidateHealthKitWorkoutScanCache(userId)
+      await Promise.all([
+        invalidateHealthKitWorkoutScanCache(userId),
+        invalidatePendingAppleFitnessDisplayCache(userId),
+      ])
       break
     case 'water':
       keys.push(buildResourceKey('water', userId, targetDate))
@@ -114,7 +121,11 @@ export async function invalidateAfterMutation({
     case 'full':
       await invalidateUserDayCaches(userId, targetDate)
       await invalidateWeeklyCaches(userId, weekStart)
-      await invalidateHealthKitWorkoutScanCache(userId)
+      await Promise.all([
+        invalidateHealthKitWorkoutScanCache(userId),
+        invalidatePendingAppleFitnessDisplayCache(userId),
+        invalidateWorkoutSetsCache(userId),
+      ])
       keys.push(
         buildResourceKey('food-logs', userId, targetDate),
         buildResourceKey('workouts', userId, targetDate),
