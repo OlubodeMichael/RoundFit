@@ -1,9 +1,11 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { WorkoutAppleHealthDetail } from '@/components/log/workout/WorkoutAppleHealthDetail';
+import { WorkoutDetailSkeleton } from '@/components/log/workout/WorkoutDetailSkeleton';
+import { getHealthKitActivityDisplayLabel } from '@/config/workout-catalog';
 import { useToast } from '@/components/ui/Toast';
 import { useAuth } from '@/context/auth-context';
 import { useWorkouts } from '@/hooks/use-workouts';
@@ -43,9 +45,7 @@ export default function HealthKitWorkoutDetailScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: P.bg, paddingTop: pad.paddingTop }}>
         <ScreenHeader eyebrow="Apple Fitness" title="Workout" accent={P.workout} onBack={() => router.back()} />
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color={P.workout} />
-        </View>
+        <WorkoutDetailSkeleton variant="apple" />
       </View>
     );
   }
@@ -63,9 +63,11 @@ export default function HealthKitWorkoutDetailScreen() {
     );
   }
 
+  const activityTitle = getHealthKitActivityDisplayLabel(sample.workoutActivityType);
+
   return (
     <View style={{ flex: 1, backgroundColor: P.bg, paddingTop: pad.paddingTop }}>
-      <ScreenHeader eyebrow="Apple Fitness" title="Workout" accent={P.workout} onBack={() => router.back()} />
+      <ScreenHeader eyebrow="Apple Fitness" title={activityTitle} accent={P.workout} onBack={() => router.back()} />
       <WorkoutAppleHealthDetail
         sample={sample}
         onSave={savedWorkout ? undefined : handleSave}

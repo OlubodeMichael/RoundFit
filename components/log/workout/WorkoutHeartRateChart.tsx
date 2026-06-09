@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { AnimatedCard, FieldLabel, usePalette } from '@/lib/log-theme';
 import type { HealthKitHeartRatePoint } from '@/utils/healthkit';
-import { usePalette } from '@/lib/log-theme';
 
 const BAR_COUNT = 24;
+import { WORKOUT_DETAIL_PAD } from '@/components/log/workout/workout-detail-layout';
 
 export interface WorkoutHeartRateChartProps {
   points: HealthKitHeartRatePoint[];
@@ -45,47 +46,53 @@ export function WorkoutHeartRateChart({ points }: WorkoutHeartRateChartProps) {
   const peak = Math.max(...points.map((p) => p.bpm));
 
   return (
-    <View style={[styles.wrap, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: P.text }]}>Heart Rate</Text>
-        <Text style={[styles.sub, { color: P.textFaint }]}>
-          avg {avg} · peak {peak} bpm
-        </Text>
-      </View>
-      <View style={styles.chartRow}>
-        {bars.map((bar, index) => (
-          <View key={index} style={styles.barCol}>
-            <View
-              style={[
-                styles.bar,
-                {
-                  height: `${Math.max(8, Math.round(bar.height * 100))}%`,
-                  backgroundColor: '#EF4444',
-                  opacity: bar.bpm > 0 ? 0.85 : 0.15,
-                },
-              ]}
-            />
-          </View>
-        ))}
-      </View>
+    <View style={styles.sectionPad}>
+      <AnimatedCard delay={180}>
+        <View style={styles.header}>
+          <FieldLabel>Heart rate</FieldLabel>
+          <Text style={[styles.sub, { color: P.textFaint }]}>
+            avg {avg} · peak {peak} bpm
+          </Text>
+        </View>
+        <View style={styles.chartRow}>
+          {bars.map((bar, index) => (
+            <View key={index} style={styles.barCol}>
+              <View
+                style={[
+                  styles.bar,
+                  {
+                    height: `${Math.max(8, Math.round(bar.height * 100))}%`,
+                    backgroundColor: P.danger,
+                    opacity: bar.bpm > 0 ? 0.85 : 0.15,
+                  },
+                ]}
+              />
+            </View>
+          ))}
+        </View>
+      </AnimatedCard>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 14,
-    gap: 12,
+  sectionPad: {
+    paddingHorizontal: WORKOUT_DETAIL_PAD,
+    marginTop: 14,
   },
-  header: { gap: 2 },
-  title: { fontSize: 16, fontWeight: '800' },
-  sub: { fontSize: 12, fontWeight: '600' },
+  header: {
+    gap: 4,
+    marginBottom: 14,
+  },
+  sub: {
+    fontSize: 12,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
   chartRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    height: 88,
+    height: 96,
     gap: 3,
   },
   barCol: {
@@ -95,7 +102,7 @@ const styles = StyleSheet.create({
   },
   bar: {
     width: '100%',
-    borderRadius: 3,
+    borderRadius: 4,
     minHeight: 4,
   },
 });

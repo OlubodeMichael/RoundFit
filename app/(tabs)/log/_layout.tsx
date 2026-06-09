@@ -17,6 +17,7 @@ export default function LogLayout() {
       <Stack.Screen name="weight" />
       <Stack.Screen name="body" />
       <Stack.Screen name="water" />
+      <Stack.Screen name="cycle" />
     </Stack>
   );
 }

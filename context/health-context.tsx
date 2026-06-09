@@ -675,8 +675,16 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id, paintToday]);
 
   // ── Check HealthKit connection status ────────────────────────────────────
+  // Re-runs on user change so switching accounts resets the flag correctly.
   useEffect(() => {
-    if (Platform.OS !== 'ios') return;
+    if (Platform.OS !== 'ios') { setIsConnected(false); return; }
+    if (status === 'loading') return;
+
+    if (status === 'unauthenticated') {
+      setIsConnected(false);
+      return;
+    }
+
     (async () => {
       try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -685,7 +693,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
         setIsConnected(val === 'true');
       } catch { /* storage unavailable */ }
     })();
-  }, []);
+  }, [status, user?.id]);
 
   // ── Re-sync whenever the app returns to foreground ───────────────────────
   useEffect(() => {

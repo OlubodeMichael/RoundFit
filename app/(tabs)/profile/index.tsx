@@ -1,9 +1,9 @@
 import { useRouter } from 'expo-router';
 import {
   Bell,
-  ChevronLeft,
   CreditCard,
   FileText,
+  Flower2,
   HeartPulse,
   HelpCircle,
   LogOut,
@@ -22,7 +22,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DeleteAccountModal } from '@/components/profile/DeleteAccountModal';
 import { UserAvatar } from '@/components/profile/UserAvatar';
 import {
-  HeaderButton,
   ProfileDivider,
   ProfileGroup,
   ProfileHeader,
@@ -71,13 +70,7 @@ export default function ProfileScreen() {
       contentContainerStyle={{ paddingTop: insets.top + 6, paddingBottom: insets.bottom + 96 }}
       showsVerticalScrollIndicator={false}
     >
-      <ProfileHeader
-        P={P}
-        title="My Profile"
-        left={router.canGoBack() ? (
-          <HeaderButton P={P} icon={ChevronLeft} onPress={() => router.back()} accessibilityLabel="Back" />
-        ) : undefined}
-      />
+      <ProfileHeader P={P} title="My Profile" />
 
       {/* ── Avatar ───────────────────────────────────────────────────── */}
       <View style={s.avatarWrap}>
@@ -137,6 +130,14 @@ export default function ProfileScreen() {
         <ProfileRow P={P} icon={HeartPulse} label="Apple Health & Devices"
           onPress={() => router.push('/(tabs)/profile/health')} />
       </ProfileGroup>
+
+      {/* ── Tracking ──────────────────────────────────────────────────── */}
+      {profile?.sex === 'female' && (
+        <ProfileGroup P={P} title="Tracking">
+          <ProfileRow P={P} icon={Flower2} label="Cycle Tracking"
+            onPress={() => router.push('/(tabs)/profile/cycle')} />
+        </ProfileGroup>
+      )}
 
       {/* ── Personalization ───────────────────────────────────────────── */}
       <ProfileGroup P={P} title="Personalization">

@@ -4,15 +4,13 @@ import { Platform } from 'react-native';
 import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { useWorkouts } from '@/hooks/use-workouts';
 import {
-  fetchAppleFitnessWorkoutsForDisplay,
-  type WorkoutImportReviewItem,
-} from '@/services/workout-import';
-import {
   countTodayWorkoutSessions,
   sumTodayWorkoutCalories,
   sumTodayWorkoutDurationMinutes,
 } from '@/components/log/workout/workout-display';
+import type { WorkoutImportReviewItem } from '@/services/workout-import';
 import { getLocalDateString } from '@/utils/date';
+import { fetchPendingAppleFitnessDisplayCached } from '@/utils/workout-cache';
 
 export interface PendingWorkoutGroup {
   date: string;
@@ -32,7 +30,7 @@ export interface UsePendingWorkoutImportsResult {
   /** Today's saved session count + pending Apple Fitness count. */
   todaySessionCount: number;
   isLoading: boolean;
-  refresh: () => Promise<void>;
+  refresh: (force?: boolean) => Promise<void>;
 }
 
 export function usePendingWorkoutImports(): UsePendingWorkoutImportsResult {
@@ -42,30 +40,42 @@ export function usePendingWorkoutImports(): UsePendingWorkoutImportsResult {
   const [isLoading, setIsLoading] = useState(false);
   const workoutsRef = useRef(workouts);
   workoutsRef.current = workouts;
+  const pendingItemsRef = useRef(pendingItems);
+  pendingItemsRef.current = pendingItems;
+  const inFlightRef = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     if (Platform.OS !== 'ios' || !hasActiveUserSession(status, user)) {
       setPendingItems([]);
+      setIsLoading(false);
       return;
     }
-    setIsLoading(true);
-    try {
-      const knownUuids = new Set(
-        workoutsRef.current
-          .map((workout) => workout.healthkit_uuid)
-          .filter((uuid): uuid is string => typeof uuid === 'string' && uuid.length > 0),
-      );
+    if (inFlightRef.current) return;
 
-      const items = await fetchAppleFitnessWorkoutsForDisplay({
-        isAlreadyImported: (uuid) => knownUuids.has(uuid),
-        userId: user!.id,
-      });
+    inFlightRef.current = true;
+    const knownUuids = workoutsRef.current
+      .map((workout) => workout.healthkit_uuid)
+      .filter((uuid): uuid is string => typeof uuid === 'string' && uuid.length > 0);
+
+    if (force || pendingItemsRef.current.length === 0) {
+      setIsLoading(true);
+    }
+
+    try {
+      const items = await fetchPendingAppleFitnessDisplayCached(
+        user!.id,
+        knownUuids,
+        force,
+      );
       setPendingItems(items);
     } catch (err) {
-      console.log('[WorkoutImport] fetchAppleFitnessWorkoutsForDisplay failed:', err);
-      setPendingItems([]);
+      console.log('[WorkoutImport] fetchPendingAppleFitnessDisplayCached failed:', err);
+      if (force || pendingItemsRef.current.length === 0) {
+        setPendingItems([]);
+      }
     } finally {
       setIsLoading(false);
+      inFlightRef.current = false;
     }
   }, [status, user]);
 

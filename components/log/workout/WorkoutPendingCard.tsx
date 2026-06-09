@@ -25,7 +25,7 @@ function buildStats(item: WorkoutImportReviewItem): WorkoutListStat[] {
     });
   }
 
-  return stats.slice(0, 2);
+  return stats;
 }
 
 export function WorkoutPendingCard({ item, onPress, delay = 0 }: WorkoutPendingCardProps) {
@@ -33,13 +33,13 @@ export function WorkoutPendingCard({ item, onPress, delay = 0 }: WorkoutPendingC
     item.sample.startDate.toISOString(),
     item.sample.endDate.toISOString(),
   );
-  const eyebrow = timeRange ?? 'Apple Fitness';
 
   return (
     <WorkoutListCard
       icon={item.catalogEntry.icon}
       title={item.label}
-      eyebrow={eyebrow}
+      timeRange={timeRange}
+      eyebrow="Apple Fitness"
       stats={buildStats(item)}
       calories={item.caloriesBurned}
       isNew

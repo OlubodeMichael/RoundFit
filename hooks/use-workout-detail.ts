@@ -1,80 +1,42 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { hasActiveUserSession, useAuth } from '@/context/auth-context';
-import type { Workout, WorkoutSet } from '@/context/workout-context';
+import type { Workout } from '@/context/workout-context';
 import { useWorkouts } from '@/hooks/use-workouts';
-import { apiFetch } from '@/utils/api';
+import {
+  buildWorkoutSetsCacheKey,
+  fetchWorkoutSetsCached,
+  findWorkoutByIdCached,
+} from '@/utils/workout-cache';
+import { getResourceCached } from '@/utils/resource-cache';
 
 export interface UseWorkoutDetailResult {
   workout: Workout | null;
   isLoading: boolean;
   error: string | null;
-  refresh: () => Promise<void>;
+  refresh: (force?: boolean) => Promise<void>;
 }
 
-function parseApiWorkout(row: Record<string, unknown>): Workout {
-  const rawSets = Array.isArray(row.sets) ? row.sets as Record<string, unknown>[] : [];
-  return {
-    id: String(row.id ?? ''),
-    type: (row.type as Workout['type']) ?? 'other',
-    duration_mins: typeof row.duration_mins === 'number' ? row.duration_mins : 0,
-    calories_burned: typeof row.calories_burned === 'number' ? row.calories_burned : 0,
-    source: (row.source as Workout['source']) ?? 'manual',
-    intensity: row.intensity as Workout['intensity'],
-    distance: typeof row.distance === 'number' ? row.distance : undefined,
-    distance_unit: (row.distance_unit as Workout['distance_unit']) ?? 'km',
-    avg_heart_rate: typeof row.avg_heart_rate === 'number' ? row.avg_heart_rate : undefined,
-    max_heart_rate: typeof row.max_heart_rate === 'number' ? row.max_heart_rate : undefined,
-    notes: typeof row.notes === 'string' ? row.notes : undefined,
-    started_at: typeof row.started_at === 'string' ? row.started_at : undefined,
-    ended_at: typeof row.ended_at === 'string' ? row.ended_at : undefined,
-    date: typeof row.date === 'string' ? row.date : undefined,
-    healthkit_uuid: typeof row.healthkit_uuid === 'string' ? row.healthkit_uuid : undefined,
-    metrics: typeof row.metrics === 'object' && row.metrics != null && !Array.isArray(row.metrics)
-      ? row.metrics as Workout['metrics']
-      : undefined,
-    created_at: typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
-    sets: rawSets.map((set) => ({
-      id: String(set.id ?? ''),
-      exercise: String(set.exercise ?? ''),
-      sets: typeof set.sets === 'number' ? set.sets : undefined,
-      reps: typeof set.reps === 'number' ? set.reps : undefined,
-      weight: typeof set.weight === 'number' ? set.weight : undefined,
-      weight_unit: (set.weight_unit as WorkoutSet['weight_unit']) ?? 'kg',
-    })),
-  };
-}
+async function loadWorkoutSets(
+  userId: string,
+  workoutId: string,
+  force: boolean,
+): Promise<Workout['sets']> {
+  const cacheKey = buildWorkoutSetsCacheKey(userId, workoutId);
 
-async function fetchWorkoutSets(workoutId: string): Promise<WorkoutSet[]> {
-  const { ok, body } = await apiFetch(`/workouts/${workoutId}/sets`);
-  if (!ok) return [];
+  if (!force) {
+    const cached = await getResourceCached<Workout['sets']>(cacheKey);
+    if (cached && !cached.isStale) {
+      return cached.data;
+    }
+  }
 
-  const rows = Array.isArray(body.sets) ? body.sets as Record<string, unknown>[] : [];
-  return rows.map((set) => ({
-    id: String(set.id ?? ''),
-    exercise: String(set.exercise ?? ''),
-    sets: typeof set.sets === 'number' ? set.sets : undefined,
-    reps: typeof set.reps === 'number' ? set.reps : undefined,
-    weight: typeof set.weight === 'number' ? set.weight : undefined,
-    weight_unit: (set.weight_unit as WorkoutSet['weight_unit']) ?? 'kg',
-  }));
-}
-
-async function findWorkoutInHistory(workoutId: string): Promise<Workout | null> {
-  const { ok, body } = await apiFetch('/workouts/history?limit=50');
-  if (!ok) return null;
-
-  const rows = Array.isArray(body.workouts)
-    ? body.workouts as Record<string, unknown>[]
-    : [];
-
-  const match = rows.find((row) => String(row.id ?? '') === workoutId);
-  return match ? parseApiWorkout({ ...match, sets: [] }) : null;
+  return fetchWorkoutSetsCached(userId, workoutId, force);
 }
 
 export function useWorkoutDetail(workoutId: string | undefined): UseWorkoutDetailResult {
   const { status, user } = useAuth();
-  const { workouts, historyVersion } = useWorkouts();
+  const { workouts } = useWorkouts();
   const [workout, setWorkout] = useState<Workout | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +44,7 @@ export function useWorkoutDetail(workoutId: string | undefined): UseWorkoutDetai
   workoutsRef.current = workouts;
   const inFlightRef = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     if (!workoutId || !hasActiveUserSession(status, user)) {
       setWorkout(null);
       setIsLoading(false);
@@ -90,15 +52,34 @@ export function useWorkoutDetail(workoutId: string | undefined): UseWorkoutDetai
     }
     if (inFlightRef.current) return;
 
+    const userId = user!.id;
     inFlightRef.current = true;
-    setIsLoading(true);
     setError(null);
 
+    const setsCacheKey = buildWorkoutSetsCacheKey(userId, workoutId);
+    const cachedSets = !force ? await getResourceCached<Workout['sets']>(setsCacheKey) : null;
+    const fromContext = workoutsRef.current.find((item) => item.id === workoutId) ?? null;
+
+    if (!force && cachedSets && !cachedSets.isStale && fromContext) {
+      setWorkout({ ...fromContext, sets: cachedSets.data });
+      setIsLoading(false);
+      inFlightRef.current = false;
+      return;
+    }
+
+    if (!force && cachedSets && !cachedSets.isStale) {
+      setIsLoading(fromContext == null);
+    } else if (!force && fromContext) {
+      setWorkout((prev) => prev ?? { ...fromContext, sets: [] });
+      setIsLoading(true);
+    } else {
+      setIsLoading(true);
+    }
+
     try {
-      let resolved = workoutsRef.current.find((item) => item.id === workoutId) ?? null;
-      if (!resolved) {
-        resolved = await findWorkoutInHistory(workoutId);
-      }
+      const resolved =
+        fromContext ??
+        (await findWorkoutByIdCached(userId, workoutId, workoutsRef.current, force));
 
       if (!resolved) {
         setWorkout(null);
@@ -106,9 +87,10 @@ export function useWorkoutDetail(workoutId: string | undefined): UseWorkoutDetai
         return;
       }
 
-      const sets = resolved.sets?.length
-        ? resolved.sets
-        : await fetchWorkoutSets(workoutId);
+      const sets =
+        !force && cachedSets && !cachedSets.isStale
+          ? cachedSets.data
+          : await loadWorkoutSets(userId, workoutId, force);
 
       setWorkout({ ...resolved, sets });
     } catch (err: unknown) {
@@ -122,7 +104,19 @@ export function useWorkoutDetail(workoutId: string | undefined): UseWorkoutDetai
 
   useEffect(() => {
     void refresh();
-  }, [refresh, historyVersion]);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!workoutId) return;
+    const fromContext = workouts.find((item) => item.id === workoutId);
+    if (!fromContext || fromContext.sets.length === 0) return;
+
+    setWorkout((prev) => {
+      if (!prev) return prev;
+      if (prev.sets === fromContext.sets) return prev;
+      return { ...prev, ...fromContext, sets: fromContext.sets };
+    });
+  }, [workouts, workoutId]);
 
   return { workout, isLoading, error, refresh };
 }

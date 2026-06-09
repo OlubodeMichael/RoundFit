@@ -198,6 +198,12 @@ export function getBackendTypeForCatalogId(id: string): BackendWorkoutType | und
   return getCatalogEntryById(id)?.backendType;
 }
 
+export function getCatalogEntryForBackendType(
+  type: BackendWorkoutType,
+): WorkoutCatalogEntry | undefined {
+  return WORKOUT_CATALOG_ENTRIES.find((entry) => entry.backendType === type);
+}
+
 /** HK WorkoutActivityType raw values → best-matching catalogue id for import review. */
 const HK_ACTIVITY_CATALOG_ID: Record<number, string> = {
   13: 'cycle',

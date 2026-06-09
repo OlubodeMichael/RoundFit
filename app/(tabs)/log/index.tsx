@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LogTodayCategoryCard } from '@/components/log/LogTodayCategoryCard';
 import { LogTodaySummary } from '@/components/log/LogTodaySummary';
+import { isCycleTrackingEnabled, useCycle } from '@/context/cycle-context';
 import { useFood } from '@/hooks/use-food';
 import { usePendingWorkoutImports } from '@/hooks/use-pending-workout-imports';
 import { ScreenHeader, usePalette, useScreenPadding } from '@/lib/log-theme';
@@ -22,6 +23,7 @@ import { useProfile } from '@/hooks/use-profile';
 import { useUnits } from '@/hooks/use-units';
 import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
+import { buildCycleLogCardCopy } from '@/utils/cycle-log-card-copy';
 import { formatSleepDuration } from '@/utils/sleep-quality';
 
 function capital(s: string): string {
@@ -43,12 +45,15 @@ export default function DailyLogScreen() {
   const { weightUnit, toDisplayWeight } = useUnits();
   const health = useHealth();
   const recovery = useRecovery();
+  const { current: cycleCurrent, history: cycleHistory, refresh: refreshCycle } = useCycle();
+  const showCycleLog = isCycleTrackingEnabled(profile?.sex);
   const [refreshing, setRefreshing] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       void ensureLoaded();
-    }, [ensureLoaded]),
+      if (showCycleLog) void refreshCycle();
+    }, [ensureLoaded, refreshCycle, showCycleLog]),
   );
 
   // Treat 0 / null as "no sleep" and prefer whichever source has a real value, so a
@@ -72,7 +77,8 @@ export default function DailyLogScreen() {
       await Promise.all([
         refreshLogs(),
         refreshWater(undefined, { force: true }),
-        pendingWorkouts.refresh(),
+        pendingWorkouts.refresh(true),
+        showCycleLog ? refreshCycle() : Promise.resolve(),
       ]);
     } catch {
       toast.error('Could not refresh', 'Please try again.');
@@ -130,6 +136,11 @@ export default function DailyLogScreen() {
         ]
           .filter(Boolean)
           .join(' · ');
+
+  const cycleLogCard = useMemo(
+    () => buildCycleLogCardCopy(cycleCurrent, cycleHistory),
+    [cycleCurrent, cycleHistory],
+  );
 
   return (
     <View style={[styles.root, { backgroundColor: P.bg }]}>
@@ -235,6 +246,19 @@ export default function DailyLogScreen() {
             progress={totalMl > 0 ? Math.min(totalMl / Math.max(goalMl, 1), 1) : undefined}
             onPress={() => router.push('/(tabs)/log/water')}
           />
+
+          {showCycleLog && (
+            <LogTodayCategoryCard
+              variant="body"
+              icon="flower-outline"
+              title="Cycle"
+              value={cycleLogCard.value}
+              valueUnit={cycleLogCard.valueUnit}
+              caption={cycleLogCard.caption}
+              progress={cycleLogCard.progress}
+              onPress={() => router.push('/(tabs)/log/cycle')}
+            />
+          )}
         </View>
       </ScrollView>
     </View>

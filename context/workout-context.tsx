@@ -10,8 +10,15 @@ import { applyTodayOptimistic } from '@/utils/today-optimistic';
 import { applyTodayReconcile, type TodayReconcileBundle } from '@/utils/today-reconcile';
 import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
 import {
-  buildResourceKey,
-  fetchWithResourceCache,
+  buildWorkoutsDateCacheKey,
+  fetchWorkoutsForDateCached,
+  fromApiSet,
+  fromApiWorkout,
+  invalidateWorkoutSetsCache,
+  patchWorkoutHistoryCache,
+  writeWorkoutSetsCache,
+} from '@/utils/workout-cache';
+import {
   getResourceCached,
   setResourceCached,
   ttlForDate,
@@ -145,39 +152,13 @@ function extractTodayBundle(body: Record<string, unknown>): TodayReconcileBundle
   return body.today as unknown as TodayReconcileBundle;
 }
 
-function fromApiSet(row: Record<string, unknown>): WorkoutSet {
-  return {
-    id:          String(row.id ?? ''),
-    exercise:    String(row.exercise ?? ''),
-    sets:        typeof row.sets   === 'number' ? row.sets   : undefined,
-    reps:        typeof row.reps   === 'number' ? row.reps   : undefined,
-    weight:      typeof row.weight === 'number' ? row.weight : undefined,
-    weight_unit: (row.weight_unit as WeightUnit) ?? 'kg',
-  };
-}
-
-function fromApiWorkout(row: Record<string, unknown>): Workout {
-  const rawSets = Array.isArray(row.sets) ? row.sets as Record<string, unknown>[] : [];
-  return {
-    id:              String(row.id ?? ''),
-    type:            (row.type as WorkoutType) ?? 'other',
-    duration_mins:   typeof row.duration_mins === 'number' ? row.duration_mins : 0,
-    calories_burned: typeof row.calories_burned === 'number' ? row.calories_burned : 0,
-    source:          (row.source as WorkoutSource) ?? 'manual',
-    intensity:       row.intensity  as WorkoutIntensity | undefined,
-    distance:        typeof row.distance === 'number' ? row.distance : undefined,
-    distance_unit:   (row.distance_unit as DistanceUnit) ?? 'km',
-    avg_heart_rate:  typeof row.avg_heart_rate === 'number' ? row.avg_heart_rate : undefined,
-    max_heart_rate:  typeof row.max_heart_rate === 'number' ? row.max_heart_rate : undefined,
-    notes:           typeof row.notes === 'string' ? row.notes : undefined,
-    started_at:      typeof row.started_at === 'string' ? row.started_at : undefined,
-    ended_at:        typeof row.ended_at   === 'string' ? row.ended_at   : undefined,
-    date:            typeof row.date       === 'string' ? row.date       : undefined,
-    healthkit_uuid:  typeof row.healthkit_uuid === 'string' ? row.healthkit_uuid : undefined,
-    metrics:         isPlainObject(row.metrics) ? row.metrics as WorkoutMetrics : undefined,
-    created_at:      typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
-    sets:            rawSets.map(fromApiSet),
-  };
+function writeTodayWorkoutsCache(userId: string, rows: Workout[]): void {
+  const today = todayDateString();
+  void setResourceCached(
+    buildWorkoutsDateCacheKey(userId, today),
+    rows,
+    ttlForDate(today),
+  );
 }
 
 // ── Context ────────────────────────────────────────────────────────────────
@@ -213,24 +194,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const fetchWorkouts = useCallback(async (date: string, force = false) => {
     if (!user?.id) return;
 
-    const isToday = date === todayDateString();
-    const path    = isToday ? '/workouts/today' : `/workouts/${date}`;
-    const key     = buildResourceKey('workouts', user.id, date);
-
-    const parsed = await fetchWithResourceCache<Workout[]>(
-      key,
-      ttlForDate(date),
-      async () => {
-        const { ok, body } = await apiFetch(path);
-        if (!ok) return null;
-        const rows = Array.isArray(body.workouts)
-          ? body.workouts as Record<string, unknown>[]
-          : [];
-        return rows.map(fromApiWorkout);
-      },
-      { force },
-    );
-
+    const parsed = await fetchWorkoutsForDateCached(user.id, date, force);
     if (parsed) setWorkouts(parsed);
   }, [user?.id]);
 
@@ -246,7 +210,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     (async () => {
-      const key = buildResourceKey('workouts', user.id, activeDate);
+      const key = buildWorkoutsDateCacheKey(user.id, activeDate);
       const cached = await getResourceCached<Workout[]>(key);
       if (cached && !cancelled) {
         setWorkouts(cached.data);
@@ -298,24 +262,26 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     });
     if (!ok) throw new Error((body.error as string) ?? 'Failed to log workout');
     const saved = fromApiWorkout(body.workout as Record<string, unknown>);
+    const withClientTimes: Workout = {
+      ...saved,
+      ...(input.started_at != null ? { started_at: input.started_at } : {}),
+      ...(input.ended_at != null ? { ended_at: input.ended_at } : {}),
+    };
     setWorkouts((prev) => {
-      const next = [saved, ...prev];
-      if (user?.id) {
-        const today = todayDateString();
-        void setResourceCached(
-          buildResourceKey('workouts', user.id, today),
-          next,
-          ttlForDate(today),
-        );
-      }
+      const next = [withClientTimes, ...prev];
+      if (user?.id) writeTodayWorkoutsCache(user.id, next);
       return next;
     });
-    applyTodayOptimistic({ caloriesBurned: saved.calories_burned });
+    if (user?.id) {
+      // Await so the patched cache is in place before bumpHistory() re-reads it.
+      await patchWorkoutHistoryCache(user.id, (rows) => [withClientTimes, ...rows]);
+    }
+    applyTodayOptimistic({ caloriesBurned: withClientTimes.calories_burned });
     const bundle = extractTodayBundle(body);
     if (bundle) applyTodayReconcile(bundle);
     bumpHistory();
     void syncToday();
-    return saved;
+    return withClientTimes;
   }, [bumpHistory, syncToday, user?.id]);
 
   // ── Log sets ─────────────────────────────────────────────────────────────
@@ -328,16 +294,23 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     const saved = Array.isArray(body.sets)
       ? (body.sets as Record<string, unknown>[]).map(fromApiSet)
       : [];
-    setWorkouts((prev) =>
-      prev.map((w) =>
-        w.id === workoutId ? { ...w, sets: [...w.sets, ...saved] } : w,
-      ),
-    );
+    setWorkouts((prev) => {
+      const next = prev.map((w) => {
+        if (w.id !== workoutId) return w;
+        const mergedSets = [...w.sets, ...saved];
+        if (user?.id) {
+          void writeWorkoutSetsCache(user.id, workoutId, mergedSets);
+        }
+        return { ...w, sets: mergedSets };
+      });
+      if (user?.id) writeTodayWorkoutsCache(user.id, next);
+      return next;
+    });
     const bundle = extractTodayBundle(body);
     if (bundle) applyTodayReconcile(bundle);
     void syncToday();
     return saved;
-  }, [syncToday]);
+  }, [syncToday, user?.id]);
 
   // ── Delete workout ───────────────────────────────────────────────────────
   const deleteWorkout = useCallback(async (id: string) => {
@@ -359,13 +332,10 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (user?.id) {
-      const today = todayDateString();
-      const next = snapshot.filter((workout) => workout.id !== id);
-      void setResourceCached(
-        buildResourceKey('workouts', user.id, today),
-        next,
-        ttlForDate(today),
-      );
+      writeTodayWorkoutsCache(user.id, snapshot.filter((workout) => workout.id !== id));
+      // Await so the patched cache is in place before bumpHistory() re-reads it.
+      await patchWorkoutHistoryCache(user.id, (rows) => rows.filter((w) => w.id !== id));
+      void invalidateWorkoutSetsCache(user.id, id);
     }
 
     const bundle = extractTodayBundle(body);
@@ -387,25 +357,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   // ── Fetch for any date without touching context state ─────────────────────
   const fetchForDate = useCallback(async (date: string, force = false): Promise<Workout[]> => {
     if (!user?.id) return [];
-
-    const today = todayDateString();
-    const path  = date === today ? '/workouts/today' : `/workouts/${date}`;
-    const key   = buildResourceKey('workouts', user.id, date);
-
-    const parsed = await fetchWithResourceCache<Workout[]>(
-      key,
-      ttlForDate(date),
-      async () => {
-        const { ok, body } = await apiFetch(path);
-        if (!ok) return null;
-        const rows = Array.isArray(body.workouts)
-          ? body.workouts as Record<string, unknown>[]
-          : [];
-        return rows.map(fromApiWorkout);
-      },
-      { force },
-    );
-
+    const parsed = await fetchWorkoutsForDateCached(user.id, date, force);
     return parsed ?? [];
   }, [user?.id]);
 

@@ -1187,6 +1187,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await clearTokens();
     const { clearUserCachesOnLogout } = await import('@/utils/clear-user-caches');
     await clearUserCachesOnLogout();
+
+    // Clear device-local flags so the next account starts clean
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const AsyncStorage = require("@react-native-async-storage/async-storage").default;
+      await AsyncStorage.multiRemove([
+        "@roundfit/health_connected",
+        "@roundfit/last_health_sync",
+      ]);
+    } catch { /* storage unavailable */ }
+
     setUser(null);
     setProfileSetupPending(false);
     lastMeFetchAtRef.current = 0;

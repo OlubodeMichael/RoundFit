@@ -9,7 +9,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import type { Href } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, {
@@ -44,6 +45,7 @@ import {
   READINESS_BAND_COLORS,
 } from '@/components/recovery/recovery-trend-utils';
 import type { TrendPalette } from '@/components/recovery/recovery-trend-utils';
+import { safeBack } from '@/utils/navigation';
 
 type Period = 'D' | 'W' | 'M';
 type P = ReturnType<typeof usePalette>;
@@ -505,7 +507,13 @@ export default function RecoveryScreen() {
   const P      = usePalette();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const { width } = useWindowDimensions();
+
+  const backFallback: Href =
+    typeof returnTo === 'string' && returnTo.length > 0
+      ? returnTo
+      : '/(tabs)/progress';
 
   const [period, setPeriod] = useState<Period>('D');
 
@@ -578,7 +586,7 @@ export default function RecoveryScreen() {
         {/* ── Top nav ─────────────────────────────────────────────── */}
         <View style={s.topNav}>
           <TouchableOpacity
-            onPress={() => router.navigate('/(tabs)/progress')}
+            onPress={() => safeBack(router, backFallback)}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             style={s.navBtn}
             activeOpacity={0.7}

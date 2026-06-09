@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { CheckCircle2, Flower2, Heart, Watch } from 'lucide-react-native';
+import { CheckCircle2, Heart, Watch } from 'lucide-react-native';
 import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { usePostHog } from 'posthog-react-native';
 
@@ -12,7 +12,6 @@ import {
   useSettingsPalette,
 } from '@/components/profile/settings-ui';
 import { useHealth } from '@/hooks/use-health';
-import { useProfile } from '@/hooks/use-profile';
 
 const HEALTH_KEY = '@roundfit/health_connected';
 const HEALTH_TYPES = [
@@ -27,7 +26,6 @@ export default function HealthScreen() {
   const P = useSettingsPalette();
   const router = useRouter();
   const posthog = usePostHog();
-  const { profile } = useProfile();
   const { isConnected: healthConnected } = useHealth();
 
   const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
@@ -91,17 +89,6 @@ export default function HealthScreen() {
         />
       </Section>
 
-      {profile?.sex === 'female' && (
-        <Section label="Tracking" P={P}>
-          <NavRow
-            icon={Flower2}
-            color="#FB7185"
-            label="Cycle Tracking"
-            P={P}
-            onPress={() => router.push('/(tabs)/profile/cycle')}
-          />
-        </Section>
-      )}
     </SettingsScreen>
   );
 }

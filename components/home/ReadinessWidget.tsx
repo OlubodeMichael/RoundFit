@@ -1,4 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import type { Href } from "expo-router";
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
@@ -98,11 +99,14 @@ export interface ReadinessWidgetProps {
    * `passive` — show recovery context after Progress tab has loaded it.
    */
   mode?: "home" | "passive";
+  /** Where the recovery detail screen should return when back isn't available. */
+  returnTo?: Href;
 }
 
 export function ReadinessWidget({
   delay = 0,
   mode = "passive",
+  returnTo,
 }: ReadinessWidgetProps) {
   const router = useRouter();
   const P = usePalette();
@@ -167,7 +171,12 @@ export function ReadinessWidget({
       delay={delay}
     >
       <Pressable
-        onPress={() => router.push("/(tabs)/progress/recovery")}
+        onPress={() =>
+          router.push({
+            pathname: "/(tabs)/progress/recovery",
+            params: returnTo != null ? { returnTo: String(returnTo) } : undefined,
+          })
+        }
         accessibilityRole="button"
         accessibilityLabel={`Readiness score ${score}, ${headline}`}
         style={({ pressed }) => [pressed && s.pressed]}
