@@ -2,6 +2,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useRef, useState,
 } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { apiFetch, proactiveRefreshIfNeeded } from '@/utils/api';
 import {
@@ -123,12 +124,8 @@ export interface HealthContextValue {
 
 // ── API helper ─────────────────────────────────────────────────────────────
 
-// Prefer the single EXPO_PUBLIC_API_KEY env var (same one apiFetch and avatar
-// use). Fall back to the legacy EXPO_PUBLIC_API_SECRET_KEY so existing .env
-// files keep working until they're migrated.
-const API_KEY =
-  process.env.EXPO_PUBLIC_API_KEY ??
-  process.env.EXPO_PUBLIC_API_SECRET_KEY;
+// Same API key apiFetch and avatar use, read from app.config.js -> extra.apiKey.
+const API_KEY = Constants.expoConfig?.extra?.apiKey as string | undefined;
 
 function healthFetch(
   path: string,

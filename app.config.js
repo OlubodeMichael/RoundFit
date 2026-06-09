@@ -149,6 +149,10 @@ module.exports = {
       },
       posthogProjectToken: process.env.POSTHOG_PROJECT_TOKEN,
       posthogHost: process.env.POSTHOG_HOST,
+      supabaseUrl: process.env.SUPABASE_URL,
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+      apiUrl: process.env.API_URL,
+      apiKey: process.env.API_KEY,
     },
   },
 };

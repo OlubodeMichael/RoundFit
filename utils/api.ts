@@ -1,7 +1,9 @@
 import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
 
-const API_BASE    = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
-const API_KEY     = process.env.EXPO_PUBLIC_API_KEY ?? '';
+const extra = Constants.expoConfig?.extra ?? {};
+const API_BASE    = (extra.apiUrl as string | undefined) ?? 'http://localhost:8000/api';
+const API_KEY     = (extra.apiKey as string | undefined) ?? '';
 const TOKEN_KEY   = 'access_token';
 const REFRESH_KEY = 'refresh_token';
 const SUB_KEY     = 'token_sub';       // plain-string owner of the stored session
@@ -12,8 +14,8 @@ if (!API_KEY) {
   // /auth/refresh — rejected by the backend's requireApiKey middleware, which
   // looks exactly like a mass random logout. Surface it loudly at startup.
   console.warn(
-    '[api] EXPO_PUBLIC_API_KEY is empty — requests that require the API key ' +
-      '(including /auth/refresh) may be rejected and log users out.',
+    '[api] API_KEY (Constants.expoConfig.extra.apiKey) is empty — requests that ' +
+      'require the API key (including /auth/refresh) may be rejected and log users out.',
   );
 }
 
