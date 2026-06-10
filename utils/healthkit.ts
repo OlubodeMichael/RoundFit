@@ -8,8 +8,23 @@ import type {
 } from '@/context/workout-context';
 import type { DistanceUnit } from '@/utils/units';
 import { getLocalDateString } from '@/utils/date';
+import {
+  asFiniteNumber,
+  extractCumulativeOrNull,
+  normaliseDistanceQuantity,
+  parseSumQuantityFromStatistics,
+} from '@/utils/healthkit-stats';
 
 const DISTANCE_WALKING_RUNNING_ID = 'HKQuantityTypeIdentifierDistanceWalkingRunning';
+
+/**
+ * Dev-only logger. HealthKit values are health PII — raw HR/sleep samples and
+ * daily summaries must never reach OS device logs or log collectors in
+ * release builds.
+ */
+function hkLog(...args: unknown[]): void {
+  if (__DEV__) hkLog(...args);
+}
 
 /** True in the Expo Go client — Nitro/native HealthKit cannot load there. */
 export function isExpoGoEnvironment(): boolean {
@@ -187,7 +202,7 @@ export async function ensureHealthKitAuthorized(
 
     return true;
   } catch (err) {
-    console.log('[HealthKit] authorization check failed:', err);
+    hkLog('[HealthKit] authorization check failed:', err);
     return false;
   }
 }
@@ -211,82 +226,6 @@ function queryOptionsForInterval(
       date: { startDate, endDate },
     },
   };
-}
-
-function asFiniteNumber(v: unknown): number | null {
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  if (typeof v === 'string' && v.trim() !== '') {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
-}
-
-function extractQuantityFromStatEntry(entry: unknown): { qty: number; unit: string } | null {
-  if (entry === null || entry === undefined) return null;
-
-  const direct = asFiniteNumber(entry);
-  if (direct !== null && direct > 0) return { qty: direct, unit: '' };
-
-  if (typeof entry !== 'object') return null;
-  const nested = entry as Record<string, unknown>;
-  const qty = asFiniteNumber(nested.quantity ?? nested.value ?? nested.count);
-  if (qty === null || qty <= 0) return null;
-  const unit = typeof nested.unit === 'string' ? nested.unit.toLowerCase() : '';
-  return { qty, unit };
-}
-
-function extractCumulativeFromStatResult(result: unknown): number {
-  if (!result || typeof result !== 'object') return 0;
-  const raw = result as Record<string, unknown>;
-  for (const key of ['sumQuantity', 'cumulativeSum', 'value', 'sum']) {
-    const parsed = extractQuantityFromStatEntry(raw[key]);
-    if (parsed) return Math.round(parsed.qty);
-  }
-  return 0;
-}
-
-function normaliseDistanceQuantity(qty: number, unit: string): { value: number; unit: DistanceUnit } {
-  const u = unit.toLowerCase();
-  if (u === 'm' || u === 'meter' || u === 'meters') {
-    return { value: Math.round((qty / 1000) * 100) / 100, unit: 'km' };
-  }
-  if (u === 'mi' || u === 'mile' || u === 'miles') {
-    return { value: Math.round(qty * 100) / 100, unit: 'mi' };
-  }
-  if (u === 'km' || u === 'kilometer' || u === 'kilometers') {
-    return { value: Math.round(qty * 100) / 100, unit: 'km' };
-  }
-  if (u === 'ft' || u === 'foot' || u === 'feet') {
-    return { value: Math.round((qty / 5280) * 100) / 100, unit: 'mi' };
-  }
-  if (u === 'in' || u === 'inch' || u === 'inches') {
-    return { value: Math.round((qty / 63360) * 100) / 100, unit: 'mi' };
-  }
-  if (u === 'yd' || u === 'yard' || u === 'yards') {
-    return { value: Math.round((qty / 1760) * 100) / 100, unit: 'mi' };
-  }
-  // HealthKit's SI default for distance is meters when unit is omitted.
-  if (!u && qty >= 100) {
-    return { value: Math.round((qty / 1000) * 100) / 100, unit: 'km' };
-  }
-  return { value: Math.round(qty * 100) / 100, unit: 'km' };
-}
-
-/** Official v14 shape: { sumQuantity: { quantity, unit } }. */
-function parseSumQuantityFromStatistics(result: unknown): { qty: number; unit: string } | null {
-  if (!result || typeof result !== 'object') return null;
-  const raw = result as Record<string, unknown>;
-
-  const fromSum = extractQuantityFromStatEntry(raw.sumQuantity);
-  if (fromSum) return fromSum;
-
-  for (const key of ['cumulativeSum', 'value', 'sum']) {
-    const parsed = extractQuantityFromStatEntry(raw[key]);
-    if (parsed) return parsed;
-  }
-
-  return extractQuantityFromStatEntry(result);
 }
 
 async function preferredDistanceQueryUnits(hk: HealthKitModule): Promise<string[]> {
@@ -352,13 +291,16 @@ async function queryCumulativeStat(
   for (const statsOpts of optionVariants) {
     try {
       const result = await hk.queryStatisticsForQuantity(id, ['cumulativeSum'], statsOpts);
-      const value = extractCumulativeFromStatResult(result);
-      if (value > 0) {
-        console.log(`[HealthKit] stat ${id}:`, value);
+      // null = unrecognised result shape (try the next option variant);
+      // 0 = the query genuinely returned zero — short-circuit, don't burn two
+      // more native queries re-asking the same question.
+      const value = extractCumulativeOrNull(result);
+      if (value !== null) {
+        hkLog(`[HealthKit] stat ${id}:`, value);
         return value;
       }
     } catch (e) {
-      console.log(`[HealthKit] queryStatisticsForQuantity ${id} failed:`, e);
+      hkLog(`[HealthKit] queryStatisticsForQuantity ${id} failed:`, e);
     }
   }
 
@@ -377,7 +319,6 @@ async function queryDistanceFromSamples(
   endDate:   Date,
   queryUnits: string[],
 ): Promise<{ value: number; unit: DistanceUnit }> {
-  const filter = { date: { startDate, endDate } };
   const unitAttempts = [...queryUnits, undefined];
 
   for (const unit of unitAttempts) {
@@ -389,42 +330,66 @@ async function queryDistanceFromSamples(
       const samples: QuantitySampleLike[] = await hk
         .queryQuantitySamples(DISTANCE_WALKING_RUNNING_ID, opts)
         .catch(() => []);
-      let totalMeters = 0;
-      let totalKm = 0;
-      let totalMi = 0;
+
+      // Sum per source, not across sources: iPhone and Watch both record the
+      // same walk, and the stats API dedupes that overlap — this raw-sample
+      // fallback can't, so a cross-source sum would double the distance.
+      // The largest single-source total is the closest approximation.
+      interface SourceTotals { mi: number; km: number; meters: number }
+      const bySource = new Map<string, SourceTotals>();
       for (const s of samples) {
         const qty = asFiniteNumber(s.quantity);
         if (qty === null || qty <= 0) continue;
+        const sourceKey =
+          s.sourceRevision?.source?.bundleIdentifier
+          ?? s.sourceRevision?.source?.name
+          ?? s.device?.name
+          ?? 'unknown';
+        const totals = bySource.get(sourceKey) ?? { mi: 0, km: 0, meters: 0 };
         const sampleUnit = s.unit?.toLowerCase() ?? unit?.toLowerCase() ?? '';
         if (sampleUnit === 'mi' || sampleUnit === 'mile' || sampleUnit === 'miles') {
-          totalMi += qty;
+          totals.mi += qty;
         } else if (sampleUnit === 'km' || sampleUnit === 'kilometer' || sampleUnit === 'kilometers') {
-          totalKm += qty;
+          totals.km += qty;
         } else if (
           sampleUnit === 'ft' || sampleUnit === 'foot' || sampleUnit === 'feet'
           || sampleUnit === 'in' || sampleUnit === 'inch' || sampleUnit === 'inches'
           || sampleUnit === 'yd' || sampleUnit === 'yard' || sampleUnit === 'yards'
         ) {
-          totalMi += sampleUnit.startsWith('in')
+          totals.mi += sampleUnit.startsWith('in')
             ? qty / 63360
             : sampleUnit.startsWith('yd')
               ? qty / 1760
               : qty / 5280;
         } else {
-          totalMeters += qty;
+          totals.meters += qty;
+        }
+        bySource.set(sourceKey, totals);
+      }
+
+      let best: SourceTotals | null = null;
+      let bestKmEquivalent = 0;
+      for (const totals of bySource.values()) {
+        const kmEquivalent = totals.mi * 1.609344 + totals.km + totals.meters / 1000;
+        if (kmEquivalent > bestKmEquivalent) {
+          bestKmEquivalent = kmEquivalent;
+          best = totals;
         }
       }
-      if (totalMi > 0) {
-        return { value: Math.round(totalMi * 100) / 100, unit: 'mi' };
-      }
-      if (totalKm > 0) {
-        return { value: Math.round(totalKm * 100) / 100, unit: 'km' };
-      }
-      if (totalMeters > 0) {
-        return { value: Math.round((totalMeters / 1000) * 100) / 100, unit: 'km' };
+
+      if (best) {
+        if (best.mi > 0) {
+          return { value: Math.round(best.mi * 100) / 100, unit: 'mi' };
+        }
+        if (best.km > 0) {
+          return { value: Math.round(best.km * 100) / 100, unit: 'km' };
+        }
+        if (best.meters > 0) {
+          return { value: Math.round((best.meters / 1000) * 100) / 100, unit: 'km' };
+        }
       }
     } catch (e) {
-      console.log('[HealthKit] queryQuantitySamples distance failed:', e);
+      hkLog('[HealthKit] queryQuantitySamples distance failed:', e);
     }
   }
 
@@ -447,18 +412,18 @@ async function queryDistanceStat(
         ['cumulativeSum'],
         { unit, filter },
       );
-      console.log(`[HealthKit] stat raw distance (unit=${unit}):`, JSON.stringify(result));
+      hkLog(`[HealthKit] stat raw distance (unit=${unit}):`, JSON.stringify(result));
 
       const parsed = parseSumQuantityFromStatistics(result);
       if (!parsed) continue;
 
       const normalised = normaliseDistanceQuantity(parsed.qty, parsed.unit || unit);
       if (normalised.value > 0) {
-        console.log(`[HealthKit] distance ${normalised.value} ${normalised.unit}`);
+        hkLog(`[HealthKit] distance ${normalised.value} ${normalised.unit}`);
         return normalised;
       }
     } catch (e) {
-      console.log(`[HealthKit] queryStatisticsForQuantity distance (unit=${unit}) failed:`, e);
+      hkLog(`[HealthKit] queryStatisticsForQuantity distance (unit=${unit}) failed:`, e);
     }
   }
 
@@ -469,17 +434,17 @@ async function queryDistanceStat(
       ['cumulativeSum'],
       { filter },
     );
-    console.log('[HealthKit] stat raw distance (preferred):', JSON.stringify(result));
+    hkLog('[HealthKit] stat raw distance (preferred):', JSON.stringify(result));
     const parsed = parseSumQuantityFromStatistics(result);
     if (parsed) {
       const normalised = normaliseDistanceQuantity(parsed.qty, parsed.unit);
       if (normalised.value > 0) {
-        console.log(`[HealthKit] distance ${normalised.value} ${normalised.unit}`);
+        hkLog(`[HealthKit] distance ${normalised.value} ${normalised.unit}`);
         return normalised;
       }
     }
   } catch (e) {
-    console.log('[HealthKit] queryStatisticsForQuantity distance (preferred) failed:', e);
+    hkLog('[HealthKit] queryStatisticsForQuantity distance (preferred) failed:', e);
   }
 
   const fromSamples = await queryDistanceFromSamples(hk, startDate, endDate, queryUnits);
@@ -535,7 +500,7 @@ export async function readDailyHealthKit(
     filter:    { date: { startDate: sleepWindowStart, endDate: sleepWindowEnd } },
   };
 
-  console.log('[HealthKit] readDailyHealthKit window:', {
+  hkLog('[HealthKit] readDailyHealthKit window:', {
     startDate: from.toISOString(),
     endDate:   to.toISOString(),
   });
@@ -563,7 +528,7 @@ export async function readDailyHealthKit(
   logHealthKitRawSamples('RestingHeartRate', restingHR);
   logHealthKitRawSamples('HeartRateVariabilitySDNN', hrv);
   logHealthKitRawSamples('VO2Max', vo2Max);
-  console.log('[HealthKit] StandHour raw values:', (standHourSamples as CategorySampleLike[]).slice(0, 10).map((s) => ({
+  hkLog('[HealthKit] StandHour raw values:', (standHourSamples as CategorySampleLike[]).slice(0, 10).map((s) => ({
     value: s.value,
     start: s.startDate instanceof Date ? s.startDate.toISOString() : s.startDate,
   })));
@@ -631,7 +596,7 @@ export async function readDailyHealthKit(
     mindfulness_minutes:   round(sumCategoryDurationHoursWithinWindow(mindful, from, to) * 60),
   };
 
-  console.log('[HealthKit] readDailyHealthKit summary (interval above):', JSON.stringify(summary, null, 2));
+  hkLog('[HealthKit] readDailyHealthKit summary (interval above):', JSON.stringify(summary, null, 2));
 
   return summary;
 }
@@ -800,12 +765,24 @@ function summariseSleep(
   let inBedStart: Date | null = null;
   let inBedEnd:   Date | null = null;
 
+  // Fallback bounds: many sources (third-party trackers, some Watch flows)
+  // write only asleep* stage samples and never inBed — without these, bedtime,
+  // wakeup, and efficiency would all come back null despite full stage data.
+  let asleepStart: Date | null = null;
+  let asleepEnd:   Date | null = null;
+
   for (const s of samples) {
     const hours = durationHoursWithinWindow(s, windowStart, windowEnd);
     if (hours <= 0) continue;
     if (isSleepValue(s.value, SLEEP_VALUE_DEEP, 'asleepDeep')) deep   += hours;
     if (isSleepValue(s.value, SLEEP_VALUE_REM,  'asleepREM'))  rem    += hours;
-    if (isAsleepValue(s.value))                                asleep += hours;
+    if (isAsleepValue(s.value)) {
+      asleep += hours;
+      const start = s.startDate instanceof Date ? s.startDate : new Date(s.startDate);
+      const end   = s.endDate   instanceof Date ? s.endDate   : new Date(s.endDate);
+      if (!asleepStart || start < asleepStart) asleepStart = start;
+      if (!asleepEnd   || end   > asleepEnd)   asleepEnd   = end;
+    }
     if (isSleepValue(s.value, SLEEP_VALUE_IN_BED, 'inBed')) {
       inBed += hours;
       const start = s.startDate instanceof Date ? s.startDate : new Date(s.startDate);
@@ -815,14 +792,29 @@ function summariseSleep(
     }
   }
 
+  const bedtime = inBedStart ?? asleepStart;
+  const wakeup  = inBedEnd   ?? asleepEnd;
+
+  // Efficiency: asleep / inBed when inBed exists; otherwise approximate with
+  // the asleep span (first sleep → last wake), capped at 100.
+  let efficiency: number | null = null;
+  if (inBed > 0) {
+    efficiency = Math.min(100, Math.round((asleep / inBed) * 100));
+  } else if (asleep > 0 && asleepStart && asleepEnd) {
+    const spanHours = (asleepEnd.getTime() - asleepStart.getTime()) / 3_600_000;
+    if (spanHours > 0) {
+      efficiency = Math.min(100, Math.round((asleep / spanHours) * 100));
+    }
+  }
+
   return {
     sleep_hours:       tenths(asleep),
     deep_sleep_hours:  tenths(deep),
     rem_sleep_hours:   tenths(rem),
     time_in_bed_hours: tenths(inBed),
-    sleep_efficiency:  inBed > 0 ? Math.round((asleep / inBed) * 100) : null,
-    bedtime_iso:       inBedStart ? inBedStart.toISOString() : null,
-    wakeup_iso:        inBedEnd   ? inBedEnd.toISOString()   : null,
+    sleep_efficiency:  efficiency,
+    bedtime_iso:       bedtime ? bedtime.toISOString() : null,
+    wakeup_iso:        wakeup  ? wakeup.toISOString()  : null,
   };
 }
 
@@ -892,7 +884,7 @@ function logHealthKitRawSamples(label: string, samples: readonly unknown[]): voi
     device:    s.device?.name ?? s.device?.model ?? 'unknown device',
     source:    s.sourceRevision?.source?.name ?? s.sourceRevision?.source?.bundleIdentifier ?? 'unknown source',
   }));
-  console.log(`[HealthKit] ${label}: ${n} sample(s), preview (up to ${HK_LOG_PREVIEW}):`, jsonSafe(preview));
+  hkLog(`[HealthKit] ${label}: ${n} sample(s), preview (up to ${HK_LOG_PREVIEW}):`, jsonSafe(preview));
 }
 
 // ── Workout import ─────────────────────────────────────────────────────────
@@ -1027,7 +1019,7 @@ export async function fetchHeartRateSamplesDuringWindow(
       .filter((point): point is HealthKitHeartRatePoint => point != null)
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   } catch (err) {
-    console.log('[HealthKit] fetchHeartRateSamplesDuringWindow failed:', err);
+    hkLog('[HealthKit] fetchHeartRateSamplesDuringWindow failed:', err);
     return [];
   }
 }
@@ -1102,6 +1094,8 @@ function distanceFromWorkout(
 
   const unit = sample.totalDistance?.unit?.toLowerCase() ?? '';
   const normalised = normaliseDistanceQuantity(qty, unit);
+  // Unrecognised units normalise to 0 ("no value") — omit rather than record 0.
+  if (normalised.value <= 0) return {};
   const distanceUnit: WorkoutDistanceUnit = normalised.unit === 'mi' ? 'miles' : 'km';
   return { distance: normalised.value, distanceUnit };
 }
@@ -1212,7 +1206,7 @@ export async function fetchWorkoutsSince(cursor: Date): Promise<HealthKitWorkout
 
   const queryWorkoutSamples = hk.queryWorkoutSamples;
   if (typeof queryWorkoutSamples !== 'function') {
-    console.log('[HealthKit] queryWorkoutSamples unavailable on native module');
+    hkLog('[HealthKit] queryWorkoutSamples unavailable on native module');
     return [];
   }
 
@@ -1230,13 +1224,13 @@ export async function fetchWorkoutsSince(cursor: Date): Promise<HealthKitWorkout
       ascending: true,
     });
   } catch (err) {
-    console.log('[HealthKit] queryWorkoutSamples failed:', err);
+    hkLog('[HealthKit] queryWorkoutSamples failed:', err);
     return [];
   }
 
-  console.log(`[HealthKit] fetchWorkoutsSince: ${rawWorkouts.length} workout(s) since ${cursor.toISOString()}`);
+  hkLog(`[HealthKit] fetchWorkoutsSince: ${rawWorkouts.length} workout(s) since ${cursor.toISOString()}`);
   if (rawWorkouts.length === 0) {
-    console.log('[HealthKit] No workouts returned. Check Health → RoundFit → Workouts is enabled.');
+    hkLog('[HealthKit] No workouts returned. Check Health → RoundFit → Workouts is enabled.');
   }
 
   const normalized: HealthKitWorkoutSample[] = [];
@@ -1247,12 +1241,12 @@ export async function fetchWorkoutsSince(cursor: Date): Promise<HealthKitWorkout
 
   if (rawWorkouts.length > 0 && normalized.length === 0) {
     const preview = rawWorkouts[0] as Record<string, unknown>;
-    console.log(
+    hkLog(
       '[HealthKit] fetchWorkoutsSince: raw samples did not normalize — keys:',
       Object.keys(preview).join(', '),
     );
   }
-  console.log(
+  hkLog(
     `[HealthKit] fetchWorkoutsSince: ${rawWorkouts.length} raw → ${normalized.length} normalized`,
   );
 
@@ -1368,7 +1362,7 @@ async function ensureHealthKitWorkoutWriteAuthorized(
     });
     return ensureHealthKitAuthorized(hk);
   } catch (err) {
-    console.log('[HealthKit] workout write authorization failed:', err);
+    hkLog('[HealthKit] workout write authorization failed:', err);
     return false;
   }
 }
@@ -1435,11 +1429,11 @@ export async function endPhoneHealthKitWorkout(endDate: Date): Promise<string | 
     );
     const uuid = typeof saved?.uuid === 'string' ? saved.uuid : null;
     if (uuid) {
-      console.log('[HealthKit] phone workout saved:', uuid);
+      hkLog('[HealthKit] phone workout saved:', uuid);
     }
     return uuid;
   } catch (err) {
-    console.log('[HealthKit] endPhoneHealthKitWorkout failed:', err);
+    hkLog('[HealthKit] endPhoneHealthKitWorkout failed:', err);
     return null;
   }
 }
@@ -1481,7 +1475,7 @@ export async function enableWorkoutBackgroundDelivery(): Promise<boolean> {
       HK_UPDATE_FREQUENCY_IMMEDIATE,
     );
   } catch (err) {
-    console.log('[HealthKit] enableWorkoutBackgroundDelivery failed:', err);
+    hkLog('[HealthKit] enableWorkoutBackgroundDelivery failed:', err);
     return false;
   }
 }
@@ -1526,7 +1520,7 @@ export async function enableSleepBackgroundDelivery(): Promise<boolean> {
       HK_UPDATE_FREQUENCY_IMMEDIATE,
     );
   } catch (err) {
-    console.log('[HealthKit] enableSleepBackgroundDelivery failed:', err);
+    hkLog('[HealthKit] enableSleepBackgroundDelivery failed:', err);
     return false;
   }
 }

@@ -51,12 +51,27 @@ export async function writeExportToCacheFile(exportData: UserDataExport): Promis
     dir.create({ intermediates: true });
   }
 
+  // The export is the user's full account data, unencrypted — never leave
+  // stale copies behind. Drop everything from previous runs before writing.
+  for (const entry of dir.list()) {
+    if (entry instanceof File) {
+      try { entry.delete(); } catch { /* best-effort */ }
+    }
+  }
+
   const stamp = getLocalDateString(new Date(exportData.generated_at));
   const file = new File(dir, `roundfit-export-${stamp}.json`);
-  if (file.exists) {
-    file.delete();
-  }
   file.create();
   file.write(JSON.stringify(exportData, null, 2));
   return file.uri;
+}
+
+/** Best-effort delete of a previously written export file (post-share cleanup). */
+export function deleteExportFile(uri: string): void {
+  try {
+    const file = new File(uri);
+    if (file.exists) file.delete();
+  } catch {
+    // best-effort — the write path prunes leftovers on the next export anyway
+  }
 }

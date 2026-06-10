@@ -69,68 +69,12 @@ const GAUGE_TICKS = Array.from({ length: SEMI_N }).map((_, i) => {
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_SHORT   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-// ── EarnedBonusRow ────────────────────────────────────────────────────────────
-function EarnedBonusRow({ P, earnedFromActivity }: { P: CalorieBudgetPalette; earnedFromActivity: number }) {
-  const slideAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.6)).current;
-  const glowAnim  = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(slideAnim, { toValue: 1, duration: 400, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.spring(scaleAnim, { toValue: 1, friction: 6, tension: 120, useNativeDriver: true }),
-    ]).start();
-
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(glowAnim, { toValue: 1, duration: 2000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(glowAnim, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const slideY      = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
-  const glowOpacity = glowAnim.interpolate({ inputRange: [0, 1], outputRange: [0.30, 0.65] });
-  const rightBg     = P.isDark ? 'rgba(52,211,153,0.16)' : 'rgba(16,185,129,0.12)';
-
-  return (
-    <Animated.View style={[es.wrap, { opacity: slideAnim, transform: [{ translateY: slideY }], marginTop: 16 }]}>
-      <View style={[es.left, { backgroundColor: P.sunken }]}>
-        <View style={[es.badge, { borderColor: P.protein, backgroundColor: P.proteinSoft }]}>
-          <Ionicons name="flash" size={14} color={P.protein} />
-        </View>
-        <View style={es.leftLabels}>
-          <Text style={[es.eyebrow, { color: P.textFaint }]}>ACTIVITY</Text>
-          <Text style={[es.bonusWord, { color: P.text }]}>BONUS</Text>
-        </View>
-      </View>
-      <View pointerEvents="none" style={[es.diagonal, { backgroundColor: P.card }]} />
-      <View style={[es.right, { backgroundColor: rightBg, overflow: 'hidden' }]}>
-        <Animated.View style={[es.glowOrb, { backgroundColor: P.protein, opacity: glowOpacity }]} />
-        <Animated.Text style={[es.bigNum, { color: P.isDark ? '#FFFFFF' : P.protein, transform: [{ scale: scaleAnim }] }]}>
-          +{earnedFromActivity.toLocaleString()}
-        </Animated.Text>
-        <Text style={[es.calWord, { color: P.isDark ? 'rgba(255,255,255,0.60)' : '#52525B' }]}>cal</Text>
-      </View>
-    </Animated.View>
-  );
-}
-
-const es = StyleSheet.create({
-  wrap:       { height: 66, borderRadius: 16, overflow: 'hidden', flexDirection: 'row' },
-  left:       { flex: 1, flexDirection: 'row', alignItems: 'center', paddingLeft: 16, gap: 10 },
-  badge:      { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  leftLabels: { gap: 1 },
-  eyebrow:    { fontSize: 9, fontWeight: '800', letterSpacing: 1.6 },
-  bonusWord:  { fontSize: 16, fontWeight: '800', letterSpacing: 0.5 },
-  diagonal:   { position: 'absolute', width: 26, height: 140, top: -37, right: 118, zIndex: 1, transform: [{ rotate: '7deg' }] },
-  right:      { width: 132, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingRight: 16, gap: 4 },
-  glowOrb:    { position: 'absolute', width: 90, height: 90, borderRadius: 45, right: 0 },
-  bigNum:     { fontFamily: 'BarlowCondensed_800ExtraBold', fontSize: 38, lineHeight: 40, letterSpacing: -1.5 },
-  calWord:    { fontSize: 13, fontWeight: '700', marginTop: 7, letterSpacing: 0.2 },
-});
+// NOTE: the old "ACTIVITY BONUS +X cal" row was removed deliberately. The
+// calorie budget is TDEE × activity multiplier + goal delta — daily activity
+// is already priced in, and `remaining` (goal − eaten) never added the burn
+// back. Showing active calories as "earned bonus" promised calories the math
+// never granted (and double-counted activity for HealthKit users). Burn is
+// surfaced honestly in the Burn metric card below this one.
 
 // ── CalorieBudgetCard ─────────────────────────────────────────────────────────
 export function CalorieBudgetCard({
@@ -139,7 +83,6 @@ export function CalorieBudgetCard({
   eaten,
   goal,
   remaining,
-  earnedFromActivity = 0,
   dateLabel,
 }: {
   P: CalorieBudgetPalette;
@@ -147,7 +90,6 @@ export function CalorieBudgetCard({
   eaten: number;
   goal: number;
   remaining: number;
-  earnedFromActivity?: number;
   dateLabel?: string;
 }) {
   const isOver   = eaten > goal;
@@ -157,7 +99,9 @@ export function CalorieBudgetCard({
   const [displayed, setDisplayed] = useState(0);
   useEffect(() => {
     const id = countAnim.addListener(({ value }) => setDisplayed(Math.round(value)));
-    Animated.timing(countAnim, { toValue: Math.max(remaining, 0), duration: 1200, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+    // Math.abs: when over budget the hero shows the overage ("300 over
+    // budget"), not a clamped 0.
+    Animated.timing(countAnim, { toValue: Math.abs(remaining), duration: 1200, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
     return () => countAnim.removeListener(id);
   }, [remaining]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -239,8 +183,6 @@ export function CalorieBudgetCard({
             <Text style={[hs.goalPillText, { color: P.calories }]}>{goal.toLocaleString()} daily goal</Text>
           </View>
         </View>
-
-        {earnedFromActivity > 0 && <EarnedBonusRow P={P} earnedFromActivity={earnedFromActivity} />}
 
       </View>
     </Animated.View>

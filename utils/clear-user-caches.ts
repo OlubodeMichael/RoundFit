@@ -5,6 +5,7 @@ import {
   HEALTHKIT_WORKOUT_CURSOR_KEY,
   IMPORTED_UUIDS_KEY,
 } from '@/services/workout-import'
+import { NOTIFICATION_INBOX_STORAGE_KEY } from '@/utils/notification-inbox-storage'
 import { WORKOUT_RECENT_ACTIVITY_IDS_KEY } from '@/utils/workout-recent'
 import { invalidateByPrefix } from '@/utils/resource-cache'
 
@@ -20,6 +21,8 @@ const EXACT_LOGOUT_KEYS = [
   ACTIVE_WORKOUT_SESSION_KEY,
   HEALTHKIT_WORKOUT_CURSOR_KEY,
   IMPORTED_UUIDS_KEY,
+  // Device-global inbox — must not survive into the next account's session.
+  NOTIFICATION_INBOX_STORAGE_KEY,
   WORKOUT_RECENT_ACTIVITY_IDS_KEY,
 ] as const
 

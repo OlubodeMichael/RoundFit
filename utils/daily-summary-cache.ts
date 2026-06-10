@@ -1,11 +1,15 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
-
 import type { DailySummary } from '@/context/summary-context'
 import { apiFetch } from '@/utils/api'
 import type { InsightTargets } from '@/utils/insights-aggregator'
 import { getLocalDateString } from '@/utils/date'
 import { buildWeekKey, invalidate as invalidateInsightsKey, invalidateDay } from '@/utils/insights-cache'
-import { buildResourceKey, invalidateResourceCache } from '@/utils/resource-cache'
+import {
+  buildResourceKey,
+  fetchWithResourceCache,
+  getResourceCached,
+  invalidateResourceCache,
+  setResourceCached,
+} from '@/utils/resource-cache'
 import { getWeekStart } from '@/utils/insights-aggregator'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -18,16 +22,16 @@ export interface DailySummaryBundle {
   computed_at: string
 }
 
-interface CacheEntry {
-  data: DailySummaryBundle
-  expiresAt: number
-}
-
 // ── Storage ────────────────────────────────────────────────────────────────
+//
+// This module is a *domain adapter* over the single cache engine in
+// `resource-cache`. It owns the daily-summary key shape, TTL policy, API
+// fetch, and body→bundle parsing; the engine owns the mem/AsyncStorage/inflight
+// mechanics. Keeping one engine means one invalidation path (e.g. logout's
+// `invalidateByPrefix('daily-summary:')` now clears these entries from memory
+// too, not just disk).
 
 const CACHE_VERSION = 'v1'
-const mem = new Map<string, CacheEntry>()
-const inflight = new Map<string, Promise<DailySummaryBundle | null>>()
 
 export const TTL_COLD_START_MS         = 2 * 60 * 60 * 1000  // today data: fresh for 2 h (mutations invalidate)
 export const TTL_SUMMARY_CURRENT_DAY  = TTL_COLD_START_MS
@@ -78,44 +82,24 @@ function bundleFromApiBody(body: Record<string, unknown>): DailySummaryBundle | 
   }
 }
 
-// ── Read / write ───────────────────────────────────────────────────────────
+// ── Read / write (delegated to the resource-cache engine) ────────────────────
 
-export async function getCachedSummary(
+export function getCachedSummary(
   key: string,
 ): Promise<{ data: DailySummaryBundle; isStale: boolean } | null> {
-  const entry = mem.get(key) as CacheEntry | undefined
-  if (entry) {
-    return { data: entry.data, isStale: entry.expiresAt <= Date.now() }
-  }
-
-  try {
-    const raw = await AsyncStorage.getItem(key)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as CacheEntry
-    mem.set(key, parsed)
-    return { data: parsed.data, isStale: parsed.expiresAt <= Date.now() }
-  } catch {
-    return null
-  }
+  return getResourceCached<DailySummaryBundle>(key)
 }
 
-export async function setCachedSummary(
+export function setCachedSummary(
   key: string,
   data: DailySummaryBundle,
   ttlMs: number,
 ): Promise<void> {
-  const entry: CacheEntry = { data, expiresAt: Date.now() + ttlMs }
-  mem.set(key, entry)
-  try {
-    await AsyncStorage.setItem(key, JSON.stringify(entry))
-  } catch { /* storage unavailable */ }
+  return setResourceCached(key, data, ttlMs)
 }
 
-export async function invalidateSummaryCache(key: string): Promise<void> {
-  mem.delete(key)
-  try {
-    await AsyncStorage.removeItem(key)
-  } catch { /* storage unavailable */ }
+export function invalidateSummaryCache(key: string): Promise<void> {
+  return invalidateResourceCache(key)
 }
 
 /** Drop unified summary + insights day/week caches for one date. */
@@ -135,36 +119,20 @@ export async function invalidateUserTodayCaches(userId: string): Promise<void> {
 
 // ── Network fetch (single entry point) ───────────────────────────────────────
 
-export async function fetchDailySummaryBundle(
+export function fetchDailySummaryBundle(
   userId: string,
   date: string,
   options?: { force?: boolean },
 ): Promise<DailySummaryBundle | null> {
   const key = buildSummaryCacheKey(userId, date)
-  const ttl = ttlForDate(date)
-
-  if (!options?.force) {
-    const cached = await getCachedSummary(key)
-    if (cached && !cached.isStale) return cached.data
-    const pending = inflight.get(key)
-    if (pending) return pending
-  } else {
-    inflight.delete(key)
-  }
-
-  const request = (async (): Promise<DailySummaryBundle | null> => {
-    const { ok, body } = await apiFetch(`/summary/daily/${date}`)
-    if (!ok) return null
-
-    const bundle = bundleFromApiBody(body as Record<string, unknown>)
-    if (!bundle) return null
-
-    await setCachedSummary(key, bundle, ttl)
-    return bundle
-  })().finally(() => {
-    if (inflight.get(key) === request) inflight.delete(key)
-  })
-
-  inflight.set(key, request)
-  return request
+  return fetchWithResourceCache<DailySummaryBundle>(
+    key,
+    ttlForDate(date),
+    async () => {
+      const { ok, body } = await apiFetch(`/summary/daily/${date}`)
+      if (!ok) return null
+      return bundleFromApiBody(body as Record<string, unknown>)
+    },
+    { force: options?.force ?? false },
+  )
 }

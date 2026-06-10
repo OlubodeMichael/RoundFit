@@ -45,8 +45,6 @@ module.exports = {
       permissions: [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
       ],
       package: "com.michaelolu.roundfit",
     },
@@ -57,36 +55,6 @@ module.exports = {
     plugins: [
       "@react-native-community/datetimepicker",
       "expo-router",
-
-
-      
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-      
       "expo-apple-authentication",
       [
         "@kingstinct/react-native-healthkit",

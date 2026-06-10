@@ -2,17 +2,18 @@ import { sha256 } from "js-sha256";
 
 /**
  * Random UUID v4 for Apple Sign-In / Supabase id_token nonce.
- * Uses `crypto.getRandomValues` when available (Hermes), otherwise Math.random.
+ * Requires `crypto.getRandomValues` (always present on Hermes). A Math.random
+ * fallback would produce a predictable nonce and silently weaken the replay
+ * protection the nonce exists for — failing loudly is the safe behavior.
  */
 function generateRandomNonce(): string {
-  const bytes = new Uint8Array(16);
-  if (typeof globalThis.crypto?.getRandomValues === "function") {
-    globalThis.crypto.getRandomValues(bytes);
-  } else {
-    for (let i = 0; i < bytes.length; i++) {
-      bytes[i] = Math.floor(Math.random() * 256);
-    }
+  if (typeof globalThis.crypto?.getRandomValues !== "function") {
+    throw new Error(
+      "crypto.getRandomValues unavailable — cannot generate a secure Apple Sign-In nonce",
+    );
   }
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");

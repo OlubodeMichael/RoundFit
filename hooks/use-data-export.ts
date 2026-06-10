@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Share } from 'react-native';
 
 import {
+  deleteExportFile,
   fetchUserDataExport,
   writeExportToCacheFile,
 } from '@/services/data-export';
@@ -22,8 +23,20 @@ export function useDataExport(): UseDataExportResult {
   const [phase, setPhase] = useState<DataExportPhase>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fileUri, setFileUri] = useState<string | null>(null);
+  const fileUriRef = useRef<string | null>(null);
+  fileUriRef.current = fileUri;
+
+  // The export file is the user's full account data, unencrypted in the cache
+  // dir. Remove it once the export flow is dismissed or the screen unmounts —
+  // it stays available for re-sharing only while the flow is open.
+  useEffect(() => {
+    return () => {
+      if (fileUriRef.current) deleteExportFile(fileUriRef.current);
+    };
+  }, []);
 
   const reset = useCallback(() => {
+    if (fileUriRef.current) deleteExportFile(fileUriRef.current);
     setPhase('idle');
     setErrorMessage(null);
     setFileUri(null);

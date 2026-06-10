@@ -278,6 +278,9 @@ export function computeWithinWeekStreak(days: NormalizedDay[]): number {
   let streak = 0
   for (const d of sorted) {
     if (d.date > today)    continue
+    // An empty *today* doesn't break the run — the day isn't over yet.
+    // Only a completed day with nothing logged (or calories missed) ends it.
+    if (d.date === today && d.is_partial) continue
     if (d.is_partial)      break
     if (d.met_calories === 'met' || d.met_calories === 'partial') streak++
     else break

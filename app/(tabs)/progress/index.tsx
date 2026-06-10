@@ -23,20 +23,18 @@ import { useUnits } from '@/hooks/use-units';
 import { useSummary } from '@/hooks/use-summary';
 import { useWeight } from '@/hooks/use-weight';
 import { useProfile } from '@/hooks/use-profile';
-import { getLocalDateString } from '@/utils/date';
+import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
+import { getWeekStart } from '@/utils/insights-aggregator';
 
 function buildWeekDates(todayStr: string): string[] {
-  const d = new Date(todayStr + "T12:00:00");
-  const dow = d.getDay(); // 0=Sun … 6=Sat
-  const sunday = new Date(d);
-  sunday.setDate(d.getDate() - dow); // rewind to Sunday
-  return Array.from({ length: 7 }, (_, i) => {
-    const day = new Date(sunday);
-    day.setDate(sunday.getDate() + i);
-    const mm = String(day.getMonth() + 1).padStart(2, "0");
-    const dd = String(day.getDate()).padStart(2, "0");
-    return `${day.getFullYear()}-${mm}-${dd}`;
-  });
+  // Monday-start, matching the getWeekStart() key used to fetch
+  // /summary/weekly. A Sunday-start strip can never align with the
+  // Monday-keyed data: its first slot is the *previous* week's Sunday
+  // (always rendered as missed) and on Sundays the whole week disappears.
+  const weekStart = getWeekStart(new Date(todayStr + "T12:00:00"));
+  return Array.from({ length: 7 }, (_, i) =>
+    addLocalCalendarDays(weekStart, i),
+  );
 }
 
 const movementSectionStyles = StyleSheet.create({
@@ -82,30 +80,60 @@ export default function ProgressScreen() {
 
   // ── Streak: prefer cached value from profile, fall back to computed ───────
   const streak = useMemo(() => {
-    if (typeof profile?.currentStreak === "number")
-      return profile.currentStreak;
+    if (typeof profile?.currentStreak === "number") {
+      // Stale-guard: current_streak is only recomputed when food is logged,
+      // so it freezes if the user stops logging. Zero it only on positive
+      // evidence the run is broken: yesterday is in the week's data with
+      // nothing logged, and today (so far) has nothing either.
+      const yesterday = addLocalCalendarDays(todayStr, -1);
+      const yRow = weekly?.days?.find((d) => d.date === yesterday);
+      const tRow = weekly?.days?.find((d) => d.date === todayStr);
+      const runBroken =
+        yRow !== undefined &&
+        yRow.calories_consumed === 0 &&
+        (tRow?.calories_consumed ?? 0) === 0;
+      return runBroken ? 0 : profile.currentStreak;
+    }
     if (!weekly?.days?.length) return 0;
     const sorted = [...weekly.days].sort((a, b) =>
       b.date.localeCompare(a.date),
     );
     let count = 0;
     for (const d of sorted) {
+      if (d.date > todayStr) continue; // ignore future rows
+      // An empty *today* doesn't break the run — the day isn't over yet.
+      if (d.date === todayStr && d.calories_consumed === 0) continue;
       if (d.calories_consumed > 0) count++;
       else break;
     }
     return count;
-  }, [profile?.currentStreak, weekly]);
+  }, [profile?.currentStreak, weekly, todayStr]);
 
-  // ── Consistency ───────────────────────────────────────────────────────────
-  const consistency = Math.round(weekly?.consistency_score ?? 0);
+  // ── Consistency (clamped — ProgressConsistencyCard clamps internally, but
+  // the headline tile would otherwise render a bad API value verbatim) ──────
+  const consistency = Math.min(
+    100,
+    Math.max(0, Math.round(weekly?.consistency_score ?? 0)),
+  );
 
-  // ── Goals (days under calorie budget out of 7) ───────────────────────────
+  // ── Goals (days that met targets, out of 7) ──────────────────────────────
+  // Prefer the backend's met_targets so this tile agrees with the consistency
+  // strip below it (calorie ±200 band, ≥75% of applicable slots). The fallback
+  // (older cached responses) mirrors the backend's calorie band against the
+  // day's OWN budget snapshot — grading past days with today's budget would
+  // silently re-grade history after any budget change, and "under budget"
+  // alone is goal-direction-blind (a surplus goal is MISSED by under-eating).
   const goalsHit = useMemo(() => {
     if (!weekly?.days?.length) return 0;
-    const budget = profile?.calorieBudget ?? profile?.tdee;
+    const profileBudget = profile?.calorieBudget ?? profile?.tdee ?? 0;
     return weekly.days.filter((d) => {
-      const goal = budget ?? d.calorie_budget;
-      return d.calories_consumed > 0 && d.calories_consumed <= goal;
+      if (d.met_targets !== undefined) return d.met_targets;
+      const goal = d.calorie_budget > 0 ? d.calorie_budget : profileBudget;
+      return (
+        d.calories_consumed > 0 &&
+        goal > 0 &&
+        Math.abs(d.calories_consumed - goal) <= 200
+      );
     }).length;
   }, [weekly, profile?.calorieBudget, profile?.tdee]);
 

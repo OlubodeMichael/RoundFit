@@ -9,6 +9,16 @@ const REFRESH_KEY = 'refresh_token';
 const SUB_KEY     = 'token_sub';       // plain-string owner of the stored session
 const TIMEOUT_MS  = 10_000;
 
+if (!extra.apiUrl) {
+  // Same failure mode as a missing API_KEY but previously silent: every
+  // request would target the plain-HTTP localhost fallback and fail in a
+  // production build. Surface it loudly at startup.
+  console.warn(
+    '[api] API_URL (Constants.expoConfig.extra.apiUrl) is empty — falling back ' +
+      `to ${API_BASE}; all API requests will fail in production builds.`,
+  );
+}
+
 if (!API_KEY) {
   // A build shipped without the API key will have every request — including
   // /auth/refresh — rejected by the backend's requireApiKey middleware, which
@@ -285,16 +295,27 @@ export async function publicApiFetch(
 
 // ── Token helpers (used by AuthProvider) ──────────────────────────────────
 
-/**
- * Returns true if the stored access token belongs to an OAuth provider
- * (Google, Apple, etc.) rather than email/password.
- * Reads app_metadata.provider from the JWT payload — Supabase always sets this.
- */
+/** Returns true if an access token is currently stored in SecureStore. */
 export async function hasStoredAccessToken(): Promise<boolean> {
   const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
   return Boolean(token);
 }
 
+/**
+ * Reads the stored access token. Used by signOut to capture the token BEFORE
+ * clearTokens() runs — a fire-and-forget apiFetch would read SecureStore after
+ * the delete and send /auth/logout unauthenticated, leaving the refresh token
+ * alive server-side.
+ */
+export async function getStoredAccessToken(): Promise<string | null> {
+  return SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
+}
+
+/**
+ * Returns true if the stored access token belongs to an OAuth provider
+ * (Google, Apple, etc.) rather than email/password.
+ * Reads app_metadata.provider from the JWT payload — Supabase always sets this.
+ */
 export async function isStoredTokenOAuth(): Promise<boolean> {
   const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
   if (!token) return false;

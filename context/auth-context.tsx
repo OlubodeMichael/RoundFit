@@ -3,6 +3,7 @@ import type { DeleteAccountInput } from "@/types/account-deletion";
 import {
     apiFetch,
     clearTokens,
+    getStoredAccessToken,
     hasStoredAccessToken,
     proactiveRefreshIfNeeded,
     proactiveRefreshStateIfNeeded,
@@ -1053,7 +1054,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (!callback.accessToken || !callback.refreshToken) {
-          console.error("[auth] Google callback missing tokens:", result.url.substring(0, 120));
+          // Never log the URL itself — its fragment can contain a live token.
+          console.error(
+            "[auth] Google callback missing tokens —",
+            `access_token: ${callback.accessToken ? "present" : "missing"},`,
+            `refresh_token: ${callback.refreshToken ? "present" : "missing"}`,
+          );
           setError("OAUTH_FAILED");
           return;
         }
@@ -1183,7 +1189,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ── Sign out ─────────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
-    apiFetch("/auth/logout", { method: "POST" }).catch(() => {});
+    // Capture the token BEFORE clearTokens(): apiFetch reads SecureStore
+    // asynchronously, so a plain fire-and-forget call races the delete below
+    // and sends /auth/logout unauthenticated — the backend then can't revoke
+    // the refresh token and the session stays alive server-side.
+    const token = await getStoredAccessToken();
+    apiFetch("/auth/logout", {
+      method: "POST",
+      includeAuthToken: false,
+      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+    }).catch(() => {});
     await clearTokens();
     const { clearUserCachesOnLogout } = await import('@/utils/clear-user-caches');
     await clearUserCachesOnLogout();

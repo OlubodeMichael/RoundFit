@@ -3,7 +3,11 @@ import type { NotificationRequest } from 'expo-notifications';
 
 import type { InboxNotification, NotificationScreenKey } from '@/types/notification-inbox';
 
-const STORAGE_KEY = 'roundfit:notification-inbox';
+/** Exported so clearUserCachesOnLogout can wipe the inbox on sign-out —
+ * the key is device-global, so a leftover payload would leak the previous
+ * account's notifications to the next user on this device. */
+export const NOTIFICATION_INBOX_STORAGE_KEY = 'roundfit:notification-inbox';
+const STORAGE_KEY = NOTIFICATION_INBOX_STORAGE_KEY;
 const MAX_ITEMS = 100;
 
 /** One inbox row per scheduled reminder (or title/body) per local calendar day. */
@@ -71,11 +75,16 @@ function dedupeInboxRows(items: InboxNotification[]): InboxNotification[] {
   for (const item of items) {
     const key = inboxRowDedupeKey(item);
     const existing = byKey.get(key);
-    if (!existing || item.receivedAt.localeCompare(existing.receivedAt) > 0) {
+    if (!existing) {
       byKey.set(key, { ...item, id: key });
-    } else if (existing.read && !item.read) {
-      byKey.set(key, { ...existing, read: false });
+      continue;
     }
+    // Keep the newest row's content, but a row only counts as read when EVERY
+    // duplicate is read — otherwise a newer read copy would silently swallow
+    // an older unread one.
+    const newest =
+      item.receivedAt.localeCompare(existing.receivedAt) > 0 ? item : existing;
+    byKey.set(key, { ...newest, id: key, read: existing.read && item.read });
   }
 
   return [...byKey.values()].sort((a, b) =>

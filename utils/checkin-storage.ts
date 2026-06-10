@@ -14,10 +14,14 @@ export async function hasCheckedInToday(userId: string): Promise<boolean> {
 
     if (!stored) {
       const legacy = await AsyncStorage.getItem('checkin_completed_date');
-      if (legacy === today) {
-        await AsyncStorage.setItem(key, today);
+      if (legacy !== null) {
+        // Migrate-and-delete in one pass — a stale (non-today) legacy value
+        // would otherwise linger in storage forever.
         await AsyncStorage.removeItem('checkin_completed_date');
-        return true;
+        if (legacy === today) {
+          await AsyncStorage.setItem(key, today);
+          return true;
+        }
       }
     }
 

@@ -535,7 +535,12 @@ export default function HomeScreen() {
   const dateStr = useMemo(() => getLocalDateString(date), [date]);
   const isToday = dateStr === todayStr;
 
-  const { meals, workouts, refresh: refreshDayLogs } = useDayLogs(dateStr);
+  const {
+    meals,
+    workouts,
+    caloriesBurned: dayCaloriesBurned,
+    refresh: refreshDayLogs,
+  } = useDayLogs(dateStr);
   const pendingImports = usePendingWorkoutImports();
 
   const pendingForDate = useMemo(() => {
@@ -789,9 +794,13 @@ export default function HomeScreen() {
     router.push("/insights/daily");
   };
 
+  // Keep today and past days on the same "active calories" basis: today is
+  // live HealthKit; past days use the daily summary's stored burn (HealthKit
+  // active when synced, else check-in). Workout-only sums are the last
+  // resort — they under-report and make Net incomparable across days.
   const burnedToday = isToday
     ? (healthToday?.active_calories ?? 0)
-    : workoutCalsBurned;
+    : (dayCaloriesBurned ?? workoutCalsBurned);
 
   const isFemale = profile?.sex === "female";
 
@@ -892,7 +901,6 @@ export default function HomeScreen() {
             eaten={totalCalories}
             goal={mealGoal}
             remaining={remaining}
-            earnedFromActivity={burnedToday}
           />
           <DailyBudgetMetricsRow
             P={P}
