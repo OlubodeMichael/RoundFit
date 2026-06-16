@@ -1,4 +1,10 @@
 import { addLocalCalendarDays, getLocalDateString } from '@/utils/date'
+import {
+  DEFAULT_SLEEP_TARGET,
+  DEFAULT_STEPS_TARGET,
+  getAtLeastMetricStatus,
+  getCalorieMetricStatus,
+} from '@/utils/metric-targets'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -152,17 +158,14 @@ export function getMetricStatus(
   target: number | null,
   mode:   'near_target' | 'at_least' = 'at_least',
 ): MetricStatus {
-  if (actual === null || actual === 0) return 'no-data'
-  if (target === null || target === 0) return 'no-data'
-  const ratio = actual / target
   if (mode === 'near_target') {
-    if (ratio >= 0.85 && ratio <= 1.15) return 'met'
-    if (ratio >= 0.7  && ratio <= 1.3)  return 'partial'
-    return 'missed'
+    if (actual === null || actual === 0 || target === null || target === 0) {
+      return 'no-data'
+    }
+    return getCalorieMetricStatus(actual, target)
   }
-  if (ratio >= 0.9) return 'met'
-  if (ratio >= 0.7) return 'partial'
-  return 'missed'
+  if (actual === null || actual === 0) return 'no-data'
+  return getAtLeastMetricStatus(actual, target)
 }
 
 export function scoreDay(
@@ -201,7 +204,7 @@ export function scoreDay(
   }
 
   // Sleep: only score when a sleep session was actually recorded
-  const sleepTarget = targets.sleep_target ?? 8
+  const sleepTarget = targets.sleep_target ?? DEFAULT_SLEEP_TARGET
   if (sleep_hours !== null && sleep_hours > 0) {
     const s = getMetricStatus(sleep_hours, sleepTarget, 'at_least')
     score  += s === 'met' ? 20 : s === 'partial' ? 14 : 0
@@ -266,7 +269,7 @@ export function apiDayToNormalized(day: Record<string, any>, targets: InsightTar
     met_sleep:
       sleep_hours === null
         ? 'no-data'
-        : getMetricStatus(sleep_hours, targets.sleep_target ?? 8, 'at_least'),
+        : getMetricStatus(sleep_hours, targets.sleep_target ?? DEFAULT_SLEEP_TARGET, 'at_least'),
     is_partial,
     data_version: 1,
   }
@@ -303,8 +306,8 @@ export function apiWeeklyToSummary(
   const targets: InsightTargets = apiData.targets_snapshot ?? {
     calorie_budget: 2000,
     protein_target: 150,
-    steps_target:   null,
-    sleep_target:   null,
+    steps_target:   DEFAULT_STEPS_TARGET,
+    sleep_target:   DEFAULT_SLEEP_TARGET,
   }
 
   const sparseDays: NormalizedDay[] = (apiData.days ?? []).map((d: any) =>

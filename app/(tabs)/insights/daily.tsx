@@ -183,13 +183,12 @@ export default function DailyInsightScreen() {
     : (history.find(i => i.date === date) ?? null);
 
   const {
-    activeDate:    foodActiveDate,
     totalCalories: liveCalories,
     totalProtein:  liveProtein,
     totalCarbs:    liveCarbs,
     totalFat:      liveFat,
   } = useFood();
-  const useLiveFood = isToday && foodActiveDate === today;
+  const useLiveFood = isToday;
 
   if (isLoading && !data) {
     return (
@@ -330,33 +329,12 @@ export default function DailyInsightScreen() {
             miniGoals={miniGoals}
           />
 
-          <DailyMetricsCard P={P} delay={140} metrics={metrics} />
-
-          {day?.is_partial ? (
-            <GradientCard
-              variant="insightGrey"
-              palette={{ card: P.card, cardEdge: P.cardEdge, isDark: P.isDark }}
-              corner="top-right"
-              delay={220}
-              contentStyle={{ paddingVertical: 24, paddingHorizontal: 20 }}
-            >
-              <View style={styles.emptyState}>
-                <Ionicons name="journal-outline" size={32} color={P.textFaint} />
-                <Text style={[styles.emptyText, { color: P.textDim }]}>
-                  {isToday
-                    ? 'No meals logged yet today. Start logging to see your daily score.'
-                    : 'No data was logged for this day.'}
-                </Text>
-              </View>
-            </GradientCard>
-          ) : null}
-
           {dailyInsight ? (
             <GradientCard
               variant="insightGrey"
               palette={{ card: P.card, cardEdge: P.cardEdge, isDark: P.isDark }}
               corner="top-right"
-              delay={300}
+              delay={140}
               contentStyle={{ paddingVertical: 20, paddingHorizontal: 20 }}
             >
               <View style={styles.insightHeader}>
@@ -383,6 +361,27 @@ export default function DailyInsightScreen() {
               <Text style={[styles.insightBody, { color: P.textDim }]}>
                 {dailyInsight.message}
               </Text>
+            </GradientCard>
+          ) : null}
+
+          <DailyMetricsCard P={P} delay={220} metrics={metrics} />
+
+          {day?.is_partial ? (
+            <GradientCard
+              variant="insightGrey"
+              palette={{ card: P.card, cardEdge: P.cardEdge, isDark: P.isDark }}
+              corner="top-right"
+              delay={300}
+              contentStyle={{ paddingVertical: 24, paddingHorizontal: 20 }}
+            >
+              <View style={styles.emptyState}>
+                <Ionicons name="journal-outline" size={32} color={P.textFaint} />
+                <Text style={[styles.emptyText, { color: P.textDim }]}>
+                  {isToday
+                    ? 'No meals logged yet today. Start logging to see your daily score.'
+                    : 'No data was logged for this day.'}
+                </Text>
+              </View>
             </GradientCard>
           ) : null}
 

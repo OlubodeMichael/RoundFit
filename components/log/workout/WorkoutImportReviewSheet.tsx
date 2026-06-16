@@ -79,7 +79,7 @@ export function WorkoutImportReviewSheet({
             <Ionicons name={displayEntry.icon} size={28} color={P.workout} />
           </View>
           <View style={styles.headerText}>
-            <Text style={[styles.title, { color: P.text }]}>{displayEntry.label}</Text>
+            <Text style={[styles.title, { color: P.text }]}>{item.label}</Text>
             {item.isFromWatch && (
               <View style={styles.watchRow}>
                 <Ionicons name="watch-outline" size={14} color={P.textFaint} />

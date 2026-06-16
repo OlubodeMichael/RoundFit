@@ -22,9 +22,11 @@ export interface InsightGradientCardProps {
   onPress?: () => void;
   eyebrow: string;
   title: string;
-  body: string;
+  body?: string;
   icon?: IoniconName;
   compact?: boolean;
+  /** Title + short excerpt — tap to open full insight. */
+  preview?: boolean;
   footer?: ReactNode;
 }
 
@@ -37,6 +39,7 @@ export function InsightGradientCard({
   body,
   icon = 'sparkles',
   compact = false,
+  preview = false,
   footer,
 }: InsightGradientCardProps) {
   const accent = getCardAccent('insightGrey', P.isDark);
@@ -63,19 +66,32 @@ export function InsightGradientCard({
       </View>
 
       <Text
-        style={[compact ? s.titleCompact : s.title, { color: P.text }]}
-        numberOfLines={compact ? 2 : 3}
+        style={[
+          preview ? s.titlePreview : compact ? s.titleCompact : s.title,
+          { color: P.text },
+        ]}
+        numberOfLines={preview ? 2 : compact ? 2 : 3}
       >
         {title}
       </Text>
-      <Text
-        style={[compact ? s.bodyCompact : s.body, { color: P.textDim }]}
-        numberOfLines={compact ? 2 : 5}
-      >
-        {body}
-      </Text>
+      {preview && body ? (
+        <Text
+          style={[s.previewBody, { color: P.textDim }]}
+          numberOfLines={2}
+        >
+          {body}
+        </Text>
+      ) : null}
+      {!preview && body ? (
+        <Text
+          style={[compact ? s.bodyCompact : s.body, { color: P.textDim }]}
+          numberOfLines={compact ? 2 : 5}
+        >
+          {body}
+        </Text>
+      ) : null}
 
-      {footer ? (
+      {!preview && footer ? (
         <View style={[s.footer, { borderTopColor: P.hair }]}>{footer}</View>
       ) : null}
     </>
@@ -150,6 +166,23 @@ const s = StyleSheet.create({
     lineHeight: 23,
     paddingHorizontal: 16,
     paddingTop: 8,
+  },
+  titlePreview: {
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+    lineHeight: 23,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  previewBody: {
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 20,
+    letterSpacing: -0.1,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 16,
   },
   body: {
     fontSize: 16,

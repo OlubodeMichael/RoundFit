@@ -10,6 +10,7 @@ export default function ProfileLayout() {
       <Stack.Screen name="theme" />
       <Stack.Screen name="security" />
       <Stack.Screen name="account" />
+      <Stack.Screen name="badges" />
       <Stack.Screen name="cycle" />
       <Stack.Screen name="notifications" />
       <Stack.Screen name="subscription" />

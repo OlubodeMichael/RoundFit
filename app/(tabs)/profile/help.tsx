@@ -140,7 +140,7 @@ export default function HelpScreen() {
             <Ionicons name="chevron-back" size={20} color={P.hi} />
           </TouchableOpacity>
           <Text style={[s.headerTitle, { color: P.hi }]} numberOfLines={1}>Help & Support</Text>
-          <View style={s.backBtn} />
+          <View style={s.headerSpacer} />
         </View>
         <Text style={[s.titleSub, { color: P.mid, textAlign: 'center', paddingHorizontal: 20 }]}>
           Find answers, get in touch, or review our policies.
@@ -311,6 +311,7 @@ const s = StyleSheet.create({
     alignItems:     'center',
     justifyContent: 'center',
   },
+  headerSpacer: { width: 38, height: 38 },
   eyebrow: {
     fontSize:       11,
     fontWeight:     '700',

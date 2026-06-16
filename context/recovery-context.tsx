@@ -11,10 +11,11 @@ import { useSummary } from '@/context/summary-context';
 import { useWorkouts } from '@/context/workout-context';
 import type { Workout } from '@/context/workout-context';
 import type { ComputedReadiness, ReadinessFactor, ReadinessHistoryPoint, ReadinessTip } from '@/types/readiness';
-import { buildReadinessInput } from '@/utils/build-readiness-input';
+import { buildReadinessInput, datesPrior7 } from '@/utils/build-readiness-input';
 import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
 import { localSleepDateString } from '@/utils/sleep-date';
 import { computeBaseline } from '@/utils/baseline';
+import { computeStepsBaseline, type StepDayInput } from '@/utils/infer-soreness';
 import { mergePriorDaySleepIntoRecovery } from '@/utils/sleep-display';
 import { calculateMacros } from '@/utils/nutrition';
 import {
@@ -180,7 +181,7 @@ const RecoveryContext = createContext<RecoveryContextValue | null>(null);
 
 export function RecoveryProvider({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
-  const { today: healthToday } = useHealth();
+  const { today: healthToday, fetchForDate: fetchHealthForDate } = useHealth();
   const { today: checkinToday } = useCheckin();
   const { current: cycle } = useCycle();
   const { daily: summaryToday } = useSummary();
@@ -191,10 +192,14 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
   const [isLoading,       setIsLoading]       = useState(false);
   const [initialized,     setInitialized]     = useState(false);
   const [workouts7d,      setWorkouts7d]      = useState<Workout[]>([]);
+  const [workoutsPrior7d, setWorkoutsPrior7d] = useState<Workout[]>([]);
   const [yesterdaySummary, setYesterdaySummary] = useState<DailySummary | null>(null);
   const [dayBeforeSummary, setDayBeforeSummary] = useState<DailySummary | null>(null);
   const [hrvBaseline,     setHrvBaseline]     = useState<number | null>(null);
   const [restingHrBaseline, setRestingHrBaseline] = useState<number | null>(null);
+  const [restingHeartRateYesterday, setRestingHeartRateYesterday] = useState<number | null>(null);
+  const [avgDailySteps, setAvgDailySteps] = useState<number | null>(null);
+  const [recentStepDays, setRecentStepDays] = useState<StepDayInput[]>([]);
   const [historyScores,   setHistoryScores]   = useState<ReadinessHistoryPoint[]>([]);
 
   const appStateRef       = useRef(AppState.currentState);
@@ -318,7 +323,11 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     if (!user?.id) return;
     const today = getLocalDateString();
     const key = buildResourceKey('health-baselines', user.id, today);
-    const result = await fetchWithResourceCache<{ hrv: number | null; hr: number | null }>(
+    const result = await fetchWithResourceCache<{
+      hrv: number | null;
+      hr: number | null;
+      avgDailySteps: number | null;
+    }>(
       key,
       TTL_BASELINES,
       async () => {
@@ -343,24 +352,60 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
         const hrValues = sorted
           .map((r) => nullableNum(r.resting_heart_rate))
           .filter((v): v is number => v !== null && v > 0);
-        return { hrv: computeBaseline(hrvValues), hr: computeBaseline(hrValues) };
+        const stepValues = sorted
+          .map((r) => nullableNum(r.steps))
+          .filter((v): v is number => v !== null && v >= 0);
+        return {
+          hrv: computeBaseline(hrvValues),
+          hr: computeBaseline(hrValues),
+          avgDailySteps: computeStepsBaseline(stepValues),
+        };
       },
       { force },
     );
     if (result) {
       setHrvBaseline(result.hrv);
       setRestingHrBaseline(result.hr);
+      setAvgDailySteps(result.avgDailySteps);
     }
   }, [user?.id]);
 
   const fetchWorkoutWindow = useCallback(async () => {
-    const days = datesLast7();
+    const recentDays = datesLast7();
+    const priorDays = datesPrior7();
     const today = getLocalDateString();
-    const batches = await Promise.all(
-      days.map((d) => (d === today ? Promise.resolve(todayWorkouts) : fetchWorkoutsForDate(d))),
-    );
-    setWorkouts7d(batches.flat());
+    const [recentBatches, priorBatches] = await Promise.all([
+      Promise.all(
+        recentDays.map((d) => (d === today ? Promise.resolve(todayWorkouts) : fetchWorkoutsForDate(d))),
+      ),
+      Promise.all(priorDays.map((d) => fetchWorkoutsForDate(d))),
+    ]);
+    setWorkouts7d(recentBatches.flat());
+    setWorkoutsPrior7d(priorBatches.flat());
   }, [fetchWorkoutsForDate, todayWorkouts]);
+
+  const fetchRecentStepDays = useCallback(async (force = false) => {
+    const today = getLocalDateString();
+    const days = [1, 2, 3].map((i) => addLocalCalendarDays(today, -i));
+    const rows = await Promise.all(days.map((d) => fetchHealthForDate(d, force)));
+    setRecentStepDays(
+      days.map((date, i) => ({
+        date,
+        steps: rows[i]?.steps ?? 0,
+      })),
+    );
+  }, [fetchHealthForDate]);
+
+  const fetchYesterdayRhr = useCallback(async (force = false) => {
+    if (!user?.id) return;
+    const yesterday = addLocalCalendarDays(getLocalDateString(), -1);
+    const [recovery, health] = await Promise.all([
+      fetchRecoveryByDate(yesterday, force),
+      fetchHealthForDate(yesterday, force),
+    ]);
+    const rhr = recovery?.resting_heart_rate ?? health?.resting_heart_rate ?? null;
+    setRestingHeartRateYesterday(rhr !== null && rhr > 0 ? rhr : null);
+  }, [user?.id, fetchRecoveryByDate, fetchHealthForDate]);
 
   const fetchYesterdayNutrition = useCallback(async () => {
     if (!user?.id) return;
@@ -392,7 +437,7 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
         getResourceCached<ReadinessHistoryPoint[]>(
           buildResourceKey('recovery-history', uid, today.slice(0, 7)),
         ),
-        getResourceCached<{ hrv: number | null; hr: number | null }>(
+        getResourceCached<{ hrv: number | null; hr: number | null; avgDailySteps: number | null }>(
           buildResourceKey('health-baselines', uid, today),
         ),
       ]);
@@ -413,6 +458,7 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     if (baselinesCached) {
       setHrvBaseline(baselinesCached.data.hrv);
       setRestingHrBaseline(baselinesCached.data.hr);
+      setAvgDailySteps(baselinesCached.data.avgDailySteps ?? null);
       hydrated = true;
     }
     return hydrated;
@@ -425,10 +471,14 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
       setInitialized(false);
       setWorkouts7d([]);
+      setWorkoutsPrior7d([]);
       setYesterdaySummary(null);
       setDayBeforeSummary(null);
       setHrvBaseline(null);
       setRestingHrBaseline(null);
+      setRestingHeartRateYesterday(null);
+      setAvgDailySteps(null);
+      setRecentStepDays([]);
       setHistoryScores([]);
       return;
     }
@@ -452,6 +502,8 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
             fetchHealthBaselines(false),
             fetchWorkoutWindow(),
             fetchYesterdayNutrition(),
+            fetchYesterdayRhr(),
+            fetchRecentStepDays(),
           ]);
         }
       }
@@ -465,6 +517,8 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     fetchHealthBaselines,
     fetchWorkoutWindow,
     fetchYesterdayNutrition,
+    fetchYesterdayRhr,
+    fetchRecentStepDays,
   ]);
 
   const nutritionSummary = summaryToday ?? yesterdaySummary;
@@ -480,12 +534,16 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
       yesterdaySummary:    nutritionSummary,
       dayBeforeSummary,
       workouts7d,
+      workoutsPrior7d,
       hrvBaseline,
       restingHrBaseline,
+      restingHeartRateYesterday,
       proteinTarget,
       calorieBudget,
       waterGlassesToday:   summaryToday?.water_glasses ?? null,
       waterGoalMl:         user?.waterGoalMl ?? 2000,
+      recentStepDays,
+      avgDailySteps,
     });
     return computeReadiness(input);
   }, [
@@ -498,12 +556,16 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     nutritionSummary,
     dayBeforeSummary,
     workouts7d,
+    workoutsPrior7d,
     hrvBaseline,
     restingHrBaseline,
+    restingHeartRateYesterday,
     proteinTarget,
     calorieBudget,
     summaryToday?.water_glasses,
     user?.waterGoalMl,
+    recentStepDays,
+    avgDailySteps,
   ]);
 
   /** Always stamp today's live computed score into a trend array so the calendar matches the ring. */
@@ -684,6 +746,8 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
           fetchHealthBaselines(force),
           fetchWorkoutWindow(),
           fetchYesterdayNutrition(),
+          fetchYesterdayRhr(force),
+          fetchRecentStepDays(force),
         ]);
       } finally {
         setIsLoading(false);
@@ -703,6 +767,8 @@ export function RecoveryProvider({ children }: { children: React.ReactNode }) {
     fetchHealthBaselines,
     fetchWorkoutWindow,
     fetchYesterdayNutrition,
+    fetchYesterdayRhr,
+    fetchRecentStepDays,
   ]);
 
   // A workout edit only moves training strain → the readiness score. Recompute

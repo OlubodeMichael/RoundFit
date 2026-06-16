@@ -81,7 +81,7 @@ export function SettingsScreen({
 
           <Text style={[s.headerTitle, { color: P.text }]} numberOfLines={1}>{title}</Text>
 
-          <View style={s.headerBtn} />
+          <View style={s.headerSpacer} />
         </View>
 
         {!!subtitle && <Text style={[s.headerSub, { color: P.dim }]}>{subtitle}</Text>}
@@ -175,6 +175,7 @@ const s = StyleSheet.create({
     width: 38, height: 38, borderRadius: 19, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
+  headerSpacer: { width: 38, height: 38 },
   headerTitle: {
     flex: 1, textAlign: 'center',
     fontSize: 22, fontWeight: '700', letterSpacing: -0.4,

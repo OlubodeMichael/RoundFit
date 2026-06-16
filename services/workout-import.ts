@@ -133,7 +133,10 @@ function mapSampleToReviewItem(sample: HealthKitWorkoutSample): WorkoutImportRev
     sample,
     catalogId: catalogEntry.id,
     catalogEntry,
-    label: getHealthKitActivityDisplayLabel(sample.workoutActivityType),
+    label: getHealthKitActivityDisplayLabel(
+      sample.workoutActivityType,
+      sample.workoutActivityTypeName,
+    ),
     durationMinutes,
     caloriesBurned: sample.caloriesBurned,
     avgHeartRate: sample.avgHeartRate,
@@ -205,7 +208,11 @@ export async function importReviewedWorkout(
     const entry = getCatalogEntryById(overrides.catalogId);
     if (entry) {
       input.type = entry.backendType;
-      input.notes = `Imported from ${sourceLabel} (${entry.label})`;
+      const appleLabel = getHealthKitActivityDisplayLabel(
+        sample.workoutActivityType,
+        sample.workoutActivityTypeName,
+      );
+      input.notes = `Imported from ${sourceLabel} (${appleLabel})`;
     }
   }
 

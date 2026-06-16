@@ -36,7 +36,7 @@ export function WorkoutPendingCard({ item, onPress, delay = 0 }: WorkoutPendingC
 
   return (
     <WorkoutListCard
-      icon={item.catalogEntry.icon}
+      iconEntry={item.catalogEntry}
       title={item.label}
       timeRange={timeRange}
       eyebrow="Apple Fitness"

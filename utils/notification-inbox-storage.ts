@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { NotificationRequest } from 'expo-notifications';
 
 import type { InboxNotification, NotificationScreenKey } from '@/types/notification-inbox';
+import { resolveInboxNotificationScreen } from '@/utils/notification-routes';
 
 /** Exported so clearUserCachesOnLogout can wipe the inbox on sign-out —
  * the key is device-global, so a leftover payload would leak the previous
@@ -39,7 +40,8 @@ function parseScreen(data: Record<string, unknown> | undefined): NotificationScr
     screen === 'workout' ||
     screen === 'sleep' ||
     screen === 'summary' ||
-    screen === 'water'
+    screen === 'water' ||
+    screen === 'insight'
   ) {
     return screen;
   }
@@ -92,6 +94,14 @@ function dedupeInboxRows(items: InboxNotification[]): InboxNotification[] {
   );
 }
 
+function migrateInboxItem(item: InboxNotification): InboxNotification {
+  const screen = resolveInboxNotificationScreen(item);
+  if (screen && item.screen !== screen) {
+    return { ...item, screen };
+  }
+  return item;
+}
+
 export async function loadInboxNotifications(): Promise<InboxNotification[]> {
   const raw = await AsyncStorage.getItem(STORAGE_KEY);
   if (!raw) return [];
@@ -100,9 +110,13 @@ export async function loadInboxNotifications(): Promise<InboxNotification[]> {
     const parsed = JSON.parse(raw) as InboxNotification[];
     if (!Array.isArray(parsed)) return [];
     const valid = parsed.filter((item) => item?.id && item?.receivedAt);
-    const deduped = dedupeInboxRows(valid);
+    const migrated = valid.map(migrateInboxItem);
+    const deduped = dedupeInboxRows(migrated);
 
-    if (deduped.length !== valid.length) {
+    if (
+      deduped.length !== valid.length ||
+      migrated.some((item, i) => item.screen !== valid[i]?.screen)
+    ) {
       await persistInbox(deduped);
     }
 

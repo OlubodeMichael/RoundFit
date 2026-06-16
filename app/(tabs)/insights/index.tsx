@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ComponentProps } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Animated,
     Pressable,
@@ -18,6 +18,15 @@ import { useRouter } from "expo-router";
 import { DailyGoalsSummaryCard } from "@/components/insights/DailyGoalsSummaryCard";
 import { InsightGradientCard } from "@/components/insights/InsightGradientCard";
 import {
+  InsightListPagination,
+  PAST_INSIGHTS_PAGE_SIZE,
+} from "@/components/insights/InsightListPagination";
+import {
+  DEFAULT_INSIGHT_FILTERS,
+  InsightFilterMenu,
+  type InsightListFilters,
+} from "@/components/insights/InsightFilterMenu";
+import {
   TodayInsightsSkeleton,
   WeekInsightsSkeleton,
 } from "@/components/insights/InsightsSkeleton";
@@ -27,6 +36,7 @@ import { useInsights } from "@/context/insights-context";
 import { useWeeklyInsights } from "@/hooks/use-weekly-insights";
 import { usePalette } from "@/lib/log-theme";
 import { getLocalDateString } from "@/utils/date";
+import { filterInsightsByDate } from "@/utils/insight-filters";
 import {
     formatSleepHours,
     getDayLetter,
@@ -61,6 +71,18 @@ function extractTitle(message: string): string {
   const dot = message.indexOf(". ");
   if (dot > 10 && dot < 72) return message.slice(0, dot);
   return message.length > 62 ? message.slice(0, 60).trimEnd() + "…" : message;
+}
+
+function insightPreviewSnippet(title: string, body: string): string {
+  const trimmed = body.trim();
+  if (!trimmed) return "";
+
+  if (trimmed.startsWith(title)) {
+    const rest = trimmed.slice(title.length).replace(/^[.…\s]+/, "").trim();
+    return rest || trimmed;
+  }
+
+  return trimmed;
 }
 
 function categorizeInsight(title: string, isAi: boolean): string {
@@ -155,15 +177,14 @@ function SegmentToggle({
 
   const anim = useRef(new Animated.Value(active === "today" ? 0 : 1)).current;
 
-  const slide = (tab: Tab) => {
+  useEffect(() => {
     Animated.spring(anim, {
-      toValue: tab === "today" ? 0 : 1,
+      toValue: active === "today" ? 0 : 1,
       useNativeDriver: true,
       tension: 240,
       friction: 22,
     }).start();
-    onChange(tab);
-  };
+  }, [active, anim]);
 
   const translateX = anim.interpolate({
     inputRange: [0, 1],
@@ -198,7 +219,7 @@ function SegmentToggle({
       {(["today", "week"] as Tab[]).map((tab) => (
         <Pressable
           key={tab}
-          onPress={() => slide(tab)}
+          onPress={() => onChange(tab)}
           style={[s.toggleTab, { width: pillW }]}
           hitSlop={4}
         >
@@ -223,6 +244,10 @@ export default function InsightsScreen() {
   const insets = useSafeAreaInsets();
 
   const [activeTab, setActiveTab] = useState<Tab>("today");
+  const [insightFilters, setInsightFilters] = useState<InsightListFilters>(
+    DEFAULT_INSIGHT_FILTERS,
+  );
+  const [pastPage, setPastPage] = useState(0);
 
   // Fade animation for tab content swap
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -247,7 +272,6 @@ export default function InsightsScreen() {
     todayInsight,
     claudeInsight,
     history,
-    dismissInsight,
   } = useInsights();
   const {
     data: weekData,
@@ -265,12 +289,47 @@ export default function InsightsScreen() {
     ? toDisplay(heroSource, new Date().toISOString())
     : null;
 
-  const pastDisplay = useMemo(() => {
+  const pastBase = useMemo(() => {
     const today = getLocalDateString();
     return history
       .filter((i) => !i.dismissed && i.date !== today)
       .map((i) => toDisplay(i));
   }, [history]);
+
+  const pastDisplay = useMemo(
+    () => filterInsightsByDate(pastBase, insightFilters, todayStr),
+    [pastBase, insightFilters, todayStr],
+  );
+
+  const pastFiltersActive =
+    insightFilters.scope !== DEFAULT_INSIGHT_FILTERS.scope ||
+    insightFilters.sort !== DEFAULT_INSIGHT_FILTERS.sort ||
+    insightFilters.dateQuery.trim().length > 0;
+
+  useEffect(() => {
+    setPastPage(0);
+  }, [
+    insightFilters.scope,
+    insightFilters.sort,
+    insightFilters.dateQuery,
+    pastDisplay.length,
+  ]);
+
+  const pastPageCount = Math.max(
+    1,
+    Math.ceil(pastDisplay.length / PAST_INSIGHTS_PAGE_SIZE),
+  );
+
+  useEffect(() => {
+    if (pastPage >= pastPageCount) {
+      setPastPage(Math.max(0, pastPageCount - 1));
+    }
+  }, [pastPage, pastPageCount]);
+
+  const visiblePastDisplay = useMemo(() => {
+    const start = pastPage * PAST_INSIGHTS_PAGE_SIZE;
+    return pastDisplay.slice(start, start + PAST_INSIGHTS_PAGE_SIZE);
+  }, [pastDisplay, pastPage]);
 
   const longDate = useMemo(
     () =>
@@ -284,9 +343,43 @@ export default function InsightsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
+      <View
+        style={[
+          s.fixedTop,
+          {
+            paddingTop: insets.top + 12,
+            backgroundColor: P.bg,
+            borderBottomColor: P.hair,
+          },
+        ]}
+      >
+        <View style={s.header}>
+          <View style={s.headerMain}>
+            <Text style={[s.eyebrow, { color: P.textFaint }]}>
+              {longDate.toUpperCase()}
+            </Text>
+            <Text style={[s.title, { color: P.text }]}>
+              Insights<Text style={{ color: P.fat }}>.</Text>
+            </Text>
+          </View>
+          {activeTab === "today" ? (
+            <InsightFilterMenu
+              filters={insightFilters}
+              onChange={setInsightFilters}
+              anchorTop={insets.top + 12}
+            />
+          ) : null}
+        </View>
+
+        <View style={s.toggleRow}>
+          <SegmentToggle active={activeTab} onChange={switchTab} />
+        </View>
+      </View>
+
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={{
-          paddingTop: insets.top + 12,
+          paddingTop: 8,
           paddingBottom: insets.bottom + 96,
         }}
         showsVerticalScrollIndicator={false}
@@ -300,22 +393,6 @@ export default function InsightsScreen() {
           ) : undefined
         }
       >
-        {/* ── Header ───────────────────────────────────────────── */}
-        <View style={s.header}>
-          <Text style={[s.eyebrow, { color: P.textFaint }]}>
-            {longDate.toUpperCase()}
-          </Text>
-          <Text style={[s.title, { color: P.text }]}>
-            Insights<Text style={{ color: P.fat }}>.</Text>
-          </Text>
-        </View>
-
-        {/* ── Toggle ───────────────────────────────────────────── */}
-        <View style={s.toggleRow}>
-          <SegmentToggle active={activeTab} onChange={switchTab} />
-        </View>
-
-        {/* ── Content ──────────────────────────────────────────── */}
         <Animated.View style={{ opacity: fadeAnim }}>
           {activeTab === "today" ? (
             <TodayView
@@ -323,9 +400,12 @@ export default function InsightsScreen() {
               todayTargets={todayTargets}
               isLoading={weekLoading}
               heroDisplay={heroDisplay}
-              heroSource={heroSource}
-              pastDisplay={pastDisplay}
-              onDismiss={(id) => dismissInsight(id)}
+              pastDisplay={visiblePastDisplay}
+              pastTotalCount={pastDisplay.length}
+              pastPage={pastPage}
+              onPastPageChange={setPastPage}
+              pastBaseCount={pastBase.length}
+              pastFiltersActive={pastFiltersActive}
             />
           ) : (
             <WeekView data={weekData} isLoading={weekLoading} />
@@ -343,17 +423,23 @@ function TodayView({
   todayTargets,
   isLoading,
   heroDisplay,
-  heroSource,
   pastDisplay,
-  onDismiss,
+  pastTotalCount,
+  pastPage,
+  onPastPageChange,
+  pastBaseCount,
+  pastFiltersActive,
 }: {
   todayDay: NormalizedDay | null;
   todayTargets: InsightTargets | null;
   isLoading: boolean;
   heroDisplay: DisplayInsight | null;
-  heroSource: ApiInsight | null;
   pastDisplay: DisplayInsight[];
-  onDismiss: (id: string) => void;
+  pastTotalCount: number;
+  pastPage: number;
+  onPastPageChange: (page: number) => void;
+  pastBaseCount: number;
+  pastFiltersActive: boolean;
 }) {
   const P = usePalette();
   const router = useRouter();
@@ -415,30 +501,22 @@ function TodayView({
     { label: "Sleep", pct: sleepPct, met: metSleep },
   ];
 
-  // Show goals card if user has logged food, OR if it's evening (≥17:00) and nothing logged yet
-  const hasLogged = cals > 0 || protein > 0;
-  const isEvening = new Date().getHours() >= 17;
-  const showGoalsCard = hasLogged || isEvening;
-
+  // Goals summary always first so today's insight stays the second block.
   return (
     <View style={s.stack}>
-      {/* ── Goals summary — visible when logged, or evening reminder ── */}
-      {showGoalsCard ? (
-        <DailyGoalsSummaryCard
-          P={P}
-          delay={60}
-          dateLabel={cardDate}
-          goalsMetCount={goalsMetCount}
-          miniGoals={miniGoals}
-        />
-      ) : null}
+      <DailyGoalsSummaryCard
+        P={P}
+        delay={60}
+        dateLabel={cardDate}
+        goalsMetCount={goalsMetCount}
+        miniGoals={miniGoals}
+      />
 
-      {/* ── Today's AI insight ──────────────────────────── */}
+      {/* ── Today's insight (preview — tap to open) ─────── */}
       {heroDisplay && (
         <InsightHeroCard
           insight={heroDisplay}
-          delay={220}
-          onDismiss={() => onDismiss(heroSource!.id)}
+          delay={140}
           onPress={() =>
             router.push({
               pathname: "/insights/daily",
@@ -449,15 +527,22 @@ function TodayView({
       )}
 
       {/* ── Past insights ───────────────────────────────── */}
-      {pastDisplay.length > 0 && (
+      {(pastTotalCount > 0 || (pastFiltersActive && pastBaseCount > 0)) && (
         <>
           <View style={[s.sectionHead, { paddingHorizontal: 4 }]}>
             <Text style={[s.sectionTitle, { color: P.text }]}>
               Past insights
             </Text>
             <Text style={[s.sectionCaption, { color: P.textFaint }]}>
-              {pastDisplay.length} earlier{" "}
-              {pastDisplay.length === 1 ? "insight" : "insights"}
+              {pastFiltersActive
+                ? pastTotalCount === 0
+                  ? "No insights match your filters"
+                  : `${pastTotalCount} matching ${
+                      pastTotalCount === 1 ? "insight" : "insights"
+                    }`
+                : `${pastTotalCount} earlier ${
+                    pastTotalCount === 1 ? "insight" : "insights"
+                  }`}
             </Text>
           </View>
           {pastDisplay.map((item, idx) => (
@@ -473,6 +558,12 @@ function TodayView({
               }
             />
           ))}
+          <InsightListPagination
+            page={pastPage}
+            pageSize={PAST_INSIGHTS_PAGE_SIZE}
+            totalItems={pastTotalCount}
+            onPageChange={onPastPageChange}
+          />
         </>
       )}
     </View>
@@ -760,12 +851,10 @@ function WeekView({
 function InsightHeroCard({
   insight,
   delay,
-  onDismiss,
   onPress,
 }: {
   insight: DisplayInsight;
   delay: number;
-  onDismiss: () => void;
   onPress: () => void;
 }) {
   const P = usePalette();
@@ -784,37 +873,10 @@ function InsightHeroCard({
       P={cardP}
       delay={delay}
       onPress={onPress}
+      preview
       eyebrow={`Today's insight · ${insight.category}`}
       title={insight.title}
-      body={insight.body}
-      footer={
-        <View style={s.heroFoot}>
-          <Pressable
-            style={({ pressed }) => [s.footBtn, pressed && { opacity: 0.6 }]}
-            hitSlop={8}
-          >
-            <Ionicons name="thumbs-up-outline" size={16} color={P.textDim} />
-            <Text style={[s.footBtnText, { color: P.textDim }]}>Helpful</Text>
-          </Pressable>
-          <View style={[s.footDivider, { backgroundColor: P.hair }]} />
-          <Pressable
-            onPress={onDismiss}
-            style={({ pressed }) => [s.footBtn, pressed && { opacity: 0.6 }]}
-            hitSlop={8}
-          >
-            <Ionicons name="eye-off-outline" size={16} color={P.textDim} />
-            <Text style={[s.footBtnText, { color: P.textDim }]}>Dismiss</Text>
-          </Pressable>
-          <View style={[s.footDivider, { backgroundColor: P.hair }]} />
-          <Pressable
-            style={({ pressed }) => [s.footBtn, pressed && { opacity: 0.6 }]}
-            hitSlop={8}
-          >
-            <Ionicons name="share-outline" size={16} color={P.textDim} />
-            <Text style={[s.footBtnText, { color: P.textDim }]}>Share</Text>
-          </Pressable>
-        </View>
-      }
+      body={insightPreviewSnippet(insight.title, insight.body)}
     />
   );
 }
@@ -842,11 +904,12 @@ function InsightPastCard({
       }}
       delay={delay}
       onPress={onPress}
+      preview
       compact
       icon="time-outline"
-      eyebrow={insight.date.toUpperCase()}
+      eyebrow={`${insight.date.toUpperCase()} · ${insight.category}`}
       title={insight.title}
-      body={insight.body}
+      body={insightPreviewSnippet(insight.title, insight.body)}
     />
   );
 }
@@ -854,10 +917,21 @@ function InsightPastCard({
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
+  fixedTop: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    zIndex: 10,
+  },
   header: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
     paddingHorizontal: 20,
     paddingTop: 4,
     paddingBottom: 16,
+  },
+  headerMain: {
+    flex: 1,
   },
   eyebrow: {
     fontSize: 12,
@@ -874,7 +948,7 @@ const s = StyleSheet.create({
   // ── Toggle ──
   toggleRow: {
     paddingHorizontal: 20,
-    marginBottom: 16,
+    paddingBottom: 12,
   },
   toggleTrack: {
     flexDirection: "row",
@@ -1067,23 +1141,6 @@ const s = StyleSheet.create({
     lineHeight: 23,
     letterSpacing: -0.1,
   },
-  heroFoot: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingTop: 14,
-    paddingHorizontal: 4,
-    paddingBottom: 12,
-  },
-  footBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 6,
-  },
-  footBtnText: { fontSize: 14, fontWeight: "600" },
-  footDivider: { width: StyleSheet.hairlineWidth, height: 16 },
 
   // ── Past list (kept for insight cards) ──
   pastRow: { flexDirection: "row", alignItems: "center", gap: 12 },

@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { BadgeUnlockHost } from "@/components/badges/BadgeUnlockToast";
 import { CheckinModal } from "@/components/checkin/CheckinModal";
 import { useCheckin } from "@/hooks/use-checkin";
 import { usePalette } from "@/lib/log-theme";
@@ -51,6 +52,7 @@ const TABS: {
 const PROFILE_SUB_SCREENS = [
     "you", "health", "preferences", "theme", "security", "account",
     "cycle", "wearable", "notifications", "subscription", "paywall", "help",
+    "badges",
 ];
 
 /** Expo Router types `useSegments()` as a short tuple; paths can be deeper. */
@@ -209,6 +211,7 @@ export default function TabLayout() {
                 <Tabs.Screen name="profile"  options={{ title: "Profile"  }} />
             </Tabs>
             <CheckinGate />
+            <BadgeUnlockHost />
         </>
     );
 }

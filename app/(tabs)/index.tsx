@@ -773,10 +773,10 @@ export default function HomeScreen() {
       if (isToday) {
         const today = getLocalDateString();
         await Promise.all([
-          refreshLogs(today),
+          refreshLogs(),
           refreshProfile(),
           refreshHealth(),
-          refreshWorkouts(today),
+          refreshWorkouts(),
           refreshSummary(),
           pendingImports.refresh(),
         ]);
@@ -909,7 +909,6 @@ export default function HomeScreen() {
             goal={mealGoal}
             burned={burnedToday}
             healthData={healthToday}
-            showMovement={isToday && Platform.OS === "ios"}
           />
           {isToday && (
             <BurnCoachStrip

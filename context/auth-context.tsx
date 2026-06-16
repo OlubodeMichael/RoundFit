@@ -22,6 +22,7 @@ import {
   readCachedAuthUser,
   writeCachedAuthUser,
 } from "@/utils/auth-user-cache";
+import { prefetchAvatarImage } from "@/utils/avatar-image-cache";
 import { createAppleSignInNonce } from "@/utils/apple-sign-in-nonce";
 import * as AppleAuthentication from "expo-apple-authentication";
 import Constants from "expo-constants";
@@ -590,6 +591,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const paintedFromCache = !!(cachedUser && tokenPresent);
       if (paintedFromCache) {
         setUser(cachedUser);
+        prefetchAvatarImage(cachedUser.avatarUrl);
         setProfileSetupPending(false);
         setStatus("authenticated");
       }

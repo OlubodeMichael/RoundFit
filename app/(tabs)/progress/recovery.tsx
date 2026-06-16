@@ -72,15 +72,20 @@ function MetricRow({ factor, last, palette }: {
   palette: P;
 }) {
   const P = palette;
-  const valueColor = readinessStatusTint(factor.status);
+  const valueColor = factor.inactive
+    ? P.textFaint
+    : readinessStatusTint(factor.status);
 
-  const deltaArrow = factor.status === 'good' ? '▲'
+  const deltaArrow = factor.inactive ? '•'
+                   : factor.status === 'good' ? '▲'
                    : factor.status === 'poor'  ? '▼'
                    : '•';
-  const deltaLabel = factor.status === 'good' ? 'Strong'
-                   : factor.status === 'poor'  ? 'Low'
-                   : 'Steady';
-  const deltaColor = valueColor;
+  const deltaLabel = factor.statusLabel
+    ?? (factor.inactive ? 'Inactive'
+      : factor.status === 'good' ? 'Strong'
+      : factor.status === 'poor'  ? 'Low'
+      : 'Steady');
+  const deltaColor = factor.inactive ? P.textFaint : valueColor;
 
   const displayScore = factor.ringScore != null ? factor.ringScore : factor.score;
 

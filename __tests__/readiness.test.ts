@@ -1,4 +1,7 @@
 import {
+  adjustHrvBaselineForCycle,
+  applyInteractionEffects,
+  applyRestingHrOverride,
   computeCycleScore,
   computeHrvScore,
   computeHydrationScore,
@@ -9,6 +12,7 @@ import {
   computeTrendDirection,
 } from '@/utils/readiness';
 import type { ReadinessInput } from '@/types/readiness';
+import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
 
 describe('computeHydrationScore', () => {
   it('maps the logged/target ratio onto fixed bands', () => {
@@ -47,22 +51,35 @@ describe('computeNutritionScore', () => {
 });
 
 describe('computeHrvScore', () => {
+  const hrvBase = {
+    resting_heart_rate: null,
+    resting_heart_rate_yesterday: null,
+    resting_hr_baseline_yesterday: null,
+  };
+
   it('scores the hrv/baseline ratio against the breakpoint curve', () => {
-    expect(computeHrvScore({ hrv: 50, resting_heart_rate: null, hrv_baseline: 50, resting_hr_baseline: null })).toBe(85); // ratio 1.0
-    expect(computeHrvScore({ hrv: 55, resting_heart_rate: null, hrv_baseline: 50, resting_hr_baseline: null })).toBe(100); // ratio 1.1
+    expect(computeHrvScore({ hrv: 50, ...hrvBase, hrv_baseline: 50, resting_hr_baseline: null })).toBe(85); // ratio 1.0
+    expect(computeHrvScore({ hrv: 55, ...hrvBase, hrv_baseline: 50, resting_hr_baseline: null })).toBe(100); // ratio 1.1
   });
 
   it('falls back to the current hrv as baseline when none is provided', () => {
-    expect(computeHrvScore({ hrv: 42, resting_heart_rate: null, hrv_baseline: null, resting_hr_baseline: null })).toBe(85);
+    expect(computeHrvScore({ hrv: 42, ...hrvBase, hrv_baseline: null, resting_hr_baseline: null })).toBe(85);
   });
 
   it('docks 10 points when resting HR is elevated >10% over baseline', () => {
-    expect(computeHrvScore({ hrv: 50, resting_heart_rate: 60, hrv_baseline: 50, resting_hr_baseline: 50 })).toBe(75);
+    expect(computeHrvScore({
+      hrv: 50,
+      resting_heart_rate: 60,
+      hrv_baseline: 50,
+      resting_hr_baseline: 50,
+      resting_heart_rate_yesterday: null,
+      resting_hr_baseline_yesterday: null,
+    })).toBe(75);
   });
 
   it('returns null without a usable hrv reading', () => {
-    expect(computeHrvScore({ hrv: null, resting_heart_rate: 50, hrv_baseline: 50, resting_hr_baseline: 50 })).toBeNull();
-    expect(computeHrvScore({ hrv: 0, resting_heart_rate: 50, hrv_baseline: 50, resting_hr_baseline: 50 })).toBeNull();
+    expect(computeHrvScore({ hrv: null, resting_heart_rate: 50, hrv_baseline: 50, resting_hr_baseline: 50, resting_heart_rate_yesterday: null, resting_hr_baseline_yesterday: null })).toBeNull();
+    expect(computeHrvScore({ hrv: 0, resting_heart_rate: 50, hrv_baseline: 50, resting_hr_baseline: 50, resting_heart_rate_yesterday: null, resting_hr_baseline_yesterday: null })).toBeNull();
   });
 });
 
@@ -106,8 +123,37 @@ describe('computeCycleScore', () => {
 });
 
 describe('computeTrainingLoadScore', () => {
-  it('returns a neutral 70 when there are no recent workouts', () => {
-    expect(computeTrainingLoadScore([])).toBe(70);
+  const session = (date: string, mins: number, intensity: 'light' | 'moderate' | 'hard' = 'moderate') => ({
+    date,
+    duration_mins: mins,
+    intensity,
+  });
+
+  it('is inactive with no training history', () => {
+    const result = computeTrainingLoadScore([], []);
+    expect(result.active).toBe(false);
+    expect(result.score).toBeNull();
+    expect(result.status).toBe('no_data');
+    expect(result.label).toBe('No data');
+  });
+
+  it('scores detraining when the prior week had sessions but this week is empty', () => {
+    const result = computeTrainingLoadScore([], [session('2026-01-01', 45)]);
+    expect(result.active).toBe(true);
+    expect(result.score).toBe(55);
+    expect(result.status).toBe('detraining');
+    expect(result.label).toBe('Detraining');
+  });
+
+  it('computes ACR from real sessions in the recent window', () => {
+    const today = getLocalDateString();
+    const workouts = Array.from({ length: 7 }, (_, i) =>
+      session(addLocalCalendarDays(today, -i), 45, 'moderate'),
+    );
+    const result = computeTrainingLoadScore(workouts, []);
+    expect(result.active).toBe(true);
+    expect(result.label).toBe('Balanced');
+    expect(result.score).toBeGreaterThanOrEqual(90);
   });
 });
 
@@ -115,8 +161,16 @@ describe('computeReadiness', () => {
   function baseInput(): ReadinessInput {
     return {
       sleep: { sleep_hours: null, deep_sleep_hours: null, rem_sleep_hours: null, sleep_quality_rating: null, sleep_efficiency: null },
-      hrv: { hrv: null, resting_heart_rate: null, hrv_baseline: null, resting_hr_baseline: null },
+      hrv: {
+        hrv: null,
+        resting_heart_rate: null,
+        hrv_baseline: null,
+        resting_hr_baseline: null,
+        resting_heart_rate_yesterday: null,
+        resting_hr_baseline_yesterday: null,
+      },
       workouts_7d: [],
+      workouts_prior_7d: [],
       nutrition: { calories_consumed: null, calorie_budget: null, protein_consumed: null, protein_target: null },
       nutrition_prev: null,
       soreness: { soreness_level: null, energy_level: null, inferred: false },
@@ -128,13 +182,15 @@ describe('computeReadiness', () => {
   }
 
   it('returns null when fewer than two pillars have data', () => {
-    // Only training_load is active (it always defaults to 70); not enough.
+    // Training load is inactive without sessions; hydration alone is not enough.
     expect(computeReadiness(baseInput())).toBeNull();
   });
 
   it('aggregates a score once at least two pillars are active', () => {
     const input = baseInput();
-    input.hydration = { logged_ml: 2400, target_ml: 2500 }; // 100, second active pillar
+    input.hrv.hrv = 50;
+    input.hrv.hrv_baseline = 50;
+    input.hydration = { logged_ml: 2400, target_ml: 2500 };
     const result = computeReadiness(input);
     expect(result).not.toBeNull();
     expect(result!.score).toBeGreaterThan(0);
@@ -144,6 +200,8 @@ describe('computeReadiness', () => {
 
   it('forces a Rest recommendation after three consecutive hard days', () => {
     const input = baseInput();
+    input.hrv.hrv = 50;
+    input.hrv.hrv_baseline = 50;
     input.hydration = { logged_ml: 2400, target_ml: 2500 };
     input.consecutive_hard_days = 3;
     expect(computeReadiness(input)!.recommendation).toBe('Rest');
@@ -175,5 +233,44 @@ describe('computeTrendDirection', () => {
     const trend = computeTrendDirection(history, 72);
     expect(trend.direction).toBe('steady');
     expect(trend.message).toBeNull();
+  });
+});
+
+describe('adjustHrvBaselineForCycle', () => {
+  it('lowers the expected baseline across luteal sub-phases', () => {
+    expect(adjustHrvBaselineForCycle(50, 'follicular', null)).toBe(50);
+    expect(adjustHrvBaselineForCycle(50, 'luteal', 12)).toBeCloseTo(47.5);
+    expect(adjustHrvBaselineForCycle(50, 'luteal', 6)).toBeCloseTo(46.5);
+    expect(adjustHrvBaselineForCycle(50, 'luteal', 2)).toBeCloseTo(46);
+  });
+});
+
+describe('applyRestingHrOverride', () => {
+  it('caps recommendation inputs after two consecutive elevated days', () => {
+    const result = applyRestingHrOverride(80, 58, 50, 56, 50);
+    expect(result.score).toBe(55);
+    expect(result.capped).toBe('light');
+  });
+
+  it('applies graduated penalties for single-day elevation', () => {
+    expect(applyRestingHrOverride(80, 55, 50, null, null)).toEqual({ score: 72, capped: null });
+    expect(applyRestingHrOverride(80, 60, 50, null, null)).toEqual({ score: 65, capped: null });
+  });
+});
+
+describe('applyInteractionEffects', () => {
+  it('stacks multipliers for compounding red flags', () => {
+    const result = applyInteractionEffects(80, {
+      hrv: 55,
+      sleep: 55,
+      training_load: 40,
+      soreness: 40,
+    });
+    expect(result.triggered).toEqual([
+      'autonomic_overload',
+      'incomplete_recovery',
+      'sleep_hrv_stress',
+    ]);
+    expect(result.score).toBe(Math.round(80 * 0.82 * 0.88 * 0.90));
   });
 });

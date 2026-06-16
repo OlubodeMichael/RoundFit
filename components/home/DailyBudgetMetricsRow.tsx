@@ -36,9 +36,8 @@ export interface DailyBudgetMetricsRowProps {
   eaten: number;
   goal: number;
   burned: number;
-  /** When set with `showMovement`, renders Steps + Distance in the bottom row. */
+  /** Steps + distance metrics; null shows zeros until health data loads. */
   healthData?: HealthData | null;
-  showMovement?: boolean;
 }
 
 export function DailyBudgetMetricsRow({
@@ -48,11 +47,8 @@ export function DailyBudgetMetricsRow({
   goal,
   burned,
   healthData = null,
-  showMovement = false,
 }: DailyBudgetMetricsRowProps) {
   const isOver = eaten > goal;
-  const net = eaten - burned;
-  const movementActive = showMovement && healthData != null;
 
   return (
     <View style={s.grid}>
@@ -86,45 +82,18 @@ export function DailyBudgetMetricsRow({
       </View>
 
       <View style={s.gridRow}>
-        {movementActive ? (
-          <>
-            <StepsMetricCard
-              P={P}
-              delay={delay + 40}
-              data={healthData}
-              style={s.cell}
-            />
-            <DistanceMetricCard
-              P={P}
-              delay={delay + 60}
-              data={healthData}
-              style={s.cell}
-            />
-          </>
-        ) : (
-          <>
-            <BudgetMetricCard
-              P={P}
-              variant="distance"
-              icon="trending-up"
-              label="Net"
-              value={net}
-              sub="eaten − burn"
-              delay={delay + 40}
-              style={s.cell}
-            />
-            <BudgetMetricCard
-              P={P}
-              variant="distance"
-              icon="navigate"
-              label="Distance"
-              value={0}
-              sub="—"
-              delay={delay + 60}
-              style={s.cell}
-            />
-          </>
-        )}
+        <StepsMetricCard
+          P={P}
+          delay={delay + 40}
+          data={healthData}
+          style={s.cell}
+        />
+        <DistanceMetricCard
+          P={P}
+          delay={delay + 60}
+          data={healthData}
+          style={s.cell}
+        />
       </View>
     </View>
   );

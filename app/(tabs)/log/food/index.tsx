@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ScrollView,
   View,
@@ -134,25 +134,59 @@ export default function FoodLogScreen() {
   const insets  = useSafeAreaInsets();
   const router  = useRouter();
   const {
-    meals, mealGoal, totalCalories, remaining,
-    addMeal, previewBarcode, logBarcode, deleteMeal, refreshLogs, activeDate,
+    meals: todayMeals,
+    mealGoal,
+    addMeal,
+    previewBarcode,
+    logBarcode,
+    deleteMeal,
+    refreshLogs,
+    fetchForDate,
   } = useFood();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
 
   const today = localCalendarFromDate(new Date());
-  const isToday = activeDate === today;
+  const [viewDate, setViewDate] = useState(today);
+  const [pastMeals, setPastMeals] = useState<MealItem[]>([]);
+
+  const isToday = viewDate === today;
+  const meals = isToday ? todayMeals : pastMeals;
+
+  const totalCalories = useMemo(
+    () => meals.reduce((sum, m) => sum + m.cals, 0),
+    [meals],
+  );
+  const remaining = mealGoal - totalCalories;
+
+  const loadViewDate = useCallback(async (date: string, force = false) => {
+    if (date === today) {
+      await refreshLogs();
+      return;
+    }
+    const rows = await fetchForDate(date, force);
+    setPastMeals(rows);
+  }, [today, refreshLogs, fetchForDate]);
+
+  useEffect(() => {
+    setViewDate((prev) => (prev > today ? today : prev));
+  }, [today]);
 
   const navigateDate = async (direction: -1 | 1) => {
-    const next = offsetDate(activeDate, direction);
-    if (next > today) return; // no future dates
-    await refreshLogs(next);
+    const next = offsetDate(viewDate, direction);
+    if (next > today) return;
+    setViewDate(next);
+    try {
+      await loadViewDate(next);
+    } catch {
+      toast.error('Could not load day', 'Please try again.');
+    }
   };
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await refreshLogs(activeDate);
+      await loadViewDate(viewDate, true);
     } catch {
       toast.error('Could not refresh', 'Please try again.');
     } finally {
@@ -261,6 +295,9 @@ export default function FoodLogScreen() {
     const item = meals.find((m) => m.id === id);
     try {
       await deleteMeal(id);
+      if (!isToday) {
+        setPastMeals((prev) => prev.filter((m) => m.id !== id));
+      }
       toast.success('Meal removed', item?.name);
     } catch {
       toast.error('Could not delete meal', 'Please try again.');
@@ -429,7 +466,7 @@ export default function FoodLogScreen() {
             </Text>
             {/* Date pill navigator */}
             <DayNavigator
-              label={formatNavDate(activeDate)}
+              label={formatNavDate(viewDate)}
               isToday={isToday}
               onPrev={() => navigateDate(-1)}
               onNext={() => navigateDate(1)}

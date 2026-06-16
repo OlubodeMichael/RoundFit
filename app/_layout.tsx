@@ -108,8 +108,7 @@ function AppNavigator() {
 
     const passwordScreen =
       authScreen === "forgot-password" ||
-      authScreen === "reset-password" ||
-      authScreen === "change-password";
+      authScreen === "reset-password";
     // Only redirect into the tabs when status is authenticated AND a profile
     // is actually loaded (`hasActiveUserSession`). Status alone can briefly be
     // "authenticated" with `user === null` between sign-in and /me hydration.
@@ -128,7 +127,7 @@ function AppNavigator() {
   const top = segments[0];
   // Hide auth UI until session is known, and while an authenticated user is still on `auth`
   // (replace to tabs runs in the same layout pass — avoids a flash of the auth landing screen).
-  const passwordScreen = segments[1] === "forgot-password" || segments[1] === "reset-password" || segments[1] === "change-password";
+  const passwordScreen = segments[1] === "forgot-password" || segments[1] === "reset-password";
   const showAuthSplash =
     status === "loading" ||
     (status === "needs-profile" && top !== "onboarding") ||

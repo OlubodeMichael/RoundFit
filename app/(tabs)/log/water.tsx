@@ -14,6 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Haptics from 'expo-haptics';
 import { usePostHog } from 'posthog-react-native';
 
+import type { WaterEntry } from '@/context/water-context';
 import { usePalette } from '@/lib/log-theme';
 import { useToast } from '@/components/ui/Toast';
 import { WaterQuickAdd } from '@/components/log/WaterQuickAdd';
@@ -26,7 +27,6 @@ import { useWater } from '@/hooks/use-water';
 import {
   computeWaterDayStats,
   formatNavLabel,
-  isToday,
   localDateKey,
   ML_PER_OZ,
   offsetDate,
@@ -43,38 +43,68 @@ export default function WaterLogScreen() {
   const posthog = usePostHog();
   const acc = P.water;
 
-  const { entries, totalMl, goalMl, isLoading, logWater, deleteEntry, refresh } = useWater();
+  const {
+    entries: todayEntries,
+    goalMl,
+    isLoading,
+    logWater,
+    deleteEntryForDate,
+    refresh,
+    fetchForDate,
+  } = useWater();
 
-  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [viewDate, setViewDate] = useState(() => new Date());
+  const [pastEntries, setPastEntries] = useState<WaterEntry[]>([]);
   const [showReminder, setShowReminder] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [heroBump, setHeroBump] = useState(0);
 
-  const dateKey = localDateKey(selectedDate);
-  const dateKeyRef = useRef(dateKey);
-  dateKeyRef.current = dateKey;
+  const todayKey = localDateKey(new Date());
+  const dateKey = localDateKey(viewDate);
+  const viewDateRef = useRef(viewDate);
+  viewDateRef.current = viewDate;
+
+  const dayIsToday = dateKey === todayKey;
+  const entries = dayIsToday ? todayEntries : pastEntries;
+
+  const loadViewDate = useCallback(async (key: string, force = false) => {
+    if (key === todayKey) {
+      await refresh({ force });
+      return;
+    }
+    const data = await fetchForDate(key, force);
+    setPastEntries(data.entries);
+  }, [todayKey, refresh, fetchForDate]);
 
   useFocusEffect(
     useCallback(() => {
-      void refresh(dateKeyRef.current, { force: false });
-    }, [refresh]),
+      void loadViewDate(localDateKey(viewDateRef.current), false);
+    }, [loadViewDate]),
   );
 
   useEffect(() => {
-    void refresh(dateKey, { force: false });
-  }, [dateKey, refresh]);
+    void loadViewDate(dateKey, false);
+  }, [dateKey, loadViewDate]);
+
+  useEffect(() => {
+    setViewDate((prev) => (localDateKey(prev) > todayKey ? new Date() : prev));
+  }, [todayKey]);
 
   const navigate = (dir: -1 | 1) => {
-    const next = offsetDate(selectedDate, dir);
+    const next = offsetDate(viewDate, dir);
     if (next > new Date()) return;
-    setSelectedDate(next);
+    setViewDate(next);
   };
+
+  const totalMl = useMemo(
+    () => entries.reduce((sum, entry) => sum + entry.amount_ml, 0),
+    [entries],
+  );
 
   const { progress, pct, totalOz, goalOz, remainOz } = computeWaterDayStats(totalMl, goalMl);
   const message = whatsLeft(progress, remainOz);
-  const dayIsToday = isToday(selectedDate);
-  const showInitialLoad = isLoading && entries.length === 0;
+  const showInitialLoad = isLoading && dayIsToday && entries.length === 0;
 
   const mostUsedMl = useMemo(() => {
     if (entries.length === 0) return 237;
@@ -88,13 +118,13 @@ export default function WaterLogScreen() {
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      await refresh(dateKey, { force: true });
+      await loadViewDate(dateKey, true);
     } catch {
       toast.error('Could not refresh', 'Please try again.');
     } finally {
       setIsRefreshing(false);
     }
-  }, [dateKey, refresh, toast]);
+  }, [dateKey, loadViewDate, toast]);
 
   const handleAdd = async (ml: number) => {
     if (isSaving) return;
@@ -115,7 +145,10 @@ export default function WaterLogScreen() {
 
   const handleDelete = async (id: string) => {
     try {
-      await deleteEntry(id);
+      await deleteEntryForDate(dateKey, id);
+      if (!dayIsToday) {
+        setPastEntries((prev) => prev.filter((entry) => entry.id !== id));
+      }
       toast.info('Entry removed');
     } catch {
       toast.error('Could not delete', 'Please try again.');
@@ -145,7 +178,7 @@ export default function WaterLogScreen() {
       >
         <WaterLogHeader
           paddingTop={0}
-          dateLabel={formatNavLabel(selectedDate)}
+          dateLabel={formatNavLabel(viewDate)}
           isToday={dayIsToday}
           onBack={() => router.back()}
           onPrevDay={() => navigate(-1)}

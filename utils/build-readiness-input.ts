@@ -4,11 +4,35 @@ import type { HealthData } from '@/context/health-context';
 import type { RecoveryLog } from '@/context/recovery-context';
 import type { DailySummary } from '@/context/summary-context';
 import type { Workout } from '@/context/workout-context';
-import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
 import type { ReadinessInput, ReadinessWorkoutInput } from '@/types/readiness';
+import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
+import { computeInferredSoreness, type StepDayInput } from '@/utils/infer-soreness';
+import { countConsecutiveHardDays } from '@/utils/workout-readiness';
 
 /** 1 logged glass = 250 ml (matches the hydration tracker convention). */
 const GLASS_ML = 250;
+
+/** Map a logged workout session row into readiness training-load input. */
+export function workoutToReadinessInput(w: Workout): ReadinessWorkoutInput {
+  const date = w.date
+    ?? (w.started_at
+      ? getLocalDateString(new Date(w.started_at))
+      : w.created_at.slice(0, 10));
+  return {
+    date,
+    duration_mins: w.duration_mins,
+    intensity:     w.intensity,
+  };
+}
+
+/** Calendar dates for the prior 7-day window (8–14 days ago, inclusive). */
+export function datesPrior7(fromDate = getLocalDateString()): string[] {
+  const out: string[] = [];
+  for (let i = 13; i >= 7; i--) {
+    out.push(addLocalCalendarDays(fromDate, -i));
+  }
+  return out;
+}
 
 export interface BuildReadinessSources {
   recoveryLog: RecoveryLog | null;
@@ -19,68 +43,36 @@ export interface BuildReadinessSources {
   yesterdaySummary: DailySummary | null;
   /** Day-before-yesterday summary, for the 48-hour nutrition window. */
   dayBeforeSummary: DailySummary | null;
+  /** Logged sessions in the last 7 calendar days. */
   workouts7d: Workout[];
+  /** Logged sessions from 8–14 days ago. */
+  workoutsPrior7d: Workout[];
   hrvBaseline: number | null;
   restingHrBaseline: number | null;
+  restingHeartRateYesterday: number | null;
   proteinTarget: number;
   calorieBudget: number;
   /** Water logged so far today, in glasses. */
   waterGlassesToday: number | null;
   /** Daily water goal, in ml. */
   waterGoalMl: number;
+  /** Step counts for days 1–3 ago (ambient load for soreness inference). */
+  recentStepDays: StepDayInput[];
+  /** Rolling average daily steps; null falls back to 7000 in inference. */
+  avgDailySteps: number | null;
 }
-
-function workoutToInput(w: Workout): ReadinessWorkoutInput {
-  return {
-    date:          w.date ?? w.created_at.slice(0, 10),
-    duration_mins: w.duration_mins,
-    intensity:     w.intensity,
-  };
-}
-
-const workoutDay = (w: Workout): string => w.date ?? w.created_at.slice(0, 10);
 
 /**
- * Consecutive hard-training days ending yesterday. Two hard days back to back is
- * a real recovery risk; three or more should bias toward rest.
+ * Consecutive hard-training days ending yesterday — re-exported for readiness input.
  */
-export function countConsecutiveHardDays(workouts7d: Workout[]): number {
-  const today = getLocalDateString();
-  let streak = 0;
-  for (let i = 1; i <= 7; i++) {
-    const d = addLocalCalendarDays(today, -i);
-    const hard = workouts7d.some((w) => workoutDay(w) === d && w.intensity === 'hard');
-    if (!hard) break;
-    streak += 1;
-  }
-  return streak;
-}
+export { countConsecutiveHardDays } from '@/utils/workout-readiness';
 
-// DOMS peaks 24–48 h after training — infer soreness from yesterday's workout
-// when no manual soreness log is present.
-function inferSorenessFromWorkouts(workouts7d: Workout[]): number | null {
-  const today     = getLocalDateString();
-  const yesterday = addLocalCalendarDays(today, -1);
-
-  const yday = workouts7d.filter((w) => workoutDay(w) === yesterday);
-  if (yday.length === 0) return 1; // no workout yesterday = not sore
-
-  const BASE: Record<string, number> = { light: 2, moderate: 4, hard: 6 };
-  let base = 0;
-  let maxDuration = 0;
-  for (const w of yday) {
-    const b = BASE[w.intensity ?? 'moderate'] ?? 4;
-    if (b > base) base = b;
-    if (w.duration_mins > maxDuration) maxDuration = w.duration_mins;
-  }
-
-  const durationBonus = maxDuration >= 90 ? 2 : maxDuration >= 60 ? 1 : 0;
-
-  // Consecutive hard days compound soreness meaningfully (item 5).
-  const streak = countConsecutiveHardDays(workouts7d);
-  const consecutivePenalty = streak >= 3 ? 5 : streak >= 2 ? 3 : 0;
-
-  return Math.min(base + durationBonus + consecutivePenalty, 10);
+function inferSoreness(sources: BuildReadinessSources): number {
+  return computeInferredSoreness({
+    workouts:        sources.workouts7d,
+    stepDays:        sources.recentStepDays,
+    avgDailySteps:   sources.avgDailySteps,
+  });
 }
 
 function nutritionFromSummary(
@@ -101,7 +93,7 @@ function nutritionFromSummary(
 export function buildReadinessInput(sources: BuildReadinessSources): ReadinessInput {
   const {
     recoveryLog, healthToday, checkinToday, cycle, userSex,
-    yesterdaySummary, dayBeforeSummary, workouts7d,
+    yesterdaySummary, dayBeforeSummary, workouts7d, workoutsPrior7d,
     waterGlassesToday, waterGoalMl,
   } = sources;
 
@@ -121,12 +113,15 @@ export function buildReadinessInput(sources: BuildReadinessSources): ReadinessIn
       sleep_efficiency:       healthToday?.sleep_efficiency ?? null,
     },
     hrv: {
-      hrv:                   recoveryLog?.hrv ?? healthToday?.hrv ?? null,
-      resting_heart_rate:    recoveryLog?.resting_heart_rate ?? healthToday?.resting_heart_rate ?? null,
-      hrv_baseline:          sources.hrvBaseline,
-      resting_hr_baseline:   sources.restingHrBaseline,
+      hrv:                            recoveryLog?.hrv ?? healthToday?.hrv ?? null,
+      resting_heart_rate:             recoveryLog?.resting_heart_rate ?? healthToday?.resting_heart_rate ?? null,
+      hrv_baseline:                   sources.hrvBaseline,
+      resting_hr_baseline:            sources.restingHrBaseline,
+      resting_heart_rate_yesterday:   sources.restingHeartRateYesterday,
+      resting_hr_baseline_yesterday:  sources.restingHrBaseline,
     },
-    workouts_7d: workouts7d.map(workoutToInput),
+    workouts_7d:       workouts7d.map(workoutToReadinessInput),
+    workouts_prior_7d: workoutsPrior7d.map(workoutToReadinessInput),
     nutrition: nutritionFromSummary(yesterdaySummary, sources.proteinTarget, sources.calorieBudget) ?? {
       calories_consumed: null,
       calorie_budget:    sources.calorieBudget,
@@ -135,7 +130,7 @@ export function buildReadinessInput(sources: BuildReadinessSources): ReadinessIn
     },
     nutrition_prev: nutritionFromSummary(dayBeforeSummary, sources.proteinTarget, sources.calorieBudget),
     soreness: {
-      soreness_level: recoveryLog?.soreness_level ?? inferSorenessFromWorkouts(workouts7d),
+      soreness_level: recoveryLog?.soreness_level ?? inferSoreness(sources),
       energy_level:   checkinToday?.energy_level ?? null,
       inferred:       recoveryLog?.soreness_level == null,
     },

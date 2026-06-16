@@ -13,14 +13,14 @@ export type ReadinessPillarId =
   | 'cycle'
   | 'hydration';
 
-// v2 weights — hydration added at 0.05, others trimmed so the total stays 1.00.
+// v3 weights — HRV leads (autonomic readout); sleep supports; nutrition nudges.
 export const PILLAR_WEIGHTS: Record<ReadinessPillarId, number> = {
-  sleep:          0.28,
-  hrv:            0.20,
+  hrv:            0.26,
+  sleep:          0.23,
   training_load:  0.18,
-  nutrition:      0.10,
-  soreness:       0.09,
-  cycle:          0.10,
+  soreness:       0.11,
+  nutrition:      0.05,
+  cycle:          0.09,
   hydration:      0.05,
 };
 
@@ -54,6 +54,9 @@ export interface HrvScoreInput {
   resting_heart_rate: number | null;
   hrv_baseline: number | null;
   resting_hr_baseline: number | null;
+  /** Prior-day resting HR for consecutive-elevation override. */
+  resting_heart_rate_yesterday: number | null;
+  resting_hr_baseline_yesterday: number | null;
 }
 
 export interface NutritionScoreInput {
@@ -88,7 +91,10 @@ export interface CycleScoreInput {
 export interface ReadinessInput {
   sleep: SleepScoreInput;
   hrv: HrvScoreInput;
+  /** Logged workout sessions in the last 7 calendar days (inclusive). */
   workouts_7d: ReadinessWorkoutInput[];
+  /** Logged sessions from 8–14 days ago — used for detraining detection. */
+  workouts_prior_7d: ReadinessWorkoutInput[];
   nutrition: NutritionScoreInput;
   /** Day-before-yesterday nutrition, for the 48-hour weighted window. */
   nutrition_prev: NutritionScoreInput | null;
@@ -119,6 +125,21 @@ export interface ReadinessFactor {
   status: FactorStatus;
   score: number;
   ringScore?: number;
+  /** Overrides the default Strong / Steady / Low label in the UI. */
+  statusLabel?: string;
+  /** When true, pillar is shown greyed and does not contribute to the score. */
+  inactive?: boolean;
+}
+
+export type TrainingLoadStatus = 'no_data' | 'detraining' | 'active';
+
+export interface TrainingLoadResult {
+  score: number | null;
+  status: TrainingLoadStatus;
+  label: string;
+  note: string;
+  active: boolean;
+  acr?: number;
 }
 
 export interface ReadinessTip {

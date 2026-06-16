@@ -1,20 +1,21 @@
-import * as SecureStore from 'expo-secure-store';
-import Constants from 'expo-constants';
+import Constants from "expo-constants";
+import * as SecureStore from "expo-secure-store";
 
 const extra = Constants.expoConfig?.extra ?? {};
-const API_BASE    = (extra.apiUrl as string | undefined) ?? 'http://localhost:8000/api';
-const API_KEY     = (extra.apiKey as string | undefined) ?? '';
-const TOKEN_KEY   = 'access_token';
-const REFRESH_KEY = 'refresh_token';
-const SUB_KEY     = 'token_sub';       // plain-string owner of the stored session
-const TIMEOUT_MS  = 10_000;
+const API_BASE =
+  (extra.apiUrl as string | undefined) ?? "http://localhost:8000/api";
+const API_KEY = (extra.apiKey as string | undefined) ?? "";
+const TOKEN_KEY = "access_token";
+const REFRESH_KEY = "refresh_token";
+const SUB_KEY = "token_sub"; // plain-string owner of the stored session
+const TIMEOUT_MS = 10_000;
 
 if (!extra.apiUrl) {
   // Same failure mode as a missing API_KEY but previously silent: every
   // request would target the plain-HTTP localhost fallback and fail in a
   // production build. Surface it loudly at startup.
   console.warn(
-    '[api] API_URL (Constants.expoConfig.extra.apiUrl) is empty — falling back ' +
+    "[api] API_URL (Constants.expoConfig.extra.apiUrl) is empty — falling back " +
       `to ${API_BASE}; all API requests will fail in production builds.`,
   );
 }
@@ -24,8 +25,8 @@ if (!API_KEY) {
   // /auth/refresh — rejected by the backend's requireApiKey middleware, which
   // looks exactly like a mass random logout. Surface it loudly at startup.
   console.warn(
-    '[api] API_KEY (Constants.expoConfig.extra.apiKey) is empty — requests that ' +
-      'require the API key (including /auth/refresh) may be rejected and log users out.',
+    "[api] API_KEY (Constants.expoConfig.extra.apiKey) is empty — requests that " +
+      "require the API key (including /auth/refresh) may be rejected and log users out.",
   );
 }
 
@@ -35,11 +36,11 @@ if (!API_KEY) {
 // padding — both common failure points in React Native's Hermes runtime.
 function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
   try {
-    const parts = jwt.split('.');
+    const parts = jwt.split(".");
     if (parts.length !== 3) return null;
-    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
     // base64url strips padding — add it back so atob doesn't throw
-    while (b64.length % 4 !== 0) b64 += '=';
+    while (b64.length % 4 !== 0) b64 += "=";
     return JSON.parse(atob(b64));
   } catch {
     return null;
@@ -48,12 +49,12 @@ function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
 
 function tokenExpiresAt(jwt: string): number | null {
   const payload = decodeJwtPayload(jwt);
-  return typeof payload?.exp === 'number' ? payload.exp : null;
+  return typeof payload?.exp === "number" ? payload.exp : null;
 }
 
 function tokenSub(jwt: string): string | null {
   const payload = decodeJwtPayload(jwt);
-  return typeof payload?.sub === 'string' ? payload.sub : null;
+  return typeof payload?.sub === "string" ? payload.sub : null;
 }
 
 // ── Refresh mutex ──────────────────────────────────────────────────────────
@@ -62,8 +63,11 @@ function tokenSub(jwt: string): string | null {
 // runs; the rest await the same promise and use its result.
 
 let pendingRefresh: Promise<string | null> | null = null;
-type RefreshFailureReason = 'invalid' | 'transient';
-type RefreshOutcome = { token: string | null; reason: RefreshFailureReason | null };
+type RefreshFailureReason = "invalid" | "transient";
+type RefreshOutcome = {
+  token: string | null;
+  reason: RefreshFailureReason | null;
+};
 let lastRefreshFailureReason: RefreshFailureReason | null = null;
 
 const sleep = (ms: number) =>
@@ -74,7 +78,7 @@ const sleep = (ms: number) =>
 // rotation grace window: if a prior refresh rotated the token but its response
 // was lost, Supabase's reuse interval can still return the already-rotated
 // token on a quick retry instead of forcing a logout.
-const REFRESH_MAX_ATTEMPTS   = 2;
+const REFRESH_MAX_ATTEMPTS = 2;
 const REFRESH_RETRY_DELAY_MS = 600;
 
 /**
@@ -85,22 +89,22 @@ const REFRESH_RETRY_DELAY_MS = 600;
  */
 function isInvalidRefreshBody(body: Record<string, unknown>): boolean {
   const raw =
-    (typeof body.error === 'string' && body.error) ||
-    (typeof body.code === 'string' && body.code) ||
-    (typeof body.message === 'string' && body.message) ||
-    '';
+    (typeof body.error === "string" && body.error) ||
+    (typeof body.code === "string" && body.code) ||
+    (typeof body.message === "string" && body.message) ||
+    "";
   const s = raw.toLowerCase();
   if (
-    s.includes('invalid_refresh_token') ||
-    s.includes('refresh_token_not_found') ||
-    s.includes('invalid_grant') ||
-    s.includes('invalid refresh')
+    s.includes("invalid_refresh_token") ||
+    s.includes("refresh_token_not_found") ||
+    s.includes("invalid_grant") ||
+    s.includes("invalid refresh")
   ) {
     return true;
   }
   return (
-    s.includes('refresh token') &&
-    (s.includes('expired') || s.includes('revoked') || s.includes('not found'))
+    s.includes("refresh token") &&
+    (s.includes("expired") || s.includes("revoked") || s.includes("not found"))
   );
 }
 
@@ -110,7 +114,7 @@ async function executeRefresh(): Promise<string | null> {
     SecureStore.getItemAsync(SUB_KEY).catch(() => null),
   ]);
   if (!storedRefresh) {
-    lastRefreshFailureReason = 'invalid';
+    lastRefreshFailureReason = "invalid";
     return null;
   }
 
@@ -124,17 +128,17 @@ async function executeRefresh(): Promise<string | null> {
     let res: Response;
     try {
       res = await fetch(`${API_BASE}/auth/refresh`, {
-        method:  'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
+          "Content-Type": "application/json",
+          ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
         },
-        body:    JSON.stringify({ refresh_token: storedRefresh }),
-        signal:  controller.signal,
+        body: JSON.stringify({ refresh_token: storedRefresh }),
+        signal: controller.signal,
       });
     } catch {
       // Network error / timeout — transient. Retry; never clear tokens.
-      lastRefreshFailureReason = 'transient';
+      lastRefreshFailureReason = "transient";
       continue;
     } finally {
       clearTimeout(timer);
@@ -143,24 +147,27 @@ async function executeRefresh(): Promise<string | null> {
     if (!res.ok) {
       const errBody = await res
         .json()
-        .catch(() => ({} as Record<string, unknown>));
+        .catch(() => ({}) as Record<string, unknown>);
       // Only a 401 or an explicit invalid-refresh marker is a definitive
       // "this session is dead" signal. Everything else (400/403 from a
       // gateway/WAF/rate-limiter, 5xx) is transient — retry, keep tokens.
       if (res.status === 401 || isInvalidRefreshBody(errBody)) {
         await clearTokens();
-        lastRefreshFailureReason = 'invalid';
+        lastRefreshFailureReason = "invalid";
         return null;
       }
-      lastRefreshFailureReason = 'transient';
+      lastRefreshFailureReason = "transient";
       continue;
     }
 
-    const json = await res.json().catch(() => ({} as Record<string, string>));
+    const json = await res.json().catch(() => ({}) as Record<string, string>);
     const { access_token, refresh_token } = json;
     if (!access_token) {
-      console.error('[api] refresh response missing access_token:', Object.keys(json));
-      lastRefreshFailureReason = 'transient';
+      console.error(
+        "[api] refresh response missing access_token:",
+        Object.keys(json),
+      );
+      lastRefreshFailureReason = "transient";
       continue;
     }
 
@@ -170,22 +177,22 @@ async function executeRefresh(): Promise<string | null> {
     // everything and force a fresh sign-in.
     const newSub = tokenSub(access_token);
     if (storedSub && newSub && storedSub !== newSub) {
-      console.error(`[api] refresh mismatch: stored sub=${storedSub} refreshed sub=${newSub} — clearing tokens`);
+      console.error(
+        `[api] refresh mismatch: stored sub=${storedSub} refreshed sub=${newSub} — clearing tokens`,
+      );
       await clearTokens();
-      lastRefreshFailureReason = 'invalid';
+      lastRefreshFailureReason = "invalid";
       return null;
     }
 
     await Promise.all([
       SecureStore.setItemAsync(TOKEN_KEY, access_token),
-      typeof refresh_token === 'string'
+      typeof refresh_token === "string"
         ? SecureStore.setItemAsync(REFRESH_KEY, refresh_token)
         : Promise.resolve(),
-      newSub
-        ? SecureStore.setItemAsync(SUB_KEY, newSub)
-        : Promise.resolve(),
+      newSub ? SecureStore.setItemAsync(SUB_KEY, newSub) : Promise.resolve(),
     ]);
-    console.log('[api] refresh succeeded, new token stored');
+    console.log("[api] refresh succeeded, new token stored");
     lastRefreshFailureReason = null;
     return access_token;
   }
@@ -196,11 +203,13 @@ async function executeRefresh(): Promise<string | null> {
 
 async function getOrCreateRefresh(): Promise<RefreshOutcome> {
   if (!pendingRefresh) {
-    pendingRefresh = executeRefresh().finally(() => { pendingRefresh = null; });
+    pendingRefresh = executeRefresh().finally(() => {
+      pendingRefresh = null;
+    });
   }
   const token = await pendingRefresh;
   if (token) return { token, reason: null };
-  return { token: null, reason: lastRefreshFailureReason ?? 'transient' };
+  return { token: null, reason: lastRefreshFailureReason ?? "transient" };
 }
 
 // ── Shared fetch ───────────────────────────────────────────────────────────
@@ -219,8 +228,8 @@ export async function apiFetch(
     : null;
 
   const makeHeaders = (t: string | null): Record<string, string> => ({
-    'Content-Type': 'application/json',
-    ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
+    "Content-Type": "application/json",
+    ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
     ...(requestOptions.headers as Record<string, string>),
     ...(t ? { Authorization: `Bearer ${t}` } : {}),
   });
@@ -229,7 +238,7 @@ export async function apiFetch(
     fetch(`${API_BASE}${path}`, { ...requestOptions, headers: hdrs, signal });
 
   const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
     const res = await doFetch(makeHeaders(token), controller.signal);
@@ -242,21 +251,24 @@ export async function apiFetch(
     // ── 401: attempt token refresh ─────────────────────────────────────────
     const refresh = includeAuthToken
       ? await getOrCreateRefresh()
-      : { token: null, reason: 'invalid' as RefreshFailureReason };
+      : { token: null, reason: "invalid" as RefreshFailureReason };
     if (!refresh.token) {
-      console.warn('[api] refresh returned null for', path);
+      console.warn("[api] refresh returned null for", path);
       const body =
-        refresh.reason === 'transient'
-          ? { error: 'TRANSIENT_REFRESH_FAILURE' }
+        refresh.reason === "transient"
+          ? { error: "TRANSIENT_REFRESH_FAILURE" }
           : {};
       return { ok: false, status: 401, body };
     }
 
     // Use the token directly from refresh — don't re-read SecureStore
     const retryController = new AbortController();
-    const retryTimer      = setTimeout(() => retryController.abort(), TIMEOUT_MS);
+    const retryTimer = setTimeout(() => retryController.abort(), TIMEOUT_MS);
     try {
-      const retryRes  = await doFetch(makeHeaders(refresh.token), retryController.signal);
+      const retryRes = await doFetch(
+        makeHeaders(refresh.token),
+        retryController.signal,
+      );
       const retryBody = await retryRes.json().catch(() => ({}));
       return { ok: retryRes.ok, status: retryRes.status, body: retryBody };
     } finally {
@@ -277,19 +289,23 @@ export async function publicApiFetch(
   options: RequestInit = {},
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(API_KEY ? { 'X-API-Key': API_KEY } : {}),
+    "Content-Type": "application/json",
+    ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
     ...(options.headers as Record<string, string>),
-  }
+  };
 
-  const controller = new AbortController()
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res  = await fetch(`${API_BASE}${path}`, { ...options, headers, signal: controller.signal })
-    const body = await res.json().catch(() => ({}))
-    return { ok: res.ok, status: res.status, body }
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+    const body = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, body };
   } finally {
-    clearTimeout(timer)
+    clearTimeout(timer);
   }
 }
 
@@ -321,18 +337,19 @@ export async function isStoredTokenOAuth(): Promise<boolean> {
   if (!token) return false;
   const payload = decodeJwtPayload(token);
   const meta = payload?.app_metadata as Record<string, unknown> | undefined;
-  const provider = typeof meta?.provider === 'string' ? meta.provider : '';
-  if (provider && provider !== 'email') return true;
+  const provider = typeof meta?.provider === "string" ? meta.provider : "";
+  if (provider && provider !== "email") return true;
   const providers = meta?.providers;
   if (Array.isArray(providers)) {
-    return providers.some(
-      (p) => typeof p === 'string' && p !== 'email',
-    );
+    return providers.some((p) => typeof p === "string" && p !== "email");
   }
   return false;
 }
 
-export async function storeTokens(accessToken: string, refreshToken: string): Promise<void> {
+export async function storeTokens(
+  accessToken: string,
+  refreshToken: string,
+): Promise<void> {
   const sub = tokenSub(accessToken);
   await Promise.all([
     SecureStore.setItemAsync(TOKEN_KEY, accessToken),
@@ -359,24 +376,28 @@ export async function clearTokens(): Promise<void> {
  * (default 5 min), it triggers a refresh before any API call goes out.
  * Returns true if the session is still valid, false if it is dead.
  */
-export async function proactiveRefreshIfNeeded(bufferSecs = 300): Promise<boolean> {
+export async function proactiveRefreshIfNeeded(
+  bufferSecs = 300,
+): Promise<boolean> {
   const state = await proactiveRefreshStateIfNeeded(bufferSecs);
-  return state === 'valid';
+  return state === "valid";
 }
 
 export async function proactiveRefreshStateIfNeeded(
   bufferSecs = 300,
-): Promise<'valid' | 'invalid' | 'transient'> {
+): Promise<"valid" | "invalid" | "transient"> {
   const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
 
-  const needsRefresh = !token || (() => {
-    const exp = tokenExpiresAt(token);
-    return exp === null || Date.now() / 1000 >= exp - bufferSecs;
-  })();
+  const needsRefresh =
+    !token ||
+    (() => {
+      const exp = tokenExpiresAt(token);
+      return exp === null || Date.now() / 1000 >= exp - bufferSecs;
+    })();
 
-  if (!needsRefresh) return 'valid';
+  if (!needsRefresh) return "valid";
 
   const refresh = await getOrCreateRefresh();
-  if (refresh.token) return 'valid';
-  return refresh.reason === 'invalid' ? 'invalid' : 'transient';
+  if (refresh.token) return "valid";
+  return refresh.reason === "invalid" ? "invalid" : "transient";
 }

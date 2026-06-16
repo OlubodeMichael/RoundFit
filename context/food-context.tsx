@@ -71,9 +71,6 @@ export interface FoodContextValue {
   /** Total fat consumed across all meals (grams). */
   totalFat: number;
 
-  /** The date currently being viewed (YYYY-MM-DD). */
-  activeDate: string;
-
   /** True while the initial log fetch is in-flight. */
   isLoading: boolean;
 
@@ -99,8 +96,8 @@ export interface FoodContextValue {
   /** Removes a meal — hits DELETE /food/log/:id. */
   deleteMeal: (id: string) => Promise<void>;
 
-  /** Re-fetches logs for the given date (defaults to today). Changes activeDate when a date is passed. */
-  refreshLogs: (date?: string) => Promise<void>;
+  /** Re-fetches today's logs. Past-day browsing uses `fetchForDate` locally. */
+  refreshLogs: () => Promise<void>;
 
   /** Fetches meals for any date WITHOUT updating context state. */
   fetchForDate: (date: string, force?: boolean) => Promise<MealItem[]>;
@@ -242,9 +239,9 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
 
   const [meals,      setMeals]      = useState<MealItem[]>([]);
   const [isLoading,  setIsLoading]  = useState(true);
-  const [activeDate, setActiveDate] = useState(todayDateString);
   const appStateRef = useRef(AppState.currentState);
   const lastForegroundFetchRef = useRef(0);
+  const lastLoadedDateRef = useRef(todayDateString());
 
   // Meal goal tracks the current user's calorie budget. Falls back to TDEE,
   // then to the app-wide default when we haven't loaded a profile yet.
@@ -279,7 +276,10 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       { force },
     );
 
-    if (rows) setMeals(rows);
+    if (rows) {
+      setMeals(rows);
+      lastLoadedDateRef.current = date;
+    }
   }, [user?.id]);
 
   // ── Reset to today when app returns to foreground on a new day ──────────
@@ -290,7 +290,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       if (!prev.match(/inactive|background/) || next !== 'active') return;
 
       const today = todayDateString();
-      const dayRolled = activeDate !== today;
+      const dayRolled = lastLoadedDateRef.current !== today;
       if (
         !shouldRefetchOnForeground({
           lastFetchAt: lastForegroundFetchRef.current,
@@ -301,11 +301,10 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
       }
 
       lastForegroundFetchRef.current = Date.now();
-      setActiveDate((cur) => (cur !== today ? today : cur));
       void fetchLogs(today, dayRolled);
     });
     return () => sub.remove();
-  }, [activeDate, fetchLogs]);
+  }, [fetchLogs]);
 
   useEffect(() => {
     // Wait for the auth layer to settle before deciding what to fetch.
@@ -323,7 +322,6 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     // switches too.
     const today = todayDateString();
     let cancelled = false;
-    setActiveDate(today);
 
     (async () => {
       const key = buildResourceKey('food-logs', user.id, today);
@@ -558,10 +556,8 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   }, [meals, syncToday]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────
-  const refreshLogs = useCallback(async (date?: string) => {
-    const target = date ?? todayDateString();
-    setActiveDate(target);
-    await fetchLogs(target, true);
+  const refreshLogs = useCallback(async () => {
+    await fetchLogs(todayDateString(), true);
   }, [fetchLogs]);
 
   // ── Fetch for any date without touching context state ─────────────────────
@@ -584,7 +580,7 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
   return (
     <FoodContext.Provider value={{
       meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
-      remaining, activeDate, isLoading,
+      remaining, isLoading,
       addMeal, uploadMealPhoto, previewPhoto, previewBarcode, analyzePhoto, logBarcode, deleteMeal, refreshLogs, fetchForDate,
     }}>
       {children}

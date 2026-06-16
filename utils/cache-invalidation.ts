@@ -219,3 +219,16 @@ export function shouldRefetchDailyInsightsAfterMutation(domain: MutationDomain):
     domain === 'recovery'
   )
 }
+
+/** Domains whose server-side badge engine may award a new badge after sync. */
+export function shouldSyncBadgesAfterMutation(domain: MutationDomain): boolean {
+  return (
+    domain === 'full' ||
+    domain === 'summary' ||
+    domain === 'food' ||
+    domain === 'workout' ||
+    domain === 'health' ||
+    domain === 'recovery' ||
+    domain === 'checkin'
+  )
+}

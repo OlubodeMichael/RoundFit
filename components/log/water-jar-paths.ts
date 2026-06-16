@@ -4,6 +4,8 @@ export const JAR_VIEW_H = 210;
 
 export const JAR_DISPLAY_SCALE_DEFAULT = 1.42;
 export const JAR_DISPLAY_SCALE_COMPACT = 1.02;
+/** Home hydration card — fits beside stats in the progress row */
+export const JAR_DISPLAY_SCALE_CARD = 0.48;
 
 /** Interior clip — mason jar body */
 export const JAR_CLIP_PATH = [

@@ -15,6 +15,7 @@ import { TTL_HK_WORKOUT_SAMPLE_MS } from '@/utils/workout-hk-cache';
 interface SerializedHealthKitWorkoutSample {
   uuid: string;
   workoutActivityType: number;
+  workoutActivityTypeName?: string;
   startDate: string;
   endDate: string;
   durationSeconds: number;
@@ -30,6 +31,7 @@ function serializeSample(sample: HealthKitWorkoutSample): SerializedHealthKitWor
   return {
     uuid: sample.uuid,
     workoutActivityType: sample.workoutActivityType,
+    workoutActivityTypeName: sample.workoutActivityTypeName,
     startDate: sample.startDate.toISOString(),
     endDate: sample.endDate.toISOString(),
     durationSeconds: sample.durationSeconds,
@@ -46,6 +48,7 @@ function deserializeSample(raw: SerializedHealthKitWorkoutSample): HealthKitWork
   return {
     uuid: raw.uuid,
     workoutActivityType: raw.workoutActivityType,
+    workoutActivityTypeName: raw.workoutActivityTypeName,
     startDate: new Date(raw.startDate),
     endDate: new Date(raw.endDate),
     durationSeconds: raw.durationSeconds,

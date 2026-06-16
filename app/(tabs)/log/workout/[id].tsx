@@ -6,8 +6,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WorkoutAppleHealthDetail } from '@/components/log/workout/WorkoutAppleHealthDetail';
 import { WorkoutDetailContent } from '@/components/log/workout/WorkoutDetailContent';
 import { WorkoutDetailSkeleton } from '@/components/log/workout/WorkoutDetailSkeleton';
-import { WORKOUT_META } from '@/components/log/workout/workout-display';
-import { getHealthKitActivityDisplayLabel } from '@/config/workout-catalog';
 import { useToast } from '@/components/ui/Toast';
 import { useWorkouts } from '@/hooks/use-workouts';
 import { useWorkoutDetail } from '@/hooks/use-workout-detail';
@@ -68,7 +66,7 @@ export default function WorkoutDetailScreen() {
       <View style={{ flex: 1, backgroundColor: P.bg, paddingTop: pad.paddingTop }}>
         <ScreenHeader
           eyebrow={shouldLoadHealthKit ? 'Apple Fitness' : 'Training'}
-          title="Workout"
+          title="Workout Details"
           accent={P.workout}
           onBack={() => router.back()}
         />
@@ -80,7 +78,7 @@ export default function WorkoutDetailScreen() {
   if (error != null || !workout) {
     return (
       <View style={{ flex: 1, backgroundColor: P.bg, paddingTop: pad.paddingTop }}>
-        <ScreenHeader eyebrow="Training" title="Workout" accent={P.workout} onBack={() => router.back()} />
+        <ScreenHeader eyebrow="Training" title="Workout Details" accent={P.workout} onBack={() => router.back()} />
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
           <Text style={{ color: P.textFaint, textAlign: 'center' }}>
             {error ?? 'Workout not found'}
@@ -90,23 +88,17 @@ export default function WorkoutDetailScreen() {
     );
   }
 
-  const meta = WORKOUT_META[workout.type] ?? WORKOUT_META.other;
-  const activityTitle = healthKitSample
-    ? getHealthKitActivityDisplayLabel(healthKitSample.workoutActivityType)
-    : meta.label;
-
   return (
     <View style={{ flex: 1, backgroundColor: P.bg, paddingTop: pad.paddingTop }}>
       <ScreenHeader
         eyebrow={healthKitSample ? 'Apple Fitness' : 'Training log'}
-        title={activityTitle}
+        title="Workout Details"
         accent={P.workout}
         onBack={() => router.back()}
       />
       {healthKitSample ? (
         <WorkoutAppleHealthDetail
           sample={healthKitSample}
-          savedWorkoutId={workout.id}
           onEdit={handleEdit}
           onDelete={handleDelete}
         />

@@ -1,6 +1,5 @@
 import {
     CALORIES_PER_MINUTE,
-    EXERCISE_LIBRARY,
     INTENSITY_OPTIONS,
     WORKOUT_TYPES,
 } from "@/components/log/workout/constants";
@@ -33,6 +32,11 @@ import { WorkoutDurationPicker } from "@/components/log/workout/WorkoutDurationP
 import { WorkoutContinueCard } from "@/components/log/workout/WorkoutContinueCard";
 import { WorkoutPendingSection } from "@/components/log/workout/WorkoutPendingSection";
 import { WorkoutSessionRecoveryBanner } from "@/components/log/workout/WorkoutSessionRecoveryBanner";
+import { MuscleGroupBanner } from "@/components/log/workout/MuscleGroupBanner";
+import { ExerciseOptionGroup } from "@/components/log/workout/ExerciseOptionGroup";
+import { ExerciseCustomAddRow } from "@/components/log/workout/ExerciseCustomAddRow";
+import { ExercisePickerFilters } from "@/components/log/workout/ExercisePickerFilters";
+import { useExerciseLibrary } from "@/hooks/use-exercise-library";
 import { getCatalogEntryById, getBackendTypeForCatalogId } from "@/config/workout-catalog";
 import { useWorkoutSession } from "@/context/workout-session-context";
 import { useWorkoutSessionLiveActivity } from "@/hooks/use-workout-session-live-activity";
@@ -162,28 +166,19 @@ function LogWorkoutSheet({
     [totalMinutes, intensity],
   );
 
-  const filteredLibrary = useMemo(() => {
-    const sections = EXERCISE_LIBRARY[type];
-    if (!search.trim()) return sections;
-    const q = search.toLowerCase();
-    return sections
-      .map((s) => ({
-        category: s.category,
-        exercises: s.exercises.filter((e) => e.toLowerCase().includes(q)),
-      }))
-      .filter((s) => s.exercises.length > 0);
-  }, [type, search]);
+  const { sections, customNames, addCustomExercise, removeCustomExercise } =
+    useExerciseLibrary(type, search);
 
   const visibleLibrary = useMemo(
     () =>
       activeCategory === "all"
-        ? filteredLibrary
-        : filteredLibrary.filter((s) => s.category === activeCategory),
-    [filteredLibrary, activeCategory],
+        ? sections
+        : sections.filter((s) => s.category === activeCategory),
+    [sections, activeCategory],
   );
   const categoryOptions = useMemo(
-    () => ["all", ...filteredLibrary.map((s) => s.category)],
-    [filteredLibrary],
+    () => ["all", ...sections.map((s) => s.category)],
+    [sections],
   );
   const selectedNames = useMemo(
     () => new Set(selected.map((e) => e.name)),
@@ -204,6 +199,25 @@ function LogWorkoutSheet({
         : [...prev, { name, sets: [newSet()] }],
     );
   }, []);
+
+  const handleAddCustom = useCallback(
+    async (name: string, category: string) => {
+      const result = await addCustomExercise(name, category);
+      if (result === "added") {
+        setActiveCategory(category);
+      }
+      return result;
+    },
+    [addCustomExercise],
+  );
+
+  const handleRemoveCustom = useCallback(
+    async (name: string) => {
+      await removeCustomExercise(name);
+      setSelected((prev) => prev.filter((e) => e.name !== name));
+    },
+    [removeCustomExercise],
+  );
 
   const addSet = useCallback(
     (n: string) =>
@@ -365,68 +379,25 @@ function LogWorkoutSheet({
       {page === "exercises" && (
         <View style={{ flex: 1 }}>
           <View style={{ paddingHorizontal: 20, paddingTop: 14, gap: 10 }}>
-            {/* Search */}
-            <View
-              style={[
-                sh.searchBar,
-                { backgroundColor: P.sunken, borderColor: P.cardEdge },
-              ]}
-            >
-              <Ionicons name="search-outline" size={15} color={P.textFaint} />
-              <TextInput
-                value={search}
-                onChangeText={setSearch}
-                placeholder="Search exercises…"
-                placeholderTextColor={P.textFaint}
-                style={[sh.searchInput, { color: P.text }]}
-                autoCorrect={false}
-              />
-              {search.length > 0 && (
-                <Pressable onPress={() => setSearch("")} hitSlop={10}>
-                  <Ionicons name="close-circle" size={15} color={P.textFaint} />
-                </Pressable>
-              )}
-            </View>
+            <ExercisePickerFilters
+              search={search}
+              onSearchChange={setSearch}
+              activeCategory={activeCategory}
+              onCategoryChange={setActiveCategory}
+              categoryOptions={categoryOptions}
+              accentColor={P.workout}
+              sunkenColor={P.sunken}
+            surfaceColor={P.card}
+            borderColor={P.cardEdge}
+              textColor={P.text}
+              textFaintColor={P.textFaint}
+            />
 
-            {/* Categories */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 6 }}
-            >
-              {categoryOptions.map((cat) => {
-                const active = cat === activeCategory;
-                return (
-                  <Pressable
-                    key={cat}
-                    onPress={() => setActiveCategory(cat)}
-                    style={[
-                      sh.catChip,
-                      {
-                        backgroundColor: active ? P.workout : P.sunken,
-                        borderColor: active ? P.workout : "transparent",
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        sh.catText,
-                        { color: active ? "#fff" : P.textFaint },
-                      ]}
-                    >
-                      {cat === "all" ? "All" : cat}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-
-            {/* Selected pills */}
             {selected.length > 0 && (
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 6 }}
+                contentContainerStyle={{ gap: 8 }}
               >
                 {selected.map((ex) => (
                   <Pressable
@@ -435,7 +406,7 @@ function LogWorkoutSheet({
                     style={[
                       sh.selectedPill,
                       {
-                        backgroundColor: P.workout + "22",
+                        backgroundColor: P.workoutSoft,
                         borderColor: P.workout,
                       },
                     ]}
@@ -446,78 +417,50 @@ function LogWorkoutSheet({
                     >
                       {ex.name}
                     </Text>
-                    <Ionicons name="close" size={11} color={P.workout} />
+                    <Ionicons name="close" size={12} color={P.workout} />
                   </Pressable>
                 ))}
               </ScrollView>
             )}
           </View>
 
-          {/* Exercise grid */}
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={{
               paddingHorizontal: 20,
+              paddingTop: 6,
               paddingBottom: insets.bottom + 20,
             }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
             {visibleLibrary.map((section) => (
-              <View key={section.category} style={{ marginTop: 20 }}>
-                <Text style={[sh.sectionHdr, { color: P.textFaint }]}>
-                  {section.category.toUpperCase()}
-                </Text>
-                <View style={sh.exGrid}>
-                  {section.exercises.map((name) => {
-                    const active = selectedNames.has(name);
-                    return (
-                      <Pressable
-                        key={name}
-                        onPress={() => toggleExercise(name)}
-                        style={({ pressed }) => [
-                          sh.exCard,
-                          {
-                            backgroundColor: active ? P.workout : P.card,
-                            borderColor: active ? P.workout : P.cardEdge,
-                          },
-                          pressed && { opacity: 0.82 },
-                        ]}
-                      >
-                        <View style={sh.exCardTop}>
-                          <View
-                            style={[
-                              sh.exCheck,
-                              {
-                                borderColor: active ? "#fff" : P.cardEdge,
-                                backgroundColor: active
-                                  ? "rgba(255,255,255,0.2)"
-                                  : "transparent",
-                              },
-                            ]}
-                          >
-                            {active && (
-                              <Ionicons
-                                name="checkmark"
-                                size={11}
-                                color="#fff"
-                              />
-                            )}
-                          </View>
-                        </View>
-                        <Text
-                          style={[
-                            sh.exCardText,
-                            { color: active ? "#fff" : P.text },
-                          ]}
-                          numberOfLines={2}
-                        >
-                          {name}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+              <View key={section.category} style={{ marginTop: 18 }}>
+                <MuscleGroupBanner category={section.category} />
+                <ExerciseOptionGroup
+                  category={section.category}
+                  exercises={section.exercises}
+                  selectedNames={selectedNames}
+                  mode="multi"
+                  onToggle={toggleExercise}
+                  accentColor={P.workout}
+                  accentSoft={P.workoutSoft}
+                  textColor={P.text}
+                  textFaintColor={P.textFaint}
+                  borderColor={P.cardEdge}
+                  surfaceColor={P.card}
+                  customNames={customNames}
+                  onRemoveCustom={handleRemoveCustom}
+                />
+                <ExerciseCustomAddRow
+                  category={section.category}
+                  onAdd={handleAddCustom}
+                  accentColor={P.workout}
+                  sunkenColor={P.sunken}
+                  borderColor={P.cardEdge}
+                  textColor={P.text}
+                  textFaintColor={P.textFaint}
+                />
               </View>
             ))}
           </ScrollView>
@@ -987,66 +930,17 @@ const sh = StyleSheet.create({
     justifyContent: "center",
   },
   doneSmallText: { color: "#fff", fontSize: 12, fontWeight: "800" },
-  searchBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    height: 42,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  searchInput: { flex: 1, fontSize: 14, fontWeight: "500" },
-  catChip: {
-    height: 32,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  catText: { fontSize: 12, fontWeight: "700" },
   selectedPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 6,
     borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    maxWidth: 180,
-  },
-  selectedPillText: { fontSize: 12, fontWeight: "700" },
-  sectionHdr: {
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 1.6,
-    marginBottom: 10,
-  },
-  exGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  exCard: {
-    width: "48.5%",
-    minHeight: 80,
-    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 10,
-    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    maxWidth: 200,
   },
-  exCardTop: { flexDirection: "row", justifyContent: "flex-end" },
-  exCheck: {
-    width: 18,
-    height: 18,
-    borderRadius: 5,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  exCardText: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: -0.1,
-    lineHeight: 16,
-  },
+  selectedPillText: { fontSize: 13, fontWeight: "700", flexShrink: 1 },
   doneBar: {
     flexDirection: "row",
     gap: 10,
@@ -1293,7 +1187,7 @@ export default function WorkoutLogScreen() {
     setRefreshing(true);
     try {
       await Promise.all([
-        refreshWorkouts(undefined, true),
+        refreshWorkouts(true),
         workoutHistory.refresh(true),
         pendingImports.refresh(true),
         importReview.runImport(),
@@ -1306,7 +1200,7 @@ export default function WorkoutLogScreen() {
   const syncOnFocusRef = useRef<() => void>(() => {});
   syncOnFocusRef.current = () => {
     // Cache-first on focus — serve cached workouts without a network round-trip.
-    void refreshWorkouts(undefined, false);
+    void refreshWorkouts(false);
     void workoutHistory.refresh(false);
     void pendingImports.refresh(false);
   };

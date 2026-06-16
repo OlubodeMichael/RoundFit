@@ -9,6 +9,10 @@ import {
   fetchHeartRateSamplesDuringWindow,
   fetchWorkoutEnergyDuringWindow,
 } from '@/utils/healthkit';
+import {
+  filterHeartRatePointsToWindow,
+  getWorkoutHeartRateWindow,
+} from '@/utils/workout-heart-rate-window';
 
 export interface UseHealthKitWorkoutEnrichmentResult {
   energy: HealthKitWorkoutEnergy | null;
@@ -32,17 +36,20 @@ export function useHealthKitWorkoutEnrichment(
 
     let cancelled = false;
     setIsLoading(true);
+    const window = getWorkoutHeartRateWindow(sample);
 
     void (async () => {
       try {
         const [energyResult, heartRateResult] = await Promise.all([
-          fetchWorkoutEnergyDuringWindow(sample.startDate, sample.endDate),
-          fetchHeartRateSamplesDuringWindow(sample.startDate, sample.endDate),
+          fetchWorkoutEnergyDuringWindow(window.startDate, window.endDate),
+          fetchHeartRateSamplesDuringWindow(window.startDate, window.endDate),
         ]);
 
         if (cancelled) return;
         setEnergy(energyResult);
-        setHeartRatePoints(heartRateResult);
+        setHeartRatePoints(
+          filterHeartRatePointsToWindow(heartRateResult, window.startDate, window.endDate),
+        );
       } finally {
         if (!cancelled) setIsLoading(false);
       }

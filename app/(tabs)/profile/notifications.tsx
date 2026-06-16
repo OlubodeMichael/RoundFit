@@ -418,7 +418,7 @@ export default function NotificationsScreen() {
               <Ionicons name="chevron-back" size={20} color={P.hi} />
             </TouchableOpacity>
             <Text style={[s.headerTitle, { color: P.hi }]} numberOfLines={1}>Notifications</Text>
-            <View style={s.backBtn} />
+            <View style={s.headerSpacer} />
           </View>
           <Text style={[s.titleSub, { color: P.mid, textAlign: 'center', paddingHorizontal: 20 }]}>
             Choose your reminders and when to receive them.
@@ -711,6 +711,7 @@ const s = StyleSheet.create({
     alignItems:      "center",
     justifyContent:  "center",
   },
+  headerSpacer: { width: 38, height: 38 },
   eyebrow:  { fontSize: 11, fontWeight: "700", letterSpacing: 1.2 },
   title:    { fontFamily: "Syne_700Bold", fontSize: 28, letterSpacing: -0.6, lineHeight: 32, marginTop: 4 },
   titleSub: { fontSize: 13, lineHeight: 19, marginTop: 6 },

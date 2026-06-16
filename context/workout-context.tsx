@@ -124,7 +124,8 @@ export interface WorkoutContextValue {
   logWorkout:          (input: LogWorkoutInput) => Promise<Workout>;
   logSets:             (workoutId: string, sets: LogSetInput[]) => Promise<WorkoutSet[]>;
   deleteWorkout:       (id: string) => Promise<void>;
-  refreshWorkouts:     (date?: string, force?: boolean) => Promise<void>;
+  /** Re-fetches today's workouts. Past-day browsing uses `fetchForDate` locally. */
+  refreshWorkouts:     (force?: boolean) => Promise<void>;
   fetchForDate:        (date: string, force?: boolean) => Promise<Workout[]>;
 }
 
@@ -173,13 +174,13 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [workouts,   setWorkouts]   = useState<Workout[]>([]);
   const [isLoading,  setIsLoading]  = useState(true);
   const [historyVersion, setHistoryVersion] = useState(0);
-  const [activeDate, setActiveDate] = useState(todayDateString);
+  const appStateRef = useRef(AppState.currentState);
+  const lastForegroundFetchRef = useRef(0);
+  const lastLoadedDateRef = useRef(todayDateString());
 
   const bumpHistory = useCallback(() => {
     setHistoryVersion((version) => version + 1);
   }, []);
-  const appStateRef = useRef(AppState.currentState);
-  const lastForegroundFetchRef = useRef(0);
 
   const totalCaloriesBurned = useMemo(
     () => workouts.reduce((sum, w) => sum + w.calories_burned, 0),
@@ -195,7 +196,10 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     if (!user?.id) return;
 
     const parsed = await fetchWorkoutsForDateCached(user.id, date, force);
-    if (parsed) setWorkouts(parsed);
+    if (parsed) {
+      setWorkouts(parsed);
+      lastLoadedDateRef.current = date;
+    }
   }, [user?.id]);
 
   useEffect(() => {
@@ -208,9 +212,10 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     }
 
     let cancelled = false;
+    const today = todayDateString();
 
     (async () => {
-      const key = buildWorkoutsDateCacheKey(user.id, activeDate);
+      const key = buildWorkoutsDateCacheKey(user.id, today);
       const cached = await getResourceCached<Workout[]>(key);
       if (cached && !cancelled) {
         setWorkouts(cached.data);
@@ -220,14 +225,14 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        await fetchWorkouts(activeDate);
+        await fetchWorkouts(today);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [status, user?.id, activeDate, fetchWorkouts]);
+  }, [status, user?.id, fetchWorkouts]);
 
   // ── Foreground: roll date or refresh stale today workouts ───────────────
   useEffect(() => {
@@ -237,7 +242,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       if (!prev.match(/inactive|background/) || next !== 'active') return;
 
       const today = todayDateString();
-      const dayRolled = activeDate !== today;
+      const dayRolled = lastLoadedDateRef.current !== today;
       if (
         !shouldRefetchOnForeground({
           lastFetchAt: lastForegroundFetchRef.current,
@@ -248,11 +253,10 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       }
 
       lastForegroundFetchRef.current = Date.now();
-      setActiveDate((cur) => (cur !== today ? today : cur));
       void fetchWorkouts(today, dayRolled);
     });
     return () => sub.remove();
-  }, [activeDate, fetchWorkouts]);
+  }, [fetchWorkouts]);
 
   // ── Log workout ──────────────────────────────────────────────────────────
   const logWorkout = useCallback(async (input: LogWorkoutInput): Promise<Workout> => {
@@ -348,10 +352,8 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   // `force` defaults true so pull-to-refresh fetches fresh. Pass force=false for
   // cache-first refreshes (e.g. screen focus) so a fresh 2h cache is served
   // without a network round-trip (which otherwise costs a full request even for a 304).
-  const refreshWorkouts = useCallback(async (date?: string, force = true) => {
-    const target = date ?? todayDateString();
-    setActiveDate(target);
-    await fetchWorkouts(target, force);
+  const refreshWorkouts = useCallback(async (force = true) => {
+    await fetchWorkouts(todayDateString(), force);
   }, [fetchWorkouts]);
 
   // ── Fetch for any date without touching context state ─────────────────────

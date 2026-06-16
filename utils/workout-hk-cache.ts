@@ -7,7 +7,9 @@ import { getLocalDateString } from '@/utils/date';
 import {
   buildResourceKey,
   fetchWithResourceCache,
+  getResourceCached,
   invalidateByPrefix,
+  peekResourceCached,
 } from '@/utils/resource-cache';
 
 export const TTL_HK_WORKOUT_SCAN_MS = 3 * 60 * 1000;
@@ -16,6 +18,7 @@ export const TTL_HK_WORKOUT_SAMPLE_MS = 24 * 60 * 60 * 1000;
 export interface SerializedHealthKitWorkoutSample {
   uuid: string;
   workoutActivityType: number;
+  workoutActivityTypeName?: string;
   startDate: string;
   endDate: string;
   durationSeconds: number;
@@ -33,6 +36,7 @@ export function serializeHealthKitWorkoutSample(
   return {
     uuid: sample.uuid,
     workoutActivityType: sample.workoutActivityType,
+    workoutActivityTypeName: sample.workoutActivityTypeName,
     startDate: sample.startDate.toISOString(),
     endDate: sample.endDate.toISOString(),
     durationSeconds: sample.durationSeconds,
@@ -51,6 +55,7 @@ export function deserializeHealthKitWorkoutSample(
   return {
     uuid: raw.uuid,
     workoutActivityType: raw.workoutActivityType,
+    workoutActivityTypeName: raw.workoutActivityTypeName,
     startDate: new Date(raw.startDate),
     endDate: new Date(raw.endDate),
     durationSeconds: raw.durationSeconds,
@@ -94,4 +99,43 @@ export async function fetchHealthKitWorkoutsScanCached(
 
 export async function invalidateHealthKitWorkoutScanCache(userId: string): Promise<void> {
   await invalidateByPrefix(`resource:v2:hk-workouts-scan:${userId}`);
+}
+
+function activityTypeFromScanCache(
+  userId: string,
+  uuid: string,
+): number | null {
+  const scanKey = buildHealthKitScanCacheKey(userId);
+  const samples = peekResourceCached<SerializedHealthKitWorkoutSample[]>(scanKey);
+  const hit = samples?.find((sample) => sample.uuid === uuid);
+  return hit?.workoutActivityType ?? null;
+}
+
+/** Sync read from warmed in-memory HK caches (sample or scan). */
+export function peekHealthKitWorkoutActivityType(
+  userId: string,
+  uuid: string,
+): number | null {
+  const sampleKey = buildResourceKey('hk-workout-sample', userId, uuid);
+  const sample = peekResourceCached<SerializedHealthKitWorkoutSample>(sampleKey);
+  if (sample) return sample.workoutActivityType;
+  return activityTypeFromScanCache(userId, uuid);
+}
+
+/** Async hydration from disk when memory cache is cold. */
+export async function resolveHealthKitWorkoutActivityType(
+  userId: string,
+  uuid: string,
+): Promise<number | null> {
+  const warm = peekHealthKitWorkoutActivityType(userId, uuid);
+  if (warm != null) return warm;
+
+  const sampleKey = buildResourceKey('hk-workout-sample', userId, uuid);
+  const cachedSample = await getResourceCached<SerializedHealthKitWorkoutSample>(sampleKey);
+  if (cachedSample) return cachedSample.data.workoutActivityType;
+
+  const scanKey = buildHealthKitScanCacheKey(userId);
+  const cachedScan = await getResourceCached<SerializedHealthKitWorkoutSample[]>(scanKey);
+  const hit = cachedScan?.data.find((sample) => sample.uuid === uuid);
+  return hit?.workoutActivityType ?? null;
 }

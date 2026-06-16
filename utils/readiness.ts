@@ -20,6 +20,8 @@ import type {
   ReadinessWorkoutInput,
   SleepScoreInput,
   SorenessScoreInput,
+  TrainingLoadResult,
+  TrainingLoadStatus,
 } from '@/types/readiness';
 import { PILLAR_WEIGHTS } from '@/types/readiness';
 
@@ -32,6 +34,8 @@ export {
   type ReadinessPillarId,
   type ReadinessRecommendation,
   type ReadinessTip,
+  type TrainingLoadResult,
+  type TrainingLoadStatus,
 } from '@/types/readiness';
 
 const MIN_ACTIVE_PILLARS = 2;
@@ -176,16 +180,46 @@ export function computeHrvScore(input: HrvScoreInput): number | null {
   return Math.round(clamp(score, 0, 100));
 }
 
-export function computeTrainingLoadScore(workouts7d: ReadinessWorkoutInput[]): number {
-  if (workouts7d.length === 0) return 70;
+function scoreFromAcr(acr: number): number {
+  if (acr >= 0.85 && acr <= 1.15) {
+    return Math.round(100 - (Math.abs(acr - 1.0) / 0.15) * 10);
+  }
+  if (acr >= 0.70 && acr < 0.85) {
+    return Math.round(70 + ((acr - 0.70) / 0.15) * 19);
+  }
+  if (acr > 1.15 && acr <= 1.30) {
+    return Math.round(79 - ((acr - 1.15) / 0.15) * 14);
+  }
+  if (acr < 0.70) return 55;
+  return 20;
+}
 
+function trainingLoadLabel(acr: number, status: TrainingLoadStatus): string {
+  if (status === 'no_data') return 'No data';
+  if (status === 'detraining') return 'Detraining';
+
+  if (acr >= 0.85 && acr <= 1.15) return 'Balanced';
+  if (acr < 0.70) return 'Undertrained';
+  if (acr > 1.30) return 'Overreaching';
+  if (acr < 0.85) return 'Light';
+  return 'Slightly high';
+}
+
+function trainingLoadFactorStatus(result: TrainingLoadResult): FactorStatus {
+  if (!result.active || result.status === 'no_data') return 'ok';
+  if (result.status === 'detraining') return 'poor';
+  if (result.label === 'Balanced') return 'good';
+  if (result.label === 'Overreaching' || result.label === 'Undertrained') return 'poor';
+  return 'ok';
+}
+
+function computeAcrScore(workouts7d: ReadinessWorkoutInput[]): TrainingLoadResult {
   const today = getLocalDateString();
   const last3 = new Set(datesLastNDays(3, today));
   const last7 = new Set(datesLastNDays(7, today));
 
   let acute = 0;
   let chronicSum = 0;
-  let chronicDays = 0;
   const strainByDate = new Map<string, number>();
 
   for (const w of workouts7d) {
@@ -197,31 +231,22 @@ export function computeTrainingLoadScore(workouts7d: ReadinessWorkoutInput[]): n
   }
 
   for (const d of last7) {
-    const dayStrain = strainByDate.get(d) ?? 0;
-    chronicSum += dayStrain;
-    chronicDays += 1;
+    chronicSum += strainByDate.get(d) ?? 0;
   }
 
-  const chronic = chronicDays > 0 ? chronicSum / chronicDays : 0;
-  if (chronic <= 0 && acute <= 0) return 70;
-
-  const acr = chronic > 0 ? acute / (chronic * 3) : acute > 0 ? 2 : 1;
-
-  let score: number;
-  if (acr >= 0.85 && acr <= 1.15) {
-    // Optimal band — peak 100 at acr 1.0, tapering to 90 at the edges.
-    score = 100 - (Math.abs(acr - 1.0) / 0.15) * 10;
-  } else if (acr >= 0.70 && acr < 0.85) {
-    // Slightly undertrained — 70 → 89 as acr approaches 0.85.
-    score = 70 + ((acr - 0.70) / 0.15) * 19;
-  } else if (acr > 1.15 && acr <= 1.30) {
-    // Slightly overreaching — 79 → 65 as acr approaches 1.30.
-    score = 79 - ((acr - 1.15) / 0.15) * 14;
-  } else if (acr < 0.70) {
-    score = 55; // detraining
-  } else {
-    score = 20; // overreaching (> 1.30)
+  const chronic = chronicSum / 7;
+  if (chronic <= 0) {
+    return {
+      score:    55,
+      status:   'detraining',
+      label:    'Detraining',
+      note:     'No strain recorded this week',
+      active:   true,
+    };
   }
+
+  const acr = acute / (chronic * 3);
+  let score = scoreFromAcr(acr);
 
   const yesterday = addLocalCalendarDays(today, -1);
   const hadWorkoutYesterday = (strainByDate.get(yesterday) ?? 0) > 0;
@@ -229,13 +254,62 @@ export function computeTrainingLoadScore(workouts7d: ReadinessWorkoutInput[]): n
     score = Math.min(100, score + 10);
   }
 
-  return Math.round(clamp(score, 0, 100));
+  const days = new Set(
+    workouts7d.filter((w) => last7.has(w.date)).map((w) => w.date),
+  ).size;
+
+  return {
+    score:  Math.round(clamp(score, 0, 100)),
+    status: 'active',
+    label:  trainingLoadLabel(acr, 'active'),
+    note:   `${days} training day${days === 1 ? '' : 's'} this week`,
+    active: true,
+    acr,
+  };
+}
+
+/**
+ * Training load from logged workout sessions only — no phantom defaults.
+ * Inactive when there is no training history; detraining when the prior week had sessions.
+ */
+export function computeTrainingLoadScore(
+  workouts7d: ReadinessWorkoutInput[],
+  workoutsPrior7d: ReadinessWorkoutInput[] = [],
+): TrainingLoadResult {
+  if (workouts7d.length === 0) {
+    if (workoutsPrior7d.length > 0) {
+      return {
+        score:  55,
+        status: 'detraining',
+        label:  'Detraining',
+        note:   'No sessions logged this week',
+        active: true,
+      };
+    }
+    return {
+      score:  null,
+      status: 'no_data',
+      label:  'No data',
+      note:   'Log a workout to activate',
+      active: false,
+    };
+  }
+
+  return computeAcrScore(workouts7d);
+}
+
+/** Numeric training-load score for callers that only need the number, or null when inactive. */
+export function trainingLoadScoreValue(result: TrainingLoadResult): number | null {
+  return result.active ? result.score : null;
 }
 
 /** Strain ring: higher = more accumulated load (inverse of readiness training pillar). */
-export function computeStrainScore(workouts7d: ReadinessWorkoutInput[]): number {
-  const readinessLoad = computeTrainingLoadScore(workouts7d);
-  if (workouts7d.length === 0) return 35;
+export function computeStrainScore(
+  workouts7d: ReadinessWorkoutInput[],
+  workoutsPrior7d: ReadinessWorkoutInput[] = [],
+): number | null {
+  const load = computeTrainingLoadScore(workouts7d, workoutsPrior7d);
+  if (!load.active || load.score === null) return null;
 
   const last3 = new Set(datesLastNDays(3));
   let acute = 0;
@@ -244,7 +318,7 @@ export function computeStrainScore(workouts7d: ReadinessWorkoutInput[]): number 
   }
 
   const acuteNorm = clamp((acute / 300) * 100, 0, 100);
-  const fromAcr = 100 - readinessLoad;
+  const fromAcr = 100 - load.score;
   return Math.round(clamp(acuteNorm * 0.6 + fromAcr * 0.4, 0, 100));
 }
 
@@ -349,6 +423,145 @@ function recommendationFromScore(score: number): ReadinessRecommendation {
   if (score >= 65) return 'Moderate';
   if (score >= 40) return 'Light workout';
   return 'Rest';
+}
+
+const RECOMMENDATION_RANK: ReadinessRecommendation[] = [
+  'Rest',
+  'Light workout',
+  'Moderate',
+  'Train hard',
+];
+
+function capRecommendation(
+  recommendation: ReadinessRecommendation,
+  max: ReadinessRecommendation,
+): ReadinessRecommendation {
+  const recRank = RECOMMENDATION_RANK.indexOf(recommendation);
+  const maxRank = RECOMMENDATION_RANK.indexOf(max);
+  return RECOMMENDATION_RANK[Math.min(recRank, maxRank)];
+}
+
+type CycleHrvPhase =
+  | 'menstrual'
+  | 'follicular'
+  | 'ovulation'
+  | 'early_luteal'
+  | 'mid_luteal'
+  | 'late_luteal';
+
+const CYCLE_HRV_FACTOR: Record<CycleHrvPhase, number> = {
+  menstrual:    0.97,
+  follicular:   1.00,
+  ovulation:    1.00,
+  early_luteal: 0.95,
+  mid_luteal:   0.93,
+  late_luteal:  0.92,
+};
+
+function resolveCycleHrvPhase(
+  phase: CyclePhase,
+  daysRemaining: number | null,
+): CycleHrvPhase | null {
+  if (!phase) return null;
+  if (phase !== 'luteal') return phase;
+  if (daysRemaining === null) return 'early_luteal';
+  if (daysRemaining > 9) return 'early_luteal';
+  if (daysRemaining > 3) return 'mid_luteal';
+  return 'late_luteal';
+}
+
+/** Lower expected HRV baseline in luteal so a normal phase dip is not double-penalized. */
+export function adjustHrvBaselineForCycle(
+  baseline: number,
+  phase: CyclePhase,
+  daysRemaining: number | null,
+): number {
+  const cyclePhase = resolveCycleHrvPhase(phase, daysRemaining);
+  if (!cyclePhase) return baseline;
+  return baseline * CYCLE_HRV_FACTOR[cyclePhase];
+}
+
+export interface RestingHrOverrideResult {
+  score: number;
+  capped: 'light' | null;
+}
+
+/** Composite-level resting-HR gate — catches illness / systemic stress. */
+export function applyRestingHrOverride(
+  score: number,
+  rhr: number | null,
+  rhrBaseline: number | null,
+  rhrYesterday: number | null,
+  rhrBaselineYesterday: number | null,
+): RestingHrOverrideResult {
+  if (rhr === null || rhr <= 0 || rhrBaseline === null || rhrBaseline <= 0) {
+    return { score, capped: null };
+  }
+
+  const elevation = rhr / rhrBaseline;
+  const elevatedToday = elevation > 1.08;
+  const elevatedYesterday = rhrYesterday !== null
+    && rhrYesterday > 0
+    && rhrBaselineYesterday !== null
+    && rhrBaselineYesterday > 0
+    && (rhrYesterday / rhrBaselineYesterday) > 1.08;
+
+  if (elevatedToday && elevatedYesterday) {
+    return { score: Math.min(score, 55), capped: 'light' };
+  }
+
+  if (elevation > 1.15) return { score: score - 15, capped: null };
+  if (elevation > 1.08) return { score: score - 8, capped: null };
+
+  return { score, capped: null };
+}
+
+export type InteractionEffectId =
+  | 'autonomic_overload'
+  | 'incomplete_recovery'
+  | 'sleep_hrv_stress';
+
+export interface InteractionEffectsResult {
+  score: number;
+  triggered: InteractionEffectId[];
+}
+
+interface PillarScoreMap {
+  hrv?: number;
+  sleep?: number;
+  training_load?: number;
+  soreness?: number;
+}
+
+/** Multiplicative penalties when dangerous combinations would be averaged away. */
+export function applyInteractionEffects(
+  compositeScore: number,
+  pillars: PillarScoreMap,
+): InteractionEffectsResult {
+  let multiplier = 1.0;
+  const triggered: InteractionEffectId[] = [];
+
+  const { hrv, sleep, training_load: load, soreness } = pillars;
+
+  if (hrv != null && hrv < 70 && sleep != null && sleep < 70 && load != null && load < 50) {
+    multiplier *= 0.82;
+    triggered.push('autonomic_overload');
+  }
+
+  if (hrv != null && hrv < 60 && soreness != null && soreness < 50) {
+    multiplier *= 0.88;
+    triggered.push('incomplete_recovery');
+  }
+
+  if (hrv != null && hrv < 65 && sleep != null && sleep < 60) {
+    multiplier *= 0.90;
+    triggered.push('sleep_hrv_stress');
+  }
+
+  return {
+    score: Math.round(compositeScore * multiplier),
+    triggered,
+  };
 }
 
 const PILLAR_LABELS: Record<ReadinessPillarId, string> = {
@@ -457,14 +670,16 @@ function formatSleepValue(hours: number | null): string {
 function buildFactors(
   input: ReadinessInput,
   pillars: PillarScore[],
+  trainingLoad: TrainingLoadResult,
 ): ReadinessFactor[] {
-  return pillars
+  const activeFactors = pillars
     .filter((p) => p.active)
     .map((p) => {
       const status = statusFromScore(p.score);
       let value = `${p.score}`;
       let note = '';
       let ringScore: number | undefined;
+      let statusLabel: string | undefined;
 
       switch (p.id) {
         case 'sleep': {
@@ -491,9 +706,9 @@ function buildFactors(
           break;
         }
         case 'training_load': {
-          const days = new Set(input.workouts_7d.map((w) => w.date)).size;
-          value = p.score >= 70 ? 'Balanced' : p.score >= 40 ? 'Moderate' : 'High';
-          note = `${days} training day${days === 1 ? '' : 's'} this week`;
+          value = trainingLoad.label;
+          note = trainingLoad.note;
+          statusLabel = trainingLoad.label;
           break;
         }
         case 'nutrition': {
@@ -544,11 +759,28 @@ function buildFactors(
         icon:       PILLAR_ICONS[p.id],
         value,
         note,
-        status,
+        status:     p.id === 'training_load' ? trainingLoadFactorStatus(trainingLoad) : status,
         score:      p.score,
         ringScore,
+        statusLabel,
       };
     });
+
+  if (!trainingLoad.active && trainingLoad.status === 'no_data') {
+    activeFactors.push({
+      pillar:      'training_load',
+      label:       PILLAR_LABELS.training_load,
+      icon:        PILLAR_ICONS.training_load,
+      value:       '—',
+      note:        trainingLoad.note,
+      status:      'ok',
+      score:       0,
+      statusLabel: 'Inactive',
+      inactive:    true,
+    });
+  }
+
+  return activeFactors;
 }
 
 /** Aggregate readiness from all pillars. Returns null if fewer than 2 pillars have data. */
@@ -561,8 +793,24 @@ export function computeReadiness(input: ReadinessInput): ComputedReadiness | nul
     sleep_quality_rating: sleepRating,
   });
 
-  const hrvScore = computeHrvScore(input.hrv);
-  const trainingScore = computeTrainingLoadScore(input.workouts_7d);
+  const cycleAdjustedBaseline = input.hrv.hrv_baseline !== null && input.cycle.include_cycle
+    ? adjustHrvBaselineForCycle(
+        input.hrv.hrv_baseline,
+        input.cycle.phase,
+        input.cycle.days_remaining,
+      )
+    : input.hrv.hrv_baseline;
+
+  const hrvInput: HrvScoreInput = {
+    ...input.hrv,
+    hrv_baseline: cycleAdjustedBaseline,
+  };
+  const hrvScore = computeHrvScore(hrvInput);
+  const trainingLoad = computeTrainingLoadScore(
+    input.workouts_7d,
+    input.workouts_prior_7d,
+  );
+  const trainingScore = trainingLoadScoreValue(trainingLoad);
 
   // 48-hour nutrition window — yesterday weighted heavier than the day before (item 2).
   const nutritionYesterday = computeNutritionScore(input.nutrition);
@@ -622,13 +870,42 @@ export function computeReadiness(input: ReadinessInput): ComputedReadiness | nul
     };
   });
 
-  const score = Math.round(clamp(weighted / weightSum, 0, 100));
-  // Three consecutive hard days is a real overtraining risk — force rest (item 5).
-  const recommendation = input.consecutive_hard_days >= 3
-    ? 'Rest'
-    : recommendationFromScore(score);
+  let compositeScore = weighted / weightSum;
+
+  const interaction = applyInteractionEffects(compositeScore, {
+    hrv:           hrvScore ?? undefined,
+    sleep:         sleepScore ?? undefined,
+    training_load: trainingScore ?? undefined,
+    soreness:      sorenessScore ?? undefined,
+  });
+  compositeScore = interaction.score;
+
+  const rhrOverride = applyRestingHrOverride(
+    compositeScore,
+    input.hrv.resting_heart_rate,
+    input.hrv.resting_hr_baseline,
+    input.hrv.resting_heart_rate_yesterday,
+    input.hrv.resting_hr_baseline_yesterday ?? input.hrv.resting_hr_baseline,
+  );
+  compositeScore = clamp(rhrOverride.score, 0, 100);
+
+  const score = Math.round(compositeScore);
+
+  let recommendation: ReadinessRecommendation = recommendationFromScore(score);
+  if (rhrOverride.capped === 'light') {
+    recommendation = capRecommendation(recommendation, 'Light workout');
+  }
+  // Three consecutive hard days is a real overtraining risk — force rest.
+  if (input.consecutive_hard_days >= 3) {
+    recommendation = 'Rest';
+  }
+
+  const inputForFactors: ReadinessInput = {
+    ...input,
+    hrv: hrvInput,
+  };
   const reason = buildReason(pillars);
-  const factors = buildFactors(input, pillars);
+  const factors = buildFactors(inputForFactors, pillars, trainingLoad);
   const tips = buildTips(
     score,
     recommendation,
@@ -644,7 +921,7 @@ export function computeReadiness(input: ReadinessInput): ComputedReadiness | nul
     factors,
     tips,
     sleep_score:    sleepScore,
-    strain_score:   computeStrainScore(input.workouts_7d),
+    strain_score:   computeStrainScore(input.workouts_7d, input.workouts_prior_7d),
     soreness_level: input.soreness.soreness_level,
   };
 }

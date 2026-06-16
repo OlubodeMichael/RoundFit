@@ -25,6 +25,12 @@ import { useWeight } from '@/hooks/use-weight';
 import { useProfile } from '@/hooks/use-profile';
 import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
 import { getWeekStart } from '@/utils/insights-aggregator';
+import {
+  buildMetricTargetsConfig,
+  computeLoggingStreak,
+  computeWeeklyProgress,
+  type MetricDayInput,
+} from '@/utils/metric-targets';
 
 function buildWeekDates(todayStr: string): string[] {
   // Monday-start, matching the getWeekStart() key used to fetch
@@ -78,88 +84,78 @@ export default function ProgressScreen() {
   const { profile } = useProfile();
   const todayStr = getLocalDateString();
 
-  // ── Streak: prefer cached value from profile, fall back to computed ───────
-  const streak = useMemo(() => {
-    if (typeof profile?.currentStreak === "number") {
-      // Stale-guard: current_streak is only recomputed when food is logged,
-      // so it freezes if the user stops logging. Zero it only on positive
-      // evidence the run is broken: yesterday is in the week's data with
-      // nothing logged, and today (so far) has nothing either.
-      const yesterday = addLocalCalendarDays(todayStr, -1);
-      const yRow = weekly?.days?.find((d) => d.date === yesterday);
-      const tRow = weekly?.days?.find((d) => d.date === todayStr);
-      const runBroken =
-        yRow !== undefined &&
-        yRow.calories_consumed === 0 &&
-        (tRow?.calories_consumed ?? 0) === 0;
-      return runBroken ? 0 : profile.currentStreak;
-    }
-    if (!weekly?.days?.length) return 0;
-    const sorted = [...weekly.days].sort((a, b) =>
-      b.date.localeCompare(a.date),
-    );
-    let count = 0;
-    for (const d of sorted) {
-      if (d.date > todayStr) continue; // ignore future rows
-      // An empty *today* doesn't break the run — the day isn't over yet.
-      if (d.date === todayStr && d.calories_consumed === 0) continue;
-      if (d.calories_consumed > 0) count++;
-      else break;
-    }
-    return count;
-  }, [profile?.currentStreak, weekly, todayStr]);
-
-  // ── Consistency (clamped — ProgressConsistencyCard clamps internally, but
-  // the headline tile would otherwise render a bad API value verbatim) ──────
-  const consistency = Math.min(
-    100,
-    Math.max(0, Math.round(weekly?.consistency_score ?? 0)),
+  const metricTargets = useMemo(
+    () =>
+      buildMetricTargetsConfig({
+        calorie_budget: profile?.calorieBudget ?? profile?.tdee,
+        protein_target: profile?.proteinTarget,
+        steps_target: profile?.stepsTarget,
+        sleep_target: profile?.sleepTarget,
+      }),
+    [
+      profile?.calorieBudget,
+      profile?.tdee,
+      profile?.proteinTarget,
+      profile?.stepsTarget,
+      profile?.sleepTarget,
+    ],
   );
 
-  // ── Goals (days that met targets, out of 7) ──────────────────────────────
-  // Prefer the backend's met_targets so this tile agrees with the consistency
-  // strip below it (calorie ±200 band, ≥75% of applicable slots). The fallback
-  // (older cached responses) mirrors the backend's calorie band against the
-  // day's OWN budget snapshot — grading past days with today's budget would
-  // silently re-grade history after any budget change, and "under budget"
-  // alone is goal-direction-blind (a surplus goal is MISSED by under-eating).
-  const goalsHit = useMemo(() => {
-    if (!weekly?.days?.length) return 0;
-    const profileBudget = profile?.calorieBudget ?? profile?.tdee ?? 0;
-    return weekly.days.filter((d) => {
-      if (d.met_targets !== undefined) return d.met_targets;
-      const goal = d.calorie_budget > 0 ? d.calorie_budget : profileBudget;
-      return (
-        d.calories_consumed > 0 &&
-        goal > 0 &&
-        Math.abs(d.calories_consumed - goal) <= 200
-      );
-    }).length;
-  }, [weekly, profile?.calorieBudget, profile?.tdee]);
-
-  // ── Consistency day strip — always 7 days (Sun → Sat) ───────────────────
-  // A day is marked "on" only when the backend says the user actually met
-  // their targets that day (calorie ±200, protein 90%+, steps target, sleep
-  // target — at least 75% of applicable slots). Falls back to the old
-  // "logged anything" check if the API doesn't return `met_targets` yet
-  // (e.g. cached responses from an older server).
-  const consistencyDays = useMemo(() => {
+  const weekProgress = useMemo(() => {
     const dayMap = new Map((weekly?.days ?? []).map((d) => [d.date, d]));
+    const weekDayInputs: MetricDayInput[] = buildWeekDates(todayStr).map(
+      (date) => {
+        const day = dayMap.get(date);
+        return {
+          date,
+          calories_consumed: day?.calories_consumed ?? 0,
+          protein_consumed: day?.protein_consumed ?? 0,
+          calorie_budget: day?.calorie_budget ?? 0,
+          protein_target: day?.protein_target ?? null,
+          steps: day?.steps ?? null,
+          sleep_hours: day?.sleep_hours ?? null,
+        };
+      },
+    );
+    return computeWeeklyProgress(weekDayInputs, metricTargets);
+  }, [weekly, todayStr, metricTargets]);
+
+  const streak = useMemo(() => {
+    if (typeof weekly?.current_streak === 'number') {
+      return weekly.current_streak;
+    }
+    if (!weekly?.days?.length) return 0;
+    const loggedDates = new Set(
+      weekly.days
+        .filter((d) => d.calories_consumed > 0)
+        .map((d) => d.date),
+    );
+    return computeLoggingStreak(loggedDates, todayStr);
+  }, [weekly, todayStr]);
+
+  const consistency =
+    weekly?.consistency_score ?? weekProgress.consistency_score;
+  const goalsHit = weekly?.goals_hit ?? weekProgress.goals_hit;
+
+  const consistencyDays = useMemo(() => {
+    const metByDate = new Map(
+      weekProgress.days.map((d) => [d.date, d.met]),
+    );
     return buildWeekDates(todayStr).map((date) => {
-      const day = dayMap.get(date);
+      const day = (weekly?.days ?? []).find((d) => d.date === date);
       const onTarget =
         day?.met_targets !== undefined
           ? day.met_targets
-          : (day?.calories_consumed ?? 0) > 0;
+          : (metByDate.get(date) ?? false);
       return {
-        label: new Date(date + "T12:00:00").toLocaleDateString(undefined, {
-          weekday: "short",
+        label: new Date(date + 'T12:00:00').toLocaleDateString(undefined, {
+          weekday: 'short',
         })[0],
         on: onTarget,
         today: date === todayStr,
       };
     });
-  }, [weekly, todayStr]);
+  }, [weekly, weekProgress.days, todayStr]);
 
   // ── Calories chart — always 7 days (Sun → Sat) ───────────────────────────
   const calsGoal =
@@ -208,18 +204,17 @@ export default function ProgressScreen() {
         <View style={styles.stack}>
           <ProgressHeadlineStats
             streak={streak}
-            consistency={consistency}
+            consistency={Math.min(100, Math.max(0, Math.round(consistency)))}
             goalsHit={goalsHit}
           />
 
-          {/* ── Readiness widget ───────────────────────────────── */}
-          <ReadinessWidget delay={180} />
-
           <ProgressConsistencyCard
-            consistency={consistency}
+            consistency={Math.min(100, Math.max(0, Math.round(consistency)))}
             days={consistencyDays}
-            delay={220}
+            delay={180}
           />
+
+          <ReadinessWidget delay={220} />
 
           {/* ── Steps progress ────────────────────────────────── */}
           <StepsCard delay={280} />

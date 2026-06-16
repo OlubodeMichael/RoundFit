@@ -76,7 +76,7 @@ export default function DailyLogScreen() {
     try {
       await Promise.all([
         refreshLogs(),
-        refreshWater(undefined, { force: true }),
+        refreshWater({ force: true }),
         pendingWorkouts.refresh(true),
         showCycleLog ? refreshCycle() : Promise.resolve(),
       ]);

@@ -3,6 +3,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import type { WorkoutType as UiWorkoutTypeId } from '@/components/log/workout/types';
 import type { WorkoutType as BackendWorkoutType } from '@/context/workout-context';
+import { getHealthKitActivityIcon } from '@/constants/healthkit-activity-icons';
+import { getHealthKitActivityDisplayLabel } from '@/constants/healthkit-activity-types';
+
+export { getHealthKitActivityDisplayLabel } from '@/constants/healthkit-activity-types';
 
 export type IoniconName = ComponentProps<typeof Ionicons>['name'];
 export type SessionMode = 'strength' | 'cardio';
@@ -160,6 +164,17 @@ const WORKOUT_CATALOG: WorkoutCatalogEntry[] = [
     supportsSets: false,
     healthKitActivityType: 'HKWorkoutActivityTypeSocialDance',
   },
+  {
+    id: 'jump-rope',
+    label: 'Jump Rope',
+    icon: 'fitness-outline',
+    sfSymbol: 'figure.jumprope',
+    backendType: 'hiit',
+    sessionMode: 'cardio',
+    met: 9.0,
+    supportsSets: false,
+    healthKitActivityType: 'HKWorkoutActivityTypeJumpRope',
+  },
 ];
 
 const CATALOG_BY_ID = new Map(WORKOUT_CATALOG.map((entry) => [entry.id, entry]));
@@ -217,6 +232,7 @@ const HK_ACTIVITY_CATALOG_ID: Record<number, string> = {
   52: 'walk',
   57: 'yoga',
   63: 'hiit',
+  64: 'jump-rope',
 };
 
 export function getCatalogIdForHealthKitActivity(activityType: number): string {
@@ -225,25 +241,14 @@ export function getCatalogIdForHealthKitActivity(activityType: number): string {
 
 export function getCatalogEntryForHealthKitActivity(activityType: number): WorkoutCatalogEntry {
   const id = getCatalogIdForHealthKitActivity(activityType);
-  return getCatalogEntryById(id) ?? getCatalogEntryById('other')!;
-}
+  const base = getCatalogEntryById(id) ?? getCatalogEntryById('other')!;
+  const hkIcon = getHealthKitActivityIcon(activityType);
+  const label = getHealthKitActivityDisplayLabel(activityType);
 
-/** Human-readable HK activity names (matches Apple Fitness labels where possible). */
-const HK_ACTIVITY_DISPLAY_LABEL: Record<number, string> = {
-  13: 'Cycling',
-  16: 'Elliptical',
-  20: 'Functional Strength Training',
-  24: 'Hiking',
-  35: 'Rowing',
-  37: 'Outdoor Run',
-  46: 'Pool Swim',
-  50: 'Traditional Strength Training',
-  52: 'Outdoor Walk',
-  57: 'Yoga',
-  63: 'HIIT',
-};
-
-export function getHealthKitActivityDisplayLabel(activityType: number): string {
-  return HK_ACTIVITY_DISPLAY_LABEL[activityType]
-    ?? getCatalogEntryForHealthKitActivity(activityType).label;
+  return {
+    ...base,
+    label,
+    icon: hkIcon.icon,
+    sfSymbol: hkIcon.sfSymbol,
+  };
 }

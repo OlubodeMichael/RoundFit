@@ -1,8 +1,8 @@
-import { useRouter } from 'expo-router';
 import { Lock } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 
+import { ChangePasswordModal } from '@/components/profile/ChangePasswordModal';
 import {
   NavRow,
   Section,
@@ -13,10 +13,10 @@ import { isStoredTokenOAuth } from '@/utils/api';
 
 export default function SecurityScreen() {
   const P = useSettingsPalette();
-  const router = useRouter();
 
   // OAuth users have no password, so "Change password" can't work for them.
   const [isOAuthAccount, setIsOAuthAccount] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,10 +37,15 @@ export default function SecurityScreen() {
             color="#818CF8"
             label="Change Password"
             P={P}
-            onPress={() => router.push('/auth/change-password')}
+            onPress={() => setChangePasswordOpen(true)}
           />
         )}
       </Section>
+
+      <ChangePasswordModal
+        visible={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)}
+      />
     </SettingsScreen>
   );
 }

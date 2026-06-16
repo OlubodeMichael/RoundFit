@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
 import {
+  Award,
   Bell,
   CreditCard,
   FileText,
@@ -129,6 +130,12 @@ export default function ProfileScreen() {
       <ProfileGroup P={P} title="Health & Devices">
         <ProfileRow P={P} icon={HeartPulse} label="Apple Health & Devices"
           onPress={() => router.push('/(tabs)/profile/health')} />
+      </ProfileGroup>
+
+      {/* ── Achievements ──────────────────────────────────────────────── */}
+      <ProfileGroup P={P} title="Achievements">
+        <ProfileRow P={P} icon={Award} label="Badges"
+          onPress={() => router.push('/(tabs)/profile/badges')} />
       </ProfileGroup>
 
       {/* ── Tracking ──────────────────────────────────────────────────── */}

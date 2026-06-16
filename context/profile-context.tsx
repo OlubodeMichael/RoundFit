@@ -1,6 +1,7 @@
-import React, { createContext, useCallback, useContext, useMemo } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo } from 'react';
 import { useAuth } from '@/context/auth-context';
 import type { UserProfile } from '@/context/auth-context';
+import { prefetchAvatarImage } from '@/utils/avatar-image-cache';
 import { formatHeightForStats, formatWeightForStats } from '@/utils/body-units';
 import { resolveProteinTargetG } from '@/utils/nutrition';
 
@@ -91,6 +92,10 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const isLoading = status === 'loading';
 
   const avatarUrl = user?.avatarUrl ?? null;
+
+  useEffect(() => {
+    prefetchAvatarImage(avatarUrl);
+  }, [avatarUrl]);
 
   const avatarLetter = useMemo(
     () => (user?.name?.trim()[0] ?? '?').toUpperCase(),

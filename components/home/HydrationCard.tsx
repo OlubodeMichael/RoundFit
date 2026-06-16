@@ -1,7 +1,12 @@
+import { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { HydrationProgressRing } from '@/components/home/HydrationProgressRing';
+import { WaterJarVisual } from '@/components/log/WaterJarVisual';
+import {
+  JAR_DISPLAY_SCALE_CARD,
+  JAR_VIEW_H,
+} from '@/components/log/water-jar-paths';
 import { WaterQuickAdd } from '@/components/log/WaterQuickAdd';
 import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
 import { useToast } from '@/components/ui/Toast';
@@ -10,6 +15,7 @@ import { useWater } from '@/hooks/use-water';
 const ML_PER_OZ = 29.5735;
 const OZ_ROUND = (oz: number) => Math.round(oz);
 const HEADER_ICON_SIZE = 32;
+const JAR_STAGE_HEIGHT = JAR_VIEW_H * JAR_DISPLAY_SCALE_CARD + 8;
 
 export interface HydrationCardPalette {
   card: string;
@@ -31,6 +37,7 @@ export interface HydrationCardProps {
 export function HydrationCard({ P, delay = 0, onViewAll }: HydrationCardProps) {
   const { totalMl, goalMl, logWater } = useWater();
   const toast = useToast();
+  const [bumpToken, setBumpToken] = useState(0);
   const accent = getCardAccent('water', P.isDark);
   const palette = { card: P.card, cardEdge: P.cardEdge, isDark: P.isDark };
 
@@ -44,6 +51,7 @@ export function HydrationCard({ P, delay = 0, onViewAll }: HydrationCardProps) {
   const handleAdd = async (ml: number) => {
     try {
       await logWater(ml);
+      setBumpToken((t) => t + 1);
     } catch {
       toast.error('Could not save', 'Please try again.');
     }
@@ -80,7 +88,20 @@ export function HydrationCard({ P, delay = 0, onViewAll }: HydrationCardProps) {
       </View>
 
       <View style={s.progressRow}>
-        <HydrationProgressRing progress={progress} percent={pct} />
+        <View
+          style={s.jarStage}
+          accessible
+          accessibilityRole="progressbar"
+          accessibilityLabel={`${pct} percent of daily hydration goal`}
+          accessibilityValue={{ min: 0, max: 100, now: pct }}
+        >
+          <WaterJarVisual
+            progress={progress}
+            isComplete={isComplete}
+            bumpToken={bumpToken}
+            scale={JAR_DISPLAY_SCALE_CARD}
+          />
+        </View>
 
         <View style={s.stats}>
           <Text style={[s.amount, { color: P.text }]}>
@@ -144,10 +165,16 @@ const s = StyleSheet.create({
   progressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 18,
+    gap: 16,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 8,
     paddingBottom: 16,
+  },
+  jarStage: {
+    width: 58,
+    minHeight: JAR_STAGE_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   stats: {
     flex: 1,
@@ -175,6 +202,7 @@ const s = StyleSheet.create({
   },
   quickAdd: {
     paddingHorizontal: 16,
+    paddingTop: 4,
     paddingBottom: 16,
   },
 });

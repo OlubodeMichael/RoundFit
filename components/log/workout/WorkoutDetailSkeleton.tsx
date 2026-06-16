@@ -1,9 +1,9 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Animated, Platform, ScrollView, StyleSheet, View } from 'react-native';
 
-import { usePalette } from '@/lib/log-theme';
-
+import { WorkoutAppleFitnessSkeleton } from '@/components/log/workout/WorkoutAppleFitnessSkeleton';
 import { WORKOUT_DETAIL_PAD } from '@/components/log/workout/workout-detail-layout';
+import { usePalette } from '@/lib/log-theme';
 
 function Block({
   width,
@@ -61,7 +61,24 @@ function SkeletonCard({ children, style }: { children: ReactNode; style?: object
   );
 }
 
-function HeroSkeleton() {
+function HeroSkeleton({ variant }: { variant: 'standard' | 'apple' }) {
+  if (variant === 'apple') {
+    return (
+      <View style={s.heroPad}>
+        <SkeletonCard style={s.appleHeroCard}>
+          <View style={s.appleHeroTop}>
+            <Block width={34} height={34} radius={8} />
+            <Block width="52%" height={28} radius={8} style={{ flex: 1 }} />
+            <Block width={110} height={28} radius={14} />
+          </View>
+          <Block width="68%" height={13} radius={4} />
+          <Block width="42%" height={10} radius={4} style={{ marginTop: 8 }} />
+          <Block width="78%" height={44} radius={10} style={{ marginTop: 8 }} />
+        </SkeletonCard>
+      </View>
+    );
+  }
+
   return (
     <View style={s.heroPad}>
       <SkeletonCard style={s.heroCard}>
@@ -124,11 +141,23 @@ export interface WorkoutDetailSkeletonProps {
 }
 
 export function WorkoutDetailSkeleton({ variant = 'standard' }: WorkoutDetailSkeletonProps) {
+  if (variant === 'apple') {
+    return (
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+        <HeroSkeleton variant="apple" />
+        <WorkoutAppleFitnessSkeleton />
+        <View style={s.sectionPad}>
+          <Block width="100%" height={52} radius={16} />
+        </View>
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-      <HeroSkeleton />
+      <HeroSkeleton variant="standard" />
       <HighlightSkeleton />
-      <DetailRowsSkeleton count={variant === 'apple' ? 2 : 3} />
+      <DetailRowsSkeleton count={3} />
       <View style={s.sectionPad}>
         <Block width="100%" height={160} radius={24} />
       </View>
@@ -155,6 +184,17 @@ const s = StyleSheet.create({
     gap: 10,
     paddingVertical: 24,
     paddingHorizontal: 20,
+  },
+  appleHeroCard: {
+    gap: 14,
+    paddingVertical: 20,
+    paddingHorizontal: 22,
+    borderRadius: 24,
+  },
+  appleHeroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   sectionPad: {
     paddingHorizontal: WORKOUT_DETAIL_PAD,

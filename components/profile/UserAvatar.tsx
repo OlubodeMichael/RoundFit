@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -37,7 +37,8 @@ export interface UserAvatarProps {
 }
 
 /**
- * Circular avatar: image when `avatarUrl` is set, otherwise gradient initials placeholder.
+ * Circular avatar: cached photo when `avatarUrl` is set (initials show underneath
+ * until the image is ready), otherwise gradient initials placeholder.
  */
 export function UserAvatar({
   avatarUrl,
@@ -52,23 +53,26 @@ export function UserAvatar({
 
   const body = (
     <View style={[s.circle, { width: d, height: d, borderRadius: r }]}>
+      <LinearGradient
+        colors={['#FB923C', '#F97316', '#EA580C']}
+        start={{ x: 0.1, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={[s.gradient, { width: d, height: d, borderRadius: r }]}
+      >
+        <Text style={[s.letter, { fontSize: LETTER_SIZE[size] }]}>
+          {avatarLetter}
+        </Text>
+      </LinearGradient>
       {avatarUrl ? (
         <Image
           source={{ uri: avatarUrl }}
           style={[s.image, { width: d, height: d, borderRadius: r }]}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          recyclingKey={avatarUrl}
+          transition={120}
         />
-      ) : (
-        <LinearGradient
-          colors={['#FB923C', '#F97316', '#EA580C']}
-          start={{ x: 0.1, y: 0 }}
-          end={{ x: 0.9, y: 1 }}
-          style={[s.gradient, { width: d, height: d, borderRadius: r }]}
-        >
-          <Text style={[s.letter, { fontSize: LETTER_SIZE[size] }]}>
-            {avatarLetter}
-          </Text>
-        </LinearGradient>
-      )}
+      ) : null}
       {uploading && (
         <View style={[s.overlay, { borderRadius: r }]}>
           <Ionicons name="cloud-upload-outline" size={size === 'sm' ? 14 : size === 'md' ? 16 : 22} color="#fff" />
@@ -101,11 +105,12 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   gradient: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },
   image: {
-    resizeMode: 'cover',
+    ...StyleSheet.absoluteFillObject,
   },
   letter: {
     color: '#FFF',

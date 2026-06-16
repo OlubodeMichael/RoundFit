@@ -117,7 +117,6 @@ export default function AuthLandingScreen() {
           eaten={DEMO.eaten}
           goal={DEMO.goal}
           burned={DEMO.burned}
-          showMovement
           healthData={{
             id: 'demo',
             active_calories: DEMO.burned,

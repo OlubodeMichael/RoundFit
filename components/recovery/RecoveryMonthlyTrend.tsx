@@ -24,6 +24,8 @@ const SCREEN_PAD = 20;
 const COLS = 7;
 const HEADERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 const GAP = 5;
+/** Slightly darker surface behind the heatmap on light theme only. */
+const CALENDAR_SURFACE_LIGHT = '#E8E8ED';
 
 interface HeatmapCellProps {
   cell: MonthCalendarCell;
@@ -200,7 +202,13 @@ export function RecoveryMonthlyTrend({
           ))}
         </View>
 
-        <View style={[styles.gridStack, { minHeight: gridHeight }]}>
+        <View
+          style={[
+            styles.gridStack,
+            { minHeight: gridHeight },
+            !palette.isDark && styles.gridStackLight,
+          ]}
+        >
           <RecoveryMonthCalendarBackdrop
             cellSize={cellSize}
             gridHeight={gridHeight}
@@ -296,6 +304,11 @@ const styles = StyleSheet.create({
   },
   gridStack: {
     position: 'relative',
+  },
+  gridStackLight: {
+    backgroundColor: CALENDAR_SURFACE_LIGHT,
+    borderRadius:    12,
+    padding:         8,
   },
   foreground: {
     zIndex: 1,

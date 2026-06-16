@@ -45,6 +45,13 @@ export function ttlForDate(
   return date === getLocalDateString() ? todayTtl : pastTtl
 }
 
+/** In-memory cache read — used to avoid icon flicker before async hydration. */
+export function peekResourceCached<T>(key: string): T | null {
+  const entry = mem.get(key) as CacheEntry<T> | undefined
+  if (!entry) return null
+  return entry.data
+}
+
 export async function getResourceCached<T>(
   key: string,
 ): Promise<{ data: T; isStale: boolean } | null> {

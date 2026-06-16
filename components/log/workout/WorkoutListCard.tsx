@@ -1,12 +1,11 @@
-import type { ComponentProps } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { WorkoutActivityIcon } from '@/components/log/workout/WorkoutActivityIcon';
 import { APPLE_FITNESS_HEART_COLOR } from '@/components/log/workout/workout-display';
 import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
+import type { WorkoutCatalogEntry } from '@/config/workout-catalog';
 import { usePalette } from '@/lib/log-theme';
-
-type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 export interface WorkoutListStat {
   label: string;
@@ -14,7 +13,7 @@ export interface WorkoutListStat {
 }
 
 export interface WorkoutListCardProps {
-  icon: IoniconName;
+  iconEntry: Pick<WorkoutCatalogEntry, 'icon' | 'sfSymbol'>;
   title: string;
   /** Clock time shown between the header and title (e.g. `12:57 PM – 1:19 PM`). */
   timeRange?: string | null;
@@ -27,7 +26,7 @@ export interface WorkoutListCardProps {
 }
 
 export function WorkoutListCard({
-  icon,
+  iconEntry,
   title,
   timeRange,
   eyebrow,
@@ -64,24 +63,25 @@ export function WorkoutListCard({
         style={styles.cardShell}
         contentStyle={styles.cardInner}
       >
-        <View style={styles.header}>
-          <Ionicons name={icon} size={26} color={accent.iconBg} />
-          <View style={styles.headerRight}>
-            {eyebrow != null && eyebrow.length > 0 ? (
-              <View style={[styles.sourceBadge, { backgroundColor: P.sunken }]}>
-                <Ionicons name="heart" size={10} color={APPLE_FITNESS_HEART_COLOR} />
-                <Text style={[styles.sourceText, { color: P.textFaint }]} numberOfLines={1}>
-                  {eyebrow}
-                </Text>
-              </View>
-            ) : null}
-            {isNew ? (
-              <View style={[styles.newPill, { backgroundColor: accent.iconBg }]}>
-                <Text style={styles.newText}>NEW</Text>
-              </View>
-            ) : null}
+        {(eyebrow != null && eyebrow.length > 0) || isNew ? (
+          <View style={styles.header}>
+            <View style={styles.headerRight}>
+              {eyebrow != null && eyebrow.length > 0 ? (
+                <View style={[styles.sourceBadge, { backgroundColor: P.sunken }]}>
+                  <Ionicons name="heart" size={10} color={APPLE_FITNESS_HEART_COLOR} />
+                  <Text style={[styles.sourceText, { color: P.textFaint }]} numberOfLines={1}>
+                    {eyebrow}
+                  </Text>
+                </View>
+              ) : null}
+              {isNew ? (
+                <View style={[styles.newPill, { backgroundColor: accent.iconBg }]}>
+                  <Text style={styles.newText}>NEW</Text>
+                </View>
+              ) : null}
+            </View>
           </View>
-        </View>
+        ) : null}
 
         {timeRange != null && timeRange.length > 0 ? (
           <Text style={[styles.timeRange, { color: P.textFaint }]} numberOfLines={1}>
@@ -89,9 +89,12 @@ export function WorkoutListCard({
           </Text>
         ) : null}
 
-        <Text style={[styles.title, { color: P.text }]} numberOfLines={2}>
-          {title}
-        </Text>
+        <View style={styles.titleRow}>
+          <WorkoutActivityIcon entry={iconEntry} />
+          <Text style={[styles.title, { color: P.text }]} numberOfLines={2}>
+            {title}
+          </Text>
+        </View>
 
         {hero != null && (
           <View style={styles.heroBlock}>
@@ -154,7 +157,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
   },
   headerRight: {
     flexDirection: 'row',
@@ -162,7 +165,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: 6,
     flexShrink: 1,
-    maxWidth: '62%',
   },
   sourceBadge: {
     flexDirection: 'row',
@@ -190,11 +192,17 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     color: '#FFFFFF',
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 36,
+  },
   title: {
+    flex: 1,
     fontSize: 14,
     fontWeight: '700',
     lineHeight: 18,
-    minHeight: 36,
   },
   heroBlock: {
     marginTop: 2,

@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { WorkoutActivityIcon } from '@/components/log/workout/WorkoutActivityIcon';
 import {
   APPLE_FITNESS_HEART_COLOR,
   fmtWorkoutDuration,
@@ -60,7 +61,7 @@ export function WorkoutPendingHistoryRow({ item, onPress }: WorkoutPendingHistor
         style={styles.card}
         contentStyle={[styles.inner, { borderColor: accent.iconSoft }]}
       >
-        <Ionicons name={item.catalogEntry.icon} size={26} color={accent.iconBg} />
+        <WorkoutActivityIcon entry={item.catalogEntry} />
 
         <View style={styles.body}>
           <View style={styles.titleRow}>

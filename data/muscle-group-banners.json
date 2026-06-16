@@ -1,0 +1,165 @@
+{
+  "purpose": "Image banner assets for the strength exercise picker. One wide PNG per muscle group. The app overlays the group name on the left — do not bake text into the images.",
+  "specs": {
+    "format": "png",
+    "width": 1170,
+    "height": 300,
+    "display_size_pt": "390 × 100",
+    "aspect_ratio": "3.9:1",
+    "composition": "Keep the main subject on the right 60–70% of the frame. Leave the left ~35% darker or softer so white title text stays readable when overlaid.",
+    "style": "Premium fitness app hero art. Cinematic gym lighting, dark charcoal base, subtle grain OK. No text, no logos, no watermarks, no faces.",
+    "save_to": "assets/workout/banners/{id}.png"
+  },
+  "muscle_groups": [
+    {
+      "id": "chest",
+      "name": "Chest",
+      "file": "assets/workout/banners/chest.png",
+      "description": "Banner for chest / pushing exercises — bench press, flyes, push-ups.",
+      "visual_brief": "Wide horizontal banner showing the pectoral muscles as the hero subject. Include a barbell on a flat bench or dumbbells mid-press. Emphasize the chest squeeze and forward push motion. Teal-cyan gym atmosphere with a dark background.",
+      "must_include": [
+        "Pectoral muscle form (anatomy or athletic silhouette)",
+        "Bench press barbell or dumbbell press",
+        "Forward / pushing energy"
+      ],
+      "avoid": [
+        "Back or leg focus",
+        "Readable text or labels",
+        "Bright flat white backgrounds"
+      ],
+      "example_exercises": [
+        "Bench Press",
+        "Incline Bench Press",
+        "Dumbbell Fly",
+        "Push-Ups",
+        "Cable Crossover"
+      ],
+      "image_prompt": "Wide horizontal fitness app banner, 3.9:1 aspect ratio, heroic pectoral chest muscles, barbell bench press in a dark premium gym, teal cyan rim lighting, cinematic depth, subject on the right third, darker left side for text overlay, no text, no logos, no faces, ultra clean mobile UI art"
+    },
+    {
+      "id": "back",
+      "name": "Back",
+      "file": "assets/workout/banners/back.png",
+      "description": "Banner for back / pulling exercises — rows, pull-ups, deadlifts.",
+      "visual_brief": "Wide horizontal banner highlighting the latissimus dorsi, traps, and rhomboids. Show a pull-up bar, cable row, or barbell row. Pulling-backward tension — wide V-taper back shape. Cool blue-teal lighting on dark charcoal.",
+      "must_include": [
+        "Lat and upper back muscle definition",
+        "Pull-up bar, cable row, or bent-over row",
+        "Pulling / rowing motion"
+      ],
+      "avoid": [
+        "Chest-forward push poses",
+        "Leg-dominant framing",
+        "Readable text"
+      ],
+      "example_exercises": [
+        "Deadlift",
+        "Pull-Ups",
+        "Lat Pulldown",
+        "Bent-Over Row",
+        "Seated Cable Row"
+      ],
+      "image_prompt": "Wide horizontal fitness app banner, 3.9:1 aspect ratio, powerful latissimus dorsi back muscles, pull-up bar and cable row handles, cool blue teal gym lighting, dramatic rim light on back, subject on the right, darker left side for overlay, no text, no logos, no faces, premium mobile UI art"
+    },
+    {
+      "id": "legs",
+      "name": "Legs",
+      "file": "assets/workout/banners/legs.png",
+      "description": "Banner for leg exercises — squats, lunges, hip hinges, calf work.",
+      "visual_brief": "Wide horizontal banner focused on quadriceps, hamstrings, and glutes. Feature a squat rack, barbell on shoulders, or lunging stance. Grounded, powerful lower-body energy. Emerald-green accent glow on dark gym floor.",
+      "must_include": [
+        "Quads, hamstrings, or glutes as hero",
+        "Squat rack, barbell, or lunge stance",
+        "Strong grounded composition"
+      ],
+      "avoid": [
+        "Upper-body-only framing",
+        "Running / cardio treadmill scenes",
+        "Readable text"
+      ],
+      "example_exercises": [
+        "Back Squat",
+        "Romanian Deadlift",
+        "Leg Press",
+        "Walking Lunges",
+        "Hip Thrust"
+      ],
+      "image_prompt": "Wide horizontal fitness app banner, 3.9:1 aspect ratio, muscular legs quads hamstrings glutes, squat rack and barbell plates, emerald green accent glow, dark gym floor reflection, powerful athletic stance, subject on the right, darker left side, no text, no logos, no faces, premium mobile UI art"
+    },
+    {
+      "id": "shoulders",
+      "name": "Shoulders",
+      "file": "assets/workout/banners/shoulders.png",
+      "description": "Banner for shoulder exercises — overhead press, raises, rear delt work.",
+      "visual_brief": "Wide horizontal banner centered on the deltoid muscles (front, side, rear caps). Show dumbbells or a barbell at overhead press height, or lateral raise position. Elevated, athletic shoulder line. Soft violet-to-cyan accent on dark studio background.",
+      "must_include": [
+        "Deltoid / shoulder cap definition",
+        "Overhead press or lateral raise equipment",
+        "Elevated arm / shoulder line"
+      ],
+      "avoid": [
+        "Chest-only bench press scenes",
+        "Leg-dominant framing",
+        "Readable text"
+      ],
+      "example_exercises": [
+        "Overhead Press",
+        "Dumbbell Shoulder Press",
+        "Lateral Raise",
+        "Rear Delt Fly",
+        "Arnold Press"
+      ],
+      "image_prompt": "Wide horizontal fitness app banner, 3.9:1 aspect ratio, sculpted deltoid shoulder muscles, dumbbells overhead press position, violet cyan accent lighting, dark premium studio, elevated athletic tone, subject on the right, darker left side, no text, no logos, no faces, premium mobile UI art"
+    },
+    {
+      "id": "arms",
+      "name": "Arms",
+      "file": "assets/workout/banners/arms.png",
+      "description": "Banner for arm exercises — biceps curls and triceps extensions.",
+      "visual_brief": "Wide horizontal banner featuring biceps and triceps. Show an EZ curl bar, dumbbells mid-curl, or cable tricep pushdown rope. Dynamic flex and extension. Warm amber-gold highlights with cyan accents on dark charcoal.",
+      "must_include": [
+        "Biceps and/or triceps muscle form",
+        "Curl bar, dumbbells, or cable pushdown",
+        "Flex or extension motion"
+      ],
+      "avoid": [
+        "Full torso back shots",
+        "Leg exercises",
+        "Readable text"
+      ],
+      "example_exercises": [
+        "Barbell Curl",
+        "Hammer Curl",
+        "Tricep Pushdown",
+        "Skull Crusher",
+        "Tricep Dip"
+      ],
+      "image_prompt": "Wide horizontal fitness app banner, 3.9:1 aspect ratio, defined biceps and triceps arms, EZ curl bar and cable rope pushdown, warm amber gold highlights with cyan accents, dark charcoal gym, dynamic flex pose, subject on the right, darker left side, no text, no logos, no faces, premium mobile UI art"
+    },
+    {
+      "id": "core",
+      "name": "Core",
+      "file": "assets/workout/banners/core.png",
+      "description": "Banner for core / ab exercises — planks, crunches, rotational work.",
+      "visual_brief": "Wide horizontal banner highlighting the abdominal wall and obliques. Show a plank position, ab wheel, or cable crunch setup. Stability and controlled tension — not explosive cardio. Teal-mint glow on a minimal dark studio.",
+      "must_include": [
+        "Abdominal / core muscle definition",
+        "Plank, ab wheel, or cable crunch motif",
+        "Stability and control mood"
+      ],
+      "avoid": [
+        "Heavy squat or bench scenes",
+        "Running / jumping cardio",
+        "Readable text"
+      ],
+      "example_exercises": [
+        "Plank",
+        "Cable Crunch",
+        "Russian Twist",
+        "Hanging Leg Raise",
+        "Ab Rollout"
+      ],
+      "image_prompt": "Wide horizontal fitness app banner, 3.9:1 aspect ratio, defined abdominal core muscles, plank and ab wheel, teal mint accent glow, dark minimal studio, controlled stability mood, subject on the right, darker left side, no text, no logos, no faces, premium mobile UI art"
+    }
+  ]
+}

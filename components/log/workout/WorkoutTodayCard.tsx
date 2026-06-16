@@ -2,12 +2,11 @@ import type { WorkoutListStat } from '@/components/log/workout/WorkoutListCard';
 import { WorkoutListCard } from '@/components/log/workout/WorkoutListCard';
 import {
   formatWorkoutTimeRange,
-  WORKOUT_META,
   workoutSourceLabel,
 } from '@/components/log/workout/workout-display';
-import { getCatalogEntryForBackendType } from '@/config/workout-catalog';
 import type { Workout } from '@/context/workout-context';
 import { formatHealthKitWorkoutDurationHms } from '@/utils/healthkit';
+import { useWorkoutCatalogDisplay } from '@/hooks/use-workout-catalog-display';
 
 export interface WorkoutTodayCardProps {
   workout: Workout;
@@ -34,17 +33,14 @@ function buildStats(workout: Workout): WorkoutListStat[] {
 }
 
 export function WorkoutTodayCard({ workout, onPress, delay = 0 }: WorkoutTodayCardProps) {
-  const catalogEntry = getCatalogEntryForBackendType(workout.type);
-  const meta = WORKOUT_META[workout.type] ?? WORKOUT_META.other;
-  const icon = catalogEntry?.icon ?? meta.icon;
-  const title = catalogEntry?.label ?? meta.label;
+  const { label, iconEntry } = useWorkoutCatalogDisplay(workout);
   const timeRange = formatWorkoutTimeRange(workout.started_at, workout.ended_at);
   const sourceLabel = workoutSourceLabel(workout.source);
 
   return (
     <WorkoutListCard
-      icon={icon}
-      title={title}
+      iconEntry={iconEntry}
+      title={label}
       timeRange={timeRange}
       eyebrow={sourceLabel}
       stats={buildStats(workout)}

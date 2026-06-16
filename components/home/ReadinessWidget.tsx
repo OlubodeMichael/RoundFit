@@ -7,7 +7,6 @@ import Svg, { Circle, Path } from "react-native-svg";
 import { GradientCard, getCardAccent } from "@/components/ui/GradientCard";
 import { scoreTint } from "@/components/recovery/recovery-trend-utils";
 import { useHealth } from "@/context/health-context";
-import { useHomeReadiness } from "@/hooks/use-home-readiness";
 import { useRecovery } from "@/hooks/use-recovery";
 import { usePalette } from "@/lib/log-theme";
 import { formatSleepDuration } from "@/utils/sleep-quality";
@@ -94,27 +93,18 @@ function StatCell({
 
 export interface ReadinessWidgetProps {
   delay?: number;
-  /**
-   * `home` — local compute only (no recovery API bundle).
-   * `passive` — show recovery context after Progress tab has loaded it.
-   */
-  mode?: "home" | "passive";
   /** Where the recovery detail screen should return when back isn't available. */
   returnTo?: Href;
 }
 
 export function ReadinessWidget({
   delay = 0,
-  mode = "passive",
   returnTo,
 }: ReadinessWidgetProps) {
   const router = useRouter();
   const P = usePalette();
-  const homeDisplay = useHomeReadiness();
-  const { display: recoveryDisplay, today } = useRecovery();
+  const { display, today } = useRecovery();
   const { today: healthToday } = useHealth();
-
-  const display = mode === "home" ? homeDisplay : recoveryDisplay;
   const score = display.score;
   if (score === null) return null;
 

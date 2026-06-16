@@ -1,11 +1,14 @@
 import { invalidateUserTodayCaches } from '@/utils/daily-summary-cache'
 import type { MutationDomain } from '@/utils/cache-invalidation'
 import { invalidateAfterMutation } from '@/utils/cache-invalidation'
+import type { BadgeAwardRef } from '@/utils/badges-cache'
 
 export type { MutationDomain }
 
 export interface TodayDataChangedContext {
   domain: MutationDomain
+  /** Awards newly earned by the mutation that just completed. */
+  badgesUnlocked?: BadgeAwardRef[]
 }
 
 type Listener = (ctx: TodayDataChangedContext) => void | Promise<void>
@@ -41,6 +44,7 @@ export async function notifyTodayDataChanged(
   userId: string | null | undefined,
   domain: MutationDomain,
   date?: string,
+  options?: { badgesUnlocked?: BadgeAwardRef[] },
 ): Promise<void> {
   if (!userId) return
 
@@ -49,7 +53,10 @@ export async function notifyTodayDataChanged(
     return
   }
 
-  const ctx: TodayDataChangedContext = { domain }
+  const ctx: TodayDataChangedContext = {
+    domain,
+    badgesUnlocked: options?.badgesUnlocked,
+  }
 
   dataSyncInFlight = (async () => {
     await invalidateAfterMutation({ userId, date, domain })

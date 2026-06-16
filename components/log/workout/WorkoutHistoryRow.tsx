@@ -5,11 +5,12 @@ import {
   APPLE_FITNESS_HEART_COLOR,
   formatHistoryDateLabel,
   workoutSourceLabel,
-  WORKOUT_META,
 } from '@/components/log/workout/workout-display';
+import { WorkoutActivityIcon } from '@/components/log/workout/WorkoutActivityIcon';
 import { getLocalDateString } from '@/utils/date';
 import { getCardAccent, GradientCard } from '@/components/ui/GradientCard';
 import { usePalette } from '@/lib/log-theme';
+import { useWorkoutCatalogDisplay } from '@/hooks/use-workout-catalog-display';
 
 export interface WorkoutHistoryRowProps {
   workout: Workout;
@@ -23,7 +24,7 @@ export function WorkoutHistoryRow({ workout, dateKey, onPress }: WorkoutHistoryR
   const P = usePalette();
   const accent = getCardAccent('workouts', P.isDark);
   const palette = { card: P.card, cardEdge: P.cardEdge, isDark: P.isDark };
-  const meta = WORKOUT_META[workout.type] ?? WORKOUT_META.other;
+  const { label, iconEntry } = useWorkoutCatalogDisplay(workout);
   const calories = Math.round(workout.calories_burned);
   const interactive = onPress != null;
   const dateLabel = formatHistoryDateLabel(dateKey, getLocalDateString());
@@ -44,12 +45,12 @@ export function WorkoutHistoryRow({ workout, dateKey, onPress }: WorkoutHistoryR
         style={styles.card}
         contentStyle={[styles.inner, { borderColor: accent.iconSoft }]}
       >
-        <Ionicons name={meta.icon} size={26} color={accent.iconBg} />
+        <WorkoutActivityIcon entry={iconEntry} />
 
         <View style={styles.body}>
           <View style={styles.titleRow}>
             <Text style={[styles.title, { color: P.text }]} numberOfLines={1}>
-              {meta.label}
+              {label}
             </Text>
             {sourceLabel != null ? (
               <View style={[styles.sourceBadge, { backgroundColor: P.sunken }]}>

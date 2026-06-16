@@ -5,12 +5,14 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { apiFetch } from '@/utils/api';
 import { notifyTodayDataChanged } from '@/utils/today-sync';
+import { applyBadgesUnlocked, type BadgeAwardRef } from '@/utils/badges-cache';
 import { applyTodayReconcile, type TodayReconcileBundle } from '@/utils/today-reconcile';
 import { shouldRefetchOnForeground } from '@/utils/foreground-refetch';
 import {
   buildResourceKey,
   fetchWithResourceCache,
   getResourceCached,
+  invalidateResourceCache,
   setResourceCached,
 } from '@/utils/resource-cache';
 
@@ -44,7 +46,10 @@ export interface WaterContextValue {
   isLoading:   boolean;
   logWater:    (amountMl: number) => Promise<WaterEntry>;
   deleteEntry: (id: string) => Promise<void>;
-  refresh:     (date?: string, options?: { force?: boolean }) => Promise<void>;
+  /** Re-fetches today's water log. Past-day browsing uses `fetchForDate` locally. */
+  refresh:     (options?: { force?: boolean }) => Promise<void>;
+  fetchForDate: (date: string, force?: boolean) => Promise<WaterDayData>;
+  deleteEntryForDate: (date: string, id: string) => Promise<void>;
   setGoal:     (ml: number) => Promise<void>;
   ensureLoaded: () => Promise<void>;
 }
@@ -64,6 +69,20 @@ function fromApiEntry(row: Record<string, unknown>): WaterEntry {
  * Returns null when the backend does not (yet) include it — the legacy
  * `notifyTodayDataChanged` path remains the fallback.
  */
+import type { BadgeAwardRef } from '@/utils/badges-cache';
+
+function extractBadgesUnlocked(body: Record<string, unknown>): BadgeAwardRef[] {
+  if (!Array.isArray(body.badges_unlocked)) return [];
+  return body.badges_unlocked
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Record<string, unknown>;
+      if (typeof row.award_id !== 'string' || typeof row.badge_id !== 'string') return null;
+      return { award_id: row.award_id, badge_id: row.badge_id };
+    })
+    .filter((ref): ref is BadgeAwardRef => !!ref);
+}
+
 function extractTodayBundle(body: Record<string, unknown>): TodayReconcileBundle | null {
   const today = body.today;
   if (!today || typeof today !== 'object') return null;
@@ -109,9 +128,7 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
   // Mirrors `entries` so mutations can compute the post-change list and write it
   // straight back to the cache without depending on async setState timing.
   const entriesRef = useRef<WaterEntry[]>([]);
-  // The date currently held in `entries` — write-through targets this key so we
-  // never clobber today's cache while a past day is on screen.
-  const loadedDateRef = useRef<string>(todayString());
+  const lastLoadedDateRef = useRef<string>(todayString());
 
   useEffect(() => { goalMlRef.current = goalMl; }, [goalMl]);
   useEffect(() => { entriesRef.current = entries; }, [entries]);
@@ -150,21 +167,36 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
     return parseWaterBody(body);
   }, []);
 
-  const loadDate = useCallback(async (
+  const fetchWaterDayData = useCallback(async (
     date: string,
+    force = false,
+  ): Promise<WaterDayData | null> => {
+    if (!user?.id) return null;
+
+    const key = buildResourceKey('water', user.id, date);
+    return fetchWithResourceCache<WaterDayData>(
+      key,
+      TTL_WATER_MS,
+      () => fetchWaterFromNetwork(date, key),
+      { force },
+    );
+  }, [user?.id, fetchWaterFromNetwork]);
+
+  const loadToday = useCallback(async (
     options?: { force?: boolean },
   ): Promise<void> => {
     if (!user?.id) return;
 
-    loadedDateRef.current = date;
+    const today = todayString();
     const force = options?.force ?? false;
-    const key = buildResourceKey('water', user.id, date);
+    const key = buildResourceKey('water', user.id, today);
     const inflightKey = `${key}:${force}`;
 
     if (!force) {
       const cached = await getResourceCached<WaterDayData>(key);
       if (cached) {
         applyDayToState(setEntries, cached.data);
+        lastLoadedDateRef.current = today;
         if (!cached.isStale) return;
       }
     }
@@ -176,21 +208,26 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
     }
 
     const run = (async () => {
-      const data = await fetchWithResourceCache<WaterDayData>(
-        key,
-        TTL_WATER_MS,
-        () => fetchWaterFromNetwork(date, key),
-        { force },
-      );
-
-      if (data) applyDayToState(setEntries, data);
+      const data = await fetchWaterDayData(today, force);
+      if (data) {
+        applyDayToState(setEntries, data);
+        lastLoadedDateRef.current = today;
+      }
     })().finally(() => {
       loadInFlightRef.current.delete(inflightKey);
     });
 
     loadInFlightRef.current.set(inflightKey, run);
     await run;
-  }, [user?.id, fetchWaterFromNetwork]);
+  }, [user?.id, fetchWaterDayData]);
+
+  const fetchForDate = useCallback(async (
+    date: string,
+    force = false,
+  ): Promise<WaterDayData> => {
+    const data = await fetchWaterDayData(date, force);
+    return data ?? { entries: [], goal_ml: goalMlRef.current };
+  }, [fetchWaterDayData]);
 
   useEffect(() => {
     if (sessionActive) return;
@@ -223,38 +260,32 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
       if (
         !shouldRefetchOnForeground({
           lastFetchAt: lastForegroundFetchRef.current,
-          dayRolled: false,
+          dayRolled: lastLoadedDateRef.current !== todayString(),
         })
       ) {
         return;
       }
       lastForegroundFetchRef.current = Date.now();
-      void loadDate(todayString(), { force: false });
+      void loadToday({ force: false });
     });
     return () => sub.remove();
-  }, [user?.id, loadDate]);
+  }, [user?.id, loadToday]);
 
   const ensureLoaded = useCallback(
-    () => loadDate(todayString(), { force: false }),
-    [loadDate],
+    () => loadToday({ force: false }),
+    [loadToday],
   );
 
-  const refresh = useCallback(async (
-    date?: string,
-    options?: { force?: boolean },
-  ) => {
-    const d = date ?? todayString();
+  const refresh = useCallback(async (options?: { force?: boolean }) => {
     const force = options?.force ?? false;
     setIsLoading(true);
     try {
-      await loadDate(d, { force });
-      if (d === todayString()) {
-        lastForegroundFetchRef.current = Date.now();
-      }
+      await loadToday({ force });
+      lastForegroundFetchRef.current = Date.now();
     } finally {
       setIsLoading(false);
     }
-  }, [loadDate]);
+  }, [loadToday]);
 
   const commitEntries = useCallback((next: WaterEntry[]): void => {
     entriesRef.current = next;
@@ -268,7 +299,7 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
       amount_ml: amountMl,
       logged_at: new Date().toISOString(),
     };
-    const targetDate = loadedDateRef.current;
+    const targetDate = todayString();
     commitEntries([optimistic, ...entriesRef.current]);
 
     try {
@@ -283,9 +314,13 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
       commitEntries(next);
       const bundle = extractTodayBundle(body);
       if (bundle) applyTodayReconcile(bundle);
+      const badgesUnlocked = extractBadgesUnlocked(body);
+      if (user?.id && badgesUnlocked.length > 0) {
+        await applyBadgesUnlocked(user.id, badgesUnlocked);
+      }
       // Invalidate dependent caches (summary/insights), then write the fresh
       // entries back so the water cache survives the invalidation.
-      await notifyTodayDataChanged(user?.id, 'water');
+      await notifyTodayDataChanged(user?.id, 'water', undefined, { badgesUnlocked });
       await persistWaterCache(targetDate, next);
       return saved;
     } catch (err) {
@@ -295,7 +330,7 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
   }, [user?.id, commitEntries, persistWaterCache]);
 
   const deleteEntry = useCallback(async (id: string): Promise<void> => {
-    const targetDate = loadedDateRef.current;
+    const targetDate = todayString();
     const next = entriesRef.current.filter((e) => e.id !== id);
     commitEntries(next);
     try {
@@ -306,10 +341,22 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
       await notifyTodayDataChanged(user?.id, 'water');
       await persistWaterCache(targetDate, next);
     } catch (err) {
-      await loadDate(todayString(), { force: true });
+      await loadToday({ force: true });
       throw err;
     }
-  }, [user?.id, loadDate, commitEntries, persistWaterCache]);
+  }, [user?.id, loadToday, commitEntries, persistWaterCache]);
+
+  const deleteEntryForDate = useCallback(async (date: string, id: string): Promise<void> => {
+    if (date === todayString()) {
+      await deleteEntry(id);
+      return;
+    }
+    if (!user?.id) return;
+
+    const { ok } = await apiFetch(`/water/${id}`, { method: 'DELETE' });
+    if (!ok) throw new Error('Failed to delete water entry');
+    await invalidateResourceCache(buildResourceKey('water', user.id, date));
+  }, [user?.id, deleteEntry]);
 
   const setGoal = useCallback(async (ml: number): Promise<void> => {
     const saved = await updateProfile({ waterGoalMl: ml });
@@ -319,7 +366,7 @@ export function WaterProvider({ children }: { children: React.ReactNode }) {
   return (
     <WaterContext.Provider value={{
       entries, totalMl, goalMl, isLoading,
-      logWater, deleteEntry, refresh, setGoal, ensureLoaded,
+      logWater, deleteEntry, refresh, fetchForDate, deleteEntryForDate, setGoal, ensureLoaded,
     }}>
       {children}
     </WaterContext.Provider>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -14,7 +14,11 @@ import {
   Dimensions,
   Easing,
 } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { ModalGlassSurface } from '@/components/ui/ModalGlassSurface';
+import { MODAL_GLASS, modalGlassColors } from '@/components/ui/modal-glass-theme';
 import { useTheme } from '@/hooks/use-theme';
 
 /**
@@ -28,20 +32,25 @@ export const ModalScrollContext = React.createContext<{
 const { height: SCREEN_H } = Dimensions.get('window');
 const DISMISS_THRESHOLD = 72;
 
-// ── Types ──────────────────────────────────────────────────────────────────
+export type AppModalVariant = 'floating' | 'full';
 
 export interface AppModalProps {
-  visible:      boolean;
-  onClose:      () => void;
-  children:     React.ReactNode;
+  visible: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
   /** Text shown in the modal header. Omit for a header-less sheet. */
-  title?:       string;
+  title?: string;
   /**
    * Height of the sheet.
    * - number 0–1 → fraction of screen height (default 0.55)
-   * - 'full'     → from below status bar to bottom of screen
+   * - 'full'     → nearly full-screen floating card
    */
   sheetHeight?: number | 'full';
+  /**
+   * `floating` — inset card with glass blur (default).
+   * `full`     — taller floating card; inferred when sheetHeight is `"full"`.
+   */
+  variant?: AppModalVariant;
   /** Use "ease" for smooth bottom-up timing animation instead of spring. */
   openAnimation?: 'spring' | 'ease';
   /** Where users can start swipe-to-dismiss gesture. */
@@ -50,7 +59,33 @@ export interface AppModalProps {
   keyboardAvoiding?: boolean;
 }
 
-// ── Component ──────────────────────────────────────────────────────────────
+function resolveVariant(
+  variant: AppModalVariant | undefined,
+  sheetHeight: number | 'full',
+): AppModalVariant {
+  if (variant) return variant;
+  return sheetHeight === 'full' ? 'full' : 'floating';
+}
+
+function resolveHeight(
+  sheetHeight: number | 'full',
+  variant: AppModalVariant,
+  insets: { top: number; bottom: number },
+): number {
+  const verticalGutter =
+    insets.top +
+    insets.bottom +
+    MODAL_GLASS.FLOATING_BOTTOM_GAP +
+    (variant === 'full' ? MODAL_GLASS.FULL_TOP_GAP : 0);
+
+  if (sheetHeight === 'full') {
+    return SCREEN_H - verticalGutter;
+  }
+
+  const fractionHeight = SCREEN_H * sheetHeight;
+  const maxHeight = SCREEN_H - verticalGutter - MODAL_GLASS.FLOATING_H_MARGIN * 2;
+  return Math.min(fractionHeight, maxHeight);
+}
 
 export function AppModal({
   visible,
@@ -58,45 +93,53 @@ export function AppModal({
   children,
   title,
   sheetHeight = 0.55,
+  variant: variantProp,
   openAnimation = 'ease',
   dismissGestureArea = 'handle',
   keyboardAvoiding = false,
 }: AppModalProps) {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
+  const colors = modalGlassColors(isDark);
 
-  const FULL_SHEET_TOP_GAP = 8;
-  const resolvedH =
-    sheetHeight === 'full'
-      ? SCREEN_H - insets.top - FULL_SHEET_TOP_GAP
-      : SCREEN_H * (sheetHeight as number);
+  const variant = resolveVariant(variantProp, sheetHeight);
+  const resolvedH = useMemo(
+    () => resolveHeight(sheetHeight, variant, insets),
+    [sheetHeight, variant, insets.top, insets.bottom],
+  );
 
-  // ── Animation values ──────────────────────────────────────────────────
-  const slideY      = useRef(new Animated.Value(resolvedH)).current;
-  const backdropOp  = useRef(new Animated.Value(0)).current;
-  const dragY       = useRef(new Animated.Value(0)).current;
+  const slideY = useRef(new Animated.Value(resolvedH)).current;
+  const backdropOp = useRef(new Animated.Value(0)).current;
+  const dragY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    slideY.setValue(resolvedH);
+  }, [resolvedH, slideY]);
 
   useEffect(() => {
     if (visible) {
       dragY.setValue(0);
-      const openSheetAnim = openAnimation === 'ease'
-        ? Animated.timing(slideY, {
-            toValue: 0,
-            duration: 280,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          })
-        : Animated.spring(slideY, {
-            toValue: 0,
-            useNativeDriver: true,
-            damping: 22,
-            stiffness: 220,
-            mass: 0.9,
-          });
+      const openSheetAnim =
+        openAnimation === 'ease'
+          ? Animated.timing(slideY, {
+              toValue: 0,
+              duration: 280,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            })
+          : Animated.spring(slideY, {
+              toValue: 0,
+              useNativeDriver: true,
+              damping: 22,
+              stiffness: 220,
+              mass: 0.9,
+            });
       Animated.parallel([
         openSheetAnim,
         Animated.timing(backdropOp, {
-          toValue: 1, duration: 280, useNativeDriver: true,
+          toValue: 1,
+          duration: 280,
+          useNativeDriver: true,
         }),
       ]).start();
     } else {
@@ -115,29 +158,22 @@ export function AppModal({
         }),
       ]).start();
     }
-  }, [openAnimation, visible]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [openAnimation, visible, resolvedH]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Scroll tracking (used by sheet-mode dismiss gate) ─────────────────
   const sheetScrollY = useRef(0);
 
-  // Stable refs so the PanResponder closure (created once) always calls
-  // the current onClose and reads the current dismissGestureArea prop.
-  const onCloseRef             = useRef(onClose);
-  const dismissGestureAreaRef  = useRef(dismissGestureArea);
-  onCloseRef.current            = onClose;
+  const onCloseRef = useRef(onClose);
+  const dismissGestureAreaRef = useRef(dismissGestureArea);
+  onCloseRef.current = onClose;
   dismissGestureAreaRef.current = dismissGestureArea;
 
-  // ── Drag to dismiss ────────────────────────────────────────────────────
   const pan = useRef(
     PanResponder.create({
-      // Handle mode: normal negotiation — wins if more vertical than horizontal.
       onMoveShouldSetPanResponder: (_, { dy, dx }) =>
         dismissGestureAreaRef.current === 'handle' &&
-        Math.abs(dy) > Math.abs(dx) && dy > 4,
+        Math.abs(dy) > Math.abs(dx) &&
+        dy > 4,
 
-      // Sheet mode: use the capture phase so we win over a nested ScrollView,
-      // but only when the list is scrolled to the very top (y ≤ 0) and the
-      // user is pulling down — otherwise normal ScrollView scrolling applies.
       onMoveShouldSetPanResponderCapture: (_, { dy, dx }) =>
         dismissGestureAreaRef.current === 'sheet' &&
         Math.abs(dy) > Math.abs(dx) &&
@@ -154,19 +190,15 @@ export function AppModal({
           dragY.setValue(0);
         } else {
           Animated.spring(dragY, {
-            toValue: 0, useNativeDriver: true,
-            damping: 20, stiffness: 300,
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 20,
+            stiffness: 300,
           }).start();
         }
       },
-    })
+    }),
   ).current;
-
-  // ── Theme ──────────────────────────────────────────────────────────────
-  const bg   = isDark ? '#1C1D23' : '#FAFAF8';
-  const hi   = isDark ? '#F4F4F5' : '#111111';
-  const lo   = isDark ? '#2A2A32' : '#EBEBEB';
-  const mid  = isDark ? '#707078' : '#BBBBBB';
 
   const dismissModal = () => {
     onClose();
@@ -174,7 +206,13 @@ export function AppModal({
   };
 
   const modalBody = (
-    <ModalScrollContext.Provider value={{ onScroll: (y) => { sheetScrollY.current = y; } }}>
+    <ModalScrollContext.Provider
+      value={{
+        onScroll: (y) => {
+          sheetScrollY.current = y;
+        },
+      }}
+    >
       {children}
     </ModalScrollContext.Provider>
   );
@@ -188,67 +226,61 @@ export function AppModal({
       statusBarTranslucent
     >
       <View style={s.overlay}>
-
-        {/* Backdrop */}
         <TouchableWithoutFeedback onPress={dismissModal}>
-          <Animated.View style={[s.backdrop, { opacity: backdropOp }]} />
+          <Animated.View
+            style={[s.backdrop, { backgroundColor: colors.backdrop, opacity: backdropOp }]}
+          />
         </TouchableWithoutFeedback>
 
-        {/* Sheet */}
         <Animated.View
           {...(dismissGestureArea === 'sheet' ? pan.panHandlers : {})}
           style={[
-            s.sheet,
+            s.sheetOuter,
             {
-              backgroundColor: bg,
               height: resolvedH,
-              paddingBottom: insets.bottom + 16,
+              marginHorizontal: MODAL_GLASS.FLOATING_H_MARGIN,
+              marginBottom: insets.bottom + MODAL_GLASS.FLOATING_BOTTOM_GAP,
               transform: [{ translateY: Animated.add(slideY, dragY) }],
             },
           ]}
         >
-          {/* ── Drag handle — always swipeable regardless of dismissGestureArea ── */}
-          <View {...pan.panHandlers} style={s.handleZone}>
-            <View style={[s.handle, { backgroundColor: mid }]} />
-          </View>
-
-          {/* Header stays outside KeyboardAvoidingView so ✕ closes in one tap */}
-          {title ? (
-            <View style={[s.header, { borderBottomColor: lo }]}>
-              <View style={[s.headerAccent, { backgroundColor: '#F97316' }]} />
-              <Text style={[s.headerTitle, { color: hi }]}>{title}</Text>
-              <Pressable
-                onPress={dismissModal}
-                hitSlop={12}
-                accessibilityRole="button"
-                accessibilityLabel="Close"
-                style={[s.closeBtn, { backgroundColor: lo }]}
-              >
-                <Text style={[s.closeBtnText, { color: mid }]}>✕</Text>
-              </Pressable>
+          <ModalGlassSurface isDark={isDark} style={s.glass}>
+            <View {...pan.panHandlers} style={s.handleZone}>
+              <View style={[s.handle, { backgroundColor: colors.mid }]} />
             </View>
-          ) : null}
 
-          {/* ── Content (keyboard shift only affects scrollable body) ── */}
-          {keyboardAvoiding ? (
-            <KeyboardAvoidingView
-              style={s.content}
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
-            >
-              {modalBody}
-            </KeyboardAvoidingView>
-          ) : (
-            <View style={s.content}>{modalBody}</View>
-          )}
+            {title ? (
+              <View style={s.header}>
+                <Text style={[s.headerTitle, { color: colors.hi }]}>{title}</Text>
+                <Pressable
+                  onPress={dismissModal}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                  style={[s.closeBtn, { backgroundColor: colors.lo }]}
+                >
+                  <Ionicons name="close" size={16} color={colors.mid} />
+                </Pressable>
+              </View>
+            ) : null}
+
+            {keyboardAvoiding ? (
+              <KeyboardAvoidingView
+                style={s.content}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+              >
+                {modalBody}
+              </KeyboardAvoidingView>
+            ) : (
+              <View style={s.content}>{modalBody}</View>
+            )}
+          </ModalGlassSurface>
         </Animated.View>
-
       </View>
     </Modal>
   );
 }
-
-// ── Styles ─────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
   overlay: {
@@ -258,44 +290,40 @@ const s = StyleSheet.create({
 
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.6)',
   },
 
-  sheet: {
-    borderTopLeftRadius:  28,
-    borderTopRightRadius: 28,
+  sheetOuter: {
+    borderRadius: MODAL_GLASS.SHEET_RADIUS,
     overflow: 'hidden',
-    // Subtle top shadow
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 32,
     elevation: 24,
+  },
+
+  glass: {
+    flex: 1,
   },
 
   handleZone: {
     alignItems: 'center',
-    paddingTop: 14,
-    paddingBottom: 8,
+    paddingTop: 12,
+    paddingBottom: 6,
   },
   handle: {
     width: 36,
-    height: 4,
-    borderRadius: 2,
+    height: 5,
+    borderRadius: 3,
+    opacity: 0.55,
   },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-  },
-  headerAccent: {
-    width: 3,
-    height: 18,
-    borderRadius: 2,
+    paddingHorizontal: 20,
+    paddingBottom: 14,
   },
   headerTitle: {
     flex: 1,
@@ -304,18 +332,15 @@ const s = StyleSheet.create({
     letterSpacing: 0.1,
   },
   closeBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  closeBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
   },
 
   content: {
     flex: 1,
+    paddingBottom: 4,
   },
 });

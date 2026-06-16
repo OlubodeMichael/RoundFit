@@ -1,16 +1,30 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { StyleSheet, Text, View } from 'react-native';
 
+import type { SettingsPalette } from '@/components/profile/settings-ui';
+
 interface NotificationInboxEmptyProps {
-  hi: string;
-  mid: string;
+  P: SettingsPalette;
+  filtered?: boolean;
 }
 
-export function NotificationInboxEmpty({ hi, mid }: NotificationInboxEmptyProps) {
+export function NotificationInboxEmpty({ P, filtered = false }: NotificationInboxEmptyProps) {
   return (
     <View style={s.wrap}>
-      <Text style={[s.title, { color: hi }]}>No notifications</Text>
-      <Text style={[s.sub, { color: mid }]}>
-        Reminders and updates will show up here.
+      <View style={[s.iconRing, { backgroundColor: P.isDark ? P.card : P.sunken, borderColor: P.edge }]}>
+        <Ionicons
+          name={filtered ? 'search-outline' : 'notifications-off-outline'}
+          size={32}
+          color={P.faint}
+        />
+      </View>
+      <Text style={[s.title, { color: P.text }]}>
+        {filtered ? 'No matches' : 'All caught up'}
+      </Text>
+      <Text style={[s.sub, { color: P.dim }]}>
+        {filtered
+          ? 'Try a different filter or reset to see all notifications.'
+          : 'Reminders, insights, and updates from RoundFit will appear here.'}
       </Text>
     </View>
   );
@@ -18,16 +32,30 @@ export function NotificationInboxEmpty({ hi, mid }: NotificationInboxEmptyProps)
 
 const s = StyleSheet.create({
   wrap: {
-    paddingHorizontal: 20,
-    paddingTop: 40,
-    gap: 6,
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingTop: 72,
+    gap: 10,
+  },
+  iconRing: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
   title: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: -0.4,
+    textAlign: 'center',
   },
   sub: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    letterSpacing: -0.1,
   },
 });

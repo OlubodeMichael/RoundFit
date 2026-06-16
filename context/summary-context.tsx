@@ -94,15 +94,20 @@ export interface DailySummary {
   fat_consumed:        number;
   water_glasses:       number;
   calorie_burn_source: CalorieBurnSource | null;
+  protein_target?:     number | null;
+  steps?:              number | null;
+  sleep_hours?:        number | null;
   /** Backend-computed flag — true when the day's targets were actually met
-   *  (>=75% of applicable slots: calories ±200, protein 90%+, steps target,
-   *  sleep target). Optional for resilience against older API versions. */
+   *  (≥75% of applicable slots: proportional calorie band, protein/steps/sleep
+   *  ≥90% of target). Optional for resilience against older API versions. */
   met_targets?:        boolean;
 }
 
 export interface WeeklySummary {
   days:               DailySummary[];
   consistency_score:  number;
+  goals_hit?:         number;
+  current_streak?:    number;
   avg_calories:       number;
   avg_protein:        number;
   best_day:           string | null;
@@ -154,6 +159,9 @@ function fromApiDaily(row: Record<string, unknown>): DailySummary {
     calorie_burn_source: typeof row.calorie_burn_source === 'string'
       ? (row.calorie_burn_source as CalorieBurnSource)
       : null,
+    protein_target: typeof row.protein_target === 'number' ? row.protein_target : null,
+    steps: row.steps != null ? num(row.steps) : null,
+    sleep_hours: row.sleep_hours != null ? num(row.sleep_hours) : null,
     met_targets: typeof row.met_targets === 'boolean' ? row.met_targets : undefined,
   };
 }
@@ -165,6 +173,8 @@ function fromApiWeekly(body: Record<string, unknown>): WeeklySummary {
   return {
     days,
     consistency_score: num(body.consistency_score),
+    goals_hit:         typeof body.goals_hit === 'number' ? body.goals_hit : undefined,
+    current_streak:    typeof body.current_streak === 'number' ? body.current_streak : undefined,
     avg_calories:      num(body.avg_calories),
     avg_protein:       num(body.avg_protein),
     best_day:          typeof body.best_day === 'string' ? body.best_day : null,

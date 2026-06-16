@@ -22,6 +22,7 @@ interface StatConfig {
   label: string;
   value: string;
   suffix?: string;
+  subtitle?: string;
   delay: number;
 }
 
@@ -38,6 +39,7 @@ function ProgressStatCard({
   label,
   value,
   suffix,
+  subtitle,
   delay,
 }: StatConfig) {
   const P = usePalette();
@@ -64,6 +66,11 @@ function ProgressStatCard({
       <Text style={[styles.label, { color: P.textFaint }]} numberOfLines={1}>
         {label}
       </Text>
+      {subtitle ? (
+        <Text style={[styles.subtitle, { color: P.textDim }]} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      ) : null}
     </GradientCard>
   );
 }
@@ -154,5 +161,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.15,
+  },
+  subtitle: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.1,
+    marginTop: -2,
   },
 });
