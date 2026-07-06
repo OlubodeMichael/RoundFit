@@ -123,7 +123,7 @@ export function ManualMealInputModal({
     }
     onSubmit({
       name: cleanName,
-      label,
+      label: presetLabel ?? label,
       calories: Math.round(cals),
       protein: parseOptionalNumber(protein),
       carbs:   parseOptionalNumber(carbs),

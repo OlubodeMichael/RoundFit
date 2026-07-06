@@ -16,17 +16,10 @@ import {
   MEAL_ROW_PADDING_LEFT,
   MEAL_ROW_PADDING_RIGHT,
   mealLogThumbStyles,
+  mealRowDividerInset,
 } from '@/lib/meal-log-row';
 
 const MAX_VISIBLE_MEALS = 5;
-
-const MEAL_EMOJIS: Record<string, string> = {
-  breakfast: '🥞',
-  lunch: '🥗',
-  dinner: '🍽️',
-  snack: '🍎',
-  other: '🍴',
-};
 
 export interface MealsCardPalette {
   card: string;
@@ -107,7 +100,6 @@ export function MealsCard({
               key={meal.id}
               meal={meal}
               P={P}
-              emoji={MEAL_EMOJIS[meal.meal.toLowerCase()] ?? '🍴'}
               showDivider={i > 0}
               onPress={onLogMore}
             />
@@ -133,13 +125,11 @@ export function MealsCard({
 function MealLogRow({
   meal,
   P,
-  emoji,
   showDivider,
   onPress,
 }: {
   meal: MealItem;
   P: MealsCardPalette;
-  emoji: string;
   showDivider: boolean;
   onPress?: () => void;
 }) {
@@ -149,13 +139,26 @@ function MealLogRow({
   return (
     <View>
       {showDivider ? (
-        <View style={[s.rowDivider, { backgroundColor: P.hair }]} />
+        <View
+          style={[
+            s.rowDivider,
+            {
+              backgroundColor: P.hair,
+              marginLeft: mealRowDividerInset(
+                MEAL_ROW_PADDING_LEFT,
+                MEAL_ROW_GAP,
+                hasPhoto,
+              ),
+            },
+          ]}
+        />
       ) : null}
       <Pressable
         onPress={onPress}
         disabled={!onPress}
         style={({ pressed }) => [
           s.row,
+          !hasPhoto && s.rowTextOnly,
           onPress && pressed && { backgroundColor: P.sunken },
         ]}
       >
@@ -169,13 +172,7 @@ function MealLogRow({
               transition={150}
             />
           </View>
-        ) : (
-          <View style={mealLogThumbStyles.emojiSlot}>
-            <Text style={mealLogThumbStyles.emoji} allowFontScaling={false}>
-              {emoji}
-            </Text>
-          </View>
-        )}
+        ) : null}
         <View style={s.rowCopy}>
           <Text
             style={[s.rowTitle, { color: P.text }]}
@@ -308,9 +305,13 @@ const s = StyleSheet.create({
     paddingVertical: 12,
     minHeight: MEAL_ROW_MIN_HEIGHT,
   },
+  rowTextOnly: {
+    minHeight: undefined,
+    paddingVertical: 14,
+  },
   rowDivider: {
     height: StyleSheet.hairlineWidth,
-    marginHorizontal: 16,
+    marginRight: 16,
   },
   rowCopy: {
     flex: 1,

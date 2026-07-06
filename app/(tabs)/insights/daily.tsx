@@ -19,7 +19,17 @@ import { DailyMetricsCard } from '@/components/insights/DailyMetricsCard';
 import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
 import { useDailyInsights } from '@/hooks/use-daily-insights';
 import { useFood } from '@/context/food-context';
-import { useInsights } from '@/context/insights-context';
+import { useInsights, type InsightFocus } from '@/context/insights-context';
+
+// Coaching focus → card glyph (Ionicons). Falls back to sparkles when absent
+// (rules-based and OpenAI insights carry no focus). See DAILY_COACHING_TEMPLATE.md §7.
+const FOCUS_ICON: Record<InsightFocus, React.ComponentProps<typeof Ionicons>['name']> = {
+  nutrition:   'flame',
+  training:    'barbell',
+  recovery:    'moon',
+  hydration:   'water',
+  consistency: 'checkmark-circle',
+};
 import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
 import {
   formatSleepHours,
@@ -343,7 +353,11 @@ export default function DailyInsightScreen() {
                   return (
                     <View style={[styles.insightIconRing, { backgroundColor: accent.iconSoft }]}>
                       <View style={[styles.insightIconBox, { backgroundColor: accent.iconBg }]}>
-                        <Ionicons name="sparkles" size={15} color="#FFF" />
+                        <Ionicons
+                          name={dailyInsight.focus ? FOCUS_ICON[dailyInsight.focus] : 'sparkles'}
+                          size={15}
+                          color="#FFF"
+                        />
                       </View>
                     </View>
                   );

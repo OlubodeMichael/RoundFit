@@ -20,7 +20,7 @@ export default function GoalScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string; height: string; weight: string }>();
   const insets = useSafeAreaInsets();
-  const total  = params.sex === 'female' ? 12 : 9;
+  const total  = 9;
   const [selected, setSelected] = useState<string | null>(null);
   const posthog = usePostHog();
 

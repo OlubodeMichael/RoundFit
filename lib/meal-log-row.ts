@@ -41,10 +41,12 @@ export const mealLogThumbStyles = StyleSheet.create({
   },
 });
 
-/** Divider inset aligned under row text (padding + thumb + gap). */
+/** Divider inset aligned under row text (padding + thumb + gap when present). */
 export function mealRowDividerInset(
   rowPaddingLeft: number = MEAL_ROW_PADDING_LEFT,
   gap: number = MEAL_ROW_GAP,
+  hasThumb: boolean = true,
 ): number {
+  if (!hasThumb) return rowPaddingLeft;
   return rowPaddingLeft + MEAL_THUMB_MAX_WIDTH + gap;
 }

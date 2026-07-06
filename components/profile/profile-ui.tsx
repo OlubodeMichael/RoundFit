@@ -1,7 +1,8 @@
-import { ChevronRight, type LucideIcon } from 'lucide-react-native';
+import { ChevronRight, Pencil, type LucideIcon } from 'lucide-react-native';
 import type { ReactNode } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { UserAvatar } from '@/components/profile/UserAvatar';
 import { IconBox, type SettingsPalette } from '@/components/profile/settings-ui';
 
 // ── Header ────────────────────────────────────────────────────────────────────
@@ -44,6 +45,73 @@ export function ProfileHeader({
       <View style={s.headerSlot}>{left}</View>
       <Text style={[s.headerTitle, { color: P.text }]}>{title}</Text>
       <View style={[s.headerSlot, s.headerSlotRight]}>{right}</View>
+    </View>
+  );
+}
+
+// ── User card (avatar + name + email) ─────────────────────────────────────────
+
+export function ProfileUserCard({
+  P,
+  name,
+  email,
+  avatarUrl,
+  avatarLetter,
+  uploading,
+  onAvatarPress,
+  onPress,
+}: {
+  P:              SettingsPalette;
+  name:           string;
+  email:          string;
+  avatarUrl:      string | null;
+  avatarLetter:   string;
+  uploading?:     boolean;
+  onAvatarPress:  () => void;
+  onPress?:       () => void;
+}) {
+  return (
+    <View style={s.userCardWrap}>
+      <View style={[s.userCard, { backgroundColor: P.card, borderColor: P.edge }]}>
+        <UserAvatar
+          size="card"
+          avatarUrl={avatarUrl}
+          avatarLetter={avatarLetter}
+          accentColor={P.accent}
+          fillColor={P.sunken}
+          uploading={uploading}
+          onPress={onAvatarPress}
+        />
+
+        <View style={s.userCardBody}>
+          <TouchableOpacity
+            style={s.userCardTextTouch}
+            activeOpacity={onPress ? 0.7 : 1}
+            onPress={onPress}
+            disabled={!onPress}
+          >
+            <Text style={[s.userCardName, { color: P.text }]} numberOfLines={1}>
+              {name}
+            </Text>
+            <Text style={[s.userCardEmail, { color: P.dim }]} numberOfLines={1}>
+              {email}
+            </Text>
+          </TouchableOpacity>
+
+          {onPress ? (
+            <TouchableOpacity
+              style={s.userCardEdit}
+              onPress={onPress}
+              hitSlop={10}
+              activeOpacity={0.6}
+              accessibilityRole="button"
+              accessibilityLabel="Edit profile"
+            >
+              <Pencil size={17} color={P.dim} strokeWidth={2.2} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
     </View>
   );
 }
@@ -126,6 +194,36 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   headerTitle: { fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
+
+  // User card
+  userCardWrap: { paddingHorizontal: 20, marginTop: 18 },
+  userCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingLeft: 16,
+    paddingRight: 14,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  userCardBody: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+    gap: 8,
+  },
+  userCardTextTouch: { flex: 1, minWidth: 0, justifyContent: 'center', gap: 3 },
+  userCardEdit: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  userCardName: { fontSize: 17, fontWeight: '700', letterSpacing: -0.3, lineHeight: 22 },
+  userCardEmail: { fontSize: 14, lineHeight: 18 },
 
   // Group
   group: { paddingHorizontal: 20, marginTop: 18 },

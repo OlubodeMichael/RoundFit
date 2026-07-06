@@ -17,7 +17,7 @@ export default function ActivityScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string; height: string; weight: string; goal: string }>();
   const insets = useSafeAreaInsets();
-  const total  = params.sex === 'female' ? 12 : 9;
+  const total  = 9;
   const [selected, setSelected] = useState<string | null>(null);
 
   const bg = '#FAFAF8';
@@ -112,7 +112,7 @@ export default function ActivityScreen() {
         activeOpacity={0.85}
         disabled={!canContinue}
         onPress={() => router.push({
-          pathname: params.sex === 'female' ? '/onboarding/cycle-length' : '/onboarding/units',
+          pathname: '/onboarding/units',
           params: { ...params, activity: selected! },
         })}
       >

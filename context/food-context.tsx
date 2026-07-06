@@ -384,6 +384,10 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
 
     if (ok && body.data) {
       const saved = fromApiLog(body.data as Record<string, unknown>);
+      // Manual entry picks the meal type explicitly — never override with a
+      // time-of-day guess when the API omits meal_label or returns a legacy
+      // time-derived `meal` field.
+      saved.meal = titleMealLabel(entry.label);
       setMeals((prev) => prev.map((m) => m.id === tempId ? saved : m));
       const bundle = extractTodayBundle(body);
       if (bundle) applyTodayReconcile(bundle);

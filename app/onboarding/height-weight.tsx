@@ -33,7 +33,7 @@ export default function HeightWeightScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string }>();
   const insets = useSafeAreaInsets();
-  const total  = params.sex === 'female' ? 12 : 9;
+  const total  = 9;
 
   // Internal values always stored in metric
   const [weightKg, setWeightKg] = useState(DEFAULT_WEIGHT_KG);

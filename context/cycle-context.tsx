@@ -2,6 +2,7 @@ import React, {
   createContext, useCallback, useContext, useEffect, useState,
 } from 'react';
 import { hasActiveUserSession, useAuth } from '@/context/auth-context';
+import { CYCLE_ENABLED } from '@/constants/features';
 import { apiFetch } from '@/utils/api';
 import { TTL_COLD_START_MS } from '@/utils/daily-summary-cache';
 import {
@@ -153,7 +154,7 @@ export function isCycleTrackingEnabled(
 
 export function CycleProvider({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
-  const isEnabled = isCycleTrackingEnabled(user?.sex);
+  const isEnabled = CYCLE_ENABLED && isCycleTrackingEnabled(user?.sex);
 
   const [current,   setCurrent]   = useState<CurrentCycle | null>(null);
   const [history,   setHistory]   = useState<CycleLog[]>([]);
@@ -162,7 +163,7 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
 
   // ── Fetch helpers ────────────────────────────────────────────────────────
   const fetchCycleBundle = useCallback(async (force = false) => {
-    if (!user?.id || !isCycleTrackingEnabled(user.sex)) return;
+    if (!user?.id || !CYCLE_ENABLED || !isCycleTrackingEnabled(user.sex)) return;
 
     const key = buildResourceKey('cycle', user.id);
     const bundle = await fetchWithResourceCache<{
@@ -251,7 +252,7 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
     cycleLength = 28,
     notes?: string,
   ): Promise<CycleLog> => {
-    if (!isCycleTrackingEnabled(user?.sex)) {
+    if (!CYCLE_ENABLED || !isCycleTrackingEnabled(user?.sex)) {
       throw new Error('Cycle tracking is not enabled for this profile');
     }
 
@@ -274,7 +275,7 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
 
   // ── Update cycle length ──────────────────────────────────────────────────
   const updateCycleLength = useCallback(async (cycleLength: number) => {
-    if (!isCycleTrackingEnabled(user?.sex)) {
+    if (!CYCLE_ENABLED || !isCycleTrackingEnabled(user?.sex)) {
       throw new Error('Cycle tracking is not enabled for this profile');
     }
 
@@ -327,7 +328,7 @@ export function CycleProvider({ children }: { children: React.ReactNode }) {
 
   // ── Refresh ──────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
-    if (!isCycleTrackingEnabled(user?.sex)) return;
+    if (!CYCLE_ENABLED || !isCycleTrackingEnabled(user?.sex)) return;
     if (user?.id) {
       await invalidateResourceCache(buildResourceKey('cycle', user.id));
     }

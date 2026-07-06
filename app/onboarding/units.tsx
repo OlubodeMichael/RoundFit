@@ -68,10 +68,10 @@ export default function UnitsScreen() {
     <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
         <ProgressBar
-          step={params.sex === 'female' ? 10 : 7}
-          total={params.sex === 'female' ? 12 : 9}
+          step={7}
+          total={9}
           backHref={{
-            pathname: params.sex === 'female' ? '/onboarding/life-stage' : '/onboarding/activity',
+            pathname: '/onboarding/activity',
             params,
           }}
           isDark={false}

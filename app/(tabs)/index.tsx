@@ -15,6 +15,7 @@ import { useAvatarPhotoActions } from "@/hooks/use-avatar-photo-actions";
 import { AppModal } from "@/components/ui/AppModal";
 import { useToast } from "@/components/ui/Toast";
 import { useCycle } from "@/context/cycle-context";
+import { CYCLE_ENABLED } from "@/constants/features";
 import { useFood } from "@/context/food-context";
 import { useInsights } from "@/context/insights-context";
 import { useWorkouts } from "@/context/workout-context";
@@ -894,7 +895,7 @@ export default function HomeScreen() {
 
         {/* ── Content stack ───────────────────────────────────── */}
         <View style={styles.stack}>
-          {isToday && isFemale && <CyclePhaseCard P={P} delay={60} />}
+          {CYCLE_ENABLED && isToday && isFemale && <CyclePhaseCard P={P} delay={60} />}
           <CalorieBudgetCard
             P={P as CalorieBudgetPalette}
             delay={120}

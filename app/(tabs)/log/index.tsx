@@ -25,6 +25,7 @@ import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
 import { buildCycleLogCardCopy } from '@/utils/cycle-log-card-copy';
 import { formatSleepDuration } from '@/utils/sleep-quality';
+import { CYCLE_ENABLED } from '@/constants/features';
 
 function capital(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -46,7 +47,7 @@ export default function DailyLogScreen() {
   const health = useHealth();
   const recovery = useRecovery();
   const { current: cycleCurrent, history: cycleHistory, refresh: refreshCycle } = useCycle();
-  const showCycleLog = isCycleTrackingEnabled(profile?.sex);
+  const showCycleLog = CYCLE_ENABLED && isCycleTrackingEnabled(profile?.sex);
   const [refreshing, setRefreshing] = useState(false);
 
   useFocusEffect(

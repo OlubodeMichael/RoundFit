@@ -10,18 +10,20 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-/** Circle diameter: `sm` — home header; `md` — profile hero; `lg` — centered profile header. */
-export type UserAvatarSize = 'sm' | 'md' | 'lg';
+/** Circle diameter: `sm` — home header; `md` — compact; `card` — profile user card; `lg` — centered hero. */
+export type UserAvatarSize = 'sm' | 'md' | 'card' | 'lg';
 
 const LETTER_SIZE: Record<UserAvatarSize, number> = {
   sm: 14,
   md: 22,
+  card: 26,
   lg: 40,
 };
 
 const DIAMETER: Record<UserAvatarSize, number> = {
   sm: 42,
   md: 52,
+  card: 64,
   lg: 104,
 };
 
@@ -75,7 +77,11 @@ export function UserAvatar({
       ) : null}
       {uploading && (
         <View style={[s.overlay, { borderRadius: r }]}>
-          <Ionicons name="cloud-upload-outline" size={size === 'sm' ? 14 : size === 'md' ? 16 : 22} color="#fff" />
+          <Ionicons
+            name="cloud-upload-outline"
+            size={size === 'sm' ? 14 : size === 'md' ? 16 : size === 'card' ? 18 : 22}
+            color="#fff"
+          />
         </View>
       )}
     </View>

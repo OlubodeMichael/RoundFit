@@ -3,6 +3,7 @@ import React, {
 } from 'react';
 import { hasActiveUserSession, useAuth } from '@/context/auth-context';
 import { apiFetch } from '@/utils/api';
+import { isAppleLLMAvailable, generateDailyCoaching, prewarmAppleLLM } from 'apple-llm';
 import {
   registerTodayDataSyncListener,
 } from '@/utils/today-sync';
@@ -24,6 +25,9 @@ const DEFAULT_LIMIT = 30;
 
 export type InsightType = 'rules' | 'claude';
 
+/** Coaching focus (on-device insights only) — drives the daily card's icon. */
+export type InsightFocus = 'nutrition' | 'training' | 'recovery' | 'hydration' | 'consistency';
+
 export interface Insight {
   id:        string;
   title:     string;
@@ -31,6 +35,8 @@ export interface Insight {
   type:      InsightType;
   date:      string;
   dismissed: boolean;
+  /** Present only for on-device insights that returned a focus. */
+  focus?:    InsightFocus;
 }
 
 export interface InsightsContextValue {
@@ -77,7 +83,13 @@ export interface InsightsContextValue {
 
 // ── Normalisation helpers ──────────────────────────────────────────────────
 
+const FOCUSES: InsightFocus[] = ['nutrition', 'training', 'recovery', 'hydration', 'consistency'];
+
 function fromApiInsight(row: Record<string, unknown>): Insight {
+  const context = (row.context ?? null) as { focus?: unknown } | null;
+  const rawFocus = context?.focus;
+  const focus = FOCUSES.includes(rawFocus as InsightFocus) ? (rawFocus as InsightFocus) : undefined;
+
   return {
     id:        String(row.id ?? ''),
     title:     String(row.title ?? ''),
@@ -85,6 +97,7 @@ function fromApiInsight(row: Record<string, unknown>): Insight {
     type:      (row.type as InsightType) ?? 'rules',
     date:      String(row.date ?? ''),
     dismissed: row.dismissed === true,
+    ...(focus ? { focus } : {}),
   };
 }
 
@@ -168,6 +181,10 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
     if (bootedRef.current) return;
     bootedRef.current = true;
 
+    // Warm the on-device model (best-effort, no-op when unavailable) so the
+    // first daily-coaching generation isn't cold.
+    if (isAppleLLMAvailable().available) void prewarmAppleLLM();
+
     const today      = getLocalDateString();
     const todayKey   = buildResourceKey('insights-today', user.id, today);
     const historyKey = buildResourceKey('insights-history', user.id, today);
@@ -243,7 +260,13 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
   }, [fetchToday, user?.id]);
 
   // ── Fetch Claude insight ─────────────────────────────────────────────────
-  const fetchClaudeInsight = useCallback(async (): Promise<Insight | null> => {
+  const applyClaudeInsight = useCallback((insight: Insight) => {
+    setClaudeInsight(insight);
+    setHistory((prev) => [insight, ...prev.filter((i) => i.id !== insight.id)]);
+  }, []);
+
+  // Cloud path (unchanged behaviour): GET /insights/ai → OpenAI, metered 3/day.
+  const fetchClaudeInsightViaOpenAI = useCallback(async (): Promise<Insight | null> => {
     const { ok, status: httpStatus, body } = await apiFetch('/insights/ai');
 
     if (httpStatus === 429) {
@@ -254,13 +277,52 @@ export function InsightsProvider({ children }: { children: React.ReactNode }) {
     if (!ok || !body.insight) return null;
 
     const insight = fromApiInsight(body.insight as Record<string, unknown>);
-    setClaudeInsight(insight);
-    setHistory((prev) => {
-      const without = prev.filter((i) => i.id !== insight.id);
-      return [insight, ...without];
-    });
+    applyClaudeInsight(insight);
     return insight;
-  }, []);
+  }, [applyClaudeInsight]);
+
+  // On-device path: fetch the prompt (no LLM cost), generate locally, persist.
+  // Returns null if any step can't complete so the caller falls back to OpenAI.
+  const fetchClaudeInsightOnDevice = useCallback(async (): Promise<Insight | null> => {
+    const ctx = await apiFetch('/insights/ai/context');
+    if (!ctx.ok) return null;
+    const systemPrompt = String(ctx.body.systemPrompt ?? '');
+    const userPrompt   = String(ctx.body.userPrompt ?? '');
+    if (!systemPrompt || !userPrompt) return null;
+
+    const result = await generateDailyCoaching(systemPrompt, userPrompt);
+    if (!result) return null; // module absent — fall back
+
+    const persisted = await apiFetch('/insights/ai/persist', {
+      method: 'POST',
+      body: JSON.stringify({
+        title:        result.title,
+        message:      result.message,
+        focus:        result.focus,
+        generated_by: 'apple_fm',
+        model:        'apple-foundation-models',
+      }),
+    });
+    if (!persisted.ok || !persisted.body.insight) return null;
+
+    const insight = fromApiInsight(persisted.body.insight as Record<string, unknown>);
+    applyClaudeInsight(insight);
+    return insight;
+  }, [applyClaudeInsight]);
+
+  // Routes on device capability. On-device is free + unmetered; OpenAI is the
+  // fallback for ineligible devices, Android, or any on-device failure.
+  const fetchClaudeInsight = useCallback(async (): Promise<Insight | null> => {
+    if (isAppleLLMAvailable().available) {
+      try {
+        const insight = await fetchClaudeInsightOnDevice();
+        if (insight) return insight;
+      } catch {
+        // on-device generation failed — fall through to the cloud path
+      }
+    }
+    return fetchClaudeInsightViaOpenAI();
+  }, [fetchClaudeInsightOnDevice, fetchClaudeInsightViaOpenAI]);
 
   // ── Dismiss insight ──────────────────────────────────────────────────────
   const dismissInsight = useCallback(async (id: string) => {

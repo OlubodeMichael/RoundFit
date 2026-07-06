@@ -8,7 +8,6 @@ import {
   HeartPulse,
   HelpCircle,
   LogOut,
-  Pencil,
   Shield,
   ShieldCheck,
   Sun,
@@ -17,22 +16,23 @@ import {
 import * as WebBrowser from 'expo-web-browser';
 import { usePostHog } from 'posthog-react-native';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DeleteAccountModal } from '@/components/profile/DeleteAccountModal';
-import { UserAvatar } from '@/components/profile/UserAvatar';
 import {
   ProfileDivider,
   ProfileGroup,
   ProfileHeader,
   ProfileRow,
+  ProfileUserCard,
 } from '@/components/profile/profile-ui';
 import { useSettingsPalette } from '@/components/profile/settings-ui';
 import { useAuth } from '@/hooks/use-auth';
 import { useAvatarPhotoActions } from '@/hooks/use-avatar-photo-actions';
 import { useProfile } from '@/hooks/use-profile';
 import { useTheme } from '@/hooks/use-theme';
+import { CYCLE_ENABLED } from '@/constants/features';
 
 const PRIVACY_URL = 'https://roundfit.co/privacy';
 const TERMS_URL   = 'https://roundfit.co/terms';
@@ -71,48 +71,18 @@ export default function ProfileScreen() {
       contentContainerStyle={{ paddingTop: insets.top + 6, paddingBottom: insets.bottom + 96 }}
       showsVerticalScrollIndicator={false}
     >
-      <ProfileHeader P={P} title="My Profile" />
+      <ProfileHeader P={P} title="Profile" />
 
-      {/* ── Avatar ───────────────────────────────────────────────────── */}
-      <View style={s.avatarWrap}>
-        <UserAvatar
-          size="lg"
-          avatarUrl={avatarUrl}
-          avatarLetter={avatarLetter}
-          accentColor={P.accent}
-          fillColor={P.sunken}
-          uploading={uploading}
-          onPress={present}
-        />
-      </View>
-
-      {/* ── Basic Information ─────────────────────────────────────────── */}
-      <ProfileGroup
+      <ProfileUserCard
         P={P}
-        title="Basic Information"
-        action={
-          <TouchableOpacity
-            onPress={() => router.push('/(tabs)/profile/you')}
-            hitSlop={10}
-            activeOpacity={0.6}
-          >
-            <Pencil size={17} color={P.dim} strokeWidth={2.2} />
-          </TouchableOpacity>
-        }
-      >
-        <TouchableOpacity
-          style={s.basicCard}
-          activeOpacity={0.7}
-          onPress={() => router.push('/(tabs)/profile/you')}
-        >
-          <Text style={[s.basicName, { color: P.text }]} numberOfLines={1}>
-            {profile?.name || '—'}
-          </Text>
-          <Text style={[s.basicSub, { color: P.dim }]} numberOfLines={1}>
-            {profile?.email || '—'}
-          </Text>
-        </TouchableOpacity>
-      </ProfileGroup>
+        name={profile?.name || '—'}
+        email={profile?.email || '—'}
+        avatarUrl={avatarUrl}
+        avatarLetter={avatarLetter}
+        uploading={uploading}
+        onAvatarPress={present}
+        onPress={() => router.push('/(tabs)/profile/you')}
+      />
 
       {/* ── Account ───────────────────────────────────────────────────── */}
       <ProfileGroup P={P} title="Account">
@@ -139,7 +109,7 @@ export default function ProfileScreen() {
       </ProfileGroup>
 
       {/* ── Tracking ──────────────────────────────────────────────────── */}
-      {profile?.sex === 'female' && (
+      {CYCLE_ENABLED && profile?.sex === 'female' && (
         <ProfileGroup P={P} title="Tracking">
           <ProfileRow P={P} icon={Flower2} label="Cycle Tracking"
             onPress={() => router.push('/(tabs)/profile/cycle')} />
@@ -194,11 +164,5 @@ export default function ProfileScreen() {
 }
 
 const s = StyleSheet.create({
-  avatarWrap: { alignItems: 'center', paddingTop: 18, paddingBottom: 22 },
-
-  basicCard: { paddingHorizontal: 16, paddingVertical: 16, gap: 4 },
-  basicName: { fontSize: 17, fontWeight: '700', letterSpacing: -0.3 },
-  basicSub: { fontSize: 14 },
-
   version: { textAlign: 'center', fontSize: 12, paddingTop: 28 },
 });

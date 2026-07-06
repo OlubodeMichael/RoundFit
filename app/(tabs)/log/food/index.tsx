@@ -786,6 +786,9 @@ function MealGroup({
       <View style={{ borderRadius: 24, overflow: 'hidden' }}>
         {/* Header */}
         <View style={[styles.groupHead, { borderBottomColor: P.hair }]}>
+          <Text style={styles.groupEmoji} allowFontScaling={false}>
+            {meta.emoji}
+          </Text>
           <View style={styles.groupHeadCopy}>
             <Text style={[styles.groupTitle, { color: P.text }]}>{meta.title}</Text>
             <Text style={[styles.groupSub, { color: P.textFaint }]}>
@@ -800,7 +803,7 @@ function MealGroup({
             style={[styles.groupAdd, { borderColor: P.cardEdge }]}
             activeOpacity={0.7}
           >
-            <Ionicons name="add" size={15} color={accent} />
+            <Ionicons name="add" size={18} color={accent} />
           </TouchableOpacity>
         </View>
 
@@ -813,10 +816,23 @@ function MealGroup({
         ) : (
           items.map((item, i) => (
             <View key={item.id}>
-              {i > 0 && <View style={[styles.rowDivider, { backgroundColor: P.hair }]} />}
+              {i > 0 && (
+                <View
+                  style={[
+                    styles.rowDivider,
+                    {
+                      backgroundColor: P.hair,
+                      marginLeft: mealRowDividerInset(
+                        MEAL_ROW_PADDING_LEFT,
+                        MEAL_ROW_GAP,
+                        Boolean(item.imageUrl),
+                      ),
+                    },
+                  ]}
+                />
+              )}
               <MealRow
                 item={item}
-                emoji={meta.emoji}
                 P={P}
                 onDelete={() => onDelete(item.id)}
                 onEdit={() => onEdit(item)}
@@ -832,10 +848,41 @@ function MealGroup({
 // ───────────────────────────────────────────────────────────────────────────────
 // Swipeable row
 // ───────────────────────────────────────────────────────────────────────────────
-function MealRow({
-  item, emoji, P, onDelete, onEdit,
+function MealMacroLine({
+  item,
+  P,
 }: {
-  item: MealItem; emoji: string;
+  item: Pick<MealItem, 'protein' | 'carbs' | 'fat'>;
+  P: Palette;
+}) {
+  const segments: { key: string; color: string; label: string }[] = [];
+  if (typeof item.protein === 'number') {
+    segments.push({ key: 'protein', color: P.protein, label: `Protein ${item.protein}g` });
+  }
+  if (typeof item.carbs === 'number') {
+    segments.push({ key: 'carbs', color: P.carbs, label: `Carbs ${item.carbs}g` });
+  }
+  if (typeof item.fat === 'number') {
+    segments.push({ key: 'fat', color: P.fat, label: `Fat ${item.fat}g` });
+  }
+  if (segments.length === 0) return null;
+
+  return (
+    <Text style={[styles.mealMacro, { color: P.textFaint }]} numberOfLines={1}>
+      {segments.map((seg, i) => (
+        <Text key={seg.key}>
+          {i > 0 ? <Text style={{ color: P.textFaint }}> · </Text> : null}
+          <Text style={{ color: seg.color }}>{seg.label}</Text>
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
+function MealRow({
+  item, P, onDelete, onEdit,
+}: {
+  item: MealItem;
   P: Palette; onDelete: () => void; onEdit: () => void;
 }) {
   const swipeRef = useRef<Swipeable>(null);
@@ -881,7 +928,12 @@ function MealRow({
     >
       <Pressable
         onPress={onEdit}
-        style={({ pressed }) => [styles.mealRow, { backgroundColor: P.card }, pressed && { backgroundColor: P.sunken }]}
+        style={({ pressed }) => [
+          styles.mealRow,
+          !item.imageUrl && styles.mealRowTextOnly,
+          { backgroundColor: P.card },
+          pressed && { backgroundColor: P.sunken },
+        ]}
       >
         {item.imageUrl ? (
           <View style={mealLogThumbStyles.thumbPhoto}>
@@ -893,13 +945,7 @@ function MealRow({
               transition={150}
             />
           </View>
-        ) : (
-          <View style={mealLogThumbStyles.emojiSlot}>
-            <Text style={mealLogThumbStyles.emoji} allowFontScaling={false}>
-              {emoji}
-            </Text>
-          </View>
-        )}
+        ) : null}
 
         <View style={styles.mealCopy}>
           <Text style={[styles.mealName, { color: P.text }]} numberOfLines={1}>
@@ -908,15 +954,8 @@ function MealRow({
           <Text style={[styles.mealMeta, { color: P.textFaint }]} numberOfLines={1}>
             {item.time}
             {extras.length > 0 && <Text style={{ color: P.textFaint }}> · +{extras.length} more</Text>}
-            {hasMacros && (
-              <>
-                <Text style={{ color: P.textFaint }}>  ·  </Text>
-                {typeof item.protein === 'number' && <Text style={{ color: P.protein }}>P{item.protein} </Text>}
-                {typeof item.carbs   === 'number' && <Text style={{ color: P.carbs   }}>C{item.carbs} </Text>}
-                {typeof item.fat     === 'number' && <Text style={{ color: P.fat     }}>F{item.fat}</Text>}
-              </>
-            )}
           </Text>
+          {hasMacros ? <MealMacroLine item={item} P={P} /> : null}
         </View>
 
         <View style={styles.mealStat}>
@@ -990,23 +1029,30 @@ const styles = StyleSheet.create({
   // Group
   groupHead: {
     flexDirection: 'row', alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 18, paddingVertical: 16,
+    gap: 14,
+    paddingHorizontal: 18, paddingVertical: 18,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  groupEmoji: {
+    fontSize: 40,
+    lineHeight: 44,
+    width: 48,
+    textAlign: 'center',
+    flexShrink: 0,
   },
   groupHeadCopy: {
     flex: 1,
-    gap: 2,
+    gap: 4,
     minWidth: 0,
   },
   groupTitle: {
-    fontSize: 15, fontWeight: '800', letterSpacing: -0.3,
+    fontSize: 20, fontWeight: '800', letterSpacing: -0.4, lineHeight: 24,
   },
   groupSub: {
-    fontSize: 11, fontWeight: '500',
+    fontSize: 13, fontWeight: '500', lineHeight: 17,
   },
   groupAdd: {
-    width: 30, height: 30, borderRadius: 10,
+    width: 36, height: 36, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
   },
@@ -1014,7 +1060,6 @@ const styles = StyleSheet.create({
   // Meal row
   rowDivider: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: mealRowDividerInset(),
   },
   mealRow: {
     flexDirection: 'row',
@@ -1024,6 +1069,10 @@ const styles = StyleSheet.create({
     paddingRight: MEAL_ROW_PADDING_RIGHT,
     paddingVertical: 12,
     minHeight: MEAL_ROW_MIN_HEIGHT,
+  },
+  mealRowTextOnly: {
+    minHeight: undefined,
+    paddingVertical: 14,
   },
   mealCopy: {
     flex: 1,
@@ -1041,6 +1090,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     lineHeight: 16,
+  },
+  mealMacro: {
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 15,
+    marginTop: 2,
   },
   mealStat: {
     alignItems: 'flex-end',

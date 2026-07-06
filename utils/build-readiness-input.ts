@@ -7,6 +7,7 @@ import type { Workout } from '@/context/workout-context';
 import type { ReadinessInput, ReadinessWorkoutInput } from '@/types/readiness';
 import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
 import { computeInferredSoreness, type StepDayInput } from '@/utils/infer-soreness';
+import { CYCLE_ENABLED } from '@/constants/features';
 import { countConsecutiveHardDays } from '@/utils/workout-readiness';
 
 /** 1 logged glass = 250 ml (matches the hydration tracker convention). */
@@ -137,7 +138,7 @@ export function buildReadinessInput(sources: BuildReadinessSources): ReadinessIn
     cycle: {
       phase:           cycle?.phase ?? null,
       days_remaining:  cycle?.days_remaining ?? null,
-      include_cycle:   userSex === 'female' && cycle?.phase !== null,
+      include_cycle:   CYCLE_ENABLED && userSex === 'female' && cycle?.phase !== null,
     },
     hydration: {
       logged_ml: waterGlassesToday != null ? waterGlassesToday * GLASS_ML : null,
