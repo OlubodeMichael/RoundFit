@@ -103,6 +103,37 @@ reports** STAY on OpenAI (Foundation Models can't run in a background window).
 
 ---
 
+## 6.5 🟡 Coach re-architecture — rules decide, LLM phrases
+
+Non-negotiable principle: a deterministic engine picks the directive + actions; the LLM (Apple FM/OpenAI) only
+rephrases the finished decision; a template renderer always produces a valid message if the LLM fails. Reuses the
+§6 Apple FM/OpenAI infra as the **phrasing** layer.
+
+**Phase 1 — Deterministic decision engine (pure, fully tested):** ✅ DONE (23 tests, 159 total; tsc clean)
+- [x] `types/daily-coaching.ts` — `DailyCoachingInput` / `DailyCoachingDecision` (directive, safety_override, primary_reason, secondary_action, habit_nudge, dropped[], confidence, nutrition_gap, assembled_at).
+- [x] `utils/nutrition-gap-ranker.ts` — `gap_score` over **logged days only**, weighted by logging completeness; never reports more days-under than logged.
+- [x] `utils/coaching-duration.ts` — directive → duration with late-luteal cap.
+- [x] `utils/daily-coaching.ts` — `assembleDailyCoachingDecision`: priority ladder (Slot 0 safety [2-of-3 illness OR 3 hard days force rest; 1 signal caps to light], Slot 1 readiness directive, Slot 2 nutrition gap, Slot 3 hydration nudge only if no gap). Confidence reshapes copy (minimal → "go by feel"); explicit cold-start path.
+- [x] `utils/coaching-template.ts` — deterministic renderer covering every field combo (incl. ugly ones) + `coachingTitle`.
+- [x] `__tests__/daily-coaching.test.ts` — safety ordering, 2-signal illness, protein beats hydration, luteal cap, minimal-confidence copy, drop-on-safety, ranker ignores unlogged days, template renders every combo.
+
+**Phase 1b — Repoint the LLM to phrasing (critical fix):** ✅ DONE (161 tests, both packages tsc clean)
+- [x] Phrasing prompt `DAILY_COACHING_PHRASING_PROMPT` (backend) — input is the decision only, use numbers exactly, directive first, 2–3 sentences, safety rules kept. Old `DAILY_INSIGHT_SYSTEM_PROMPT` (author) retained only for legacy `/insights/ai` until Phase 2 removes it.
+- [x] `utils/coaching-prompt.ts` `buildPhrasingPrompt(decision)` (frontend serializer, tested) — the sole model input; raw data never reaches the LLM.
+- [x] `generateCoachingFromPrompt()` (backend) — gpt-4o under the phrasing prompt (OpenAI path + eval baseline).
+- [x] Eval rewritten to feed **decisions**: `eval-scenarios.ts` = 6 serialized `decisionPrompt`s + gold `reference`s (E4 = safety "eat closer to target"); runner uses `generateCoachingFromPrompt`.
+
+**Phase 2 — Data hook:** ⏳
+- [ ] `hooks/use-daily-coaching.ts` — assemble input from existing contexts (recovery/summary/cycle/checkin/engine), cache decision per day, recompute on check-in/sleep/nutrition/workout mutations; remount `EngineProvider` or fetch patterns inline.
+- [ ] Fallback chain **Apple FM → OpenAI → `renderCoachingTemplate`** (never a blank card, even offline). Single response, not streaming (answers open Q1+Q2).
+
+**Phase 3 — Mascot + honest badge + card:** ⏳ (Lottie art separate)
+- [ ] `CoachMascot.tsx` (Lottie states: calm/relaxed/alert/energized/concerned mapped to directive; broadcasts directive at a glance).
+- [ ] Honest badge: default "1" = today's fresh directive, clears on open; distinct events stack to 2–3; yesterday's unread **expires** (no guilt-badging); never pad the count.
+- [ ] `CoachingCard.tsx` slide-up with "why did I say this?" (primary_reason + dropped). Surface consistency: mascot card / check-in reveal / morning push all show the **same** cached decision.
+
+---
+
 ## 7. 🟢 Pre-submit QA pass
 - [ ] Full new-user flow on a real device: onboarding → log → check-in → insight → paywall → sandbox purchase → premium unlock.
 - [ ] Restore purchases works on a fresh install.

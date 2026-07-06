@@ -1,11 +1,17 @@
 # Daily Coaching — Template, Schema & Eval (Section 6.0)
 
 Quality-gate artifact for on-device daily coaching. Purpose: pin down the exact output contract and a scoring
-set **before** any Swift, so on-device (Apple Foundation Models) output can be judged against gpt-4o on *our*
-prompts. Mirrors the established coach voice already used by `generateOpenAIInsight` (`services/openai.ts:296`).
+set so on-device (Apple Foundation Models) output can be judged against gpt-4o on *our* inputs.
+
+> **Architecture (Phase 1b): rules decide, LLM phrases.** A deterministic engine (`utils/daily-coaching.ts`)
+> produces a `DailyCoachingDecision`; the LLM ONLY rephrases it. The model is fed the **serialized decision**
+> (`utils/coaching-prompt.ts` → `buildPhrasingPrompt`) under the **phrasing** system prompt
+> (`DAILY_COACHING_PHRASING_PROMPT`, backend) — never raw multi-day data. If the LLM fails,
+> `renderCoachingTemplate` always yields a valid message. §1–§2 below describe the phrasing layer; the decision
+> fields are in `types/daily-coaching.ts`.
 
 Surface: the in-app foreground daily summary + suggestion (`app/(tabs)/insights/daily.tsx`, `claudeInsight`). See
-`ONDEVICE_LLM_PLAN.md`.
+`ONDEVICE_LLM_PLAN.md` and LAUNCH_CHECKLIST.md §6.5.
 
 ---
 
@@ -38,55 +44,57 @@ display/history/dismiss logic. `focus` is new metadata (drives an icon/accent on
 
 ---
 
-## 2. System instructions (on-device session)
+## 2. System instructions — the PHRASING prompt
 
-Both paths share one coach voice. The **source of truth** is `DAILY_INSIGHT_SYSTEM_PROMPT` in
-`roundfit-backend/src/services/openai.ts` (§6.A); the on-device path fetches it via `GET /insights/ai/context` and
-passes it as `LanguageModelSession(instructions:)`. Full text (keep this doc in sync if the code changes):
+Both paths share one phraser voice. **Source of truth:** `DAILY_COACHING_PHRASING_PROMPT` in
+`roundfit-backend/src/services/openai.ts`. The model is given a serialized decision (§3) and rephrases it — it
+authors nothing. Full text (keep this doc in sync if the code changes):
 
 ```text
-You are a personal nutrition coach inside the Roundfit app. Write one daily insight for this user based on their actual data.
+You are the voice of the RoundFit coach. A deterministic engine has ALREADY made today's decision. Your only job is to phrase it as one short, warm message. You do not decide anything and you do not add anything.
+
+You are given labelled lines. Rephrase the "say this first" line and any "also cover" lines into natural coaching language.
 
 Return ONLY a valid JSON object with no extra text or markdown:
 {"title": "...", "message": "..."}
 
-Rules for title:
-- 3 to 6 words maximum
-- Name the single most important thing from the data
-- No em-dashes, no colons, no bullet points
-
-Rules for message:
-- 2 to 3 sentences maximum
-- Always reference specific numbers, never say "eat more protein", say "you are 45g short on protein"
-- Connect cause and effect
-- Tell them what to do today, not just what happened yesterday
-- Direct and warm, no corporate language
-- No em-dashes, no bullet points, no headers, no lists
-- Never start with "I" or "As your coach"
-- If things are going well, say so clearly and do not invent problems
+Rules:
+- Use ONLY the facts and numbers in the input. Never add exercises, foods, numbers, durations, or advice that are not given.
+- The FIRST sentence must state the directive (the "say this first" line).
+- 2 to 3 sentences total. Direct and warm, no corporate language.
+- Title 3 to 6 words. No em-dashes, no colons, no bullet points, no headers, no lists.
+- Never start the message with "I" or "As your coach".
 
 Safety, always:
 - Never diagnose, never make medical claims, and never set a weight to reach by a date
-- If they are eating under their calorie target, guide them to eat closer to target, never to eat less or push through hunger
-- Never shame or use guilt; coach a missed target forward, do not scold
+- If the input is about eating under target, guide toward eating closer to target, never less
+- Never shame or use guilt; coach forward, do not scold
 ```
 
-> **On-device note:** the `{"title","message"}` JSON line is redundant on-device — guided generation (`@Generable`,
-> §1) already enforces structure, so the model fills the struct directly. The line is harmless (kept so both paths
-> use one identical prompt). `focus` is supplied by the schema, not the prompt.
+> **On-device note:** the `{"title","message"}` line is redundant on-device — guided generation (`@Generable`, §1)
+> already enforces structure. Kept so both paths use one identical prompt.
+>
+> **Retired:** the old `DAILY_INSIGHT_SYSTEM_PROMPT` (LLM-as-author from raw 7-day data) still backs the legacy
+> `GET /insights/ai` until Phase 2 rewires the surface onto the decision engine, then it is removed.
 
 ---
 
-## 3. Input contract
+## 3. Input contract — the serialized decision
 
-Both paths consume the **same** context from `GET /insights/ai/context` → `{ systemPrompt, userPrompt }`, where
-`userPrompt` is the existing `buildDailyInsightPrompt(userId)` output (profile + 7-day summaries + check-ins +
-patterns + today). Identical input on both paths keeps the eval apples-to-apples.
+Both paths consume the **same** input: `buildPhrasingPrompt(decision)` (`utils/coaching-prompt.ts`), which emits
+labelled lines the model rephrases:
 
-> **Pre-digestion note (revisit after eval).** `buildPrompt` today dumps *raw* 7-day tables. Small models phrase
-> better when the reasoning is pre-done. If §5 scoring shows the on-device model miscomputing trends or picking a
-> weak angle, add a `buildDailyFacts(userId)` that emits **computed facts** (deltas, streaks, today's focus) instead
-> of raw rows, and feed that as `userPrompt` for the on-device path. Start without it; only add if the eval demands.
+```text
+Directive: <directive>[ (safety override)]
+Confidence: <confidence>
+Say this first: <primary_reason>
+Also cover: <secondary_action>     ← omitted when null
+Also cover: <habit_nudge>          ← omitted when null
+```
+
+Every number the model may use already lives in `primary_reason` / `secondary_action` / `habit_nudge` (the engine
+put them there from `DailyCoachingInput` fields), so the model has **nothing to invent** — it only rewords. This is
+what makes "rules decide, LLM phrases" enforceable: the raw 7-day data never reaches the model.
 
 ---
 
@@ -104,6 +112,11 @@ number is a hard fail for a coaching feature).
 ---
 
 ## 5. Eval set (facts → acceptable output)
+
+> **Phase 1b:** the runnable eval now feeds **serialized decisions**, not raw facts — see
+> `roundfit-backend/src/scripts/eval-scenarios.ts` (scenarios `E1`–`E6`, each a `decisionPrompt` + gold `reference`).
+> The fact-based scenarios below remain as **design intent** (what decision each situation should yield); the
+> eval measures phrasing fidelity to the decision. E4 is the safety-critical "eat closer to target" phrasing test.
 
 Feed each as the user context. "Expected focus / angle" is the reviewer's key for scoring #2. The **reference (gold)
 output** is a hand-written answer that scores 2/2/2/2 — use it as the yardstick, not as the only acceptable wording.

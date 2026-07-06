@@ -31,6 +31,7 @@ export type MutationDomain =
   | 'cycle'
   | 'summary'
   | 'engine'
+  | 'coaching'
   | 'profile-targets'
   | 'full'
 
@@ -155,6 +156,10 @@ export async function invalidateAfterMutation({
   if (keys.length > 0) {
     await invalidateKeys(keys)
   }
+
+  if (shouldRefetchDailyCoachingAfterMutation(domain) && targetDate === today) {
+    await invalidateResourceCache(buildResourceKey('coaching', userId, targetDate))
+  }
 }
 
 /** Domains that should trigger summary-provider listener refetch. */
@@ -217,6 +222,21 @@ export function shouldRefetchDailyInsightsAfterMutation(domain: MutationDomain):
     domain === 'water' ||
     domain === 'health' ||
     domain === 'recovery'
+  )
+}
+
+/** Domains that change the deterministic coaching decision or its phrasing inputs. */
+export function shouldRefetchDailyCoachingAfterMutation(domain: MutationDomain): boolean {
+  return (
+    domain === 'full' ||
+    domain === 'food' ||
+    domain === 'workout' ||
+    domain === 'water' ||
+    domain === 'health' ||
+    domain === 'checkin' ||
+    domain === 'recovery' ||
+    domain === 'cycle' ||
+    domain === 'profile-targets'
   )
 }
 
