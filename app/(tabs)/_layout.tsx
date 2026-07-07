@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BadgeUnlockHost } from "@/components/badges/BadgeUnlockToast";
+import { BurnCoachRecordButton } from "@/components/home/BurnCoachRecordButton";
 import { CheckinModal } from "@/components/checkin/CheckinModal";
 import { useCheckin } from "@/hooks/use-checkin";
 import { usePalette } from "@/lib/log-theme";
@@ -27,6 +28,8 @@ const FAB_D     = 56;            // standalone Log button (right)
 const TABBAR_GAP = 12;           // gap between the nav pill and the Log button
 const PILL_W    = SW - 40 - FAB_D - TABBAR_GAP;
 const FLOAT_BOT = 14;
+const FAB_TOP   = FLOAT_BOT + (PILL_H - FAB_D) / 2 + FAB_D;   // FAB top edge above the safe area
+const REC_GAP   = 12;           // gap between the record button and the Log FAB
 const TAB_ICON  = 21;
 const TAB_ICON_FOCUSED = 22;
 
@@ -184,6 +187,14 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                     </TouchableOpacity>
                 );
             })}
+
+            {/* Burn coach record button — floats above the Log button */}
+            <View
+                style={[s.recordWrap, { bottom: insets.bottom + FAB_TOP + REC_GAP }]}
+                pointerEvents="box-none"
+            >
+                <BurnCoachRecordButton />
+            </View>
         </View>
     );
 }
@@ -266,6 +277,12 @@ const s = StyleSheet.create({
         width:  4,
         height: 4,
         marginTop: 1,
+    },
+
+    recordWrap: {
+        position:       "absolute",
+        right:          20,
+        alignItems:     "flex-end",
     },
 
     fabWrap: {

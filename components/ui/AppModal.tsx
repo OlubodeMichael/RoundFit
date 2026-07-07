@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -112,13 +112,21 @@ export function AppModal({
   const backdropOp = useRef(new Animated.Value(0)).current;
   const dragY = useRef(new Animated.Value(0)).current;
 
+  // Keep the native Modal (and its BlurView) mounted until the close animation
+  // finishes. Tearing a `UIVisualEffectView` down in the same frame that
+  // `visible` flips to false leaves a frozen blurred snapshot over the whole app
+  // on iOS (cleared only by the next touch), so we defer the unmount.
+  const [mounted, setMounted] = useState(visible);
+
   useEffect(() => {
-    slideY.setValue(resolvedH);
-  }, [resolvedH, slideY]);
+    if (!mounted) slideY.setValue(resolvedH);
+  }, [resolvedH, slideY, mounted]);
 
   useEffect(() => {
     if (visible) {
+      setMounted(true);
       dragY.setValue(0);
+      slideY.setValue(resolvedH);
       const openSheetAnim =
         openAnimation === 'ease'
           ? Animated.timing(slideY, {
@@ -156,7 +164,11 @@ export function AppModal({
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(({ finished }) => {
+        // Only unmount when the close animation ran to completion. A reopen
+        // interrupts it (finished === false), so we keep the Modal mounted.
+        if (finished) setMounted(false);
+      });
     }
   }, [openAnimation, visible, resolvedH]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -220,7 +232,7 @@ export function AppModal({
   return (
     <Modal
       transparent
-      visible={visible}
+      visible={mounted}
       animationType="none"
       onRequestClose={dismissModal}
       statusBarTranslucent

@@ -1,6 +1,4 @@
-import { BurnCoachStrip } from "@/components/home/burn-coach-strip";
-import { WorkoutLauncher } from "@/components/log/workout/WorkoutLauncher";
-import { WorkoutSessionRecapSheet } from "@/components/log/workout/WorkoutSessionRecapSheet";
+import { CoachingCard } from "@/components/home/CoachingCard";
 import type { CalorieBudgetPalette } from "@/components/home/CalorieBudgetCard";
 import { CalorieBudgetCard } from "@/components/home/CalorieBudgetCard";
 import { DailyBudgetMetricsRow } from "@/components/home/DailyBudgetMetricsRow";
@@ -19,12 +17,6 @@ import { CYCLE_ENABLED } from "@/constants/features";
 import { useFood } from "@/context/food-context";
 import { useInsights } from "@/context/insights-context";
 import { useWorkouts } from "@/context/workout-context";
-import { useWorkoutSession } from "@/context/workout-session-context";
-import {
-  getBurnCatalogEntries,
-  getCatalogEntryById,
-  type WorkoutCatalogEntry,
-} from "@/config/workout-catalog";
 import { sumTodayWorkoutCalories } from "@/components/log/workout/workout-display";
 import { useDayLogs } from "@/hooks/use-day-logs";
 import { usePendingWorkoutImports } from "@/hooks/use-pending-workout-imports";
@@ -33,21 +25,11 @@ import { useNotificationInbox } from "@/hooks/use-notification-inbox";
 import { useProfile } from "@/hooks/use-profile";
 import { useSummary } from "@/hooks/use-summary";
 import { useTheme } from "@/hooks/use-theme";
-import { useWorkoutLiveActivity } from "@/hooks/use-workout-live-activity";
-import {
-  catalogEntryToBurnActivity,
-  computeDurationMinutes,
-  formatCatalogPrescription,
-} from "@/utils/burn-prescription";
-import type { SessionRecapData } from "@/types/session-recap";
-import type { WorkoutSelection } from "@/types/workout-session";
 import { getLocalDateString } from "@/utils/date";
-import { finishAndSaveWorkoutSession } from "@/utils/finish-workout-session";
 import { calculateNutritionPlan } from "@/utils/nutrition";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import { usePostHog } from "posthog-react-native";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
     Animated,
@@ -515,9 +497,8 @@ export default function HomeScreen() {
   const toast = useToast();
   const { unreadCount } = useNotificationInbox();
 
-  const { logWorkout, refreshWorkouts, fetchForDate: fetchWorkoutsForDate } =
+  const { refreshWorkouts, fetchForDate: fetchWorkoutsForDate } =
     useWorkouts();
-  const posthog = usePostHog();
 
   const [date, setDate] = useState(new Date());
   const [refreshing, setRefreshing] = useState(false);
@@ -636,137 +617,6 @@ export default function HomeScreen() {
     ],
     [totalProtein, totalCarbs, totalFat, nutritionPlan],
   );
-
-  const weightKg = profile?.weightKg ?? 70;
-  const [coachCatalogEntry, setCoachCatalogEntry] = useState<WorkoutCatalogEntry>(
-    () => getCatalogEntryById("walk") ?? getBurnCatalogEntries()[0],
-  );
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [burnRecapVisible, setBurnRecapVisible] = useState(false);
-  const [burnRecapData, setBurnRecapData] = useState<SessionRecapData | null>(
-    null,
-  );
-  const [burnFinishing, setBurnFinishing] = useState(false);
-
-  const { session: workoutSessionSnapshot, start: startWorkoutSession, end: endWorkoutSession } =
-    useWorkoutSession();
-
-  // Live Activity (iOS Lock Screen / Dynamic Island workout widget)
-  const {
-    active: liveWorkout,
-    start: startLiveWorkout,
-    pause: pauseLiveWorkout,
-    resume: resumeLiveWorkout,
-    end: endLiveWorkout,
-  } = useWorkoutLiveActivity();
-
-  // Calories burned during the live workout (delta from baseline at start)
-  const liveBurned = liveWorkout
-    ? Math.max(
-        0,
-        (healthToday?.active_calories ?? liveWorkout.baselineCals) -
-          liveWorkout.baselineCals,
-      )
-    : 0;
-
-  // Burn coach — recommend burning 15% of daily goal; more if over budget.
-  const coachData = useMemo(() => {
-    const base = Math.round(mealGoal * 0.15);
-    const over = Math.max(totalCalories - mealGoal, 0);
-    const caloriesToBurn = Math.max(base + over, 80);
-    const activeBurned = healthToday?.active_calories ?? 0;
-    const remaining = Math.max(caloriesToBurn - activeBurned, 0);
-    const met = coachCatalogEntry.met ?? 0;
-    const minutes = computeDurationMinutes(met, weightKg, remaining);
-    return {
-      caloriesToBurn: remaining,
-      activity: {
-        label:
-          minutes > 0
-            ? formatCatalogPrescription(coachCatalogEntry, minutes)
-            : `Goal reached!`,
-        icon: coachCatalogEntry.icon,
-      },
-      goalProgress:
-        caloriesToBurn > 0 ? Math.min(activeBurned / caloriesToBurn, 1) : 0,
-    };
-  }, [mealGoal, totalCalories, coachCatalogEntry, weightKg, healthToday]);
-
-  const handleBurnLiveStart = useCallback(
-    (selection: WorkoutSelection) => {
-      setCoachCatalogEntry(selection.entry);
-      const goal = selection.calorieGoal ?? coachData.caloriesToBurn;
-      void startWorkoutSession({ ...selection, entrySurface: "home" });
-      void startLiveWorkout(
-        catalogEntryToBurnActivity(selection.entry),
-        goal,
-      );
-    },
-    [startWorkoutSession, startLiveWorkout, coachData.caloriesToBurn],
-  );
-
-  const handleBurnEnd = useCallback(async () => {
-    if (burnFinishing) return;
-
-    const sessionSnapshot = workoutSessionSnapshot;
-    const liveSnapshot = liveWorkout;
-
-    if (!liveSnapshot) {
-      await endLiveWorkout();
-      return;
-    }
-
-    setBurnFinishing(true);
-    try {
-      await endLiveWorkout();
-
-      if (!sessionSnapshot) {
-        await endWorkoutSession();
-        return;
-      }
-
-      const { recapData } = await finishAndSaveWorkoutSession({
-        session: sessionSnapshot,
-        completed: {
-          workoutType: liveSnapshot.activity.id,
-          workoutName: liveSnapshot.activity.label,
-          startedAt: liveSnapshot.startedAt,
-          sets: [],
-        },
-        logWorkout,
-        healthToday,
-        weightKg: profile?.weightKg,
-        userAge: profile?.age,
-        posthog,
-      });
-
-      setBurnRecapData(recapData);
-      setBurnRecapVisible(true);
-      await endWorkoutSession();
-    } catch {
-      toast.error("Could not save", "Workout ended; try logging manually.");
-      await endWorkoutSession();
-    } finally {
-      setBurnFinishing(false);
-    }
-  }, [
-    burnFinishing,
-    workoutSessionSnapshot,
-    liveWorkout,
-    endLiveWorkout,
-    endWorkoutSession,
-    logWorkout,
-    healthToday,
-    profile?.weightKg,
-    profile?.age,
-    posthog,
-    toast,
-  ]);
-
-  const handleBurnRecapDone = useCallback(() => {
-    setBurnRecapVisible(false);
-    setBurnRecapData(null);
-  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -911,37 +761,7 @@ export default function HomeScreen() {
             burned={burnedToday}
             healthData={healthToday}
           />
-          {isToday && (
-            <BurnCoachStrip
-              caloriesToBurn={coachData.caloriesToBurn}
-              activity={
-                liveWorkout
-                  ? {
-                      label: liveWorkout.activity.label,
-                      icon: liveWorkout.activity.icon,
-                    }
-                  : coachData.activity
-              }
-              goalProgress={coachData.goalProgress}
-              isLive={true}
-              activeStartedAt={liveWorkout?.startedAt ?? null}
-              activeCaloriesBurned={liveBurned}
-              activePausedAt={liveWorkout?.pausedAt ?? null}
-              onPress={() => setPickerOpen(true)}
-              onStart={() => {
-                if (!liveWorkout) {
-                  handleBurnLiveStart({
-                    entry: coachCatalogEntry,
-                    intent: "burn",
-                    calorieGoal: coachData.caloriesToBurn,
-                  });
-                }
-              }}
-              onPause={() => void pauseLiveWorkout()}
-              onResume={() => void resumeLiveWorkout()}
-              onEnd={() => void handleBurnEnd()}
-            />
-          )}
+          {isToday && <CoachingCard delay={240} />}
           {isToday && <ReadinessWidget delay={260} returnTo="/(tabs)" />}
           {isToday && (
             <InsightCard P={P} delay={320} onPress={handleInsightPress} />
@@ -979,21 +799,6 @@ export default function HomeScreen() {
           />
         </View>
       </ScrollView>
-
-      <WorkoutLauncher
-        visible={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        intent="burn"
-        initialActivityId={coachCatalogEntry.id}
-        initialCalorieGoal={coachData.caloriesToBurn}
-        onLiveStart={handleBurnLiveStart}
-      />
-
-      <WorkoutSessionRecapSheet
-        visible={burnRecapVisible}
-        data={burnRecapData}
-        onDone={handleBurnRecapDone}
-      />
 
       <AppModal
         visible={isStatusModalVisible}

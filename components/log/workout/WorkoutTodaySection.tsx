@@ -8,6 +8,7 @@ import { usePalette } from '@/lib/log-theme';
 import type { WorkoutImportReviewItem } from '@/services/workout-import';
 
 export interface WorkoutTodaySectionProps {
+  sectionLabel?: string;
   pendingItems: WorkoutImportReviewItem[];
   workouts: Workout[];
   onOpenPending: (uuid: string) => void;
@@ -15,6 +16,7 @@ export interface WorkoutTodaySectionProps {
 }
 
 export function WorkoutTodaySection({
+  sectionLabel = 'Today',
   pendingItems,
   workouts,
   onOpenPending,
@@ -27,7 +29,7 @@ export function WorkoutTodaySection({
 
   return (
     <View style={styles.wrap}>
-      <Text style={[styles.sectionTitle, { color: P.textFaint }]}>Today</Text>
+      <Text style={[styles.sectionTitle, { color: P.textFaint }]}>{sectionLabel}</Text>
       <WorkoutGrid>
         {pendingItems.map((item, index) => (
           <WorkoutPendingCard

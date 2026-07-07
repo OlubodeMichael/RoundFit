@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/context/auth-context';
 import { useCheckin } from '@/hooks/use-checkin';
 import { useCycle } from '@/hooks/use-cycle';
+import { useIsPremium } from '@/hooks/use-is-premium';
 import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
 import { useSummary } from '@/hooks/use-summary';
@@ -68,17 +69,25 @@ export interface UseDailyCoachingResult {
   refresh: () => Promise<void>;
 }
 
-// ── Phrasing backend (injected for tests via module export) ──────────────────
+// ── Phrasing backend ─────────────────────────────────────────────────────────
 
-const coachingPhraser: CoachingPhraser = {
-  appleAvailable: () => isAppleLLMAvailable().available,
-  generateOnDevice: async (systemPrompt, userPrompt) => {
-    const r = await generateDailyCoaching(systemPrompt, userPrompt);
-    if (!r?.message?.trim()) return null;
-    return { title: r.title, message: r.message };
-  },
-  phraseViaOpenAI: phraseCoachingViaOpenAI,
-};
+/**
+ * Builds the fallback-chain phraser. On-device Apple FM and the template are free for
+ * everyone; the cloud (OpenAI) leg costs money, so it is gated to premium — a
+ * non-premium user never even makes the request (no wasted 403 round-trip), it simply
+ * resolves null and the chain falls through to the template.
+ */
+function makeCoachingPhraser(isPremium: boolean): CoachingPhraser {
+  return {
+    appleAvailable: () => isAppleLLMAvailable().available,
+    generateOnDevice: async (systemPrompt, userPrompt) => {
+      const r = await generateDailyCoaching(systemPrompt, userPrompt);
+      if (!r?.message?.trim()) return null;
+      return { title: r.title, message: r.message };
+    },
+    phraseViaOpenAI: isPremium ? phraseCoachingViaOpenAI : async () => null,
+  };
+}
 
 function templateMessageFor(decision: DailyCoachingDecision): CoachingMessage {
   return {
@@ -101,6 +110,9 @@ export function useDailyCoaching(date?: string): UseDailyCoachingResult {
   const { workouts: todayWorkouts } = useWorkouts();
   const { groups: workoutHistoryGroups } = useWorkoutHistory();
   const { pendingSleepSync } = useInsights();
+  const isPremium = useIsPremium();
+
+  const phraser = useMemo(() => makeCoachingPhraser(isPremium), [isPremium]);
 
   const today = getLocalDateString();
   const targetDate = date ?? today;
@@ -312,7 +324,7 @@ export function useDailyCoaching(date?: string): UseDailyCoachingResult {
 
       try {
         void prewarmAppleLLM();
-        const resolved = await resolveCoachingMessage(decision, coachingPhraser);
+        const resolved = await resolveCoachingMessage(decision, phraser);
         if (!mountedRef.current || phrasingRef.current !== runId) return;
 
         setMessage(resolved);
@@ -325,7 +337,7 @@ export function useDailyCoaching(date?: string): UseDailyCoachingResult {
         }
       }
     })();
-  }, [decision, user?.id, targetDate]);
+  }, [decision, user?.id, targetDate, phraser]);
 
   const refresh = useCallback(async () => {
     if (!user?.id) return;
@@ -335,7 +347,7 @@ export function useDailyCoaching(date?: string): UseDailyCoachingResult {
       const fingerprint = coachingDecisionFingerprint(decision);
       setIsPhrasing(true);
       try {
-        const resolved = await resolveCoachingMessage(decision, coachingPhraser);
+        const resolved = await resolveCoachingMessage(decision, phraser);
         setMessage(resolved);
         const payload: DailyCoachingCache = { fingerprint, decision, message: resolved };
         await setResourceCached(coachingCacheKey(user.id, targetDate), payload, TTL_COLD_START_MS);
@@ -343,7 +355,7 @@ export function useDailyCoaching(date?: string): UseDailyCoachingResult {
         setIsPhrasing(false);
       }
     }
-  }, [user?.id, targetDate, decision]);
+  }, [user?.id, targetDate, decision, phraser]);
 
   useEffect(() => {
     if (!isToday) return;

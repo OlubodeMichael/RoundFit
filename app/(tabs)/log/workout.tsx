@@ -18,14 +18,15 @@ import {
     useWorkouts,
 } from "@/context/workout-context";
 import {
+    DayNavigator,
     PrimaryButton,
-    ScreenHeader,
     usePalette,
     useScreenPadding,
 } from "@/lib/log-theme";
 import { LiveSessionSheet } from "@/components/log/workout/LiveSessionSheet";
 import { WorkoutHistorySection } from "@/components/log/workout/WorkoutHistorySection";
 import { WorkoutTodaySection } from "@/components/log/workout/WorkoutTodaySection";
+import { formatHistoryDateLabel } from "@/components/log/workout/workout-display";
 import { WorkoutLauncher } from "@/components/log/workout/WorkoutLauncher";
 import { WorkoutActionRow } from "@/components/log/workout/WorkoutActionRow";
 import { WorkoutDurationPicker } from "@/components/log/workout/WorkoutDurationPicker";
@@ -43,7 +44,7 @@ import { useWorkoutSessionLiveActivity } from "@/hooks/use-workout-session-live-
 import { useWorkoutHistory } from "@/hooks/use-workout-history";
 import { useWorkoutImportReview } from "@/hooks/use-workout-import-review";
 import { usePendingWorkoutImports } from "@/hooks/use-pending-workout-imports";
-import { getLocalDateString } from "@/utils/date";
+import { addLocalCalendarDays, getLocalDateString } from "@/utils/date";
 import type { WorkoutLauncherIntent, WorkoutSelection } from "@/types/workout-session";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "@react-navigation/native";
@@ -58,7 +59,8 @@ import {
     StyleSheet,
     Text,
     TextInput,
-    View
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -1157,12 +1159,55 @@ export default function WorkoutLogScreen() {
   const { editId } = useLocalSearchParams<{ editId?: string }>();
   const toast = useToast();
   const posthog = usePostHog();
-  const { workouts, logWorkout, logSets, refreshWorkouts } = useWorkouts();
+  const { workouts, logWorkout, logSets, refreshWorkouts, fetchForDate } = useWorkouts();
   const workoutHistory = useWorkoutHistory();
   const importReview = useWorkoutImportReview();
   const pendingImports = usePendingWorkoutImports();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
+
+  const todayKey = getLocalDateString();
+  const [viewDate, setViewDate] = useState(todayKey);
+  const [pastWorkouts, setPastWorkouts] = useState<Workout[]>([]);
+  const [loadingPast, setLoadingPast] = useState(false);
+  const viewDateRef = useRef(viewDate);
+  viewDateRef.current = viewDate;
+
+  const isToday = viewDate === todayKey;
+  const viewWorkouts = isToday ? workouts : pastWorkouts;
+
+  const loadViewDate = useCallback(async (date: string, force = false) => {
+    if (date === todayKey) {
+      await refreshWorkouts(force);
+      return;
+    }
+    setLoadingPast(true);
+    try {
+      const rows = await fetchForDate(date, force);
+      setPastWorkouts(rows);
+    } finally {
+      setLoadingPast(false);
+    }
+  }, [todayKey, refreshWorkouts, fetchForDate]);
+
+  useEffect(() => {
+    setViewDate((prev) => (prev > todayKey ? todayKey : prev));
+  }, [todayKey]);
+
+  useEffect(() => {
+    void loadViewDate(viewDate, false);
+  }, [viewDate, loadViewDate]);
+
+  const navigateDate = useCallback(async (direction: -1 | 1) => {
+    const next = addLocalCalendarDays(viewDate, direction);
+    if (next > todayKey) return;
+    setViewDate(next);
+    try {
+      await loadViewDate(next, false);
+    } catch {
+      toast.error("Could not load day", "Please try again.");
+    }
+  }, [viewDate, todayKey, loadViewDate, toast]);
 
   // Live session + log-past launcher (shared component, different intents).
   const session = useWorkoutSessionLiveActivity();
@@ -1187,7 +1232,7 @@ export default function WorkoutLogScreen() {
     setRefreshing(true);
     try {
       await Promise.all([
-        refreshWorkouts(true),
+        loadViewDate(viewDate, true),
         workoutHistory.refresh(true),
         pendingImports.refresh(true),
         importReview.runImport(),
@@ -1195,12 +1240,11 @@ export default function WorkoutLogScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [importReview, pendingImports, refreshWorkouts, workoutHistory]);
+  }, [importReview, loadViewDate, pendingImports, viewDate, workoutHistory]);
 
   const syncOnFocusRef = useRef<() => void>(() => {});
   syncOnFocusRef.current = () => {
-    // Cache-first on focus — serve cached workouts without a network round-trip.
-    void refreshWorkouts(false);
+    void loadViewDate(viewDateRef.current, false);
     void workoutHistory.refresh(false);
     void pendingImports.refresh(false);
   };
@@ -1229,16 +1273,22 @@ export default function WorkoutLogScreen() {
     workoutSession.status === "active" ||
     workoutSession.status === "paused";
 
-  const todayKey = getLocalDateString();
-  const todayPendingGroup = useMemo(
-    () => pendingImports.pendingGroups.find((group) => group.date === todayKey) ?? null,
-    [pendingImports.pendingGroups, todayKey],
+  const viewPendingGroup = useMemo(
+    () => pendingImports.pendingGroups.find((group) => group.date === viewDate) ?? null,
+    [pendingImports.pendingGroups, viewDate],
   );
   const olderPendingGroups = useMemo(
-    () => pendingImports.pendingGroups.filter((group) => group.date !== todayKey),
-    [pendingImports.pendingGroups, todayKey],
+    () =>
+      isToday
+        ? pendingImports.pendingGroups.filter((group) => group.date !== todayKey)
+        : [],
+    [isToday, pendingImports.pendingGroups, todayKey],
   );
-  const hasTodayContent = workouts.length > 0 || todayPendingGroup != null;
+  const hasViewContent = viewWorkouts.length > 0 || viewPendingGroup != null;
+  const showInitialLoad =
+    viewWorkouts.length === 0 &&
+    (viewPendingGroup?.items.length ?? 0) === 0 &&
+    (isToday ? pendingImports.isLoading : loadingPast);
 
   const activeLiveDisplay = useMemo(() => {
     if (session.active) return session.active;
@@ -1399,41 +1449,65 @@ export default function WorkoutLogScreen() {
           />
         }
       >
-        <ScreenHeader eyebrow="Training" title="Workouts" accent={P.workout} />
+        <View style={[ms.header, { paddingHorizontal: 20 }]}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            hitSlop={10}
+            style={[ms.backBtn, { backgroundColor: P.card, borderColor: P.cardEdge }]}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="chevron-back" size={20} color={P.text} />
+          </TouchableOpacity>
 
-        {/* Live session entry / banner */}
-        <View style={{ paddingHorizontal: 20, marginTop: 4, marginBottom: 8 }}>
-          <WorkoutSessionRecoveryBanner onRecover={() => void handleRecoverSession()} />
-
-          {hasActiveLiveSession && activeLiveDisplay ? (
-            <WorkoutContinueCard
-              workoutType={activeLiveDisplay.workoutType}
-              workoutName={activeLiveDisplay.workoutName}
-              elapsedMs={liveElapsed}
-              setCount={activeLiveDisplay.sets.length}
-              isPaused={activeLiveDisplay.pausedAt != null}
-              onPress={() => setLiveSheetOpen(true)}
+          <View style={{ flex: 1, alignItems: "center" }}>
+            <Text style={[ms.eyebrow, { color: P.textFaint, marginBottom: 10 }]}>
+              TRAINING
+            </Text>
+            <DayNavigator
+              label={formatHistoryDateLabel(viewDate, todayKey)}
+              isToday={isToday}
+              onPrev={() => { void navigateDate(-1); }}
+              onNext={() => { void navigateDate(1); }}
+              accentColor={P.workout}
             />
-          ) : null}
+          </View>
 
-          <WorkoutActionRow
-            onStartWorkout={openLiveLauncher}
-            onLogWorkout={openLogLauncher}
-          />
+          <View style={{ width: 40 }} />
         </View>
 
-        {/* List or empty state */}
+        {isToday ? (
+          <View style={{ paddingHorizontal: 20, marginTop: 4, marginBottom: 8 }}>
+            <WorkoutSessionRecoveryBanner onRecover={() => void handleRecoverSession()} />
+
+            {hasActiveLiveSession && activeLiveDisplay ? (
+              <WorkoutContinueCard
+                workoutType={activeLiveDisplay.workoutType}
+                workoutName={activeLiveDisplay.workoutName}
+                elapsedMs={liveElapsed}
+                setCount={activeLiveDisplay.sets.length}
+                isPaused={activeLiveDisplay.pausedAt != null}
+                onPress={() => setLiveSheetOpen(true)}
+              />
+            ) : null}
+
+            <WorkoutActionRow
+              onStartWorkout={openLiveLauncher}
+              onLogWorkout={openLogLauncher}
+            />
+          </View>
+        ) : null}
+
         <View style={{ paddingHorizontal: 20, marginTop: 12 }}>
-          {pendingImports.isLoading &&
-          workouts.length === 0 &&
-          pendingImports.totalPending === 0 ? (
+          {showInitialLoad ? (
             <View style={ms.loading}>
               <ActivityIndicator color={P.workout} />
               <Text style={[ms.loadingText, { color: P.textFaint }]}>
-                Loading Apple Fitness workouts…
+                {isToday
+                  ? "Loading Apple Fitness workouts…"
+                  : "Loading workouts…"}
               </Text>
             </View>
-          ) : workouts.length === 0 && pendingImports.totalPending === 0 ? (
+          ) : !hasViewContent ? (
             <View
               style={[
                 ms.empty,
@@ -1444,41 +1518,46 @@ export default function WorkoutLogScreen() {
                 <Ionicons name="barbell-outline" size={28} color={P.workout} />
               </View>
               <Text style={[ms.emptyTitle, { color: P.text }]}>
-                No workouts yet
+                {isToday ? "No workouts yet" : "No workouts this day"}
               </Text>
               <Text style={[ms.emptySub, { color: P.textFaint }]}>
-                Use Actions above to start a live session or log a workout manually.
+                {isToday
+                  ? "Use Actions above to start a live session or log a workout manually."
+                  : "Try another day or pull to refresh."}
               </Text>
             </View>
           ) : (
             <>
-              {hasTodayContent ? (
-                <WorkoutTodaySection
-                  pendingItems={todayPendingGroup?.items ?? []}
-                  workouts={workouts}
-                  onOpenPending={(uuid) => {
-                    router.push(`/(tabs)/log/workout/healthkit/${uuid}`);
-                  }}
-                  onOpenWorkout={handleOpenDetail}
-                />
-              ) : null}
-
-              <WorkoutPendingSection
-                groups={olderPendingGroups}
-                onOpenItem={(uuid) => {
+              <WorkoutTodaySection
+                sectionLabel={formatHistoryDateLabel(viewDate, todayKey)}
+                pendingItems={viewPendingGroup?.items ?? []}
+                workouts={viewWorkouts}
+                onOpenPending={(uuid) => {
                   router.push(`/(tabs)/log/workout/healthkit/${uuid}`);
                 }}
+                onOpenWorkout={handleOpenDetail}
               />
+
+              {isToday ? (
+                <WorkoutPendingSection
+                  groups={olderPendingGroups}
+                  onOpenItem={(uuid) => {
+                    router.push(`/(tabs)/log/workout/healthkit/${uuid}`);
+                  }}
+                />
+              ) : null}
             </>
           )}
 
-          <WorkoutHistorySection
-            groups={workoutHistory.groups}
-            isLoading={workoutHistory.isLoading}
-            error={workoutHistory.error}
-            onRetry={() => { void workoutHistory.refresh(true); }}
-            onEditWorkout={handleOpenDetail}
-          />
+          {isToday ? (
+            <WorkoutHistorySection
+              groups={workoutHistory.groups}
+              isLoading={workoutHistory.isLoading}
+              error={workoutHistory.error}
+              onRetry={() => { void workoutHistory.refresh(true); }}
+              onEditWorkout={handleOpenDetail}
+            />
+          ) : null}
         </View>
       </ScrollView>
 
@@ -1509,6 +1588,24 @@ export default function WorkoutLogScreen() {
 // ── Main screen styles ────────────────────────────────────────────────────────
 
 const ms = StyleSheet.create({
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  eyebrow: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.8,
+  },
   sectionTitle: {
     fontSize: 12,
     fontWeight: "700",

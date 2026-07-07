@@ -60,9 +60,11 @@ Return ONLY a valid JSON object with no extra text or markdown:
 
 Rules:
 - Use ONLY the facts and numbers in the input. Never add exercises, foods, numbers, durations, or advice that are not given.
+- Preserve every number from the input exactly. Do not soften, round, or omit them.
+- Write complete, grammatical sentences.
 - The FIRST sentence must state the directive (the "say this first" line).
 - 2 to 3 sentences total. Direct and warm, no corporate language.
-- Title 3 to 6 words. No em-dashes, no colons, no bullet points, no headers, no lists.
+- Title 3 to 6 words that names the single most important thing in the message. No em-dashes, no colons, no bullet points, no headers, no lists.
 - Never start the message with "I" or "As your coach".
 
 Safety, always:

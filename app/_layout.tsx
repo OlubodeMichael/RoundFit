@@ -36,6 +36,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ToastProvider } from "@/components/ui/Toast";
 import { AuthProvider, hasActiveUserSession } from "@/context/auth-context";
+import { BurnCoachProvider } from "@/context/burn-coach-context";
 import { CheckinProvider } from "@/context/checkin-context";
 import { CycleProvider } from "@/context/cycle-context";
 import { FoodProvider } from "@/context/food-context";
@@ -207,7 +208,9 @@ export default function RootLayout() {
                                     requests. Context/hook kept for when engine UI is wired. */}
                                 <InsightsProvider>
                                   <NotificationInboxProvider>
-                                    <AppNavigator />
+                                    <BurnCoachProvider>
+                                      <AppNavigator />
+                                    </BurnCoachProvider>
                                   </NotificationInboxProvider>
                                 </InsightsProvider>
                               </RecoveryProvider>

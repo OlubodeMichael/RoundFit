@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -51,8 +51,19 @@ export function AnnouncementModal({
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(16)).current;
 
+  // Keep the native Modal (and its BlurView) mounted until the close animation
+  // finishes. Tearing a `UIVisualEffectView` down in the same frame that
+  // `visible` flips to false leaves a frozen blurred snapshot over the whole app
+  // on iOS (cleared only by the next touch), so we defer the unmount.
+  const [mounted, setMounted] = useState(visible);
+
   useEffect(() => {
     if (visible) {
+      setMounted(true);
+      backdropOp.setValue(0);
+      scale.setValue(0.88);
+      opacity.setValue(0);
+      translateY.setValue(16);
       Animated.parallel([
         Animated.timing(backdropOp, {
           toValue: 1,
@@ -96,7 +107,11 @@ export function AnnouncementModal({
           duration: 160,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(({ finished }) => {
+        // Only unmount when the close animation ran to completion. A reopen
+        // interrupts it (finished === false), so we keep the Modal mounted.
+        if (finished) setMounted(false);
+      });
     }
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -108,7 +123,7 @@ export function AnnouncementModal({
   return (
     <Modal
       transparent
-      visible={visible}
+      visible={mounted}
       animationType="none"
       onRequestClose={onClose}
       statusBarTranslucent

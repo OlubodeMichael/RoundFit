@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -52,8 +52,15 @@ export function BadgeReviewModal({
   const opacity = useRef(new Animated.Value(0)).current;
   const badgeProgress = useRef(new Animated.Value(0)).current;
 
+  // Keep the native Modal (and its BlurView) mounted until the close animation
+  // finishes. Tearing a `UIVisualEffectView` down in the same frame that
+  // `visible` flips to false leaves a frozen blurred snapshot over the whole app
+  // on iOS (cleared only by the next touch), so we defer the unmount.
+  const [mounted, setMounted] = useState(visible);
+
   useEffect(() => {
     if (visible) {
+      setMounted(true);
       badgeProgress.setValue(0);
 
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -116,7 +123,11 @@ export function BadgeReviewModal({
           duration: 140,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(({ finished }) => {
+        // Only unmount when the close animation ran to completion. A reopen
+        // interrupts it (finished === false), so we keep the Modal mounted.
+        if (finished) setMounted(false);
+      });
   }, [visible, badge?.id, backdropOp, badgeProgress, opacity, scale]);
 
   if (!badge) return null;
@@ -147,7 +158,7 @@ export function BadgeReviewModal({
   return (
     <Modal
       transparent
-      visible={visible}
+      visible={mounted}
       animationType="none"
       onRequestClose={onClose}
       statusBarTranslucent

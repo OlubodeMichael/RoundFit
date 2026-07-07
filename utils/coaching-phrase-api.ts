@@ -6,13 +6,14 @@ export interface CoachingPhraseResult {
 }
 
 /**
- * Cloud phrasing path — POST /coaching/phrase under the phrasing system prompt.
- * Returns null on any failure so the caller falls through to the template.
+ * Cloud phrasing path — POST /insights/coaching/phrase under the phrasing system
+ * prompt (premium-gated, alongside /insights/ai/*). Returns null on any failure so
+ * the caller falls through to the template.
  */
 export async function phraseCoachingViaOpenAI(
   decisionPrompt: string,
 ): Promise<CoachingPhraseResult | null> {
-  const { ok, body } = await apiFetch('/coaching/phrase', {
+  const { ok, body } = await apiFetch('/insights/coaching/phrase', {
     method: 'POST',
     body: JSON.stringify({ decisionPrompt }),
   });

@@ -103,7 +103,7 @@ reports** STAY on OpenAI (Foundation Models can't run in a background window).
 
 ---
 
-## 6.5 🟡 Coach re-architecture — rules decide, LLM phrases
+## 6.5 🟢 Coach re-architecture — rules decide, LLM phrases (Phases 1–3 DONE)
 
 Non-negotiable principle: a deterministic engine picks the directive + actions; the LLM (Apple FM/OpenAI) only
 rephrases the finished decision; a template renderer always produces a valid message if the LLM fails. Reuses the
@@ -123,14 +123,15 @@ rephrases the finished decision; a template renderer always produces a valid mes
 - [x] `generateCoachingFromPrompt()` (backend) — gpt-4o under the phrasing prompt (OpenAI path + eval baseline).
 - [x] Eval rewritten to feed **decisions**: `eval-scenarios.ts` = 6 serialized `decisionPrompt`s + gold `reference`s (E4 = safety "eat closer to target"); runner uses `generateCoachingFromPrompt`.
 
-**Phase 2 — Data hook:** ⏳
-- [ ] `hooks/use-daily-coaching.ts` — assemble input from existing contexts (recovery/summary/cycle/checkin/engine), cache decision per day, recompute on check-in/sleep/nutrition/workout mutations; remount `EngineProvider` or fetch patterns inline.
-- [ ] Fallback chain **Apple FM → OpenAI → `renderCoachingTemplate`** (never a blank card, even offline). Single response, not streaming (answers open Q1+Q2).
+**Phase 2 — Data hook:** ✅ DONE (41 coaching tests; tsc clean)
+- [x] `hooks/use-daily-coaching.ts` — assembles input from existing contexts (recovery/summary/cycle/checkin/water/workout/health), caches the decision per day by fingerprint, recomputes on check-in/sleep/nutrition/workout/water mutations via `today-sync`.
+- [x] Fallback chain **Apple FM → OpenAI → `renderCoachingTemplate`** (never a blank card, even offline) in `resolve-coaching-message.ts`. Single response, not streaming.
 
-**Phase 3 — Mascot + honest badge + card:** ⏳ (Lottie art separate)
-- [ ] `CoachMascot.tsx` (Lottie states: calm/relaxed/alert/energized/concerned mapped to directive; broadcasts directive at a glance).
-- [ ] Honest badge: default "1" = today's fresh directive, clears on open; distinct events stack to 2–3; yesterday's unread **expires** (no guilt-badging); never pad the count.
-- [ ] `CoachingCard.tsx` slide-up with "why did I say this?" (primary_reason + dropped). Surface consistency: mascot card / check-in reveal / morning push all show the **same** cached decision.
+**Phase 3 — Mascot + honest badge + card:** ✅ DONE (Lottie art separate — ships with Obsidian PNG moods)
+- [x] `components/mascot/AnimatedMascot.tsx` (native breathing/float/bounce/sway per mood; reduce-motion aware; `moodFromDirective` / `moodFromReadinessRecommendation`). Wired into `ReadinessWidget` (readiness-driven) **and** `CoachingCard` (directive-driven).
+- [x] Honest badge (`utils/coaching-badge.ts` + `hooks/use-coaching-badge.ts`): count = distinct fresh events (directive +nutrition +hydration), capped at 3, never padded; clears on open by fingerprint; re-badges only on genuinely new info; yesterday's unread expires (decision is always today's). 7 tests.
+- [x] `components/home/CoachingCard.tsx` — mounts the Phase-2 hook, broadcasts the real directive through the mascot, "Why this?" slide-up (primary_reason + nutrition-gap numbers + `dropped` "also considered" + honest source attribution). Mounted on the home screen above the readiness widget.
+- [x] **Cloud phrasing gated to premium client-side** (`hooks/use-is-premium.ts` → `makeCoachingPhraser`): free users skip the OpenAI leg entirely (no wasted 403) and get Apple FM / template; the `/insights/coaching/phrase` route stays `requirePremium`. ⚠️ `useIsPremium` is a **stub returning false** until RevenueCat frontend (§3) lands, so cloud coaching phrasing is off app-wide until then — flip it on by wiring the entitlement check in that one hook.
 
 ---
 
@@ -152,6 +153,7 @@ rephrases the finished decision; a template renderer always produces a valid mes
 - GDPR data export.
 - Offline request queue.
 - Re-enable cycle feature (flip `CYCLE_ENABLED`; see its plan).
+- Apple Watch companion — readiness glance, water quick-log, workout remote-control (full phased plan: `WATCH_PLAN.md`). Launch cut = Phase 0+1 only *if* pursued in v1; Phase 3 (standalone `HKWorkoutSession`) is post-launch.
 
 ---
 
