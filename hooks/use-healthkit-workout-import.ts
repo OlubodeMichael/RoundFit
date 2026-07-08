@@ -12,8 +12,6 @@ import {
   subscribeToWorkoutUpdates,
 } from '@/utils/healthkit';
 
-const FOREGROUND_POLL_MS = 45_000;
-
 export interface UseHealthKitWorkoutImportOptions {
   /** When true, new workouts are queued for review instead of auto-imported. */
   reviewBeforeImport?: boolean;
@@ -25,7 +23,7 @@ export interface UseHealthKitWorkoutImportResult {
   lastImportAt: Date | null;
   isImporting:  boolean;
   error:        string | null;
-  /** Manual trigger — also runs automatically on AppState → active and every 45s while foregrounded. */
+  /** Manual trigger — also runs on AppState → active and when HealthKit writes a workout. */
   runImport:    () => Promise<void>;
 }
 
@@ -101,18 +99,6 @@ export function useHealthKitWorkoutImport(
     void runImport();
 
     return () => subscription.remove();
-  }, [runImport, status, user]);
-
-  useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    if (!hasActiveUserSession(status, user)) return;
-
-    const interval = setInterval(() => {
-      if (appStateRef.current !== 'active') return;
-      void runImport();
-    }, FOREGROUND_POLL_MS);
-
-    return () => clearInterval(interval);
   }, [runImport, status, user]);
 
   // Best-effort HKWorkout observer + background delivery (Phase D).

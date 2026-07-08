@@ -151,13 +151,16 @@ Mascot on the watch is a **static per-mood glyph/asset**, not the animated compo
 
 ## 4. Phases
 
-### Phase 0 — Foundation + Readiness glance (read-only) ⏳
+### Phase 0 — Foundation + Readiness glance (read-only) 🟡 phone side DONE
 The whole spine. Everything else is incremental after this.
-- [ ] Add `@bacons/apple-targets`; `expo prebuild`; create watchOS app + WidgetKit targets; set up the **App Group**.
-- [ ] `modules/watch-bridge` Expo module: `pushSnapshot(json)`, `onAction(cb)`, `isPaired()`, `isReachable()`.
-- [ ] SwiftUI: WCSession receive → write snapshot to App Group; **Readiness complication** + Readiness app view.
-- [ ] Phone: `hooks/use-watch-sync.ts` — builds `WatchSnapshot` from existing state, **debounced** push on change; mounted once in the app root (like the Live Activity hook).
-- [ ] Includes **calories + protein remaining** and **water (read-only)** in the snapshot from day one — the glance shows all four numbers even before any write path exists.
+- [x] **Contracts** — `types/watch.ts` (`WatchSnapshot` / `WatchAction`).
+- [x] **Pure snapshot builder** — `utils/watch-snapshot.ts` (`buildWatchSnapshot`, mood/label/SF-symbol maps, `watchSnapshotFingerprint`). Tested (`__tests__/watch-snapshot.test.ts`).
+- [x] **Idempotency guard** — `utils/watch-action-dedup.ts` (id dedup + stale-day drop, capped window). Tested.
+- [x] **JS bridge interface** — `modules/watch-bridge/src/index.ts` (`pushWatchSnapshot`, `addWatchActionListener`, `isWatchPaired/Reachable`), no-ops until the native module exists.
+- [x] **Sync hook** — `hooks/use-watch-sync.ts` builds + fingerprint-gates the snapshot push and applies inbound actions (water wired; workout stubbed for Phase 2). Includes **calories + protein remaining + water** from day one. *Not yet mounted at root.*
+- [x] **Native code written** (hand-add-in-Xcode path): Swift `WatchBridge` WCSession module (`modules/watch-bridge/ios/`), watchOS app (`watch/WatchApp/*` — Readiness/Energy/Water/Workout), shared Codable model (`watch/Shared/`), **Readiness complication** (`watch/Widget/`).
+- [ ] **Xcode wiring (needs Mac):** App Group `group.com.michaelolu.roundfit`, add watch app + widget targets, `pod install`, file target membership — full steps in `watch/WATCH_XCODE_SETUP.md`.
+- [ ] Mount `useWatchSync()` once at the app root (step 5 of the setup doc).
 - **Exit:** raise wrist → readiness + calories + protein + water render, refreshing within seconds of a phone change.
 
 ### Phase 1 — Water quick-log (first write path) ⏳

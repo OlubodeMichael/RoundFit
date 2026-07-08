@@ -3,9 +3,11 @@ import { apiFetch, proactiveRefreshIfNeeded } from "@/utils/api";
 import { getLocalDateString } from "@/utils/date";
 import {
     ensureHealthKitAuthorized,
+    enableDailyHealthBackgroundDelivery,
     getHealthKitModule,
     readDailyHealthKit,
     readHealthKitForDate,
+    subscribeToDailyHealthUpdates,
     type HealthKitSummary,
 } from "@/utils/healthkit";
 import {
@@ -38,11 +40,11 @@ import { AppState, AppStateStatus, Platform } from "react-native";
 
 const HEALTH_BACKFILL_CURSOR_KEY = "@roundfit/health_backfill_cursor";
 export const LAST_HEALTH_SYNC_KEY = "@roundfit/last_health_sync";
-/** Throttle expensive per-day backfill only — today's HK read always runs. */
+/** Throttle expensive per-day backfill only — today's HK read runs on data changes. */
 const HEALTH_BACKFILL_THROTTLE_MS = 3 * 60 * 1000;
 
-/** Re-read today's steps/calories while the app stays in the foreground. */
-const HEALTH_TODAY_POLL_MS = 60 * 1000;
+/** Debounce rapid HealthKit observer bursts (several types update together). */
+const HEALTH_KIT_OBSERVER_DEBOUNCE_MS = 800;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -436,6 +438,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const [isConnected, setIsConnected] = useState(false);
   const hasFetchedRef = useRef(false);
   const todayRef = useRef<HealthData | null>(null);
+  const hkSyncInFlightRef = useRef(false);
 
   /** Keep todayRef in sync immediately — useEffect alone races syncFromDevice on cache hits. */
   const paintToday = useCallback((data: HealthData | null) => {
@@ -549,6 +552,10 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
       const hk = getHealthKitModule();
       if (!hk) return;
 
+      if (hkSyncInFlightRef.current) return;
+
+      hkSyncInFlightRef.current = true;
+
       try {
         // Ensure the access token is fresh before making any API calls.
         // syncFromDevice fires on startup and foreground-resume — the stored
@@ -660,6 +667,8 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
         setIsConnected(true);
       } catch {
         // HealthKit not available in Expo Go or simulator without data
+      } finally {
+        hkSyncInFlightRef.current = false;
       }
     },
     [fetchByDate, paintToday, saveHealthSnapshot, user?.createdAt, user?.id],
@@ -786,16 +795,26 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [status, user?.id, fetchToday, syncFromDevice]);
 
-  // ── Poll today's HealthKit metrics while foregrounded ────────────────────
+  // ── Re-sync when HealthKit writes new samples (steps, calories, sleep, etc.)
   useEffect(() => {
     if (Platform.OS !== "ios" || status !== "authenticated") return;
 
-    const interval = setInterval(() => {
-      if (AppState.currentState !== "active") return;
-      void syncFromDevice(false);
-    }, HEALTH_TODAY_POLL_MS);
+    void enableDailyHealthBackgroundDelivery().catch(() => {});
 
-    return () => clearInterval(interval);
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleSync = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        void syncFromDevice(false);
+      }, HEALTH_KIT_OBSERVER_DEBOUNCE_MS);
+    };
+
+    const subscription = subscribeToDailyHealthUpdates(scheduleSync);
+
+    return () => {
+      subscription?.remove();
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
   }, [status, syncFromDevice]);
 
   // ── Refresh ──────────────────────────────────────────────────────────────

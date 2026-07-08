@@ -1,4 +1,6 @@
 PODS:
+  - AppleLLMModule (1.0.0):
+    - ExpoModulesCore
   - EASClient (1.0.8):
     - ExpoModulesCore
   - EXApplication (7.0.8):
@@ -2412,6 +2414,8 @@ PODS:
   - SDWebImageWebPCoder (0.14.6):
     - libwebp (~> 1.0)
     - SDWebImage/Core (~> 5.17)
+  - WatchBridgeModule (1.0.0):
+    - ExpoModulesCore
   - WorkoutLiveActivityModule (1.0.0):
     - ExpoModulesCore
   - Yoga (0.0.0)
@@ -2422,6 +2426,7 @@ PODS:
     - ZXingObjC/Core
 
 DEPENDENCIES:
+  - AppleLLMModule (from `../modules/apple-llm/ios`)
   - EASClient (from `../node_modules/expo-eas-client/ios`)
   - EXApplication (from `../node_modules/expo-application/ios`)
   - EXConstants (from `../node_modules/expo-constants/ios`)
@@ -2539,6 +2544,7 @@ DEPENDENCIES:
   - RNScreens (from `../node_modules/react-native-screens`)
   - RNSVG (from `../node_modules/react-native-svg`)
   - RNWorklets (from `../node_modules/react-native-worklets`)
+  - WatchBridgeModule (from `../modules/watch-bridge/ios`)
   - WorkoutLiveActivityModule (from `../modules/workout-live-activity/ios`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
@@ -2559,6 +2565,8 @@ SPEC REPOS:
     - ZXingObjC
 
 EXTERNAL SOURCES:
+  AppleLLMModule:
+    :path: "../modules/apple-llm/ios"
   EASClient:
     :path: "../node_modules/expo-eas-client/ios"
   EXApplication:
@@ -2792,12 +2800,15 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-svg"
   RNWorklets:
     :path: "../node_modules/react-native-worklets"
+  WatchBridgeModule:
+    :path: "../modules/watch-bridge/ios"
   WorkoutLiveActivityModule:
     :path: "../modules/workout-live-activity/ios"
   Yoga:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
+  AppleLLMModule: 7f153ca71e7f631ac7ce31db542d86085221bcf2
   EASClient: ed58524bf0bb6375fbf106e1877ab9ac4ce24623
   EXApplication: 13420f8139864183f8a04fd6099077bdf8cfb186
   EXConstants: 3feb66fd1d94202fc1f0946d74e029d8b224b60e
@@ -2926,6 +2937,7 @@ SPEC CHECKSUMS:
   SDWebImageAVIFCoder: afe194a084e851f70228e4be35ef651df0fc5c57
   SDWebImageSVGCoder: 15a300a97ec1c8ac958f009c02220ac0402e936c
   SDWebImageWebPCoder: e38c0a70396191361d60c092933e22c20d5b1380
+  WatchBridgeModule: 137b9bf60ea4391992fc871914dceb62e861d397
   WorkoutLiveActivityModule: 37535c7612ad8914fb80c7f8e8331f43a08b4b29
   Yoga: 5934998fbeaef7845dbf698f698518695ab4cd1a
   ZXingObjC: 8898711ab495761b2dbbdec76d90164a6d7e14c5

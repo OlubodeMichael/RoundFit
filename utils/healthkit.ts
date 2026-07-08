@@ -1756,6 +1756,70 @@ export async function enableSleepBackgroundDelivery(): Promise<boolean> {
   }
 }
 
+/**
+ * Observer for daily movement + activity metrics. Fires when the watch or phone
+ * writes new steps, calories, exercise minutes, stand hours, HR, HRV, or sleep.
+ */
+const DAILY_HEALTH_OBSERVER_IDS = [
+  "HKQuantityTypeIdentifierStepCount",
+  "HKQuantityTypeIdentifierActiveEnergyBurned",
+  "HKQuantityTypeIdentifierBasalEnergyBurned",
+  "HKQuantityTypeIdentifierDistanceWalkingRunning",
+  "HKQuantityTypeIdentifierAppleExerciseTime",
+  "HKCategoryTypeIdentifierAppleStandHour",
+  "HKQuantityTypeIdentifierHeartRate",
+  "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
+  HEALTHKIT_SLEEP_TYPE_ID,
+] as const;
+
+export function subscribeToDailyHealthUpdates(
+  onChange: () => void,
+): { remove: () => void } | null {
+  const hk = getHealthKitModule();
+  if (!hk || typeof hk.subscribeToChanges !== "function") return null;
+
+  const subscriptions = DAILY_HEALTH_OBSERVER_IDS.map((typeId) =>
+    hk.subscribeToChanges(typeId, onChange),
+  ).filter(
+    (sub): sub is { remove: () => void } =>
+      sub != null && typeof sub.remove === "function",
+  );
+
+  if (subscriptions.length === 0) return null;
+
+  return {
+    remove: () => {
+      subscriptions.forEach((sub) => sub.remove());
+    },
+  };
+}
+
+/**
+ * Best-effort background delivery for daily health types so iOS can wake the app
+ * when the watch syncs new activity or sleep samples.
+ */
+export async function enableDailyHealthBackgroundDelivery(): Promise<boolean> {
+  const hk = getHealthKitModule();
+  if (!hk || typeof hk.enableBackgroundDelivery !== "function") return false;
+
+  const authorized = await ensureHealthKitAuthorized(hk);
+  if (!authorized) return false;
+
+  try {
+    const results = await Promise.all(
+      DAILY_HEALTH_OBSERVER_IDS.map((typeId) =>
+        hk
+          .enableBackgroundDelivery(typeId, HK_UPDATE_FREQUENCY_IMMEDIATE)
+          .catch(() => false),
+      ),
+    );
+    return results.some(Boolean);
+  } catch (err) {
+    hkLog("[HealthKit] enableDailyHealthBackgroundDelivery failed:", err);
+    return false;
+  }
+}
+
 /** Maps a normalised HK workout sample to {@link LogWorkoutInput} for POST /workouts. */
 export function mapHealthKitWorkoutToLogInput(
   sample: HealthKitWorkoutSample,

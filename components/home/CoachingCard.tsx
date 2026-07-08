@@ -3,9 +3,9 @@ import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import {
-  AnimatedMascot,
-  moodFromDirective,
-} from "@/components/mascot/AnimatedMascot";
+  LivingMascot,
+  actionFromDirective,
+} from "@/components/mascot/LivingMascot";
 import { GradientCard } from "@/components/ui/GradientCard";
 import { AppModal } from "@/components/ui/AppModal";
 import { useCoachingBadge } from "@/hooks/use-coaching-badge";
@@ -79,7 +79,7 @@ export function CoachingCard({ delay = 0 }: CoachingCardProps) {
 
   if (!decision || !message || !accent) return null;
 
-  const mood = moodFromDirective(decision.directive);
+  const mascotAction = actionFromDirective(decision.directive);
   const focusIcon = FOCUS_ICON[decision.focus];
   const chip = CONFIDENCE_CHIP[decision.confidence];
 
@@ -104,7 +104,7 @@ export function CoachingCard({ delay = 0 }: CoachingCardProps) {
           style={({ pressed }) => [s.body, pressed && { opacity: 0.9 }]}
         >
           <View style={s.mascotCol}>
-            <AnimatedMascot mood={mood} size={64} />
+            <LivingMascot action={mascotAction} size={64} />
             {badge > 0 && (
               <View style={[s.badge, { backgroundColor: accent.main }]}>
                 <Text style={s.badgeText}>{badge}</Text>

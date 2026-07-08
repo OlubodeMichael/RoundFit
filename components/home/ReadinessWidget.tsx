@@ -6,9 +6,9 @@ import Svg, { Circle, Path } from "react-native-svg";
 
 import { GradientCard, getCardAccent } from "@/components/ui/GradientCard";
 import {
-  AnimatedMascot,
-  moodFromReadinessRecommendation,
-} from "@/components/mascot/AnimatedMascot";
+  LivingMascot,
+  actionFromReadinessRecommendation,
+} from "@/components/mascot/LivingMascot";
 import { scoreTint } from "@/components/recovery/recovery-trend-utils";
 import { useHealth } from "@/context/health-context";
 import { useRecovery } from "@/hooks/use-recovery";
@@ -131,7 +131,7 @@ export function ReadinessWidget({
   const headline = display.recommendation
     ? (HEADLINES[display.recommendation] ?? display.recommendation)
     : "–";
-  const mascotMood = moodFromReadinessRecommendation(display.recommendation);
+  const mascotAction = actionFromReadinessRecommendation(display.recommendation);
 
   const sleepHr = today?.sleep_hours ?? healthToday?.sleep_hours ?? null;
   const sleepLbl =
@@ -182,7 +182,7 @@ export function ReadinessWidget({
             <Text style={[s.headerLabel, { color: P.textDim }]}>Readiness</Text>
           </View>
           <View style={s.headerRight}>
-            <AnimatedMascot mood={mascotMood} size={44} />
+            <LivingMascot action={mascotAction} size={48} />
             <Ionicons name="chevron-forward" size={16} color={P.textFaint} />
           </View>
         </View>
