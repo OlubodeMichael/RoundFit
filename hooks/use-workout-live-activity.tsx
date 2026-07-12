@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { AppState, Platform } from 'react-native';
 
 import { getCatalogEntryById } from '@/config/workout-catalog';
@@ -57,7 +65,7 @@ function liveMetricsPayload(
   return { caloriesBurned: burned, heartRate: hr };
 }
 
-export function useWorkoutLiveActivity(): UseWorkoutLiveActivityResult {
+function useWorkoutLiveActivityController(): UseWorkoutLiveActivityResult {
   const { today: healthToday } = useHealth();
   const workoutSession = useWorkoutSession();
   const sessionMetrics = useSessionMetrics();
@@ -74,6 +82,9 @@ export function useWorkoutLiveActivity(): UseWorkoutLiveActivityResult {
   const start = useCallback(
     async (activity: BurnActivity, goalCalories: number) => {
       if (!isSupported) return;
+      // One live session at a time — ignore a start while one is already running,
+      // no matter how many times start is invoked (e.g. rapid taps from the watch).
+      if (activeRef.current || hasActiveLiveActivity()) return;
 
       const baselineCals = healthRef.current?.active_calories ?? 0;
       const startedAt = Date.now();
@@ -95,20 +106,15 @@ export function useWorkoutLiveActivity(): UseWorkoutLiveActivityResult {
           startTime: startedAt,
         });
         setActive(next);
-
-        if (entry && workoutSession.status === 'idle') {
-          void workoutSession.start({
-            entry,
-            intent: 'burn',
-            entrySurface: 'home',
-            calorieGoal: goalCalories,
-          });
-        }
+        // NOTE: intentionally does NOT start a workout session here. Starting one
+        // triggers use-workout-session-live-activity to spawn a SECOND Live Activity
+        // (the "sets" one), so a single start showed two activities. Callers that want a
+        // logged session (e.g. the home screen) start it explicitly.
       } catch {
         // Live Activity may be disabled or dismissed
       }
     },
-    [isSupported, workoutSession],
+    [isSupported],
   );
 
   const pause = useCallback(async () => {
@@ -258,4 +264,31 @@ export function useWorkoutLiveActivity(): UseWorkoutLiveActivityResult {
   }, [isSupported, active, syncFromNative]);
 
   return { active, isSupported, start, pause, resume, end };
+}
+
+// ── Shared context ───────────────────────────────────────────────────────────
+// A single live-activity controller for the whole app, so the home screen, the
+// burn-coach context, and the Apple Watch sync all read and mutate the SAME workout
+// state. (Previously each caller had its own useState copy, so a pause from the watch
+// never reached the phone's copy.)
+
+const WorkoutLiveActivityContext = createContext<UseWorkoutLiveActivityResult | null>(null);
+
+export function WorkoutLiveActivityProvider({ children }: { children: ReactNode }) {
+  const value = useWorkoutLiveActivityController();
+  return (
+    <WorkoutLiveActivityContext.Provider value={value}>
+      {children}
+    </WorkoutLiveActivityContext.Provider>
+  );
+}
+
+export function useWorkoutLiveActivity(): UseWorkoutLiveActivityResult {
+  const ctx = useContext(WorkoutLiveActivityContext);
+  if (!ctx) {
+    throw new Error(
+      'useWorkoutLiveActivity must be used within a WorkoutLiveActivityProvider',
+    );
+  }
+  return ctx;
 }

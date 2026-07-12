@@ -158,9 +158,11 @@ The whole spine. Everything else is incremental after this.
 - [x] **Idempotency guard** — `utils/watch-action-dedup.ts` (id dedup + stale-day drop, capped window). Tested.
 - [x] **JS bridge interface** — `modules/watch-bridge/src/index.ts` (`pushWatchSnapshot`, `addWatchActionListener`, `isWatchPaired/Reachable`), no-ops until the native module exists.
 - [x] **Sync hook** — `hooks/use-watch-sync.ts` builds + fingerprint-gates the snapshot push and applies inbound actions (water wired; workout stubbed for Phase 2). Includes **calories + protein remaining + water** from day one. *Not yet mounted at root.*
-- [x] **Native code written** (hand-add-in-Xcode path): Swift `WatchBridge` WCSession module (`modules/watch-bridge/ios/`), watchOS app (`watch/WatchApp/*` — Readiness/Energy/Water/Workout), shared Codable model (`watch/Shared/`), **Readiness complication** (`watch/Widget/`).
-- [ ] **Xcode wiring (needs Mac):** App Group `group.com.michaelolu.roundfit`, add watch app + widget targets, `pod install`, file target membership — full steps in `watch/WATCH_XCODE_SETUP.md`.
-- [ ] Mount `useWatchSync()` once at the app root (step 5 of the setup doc).
+- [x] **Native code written**: Swift `WatchBridge` WCSession module (`modules/watch-bridge/ios/`), watchOS app + shared model + **Readiness complication**, all under `ios/RoundFitWatch/`.
+- [x] **Xcode target created + verified**: App Group fixed on both iOS entitlements, `pod install` done, legacy/duplicate targets cleaned, modern `RoundFitWatch` app target created via the `xcodeproj` gem, embedded in RoundFit — **`xcodebuild BUILD SUCCEEDED`**.
+- [x] `useWatchSync()` mounted at the app root (`app/_layout.tsx`).
+- [x] **Widget Extension target** `RoundFitWatchWidget` created (shared model membership, App Group, embedded in the watch app) — **`xcodebuild BUILD SUCCEEDED`** for watch app + widget together.
+- [ ] Build + run on a paired watch to test the readiness glance + water +1 + complication (step B in `watch/WATCH_XCODE_SETUP.md`).
 - **Exit:** raise wrist → readiness + calories + protein + water render, refreshing within seconds of a phone change.
 
 ### Phase 1 — Water quick-log (first write path) ⏳
@@ -192,6 +194,18 @@ The heavy, genuinely-native piece. Justified only by the **"leave phone at home"
 - [ ] Snapshot staleness handling ("as of 2h ago" when the phone hasn't pushed recently).
 
 ---
+
+## 4b. Future: on-device HealthKit on the watch (hybrid data) 🔮
+The watch already has HealthKit access, so the **raw** metrics (sleep hours + Deep/Core/REM
+stages, HRV, resting HR, live HR, active calories, steps) can be read **on-device** instead of
+via the phone snapshot — fresher, resilient when the phone is away, and a prerequisite for
+standalone use. The **derived/logged** values stay on the phone snapshot because they are NOT in
+HealthKit: readiness/sleep/strain scores, the coach directive+message, calorie budget & protein
+remaining, and water (RoundFit's own model, not `dietaryWater`). End-state = hybrid: raw from
+HealthKit locally, derived from the snapshot. Cost: HealthKit entitlement + capability on the
+watch target, a watch-side authorization prompt, `HKAnchoredObjectQuery` code, and reconciling
+on-device raw values with the phone's derived scores on the same page. Deliberately deferred —
+the snapshot approach is the MVP and the only source for the derived data regardless.
 
 ## 5. Additions worth shipping (the "whatever you think" part)
 

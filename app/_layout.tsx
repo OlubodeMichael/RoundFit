@@ -53,6 +53,14 @@ import { WorkoutProvider } from "@/context/workout-context";
 import { WorkoutSessionProvider } from "@/context/workout-session-context";
 import { WorkoutImportReviewProvider } from "@/context/workout-import-review-context";
 import { WorkoutSessionLiveActivityProvider } from "@/hooks/use-workout-session-live-activity";
+import { WorkoutLiveActivityProvider } from "@/hooks/use-workout-live-activity";
+import { useWatchSync } from "@/hooks/use-watch-sync";
+
+/** Mounts the Apple Watch snapshot/action sync. No-ops until the native bridge ships. */
+function WatchSyncMount() {
+  useWatchSync();
+  return null;
+}
 import { useAuth } from "@/hooks/use-auth";
 import { useDailyInsightNotification } from "@/hooks/use-daily-insight-notification";
 import { useTheme } from "@/hooks/use-theme";
@@ -137,6 +145,7 @@ function AppNavigator() {
   return (
     <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
       <View style={styles.navRoot}>
+        {status === "authenticated" && <WatchSyncMount />}
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
           <Stack.Screen name="auth" />
           <Stack.Screen name="onboarding" />
@@ -206,13 +215,15 @@ export default function RootLayout() {
                                 {/* EngineProvider unmounted: no screen consumes useEngine();
                                     it only generated unused /engine/daily + /engine/patterns
                                     requests. Context/hook kept for when engine UI is wired. */}
-                                <InsightsProvider>
-                                  <NotificationInboxProvider>
-                                    <BurnCoachProvider>
-                                      <AppNavigator />
-                                    </BurnCoachProvider>
-                                  </NotificationInboxProvider>
-                                </InsightsProvider>
+                                <WorkoutLiveActivityProvider>
+                                  <InsightsProvider>
+                                    <NotificationInboxProvider>
+                                      <BurnCoachProvider>
+                                        <AppNavigator />
+                                      </BurnCoachProvider>
+                                    </NotificationInboxProvider>
+                                  </InsightsProvider>
+                                </WorkoutLiveActivityProvider>
                               </RecoveryProvider>
                             </SummaryProvider>
                           </CheckinProvider>

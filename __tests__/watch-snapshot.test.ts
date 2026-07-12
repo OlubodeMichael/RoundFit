@@ -53,7 +53,7 @@ describe('buildWatchSnapshot', () => {
     const s = buildWatchSnapshot(sources());
     expect(s.schema).toBe(1);
     expect(s.updatedAt).toBe('2026-07-07T08:00:00.000Z');
-    expect(s.readiness).toEqual({
+    expect(s.readiness).toMatchObject({
       score: 72,
       directive: 'train_hard',
       label: 'Train hard',

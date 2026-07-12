@@ -3,30 +3,48 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 70;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		12B683C71E1FD1C74B2F67DD /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2291D70773612D5E67F369A1 /* ExpoModulesProvider.swift */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
+		4382564928144FEA7D2217CD /* RoundFitWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A3BEFFB4A2C4B6F272593B3 /* RoundFitWatchApp.swift */; };
+		487DE41087C1166D69E3E8D9 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D78A819D7C4A5A74AF274049 /* PrivacyInfo.xcprivacy */; };
+		48C05021428A7FC6D9FFC12B /* RoundFitWatchWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D6E2EC1269899CBC292001EA /* RoundFitWatchWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		495880B6880C35C1A4C8F81C /* WatchConnectivityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C3754BEB6546BB8D22AD535 /* WatchConnectivityStore.swift */; };
+		52016CE47760D5B98B046E4D /* ReadinessComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 017B39BFA6F458EE0DB5940E /* ReadinessComplication.swift */; };
+		66B0A3BC1F7F6462EBE82963 /* WatchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F956A42CEA51151B25C91D8 /* WatchViews.swift */; };
 		6A66ECED23570E43A327F3AB /* libPods-RoundFit.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 923897F3E342CF26D533EB75 /* libPods-RoundFit.a */; };
+		6ED54CFBBC22FC4FFB90F0BB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9DAAD571D7B1D5D0AAF9219A /* Assets.xcassets */; };
+		7ACFE790D2A3271E7DE9016D /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 98096A93A715D41186431D30 /* Foundation.framework */; };
+		A92512F1FC82DE9177A9B6DB /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 98096A93A715D41186431D30 /* Foundation.framework */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		D25D7D47D263652883F8036C /* WatchSnapshotModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C559CDBFBFA8430714E5B14 /* WatchSnapshotModels.swift */; };
 		ED2D588A88A34757936D8A51 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D78A819D7C4A5A74AF274049 /* PrivacyInfo.xcprivacy */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
-		F851AFB92FFECB3B00714C43 /* RoundFit Watch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = F851AFB82FFECB3B00714C43 /* RoundFit Watch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F3AC5EFCA1EF97F489559BE1 /* RoundFitWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = DFDD05F9C7E4478934878A93 /* RoundFitWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F866F6C12FCB9A6A0066137A /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F866F6C02FCB9A690066137A /* WidgetKit.framework */; };
 		F866F6C32FCB9A6A0066137A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F866F6C22FCB9A6A0066137A /* SwiftUI.framework */; };
 		F866F6D42FCB9A6E0066137A /* WorkoutLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F866F6BF2FCB9A690066137A /* WorkoutLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		FD18F26D53788B05BF4293D6 /* WatchSnapshotModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C559CDBFBFA8430714E5B14 /* WatchSnapshotModels.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		F851AFBA2FFECB3B00714C43 /* PBXContainerItemProxy */ = {
+		8AE39FBA5B253F707CDC3052 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = F851AFB72FFECB3B00714C43;
-			remoteInfo = "RoundFit Watch Watch App";
+			remoteGlobalIDString = DE9C1B38E9E2D3698E6045F6;
+			remoteInfo = RoundFitWatchWidget;
+		};
+		BF47B22CA6FA0792F139C4BA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4C7A9E83289CC85002E15FF3;
+			remoteInfo = RoundFitWatch;
 		};
 		F866F6D22FCB9A6E0066137A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -38,15 +56,26 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		F851AFC62FFECB4400714C43 /* Embed Watch Content */ = {
+		3D6041E514B1DC87F0247071 /* Embed Watch Content */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
 			dstSubfolderSpec = 16;
 			files = (
-				F851AFB92FFECB3B00714C43 /* RoundFit Watch Watch App.app in Embed Watch Content */,
+				F3AC5EFCA1EF97F489559BE1 /* RoundFitWatch.app in Embed Watch Content */,
 			);
 			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D2DC9570E3AECACCF8B99187 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				48C05021428A7FC6D9FFC12B /* RoundFitWatchWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F866F6D52FCB9A6E0066137A /* Embed Foundation Extensions */ = {
@@ -63,30 +92,39 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		017B39BFA6F458EE0DB5940E /* ReadinessComplication.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReadinessComplication.swift; sourceTree = "<group>"; };
 		03F8344A88A360CE3AF496F5 /* Pods-RoundFit.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RoundFit.release.xcconfig"; path = "Target Support Files/Pods-RoundFit/Pods-RoundFit.release.xcconfig"; sourceTree = "<group>"; };
+		0BE4A053634A67E59B1C9F67 /* RoundFitWatch.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = RoundFitWatch.entitlements; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* RoundFit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RoundFit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = RoundFit/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = RoundFit/Info.plist; sourceTree = "<group>"; };
+		1C559CDBFBFA8430714E5B14 /* WatchSnapshotModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchSnapshotModels.swift; sourceTree = "<group>"; };
 		2291D70773612D5E67F369A1 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-RoundFit/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		3C3754BEB6546BB8D22AD535 /* WatchConnectivityStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchConnectivityStore.swift; sourceTree = "<group>"; };
+		3F956A42CEA51151B25C91D8 /* WatchViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchViews.swift; sourceTree = "<group>"; };
 		5B73FBA131BFBC85BDAC1A44 /* Pods-RoundFit.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RoundFit.debug.xcconfig"; path = "Target Support Files/Pods-RoundFit/Pods-RoundFit.debug.xcconfig"; sourceTree = "<group>"; };
 		923897F3E342CF26D533EB75 /* libPods-RoundFit.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-RoundFit.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		98096A93A715D41186431D30 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS11.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		9A3BEFFB4A2C4B6F272593B3 /* RoundFitWatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoundFitWatchApp.swift; sourceTree = "<group>"; };
+		9DAAD571D7B1D5D0AAF9219A /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = RoundFit/SplashScreen.storyboard; sourceTree = "<group>"; };
+		B5AB209825E9B921427B4A79 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
+		C1DC478AADFB2E622CFF0BBE /* RoundFitWatchWidget.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = RoundFitWatchWidget.entitlements; sourceTree = "<group>"; };
+		D6E2EC1269899CBC292001EA /* RoundFitWatchWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RoundFitWatchWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D78A819D7C4A5A74AF274049 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = RoundFit/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		DFDD05F9C7E4478934878A93 /* RoundFitWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = RoundFitWatch.app; path = RoundFitWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = RoundFit/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* RoundFit-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "RoundFit-Bridging-Header.h"; path = "RoundFit/RoundFit-Bridging-Header.h"; sourceTree = "<group>"; };
 		F837AA8C2FFD6C4E00B6480D /* RoundFitRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = RoundFitRelease.entitlements; path = RoundFit/RoundFitRelease.entitlements; sourceTree = "<group>"; };
-		F837AAA92FFD72D300B6480D /* RoundFit Watch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "RoundFit Watch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		F851AFB32FFECB3A00714C43 /* RoundFit Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "RoundFit Watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		F851AFB82FFECB3B00714C43 /* RoundFit Watch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "RoundFit Watch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F866F6BF2FCB9A690066137A /* WorkoutLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WorkoutLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F866F6C02FCB9A690066137A /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		F866F6C22FCB9A6A0066137A /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		F866F7022FCBA3400066137A /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		F866F7022FCBA3400066137A /* Exceptions for "WorkoutLiveActivity" folder in "RoundFit" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				ActivityAttributes.swift,
@@ -94,7 +132,7 @@
 			);
 			target = 13B07F861A680F5B00A75B9A /* RoundFit */;
 		};
-		F866F7052FCBA7760066137A /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		F866F7052FCBA7760066137A /* Exceptions for "WorkoutLiveActivity" folder in "WorkoutLiveActivityExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -104,8 +142,19 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		F851AFBC2FFECB3B00714C43 /* RoundFit Watch Watch App */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = "RoundFit Watch Watch App"; sourceTree = "<group>"; };
-		F866F6C42FCB9A6A0066137A /* WorkoutLiveActivity */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (F866F7022FCBA3400066137A /* PBXFileSystemSynchronizedBuildFileExceptionSet */, F866F7052FCBA7760066137A /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = WorkoutLiveActivity; sourceTree = "<group>"; };
+		F866F6C42FCB9A6A0066137A /* WorkoutLiveActivity */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F866F7022FCBA3400066137A /* Exceptions for "WorkoutLiveActivity" folder in "RoundFit" target */,
+				F866F7052FCBA7760066137A /* Exceptions for "WorkoutLiveActivity" folder in "WorkoutLiveActivityExtension" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = WorkoutLiveActivity;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -117,17 +166,11 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		F837AAA62FFD72D300B6480D /* Frameworks */ = {
+		F6EB61BC3F67E0812EF178B3 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		F851AFB52FFECB3B00714C43 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
+				7ACFE790D2A3271E7DE9016D /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -137,6 +180,14 @@
 			files = (
 				F866F6C32FCB9A6A0066137A /* SwiftUI.framework in Frameworks */,
 				F866F6C12FCB9A6A0066137A /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F8CBD3D76E2168ECF12A6F62 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A92512F1FC82DE9177A9B6DB /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -150,6 +201,14 @@
 				03F8344A88A360CE3AF496F5 /* Pods-RoundFit.release.xcconfig */,
 			);
 			path = Pods;
+			sourceTree = "<group>";
+		};
+		0630069363D23ED16112D5A0 /* watchOS */ = {
+			isa = PBXGroup;
+			children = (
+				98096A93A715D41186431D30 /* Foundation.framework */,
+			);
+			name = watchOS;
 			sourceTree = "<group>";
 		};
 		13B07FAE1A68108700A75B9A /* RoundFit */ = {
@@ -174,8 +233,23 @@
 				923897F3E342CF26D533EB75 /* libPods-RoundFit.a */,
 				F866F6C02FCB9A690066137A /* WidgetKit.framework */,
 				F866F6C22FCB9A6A0066137A /* SwiftUI.framework */,
+				0630069363D23ED16112D5A0 /* watchOS */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		6CCD13797C556DAB5ED9AFDF /* RoundFitWatch */ = {
+			isa = PBXGroup;
+			children = (
+				1C559CDBFBFA8430714E5B14 /* WatchSnapshotModels.swift */,
+				9A3BEFFB4A2C4B6F272593B3 /* RoundFitWatchApp.swift */,
+				3C3754BEB6546BB8D22AD535 /* WatchConnectivityStore.swift */,
+				3F956A42CEA51151B25C91D8 /* WatchViews.swift */,
+				0BE4A053634A67E59B1C9F67 /* RoundFitWatch.entitlements */,
+				9DAAD571D7B1D5D0AAF9219A /* Assets.xcassets */,
+			);
+			name = RoundFitWatch;
+			path = RoundFitWatch;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -191,11 +265,12 @@
 				13B07FAE1A68108700A75B9A /* RoundFit */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				F866F6C42FCB9A6A0066137A /* WorkoutLiveActivity */,
-				F851AFBC2FFECB3B00714C43 /* RoundFit Watch Watch App */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				040B5AFD9BE8BB1CA7ED5698 /* Pods */,
 				F9B65B121265F0271CDE595B /* ExpoModulesProviders */,
+				6CCD13797C556DAB5ED9AFDF /* RoundFitWatch */,
+				8FE5D20B8149D1C7A246445B /* RoundFitWatchWidget */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -207,11 +282,21 @@
 			children = (
 				13B07F961A680F5B00A75B9A /* RoundFit.app */,
 				F866F6BF2FCB9A690066137A /* WorkoutLiveActivityExtension.appex */,
-				F837AAA92FFD72D300B6480D /* RoundFit Watch Watch App.app */,
-				F851AFB32FFECB3A00714C43 /* RoundFit Watch.app */,
-				F851AFB82FFECB3B00714C43 /* RoundFit Watch Watch App.app */,
+				DFDD05F9C7E4478934878A93 /* RoundFitWatch.app */,
+				D6E2EC1269899CBC292001EA /* RoundFitWatchWidget.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		8FE5D20B8149D1C7A246445B /* RoundFitWatchWidget */ = {
+			isa = PBXGroup;
+			children = (
+				017B39BFA6F458EE0DB5940E /* ReadinessComplication.swift */,
+				B5AB209825E9B921427B4A79 /* Info.plist */,
+				C1DC478AADFB2E622CFF0BBE /* RoundFitWatchWidget.entitlements */,
+			);
+			name = RoundFitWatchWidget;
+			path = RoundFitWatchWidget;
 			sourceTree = "<group>";
 		};
 		AB45F3F6E94A53A4EC906072 /* RoundFit */ = {
@@ -255,76 +340,54 @@
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
 				9ABD5C787C619E7ECA5D408F /* [CP] Embed Pods Frameworks */,
 				F866F6D52FCB9A6E0066137A /* Embed Foundation Extensions */,
+				3D6041E514B1DC87F0247071 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				F866F6D32FCB9A6E0066137A /* PBXTargetDependency */,
+				0964DB96E8911C76DE83D3AE /* PBXTargetDependency */,
 			);
 			name = RoundFit;
 			productName = RoundFit;
 			productReference = 13B07F961A680F5B00A75B9A /* RoundFit.app */;
 			productType = "com.apple.product-type.application";
 		};
-		F837AAA82FFD72D300B6480D /* RoundFit Watch Watch App */ = {
+		4C7A9E83289CC85002E15FF3 /* RoundFitWatch */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F837AAB32FFD72E600B6480D /* Build configuration list for PBXNativeTarget "RoundFit Watch Watch App" */;
+			buildConfigurationList = 8068993DD2962549FDD69F48 /* Build configuration list for PBXNativeTarget "RoundFitWatch" */;
 			buildPhases = (
-				F837AAA52FFD72D300B6480D /* Sources */,
-				F837AAA62FFD72D300B6480D /* Frameworks */,
-				F837AAA72FFD72D300B6480D /* Resources */,
+				7EA0EF22D6A8C1C3FAC9D91C /* Sources */,
+				F8CBD3D76E2168ECF12A6F62 /* Frameworks */,
+				EF0F29611411CDB0CDE8FF60 /* Resources */,
+				D2DC9570E3AECACCF8B99187 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				D8820C8C93A9E22EC4221AE0 /* PBXTargetDependency */,
 			);
-			name = "RoundFit Watch Watch App";
-			packageProductDependencies = (
-			);
-			productName = "RoundFit Watch Watch App";
-			productReference = F837AAA92FFD72D300B6480D /* RoundFit Watch Watch App.app */;
+			name = RoundFitWatch;
+			productName = RoundFitWatch;
+			productReference = DFDD05F9C7E4478934878A93 /* RoundFitWatch.app */;
 			productType = "com.apple.product-type.application";
 		};
-		F851AFB22FFECB3A00714C43 /* RoundFit Watch */ = {
+		DE9C1B38E9E2D3698E6045F6 /* RoundFitWatchWidget */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F851AFC72FFECB4400714C43 /* Build configuration list for PBXNativeTarget "RoundFit Watch" */;
+			buildConfigurationList = 11A5E50E320559861F2BEC5C /* Build configuration list for PBXNativeTarget "RoundFitWatchWidget" */;
 			buildPhases = (
-				F851AFB12FFECB3A00714C43 /* Resources */,
-				F851AFC62FFECB4400714C43 /* Embed Watch Content */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				F851AFBB2FFECB3B00714C43 /* PBXTargetDependency */,
-			);
-			name = "RoundFit Watch";
-			packageProductDependencies = (
-			);
-			productName = "RoundFit Watch";
-			productReference = F851AFB32FFECB3A00714C43 /* RoundFit Watch.app */;
-			productType = "com.apple.product-type.application.watchapp2-container";
-		};
-		F851AFB72FFECB3B00714C43 /* RoundFit Watch Watch App */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = F851AFC32FFECB4400714C43 /* Build configuration list for PBXNativeTarget "RoundFit Watch Watch App" */;
-			buildPhases = (
-				F851AFB42FFECB3B00714C43 /* Sources */,
-				F851AFB52FFECB3B00714C43 /* Frameworks */,
-				F851AFB62FFECB3B00714C43 /* Resources */,
+				6D88468E2D1301075BDD154D /* Sources */,
+				F6EB61BC3F67E0812EF178B3 /* Frameworks */,
+				748720663FEF4A3F3EF4A9A0 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-			fileSystemSynchronizedGroups = (
-				F851AFBC2FFECB3B00714C43 /* RoundFit Watch Watch App */,
-			);
-			name = "RoundFit Watch Watch App";
-			packageProductDependencies = (
-			);
-			productName = "RoundFit Watch Watch App";
-			productReference = F851AFB82FFECB3B00714C43 /* RoundFit Watch Watch App.app */;
-			productType = "com.apple.product-type.application";
+			name = RoundFitWatchWidget;
+			productName = RoundFitWatchWidget;
+			productReference = D6E2EC1269899CBC292001EA /* RoundFitWatchWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		F866F6BE2FCB9A690066137A /* WorkoutLiveActivityExtension */ = {
 			isa = PBXNativeTarget;
@@ -391,9 +454,8 @@
 			targets = (
 				13B07F861A680F5B00A75B9A /* RoundFit */,
 				F866F6BE2FCB9A690066137A /* WorkoutLiveActivityExtension */,
-				F837AAA82FFD72D300B6480D /* RoundFit Watch Watch App */,
-				F851AFB22FFECB3A00714C43 /* RoundFit Watch */,
-				F851AFB72FFECB3B00714C43 /* RoundFit Watch Watch App */,
+				4C7A9E83289CC85002E15FF3 /* RoundFitWatch */,
+				DE9C1B38E9E2D3698E6045F6 /* RoundFitWatchWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -410,24 +472,19 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		F837AAA72FFD72D300B6480D /* Resources */ = {
+		748720663FEF4A3F3EF4A9A0 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		F851AFB12FFECB3A00714C43 /* Resources */ = {
+		EF0F29611411CDB0CDE8FF60 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		F851AFB62FFECB3B00714C43 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
+				6ED54CFBBC22FC4FFB90F0BB /* Assets.xcassets in Resources */,
+				487DE41087C1166D69E3E8D9 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -594,17 +651,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		F837AAA52FFD72D300B6480D /* Sources */ = {
+		6D88468E2D1301075BDD154D /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				52016CE47760D5B98B046E4D /* ReadinessComplication.swift in Sources */,
+				D25D7D47D263652883F8036C /* WatchSnapshotModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		F851AFB42FFECB3B00714C43 /* Sources */ = {
+		7EA0EF22D6A8C1C3FAC9D91C /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FD18F26D53788B05BF4293D6 /* WatchSnapshotModels.swift in Sources */,
+				4382564928144FEA7D2217CD /* RoundFitWatchApp.swift in Sources */,
+				495880B6880C35C1A4C8F81C /* WatchConnectivityStore.swift in Sources */,
+				66B0A3BC1F7F6462EBE82963 /* WatchViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -618,10 +681,17 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		F851AFBB2FFECB3B00714C43 /* PBXTargetDependency */ = {
+		0964DB96E8911C76DE83D3AE /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = F851AFB72FFECB3B00714C43 /* RoundFit Watch Watch App */;
-			targetProxy = F851AFBA2FFECB3B00714C43 /* PBXContainerItemProxy */;
+			name = RoundFitWatch;
+			target = 4C7A9E83289CC85002E15FF3 /* RoundFitWatch */;
+			targetProxy = BF47B22CA6FA0792F139C4BA /* PBXContainerItemProxy */;
+		};
+		D8820C8C93A9E22EC4221AE0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = RoundFitWatchWidget;
+			target = DE9C1B38E9E2D3698E6045F6 /* RoundFitWatchWidget */;
+			targetProxy = 8AE39FBA5B253F707CDC3052 /* PBXContainerItemProxy */;
 		};
 		F866F6D32FCB9A6E0066137A /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -702,6 +772,62 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+		2F40F17E113D6B383147FD58 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = RoundFitWatch/RoundFitWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = J8U3MHK9ML;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = RoundFit;
+				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.michaelolu.roundfit;
+				MARKETING_VERSION = 1.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
+				PRODUCT_BUNDLE_IDENTIFIER = com.michaelolu.roundfit.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		44ADA4E13267763D2C67CC64 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = RoundFitWatchWidget/RoundFitWatchWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = J8U3MHK9ML;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RoundFitWatchWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Readiness;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
+				PRODUCT_BUNDLE_IDENTIFIER = com.michaelolu.roundfit.watchkitapp.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Release;
 		};
@@ -823,262 +949,59 @@
 			};
 			name = Release;
 		};
-		F837AAB12FFD72E600B6480D /* Debug */ = {
+		9CC8763FCC2C1A3EB131915D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CODE_SIGN_ENTITLEMENTS = RoundFitWatchWidget/RoundFitWatchWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = J8U3MHK9ML;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "RoundFit Watch";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "";
+				INFOPLIST_FILE = RoundFitWatchWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Readiness;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
 				);
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
-				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
-				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = .watchkitapp;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				PRODUCT_BUNDLE_IDENTIFIER = com.michaelolu.roundfit.watchkitapp.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Debug;
 		};
-		F837AAB22FFD72E600B6480D /* Release */ = {
+		CF0315D5F2F93F1351F2213A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_STYLE = Automatic;
-				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = J8U3MHK9ML;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "RoundFit Watch";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
-				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = .watchkitapp;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 26.2;
-			};
-			name = Release;
-		};
-		F851AFC42FFECB4400714C43 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CODE_SIGN_ENTITLEMENTS = RoundFitWatch/RoundFitWatch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = J8U3MHK9ML;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "RoundFit Watch";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKWatchOnly = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = RoundFit;
+				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.michaelolu.roundfit;
 				MARKETING_VERSION = 1.0;
-				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
-				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.michaelolu.roundfit.RoundFit-Watch.watchkitapp";
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				PRODUCT_BUNDLE_IDENTIFIER = com.michaelolu.roundfit.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SKIP_INSTALL = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Debug;
-		};
-		F851AFC52FFECB4400714C43 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_STYLE = Automatic;
-				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = J8U3MHK9ML;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "RoundFit Watch";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKWatchOnly = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
-				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.michaelolu.roundfit.RoundFit-Watch.watchkitapp";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 26.2;
-			};
-			name = Release;
-		};
-		F851AFC82FFECB4400714C43 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = J8U3MHK9ML;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				INFOPLIST_KEY_CFBundleDisplayName = "RoundFit Watch";
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
-				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
-				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.michaelolu.roundfit.RoundFit-Watch";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
-		};
-		F851AFC92FFECB4400714C43 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_STYLE = Automatic;
-				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = J8U3MHK9ML;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				INFOPLIST_KEY_CFBundleDisplayName = "RoundFit Watch";
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0;
-				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.michaelolu.roundfit.RoundFit-Watch";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Release;
 		};
 		F866F6D62FCB9A6E0066137A /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -1180,6 +1103,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		11A5E50E320559861F2BEC5C /* Build configuration list for PBXNativeTarget "RoundFitWatchWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				44ADA4E13267763D2C67CC64 /* Release */,
+				9CC8763FCC2C1A3EB131915D /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "RoundFit" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1189,38 +1121,20 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		8068993DD2962549FDD69F48 /* Build configuration list for PBXNativeTarget "RoundFitWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2F40F17E113D6B383147FD58 /* Release */,
+				CF0315D5F2F93F1351F2213A /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "RoundFit" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				83CBBA201A601CBA00E9B192 /* Debug */,
 				83CBBA211A601CBA00E9B192 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		F837AAB32FFD72E600B6480D /* Build configuration list for PBXNativeTarget "RoundFit Watch Watch App" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				F837AAB12FFD72E600B6480D /* Debug */,
-				F837AAB22FFD72E600B6480D /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		F851AFC32FFECB4400714C43 /* Build configuration list for PBXNativeTarget "RoundFit Watch Watch App" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				F851AFC42FFECB4400714C43 /* Debug */,
-				F851AFC52FFECB4400714C43 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		F851AFC72FFECB4400714C43 /* Build configuration list for PBXNativeTarget "RoundFit Watch" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				F851AFC82FFECB4400714C43 /* Debug */,
-				F851AFC92FFECB4400714C43 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

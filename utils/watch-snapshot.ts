@@ -65,6 +65,21 @@ export interface WatchSnapshotSources {
   readinessScore: number | null;
   directive: Directive | null;
 
+  /** Readiness detail metrics for the swipe pages (each null when untracked). */
+  readinessReason?: string | null;
+  sleepScore?: number | null;
+  sleepHours?: number | null;
+  deepSleepHours?: number | null;
+  remSleepHours?: number | null;
+  strainScore?: number | null;
+  soreness?: number | null;
+  hrv?: number | null;
+  restingHr?: number | null;
+
+  /** Phrased coach message (title + body), or null before it resolves. */
+  coachingTitle?: string | null;
+  coachingMessage?: string | null;
+
   caloriesRemaining: number;
   calorieGoal: number;
   proteinRemaining: number;
@@ -73,6 +88,9 @@ export interface WatchSnapshotSources {
   waterCurrentMl: number;
   waterGoalMl: number;
   cupMl: number;
+
+  steps?: number | null;
+  caloriesBurned?: number | null;
 
   workout: WatchWorkoutState | null;
   quickPicks: WatchQuickPick[];
@@ -98,7 +116,21 @@ export function buildWatchSnapshot(src: WatchSnapshotSources): WatchSnapshot {
       directive: src.directive,
       label: watchDirectiveLabel(src.directive),
       mood: watchMood(src.directive),
+      reason: src.readinessReason ?? null,
+      sleepScore: src.sleepScore == null ? null : r(src.sleepScore),
+      sleepHours: src.sleepHours ?? null,
+      deepSleepHours: src.deepSleepHours ?? null,
+      remSleepHours: src.remSleepHours ?? null,
+      strainScore: src.strainScore == null ? null : r(src.strainScore),
+      soreness: src.soreness ?? null,
+      hrv: src.hrv == null ? null : r(src.hrv),
+      restingHr: src.restingHr == null ? null : r(src.restingHr),
     },
+
+    coaching:
+      src.coachingTitle && src.coachingMessage
+        ? { title: src.coachingTitle, message: src.coachingMessage }
+        : null,
 
     energy: {
       caloriesRemaining: r(src.caloriesRemaining),
@@ -111,6 +143,11 @@ export function buildWatchSnapshot(src: WatchSnapshotSources): WatchSnapshot {
       currentMl: r(src.waterCurrentMl),
       goalMl: r(src.waterGoalMl),
       cupMl: r(src.cupMl),
+    },
+
+    activity: {
+      steps: src.steps == null ? null : r(src.steps),
+      caloriesBurned: src.caloriesBurned == null ? null : r(src.caloriesBurned),
     },
 
     workout: src.workout ?? { active: false },

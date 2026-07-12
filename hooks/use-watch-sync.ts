@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
 
-import { getBurnCatalogEntries } from '@/config/workout-catalog';
+import { getBurnCatalogEntries, getCatalogEntryById } from '@/config/workout-catalog';
+import { catalogEntryToBurnActivity } from '@/utils/burn-prescription';
 import { useDailyCoaching } from '@/hooks/use-daily-coaching';
 import { useFood } from '@/context/food-context';
+import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
 import { useSummary } from '@/hooks/use-summary';
 import { useWater } from '@/hooks/use-water';
@@ -28,6 +30,8 @@ import {
 const WATER_CUP_ML = 250;
 /** Default protein goal when the daily summary hasn't provided a target yet. */
 const DEFAULT_PROTEIN_GOAL = 150;
+/** Fallback calorie goal for a watch-started burn when the watch sends none. */
+const DEFAULT_BURN_GOAL_CAL = 150;
 
 /**
  * Phone-side Apple Watch sync. Mount ONCE near the app root (inside the data
@@ -39,12 +43,19 @@ const DEFAULT_PROTEIN_GOAL = 150;
  * pushes and the listener no-op, so mounting it now is safe.
  */
 export function useWatchSync(): void {
-  const { display } = useRecovery();
-  const { decision } = useDailyCoaching();
+  const { display, today: recoveryToday } = useRecovery();
+  const { today: healthToday } = useHealth();
+  const { decision, message } = useDailyCoaching();
   const { mealGoal, totalCalories, totalProtein } = useFood();
   const { daily } = useSummary();
   const { totalMl, goalMl, logWater } = useWater();
-  const { active } = useWorkoutLiveActivity();
+  const {
+    active,
+    start: startLiveWorkout,
+    end: endLiveWorkout,
+    pause: pauseLiveWorkout,
+    resume: resumeLiveWorkout,
+  } = useWorkoutLiveActivity();
 
   const quickPicks = useMemo<WatchQuickPick[]>(
     () =>
@@ -61,6 +72,7 @@ export function useWatchSync(): void {
     if (!active) return { active: false };
     return {
       active: true,
+      paused: active.pausedAt != null,
       activityId: active.activity.id,
       label: active.activity.label,
       startedAt: new Date(active.startedAt).toISOString(),
@@ -75,6 +87,22 @@ export function useWatchSync(): void {
         date: getLocalDateString(),
         readinessScore: display.score,
         directive: decision?.directive ?? null,
+        readinessReason: display.reason,
+        sleepScore: display.sleepScore,
+        sleepHours: recoveryToday?.sleep_hours ?? healthToday?.sleep_hours ?? null,
+        deepSleepHours:
+          recoveryToday?.deep_sleep_hours ?? healthToday?.deep_sleep_hours ?? null,
+        remSleepHours:
+          recoveryToday?.rem_sleep_hours ?? healthToday?.rem_sleep_hours ?? null,
+        strainScore: display.strainScore,
+        soreness: recoveryToday?.soreness_level ?? null,
+        hrv: recoveryToday?.hrv ?? healthToday?.hrv ?? null,
+        restingHr:
+          recoveryToday?.resting_heart_rate ??
+          healthToday?.resting_heart_rate ??
+          null,
+        coachingTitle: message?.title ?? null,
+        coachingMessage: message?.message ?? null,
         caloriesRemaining: mealGoal - totalCalories,
         calorieGoal: mealGoal,
         proteinRemaining: proteinGoal - totalProtein,
@@ -82,12 +110,21 @@ export function useWatchSync(): void {
         waterCurrentMl: totalMl,
         waterGoalMl: goalMl,
         cupMl: WATER_CUP_ML,
+        steps: healthToday?.steps ?? null,
+        caloriesBurned: healthToday?.total_calories_burned ?? null,
         workout,
         quickPicks,
       }),
     [
       display.score,
+      display.reason,
+      display.sleepScore,
+      display.strainScore,
+      recoveryToday,
+      healthToday,
       decision?.directive,
+      message?.title,
+      message?.message,
       mealGoal,
       totalCalories,
       totalProtein,
@@ -119,13 +156,30 @@ export function useWatchSync(): void {
         case 'logWater':
           await logWater(action.amountMl);
           break;
-        case 'startWorkout':
+        case 'startWorkout': {
+          // Relay to the iPhone burn Live Activity (same path as the home screen).
+          const entry = getCatalogEntryById(action.activityId);
+          if (entry) {
+            await startLiveWorkout(
+              catalogEntryToBurnActivity(entry),
+              action.calorieGoal ?? DEFAULT_BURN_GOAL_CAL,
+            );
+          }
+          break;
+        }
+        case 'pauseWorkout':
+          await pauseLiveWorkout();
+          break;
+        case 'resumeWorkout':
+          await resumeLiveWorkout();
+          break;
         case 'endWorkout':
+          await endLiveWorkout();
+          break;
         case 'logWorkout':
-          // TODO(watch Phase 2): relay to the iPhone burn Live Activity
-          // (handleBurnLiveStart / handleBurnEnd) and useWorkouts.logWorkout.
+          // TODO(watch): retroactive quick-log via useWorkouts.logWorkout.
           break;
       }
     });
-  }, [logWater]);
+  }, [logWater, startLiveWorkout, endLiveWorkout, pauseLiveWorkout, resumeLiveWorkout]);
 }

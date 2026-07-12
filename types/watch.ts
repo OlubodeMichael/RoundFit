@@ -18,6 +18,7 @@ export interface WatchQuickPick {
 /** Live phone-tracked workout state, surfaced so the watch can show + end it. */
 export interface WatchWorkoutState {
   active: boolean;
+  paused?: boolean;
   activityId?: string;
   label?: string;
   startedAt?: string; // ISO
@@ -40,7 +41,25 @@ export interface WatchSnapshot {
     /** Short wrist label, e.g. "Train hard" / "Rest up". */
     label: string;
     mood: WatchMood;
+    /** One-line reason under the score. */
+    reason: string | null;
+    /** Detail metrics — each null when untracked; drives the swipe-left detail pages. */
+    sleepScore: number | null;
+    sleepHours: number | null;
+    /** Sleep stages (hours) for the sleep graph; core = sleepHours − deep − rem. */
+    deepSleepHours: number | null;
+    remSleepHours: number | null;
+    strainScore: number | null;
+    soreness: number | null;
+    hrv: number | null;
+    restingHr: number | null;
   };
+
+  /** Today's coach message (the iPhone home hero), or null before it's computed. */
+  coaching: {
+    title: string;
+    message: string;
+  } | null;
 
   energy: {
     /** budget − eaten. May be negative (over budget) — that's meaningful, keep it. */
@@ -56,6 +75,12 @@ export interface WatchSnapshot {
     goalMl: number;
     /** Increment step for the +1 button. */
     cupMl: number;
+  };
+
+  /** Today's activity output. Each null when untracked. */
+  activity: {
+    steps: number | null;
+    caloriesBurned: number | null;
   };
 
   workout: WatchWorkoutState;
@@ -76,6 +101,8 @@ interface WatchActionBase {
 export type WatchAction =
   | (WatchActionBase & { type: 'logWater'; amountMl: number })
   | (WatchActionBase & { type: 'startWorkout'; activityId: string; calorieGoal?: number })
+  | (WatchActionBase & { type: 'pauseWorkout' })
+  | (WatchActionBase & { type: 'resumeWorkout' })
   | (WatchActionBase & { type: 'endWorkout' })
   | (WatchActionBase & { type: 'logWorkout'; activityId: string; durationMin: number });
 
