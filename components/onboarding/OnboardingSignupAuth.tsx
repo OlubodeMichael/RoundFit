@@ -31,6 +31,7 @@ const RULE = '#E6E2DA';
 const ERROR_LABELS: Record<AuthError, string> = {
   EMAIL_IN_USE: 'An account with this email already exists.',
   INVALID_CREDENTIALS: 'Invalid email or password.',
+  API_KEY_INVALID: 'App configuration error. Please update the app.',
   WEAK_PASSWORD: 'Password must be at least 8 characters.',
   INVALID_EMAIL: 'Please enter a valid email address.',
   OAUTH_FAILED: 'Sign in failed. Please try again.',

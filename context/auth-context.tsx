@@ -114,6 +114,7 @@ export function hasActiveUserSession(
 export type AuthError =
   | "EMAIL_IN_USE"
   | "INVALID_CREDENTIALS"
+  | "API_KEY_INVALID"
   | "WEAK_PASSWORD"
   | "INVALID_EMAIL"
   | "OAUTH_FAILED"
@@ -352,6 +353,14 @@ function parseApiError(
     msg.includes("already in use")
   ) {
     return "EMAIL_IN_USE";
+  }
+  // API key failures also return 401 — distinguish them so the UI does not
+  // claim the password is wrong when the client is misconfigured.
+  if (
+    msg.includes("api key") ||
+    msg.includes("invalid or missing api key")
+  ) {
+    return "API_KEY_INVALID";
   }
   // Invalid credentials: narrow to the actual signal — 401 from /login or
   // explicit credential wording. A generic "invalid X" no longer collapses
@@ -853,7 +862,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body,
       } = await apiFetch("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password }),
         includeAuthToken: false,
       });
 

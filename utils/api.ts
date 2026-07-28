@@ -248,16 +248,23 @@ export async function apiFetch(
       return { ok: res.ok, status: res.status, body };
     }
 
+    const unauthorizedBody = await res.json().catch(() => ({}));
+
+    // Login/register/etc. intentionally skip auth. A 401 here is the real
+    // API error (bad credentials, bad API key) — do not swallow the body or
+    // attempt a refresh.
+    if (!includeAuthToken) {
+      return { ok: false, status: 401, body: unauthorizedBody };
+    }
+
     // ── 401: attempt token refresh ─────────────────────────────────────────
-    const refresh = includeAuthToken
-      ? await getOrCreateRefresh()
-      : { token: null, reason: "invalid" as RefreshFailureReason };
+    const refresh = await getOrCreateRefresh();
     if (!refresh.token) {
       console.warn("[api] refresh returned null for", path);
       const body =
         refresh.reason === "transient"
           ? { error: "TRANSIENT_REFRESH_FAILURE" }
-          : {};
+          : unauthorizedBody;
       return { ok: false, status: 401, body };
     }
 

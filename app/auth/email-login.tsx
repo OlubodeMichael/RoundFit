@@ -61,6 +61,7 @@ export default function LoginScreen() {
 
   const ERROR_LABELS: Record<string, string> = {
     INVALID_CREDENTIALS: 'Incorrect email or password.',
+    API_KEY_INVALID:     'App configuration error. Please update the app.',
     INVALID_EMAIL:       'Please enter a valid email address.',
     UNKNOWN:             'Something went wrong. Please try again.',
   };

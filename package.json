@@ -32,6 +32,7 @@
     "@react-navigation/native": "^7.1.8",
     "@supabase/supabase-js": "^2.105.4",
     "expo": "~54.0.33",
+    "apple-llm": "file:./modules/apple-llm",
     "expo-apple-authentication": "~8.0.8",
     "expo-application": "~7.0.8",
     "expo-blur": "~15.0.8",
