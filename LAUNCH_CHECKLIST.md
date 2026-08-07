@@ -12,7 +12,7 @@ Legend: 🔴 blocker · 🟡 needed for paid scope · 🟢 recommended · ⚪ po
 - Auth, onboarding, food/workout/sleep/weight logging, home, readiness, insights, HealthKit sync.
 - Badges (12-badge system) live.
 - Notifications installed **and** wired (`utils/notifications.ts`, daily-insight delivery).
-- Bundle IDs set (`com.michaelolu.roundfit`), version `1.0.0`.
+- Bundle IDs set (`co.roundfit.app`), version `1.0.0`.
 - Backend RevenueCat scaffolding exists: `POST /subscriptions/webhook`, `POST /subscriptions/verify`, `GET /subscriptions/status` + `services/revenuecat.ts`.
 
 ---

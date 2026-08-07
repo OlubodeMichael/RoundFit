@@ -1008,7 +1008,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const bundleId = getIosBundleIdentifier() ?? "unknown";
             console.error(
               "[auth] Apple Client ID mismatch. Add these to Supabase → Auth → Apple → Client IDs:",
-              `host.exp.Exponent,com.michaelolu.roundfit (current build: ${bundleId})`,
+              `host.exp.Exponent,co.roundfit.app (current build: ${bundleId})`,
             );
           } else {
             console.error("[auth] signInWithIdToken failed:", msg);

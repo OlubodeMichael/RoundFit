@@ -1,4 +1,4 @@
-package com.michaelolu.roundfit
+package co.roundfit.app
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

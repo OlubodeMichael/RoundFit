@@ -16,7 +16,7 @@
         "NSMicrophoneUsageDescription": "Allow RoundFit to access your microphone for video when logging meals.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "bundleIdentifier": "com.michaelolu.roundfit",
+      "bundleIdentifier": "co.roundfit.app",
       "icon": {
         "light": "./assets/icons/ios-light.png",
         "dark": "./assets/icons/ios-dark.png",
@@ -38,7 +38,7 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
-      "package": "com.michaelolu.roundfit"
+      "package": "co.roundfit.app"
     },
     "web": {
       "output": "static",

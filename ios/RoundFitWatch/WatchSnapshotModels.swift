@@ -7,7 +7,7 @@ import SwiftUI
 // MARK: - App Group / WCSession keys (keep in sync with WatchBridgeModule.swift)
 
 enum WatchConstants {
-    static let appGroup = "group.com.michaelolu.roundfit"
+    static let appGroup = "group.co.roundfit.app"
     static let snapshotKey = "watch.snapshot"
     static let snapshotContextKey = "snapshot"
     static let actionKey = "action"

@@ -24,13 +24,14 @@
       "ios": {
         "image": "macos-sequoia-15.6-xcode-26.1"
       },
-      "env": {
-        "EXPO_NO_CAPABILITY_SYNC": "1"
-      },
       "channel": "production"
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleTeamId": "TWB4M4FQKQ"
+      }
+    }
   }
 }

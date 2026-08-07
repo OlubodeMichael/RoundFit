@@ -30,7 +30,7 @@
         <key>CFBundleURLSchemes</key>
         <array>
           <string>roundfit</string>
-          <string>com.michaelolu.roundfit</string>
+          <string>co.roundfit.app</string>
         </array>
       </dict>
       <dict>

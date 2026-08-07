@@ -1,6 +1,6 @@
 # Apple Watch — Xcode setup
 
-App Group used throughout: **`group.com.michaelolu.roundfit`**. Native watch sources live in
+App Group used throughout: **`group.co.roundfit.app`**. Native watch sources live in
 **`ios/RoundFitWatch/`** (this is the canonical location the Xcode target compiles from).
 
 ## ✅ Done (automated via the `xcodeproj` gem + verified with `xcodebuild`)
@@ -8,7 +8,7 @@ App Group used throughout: **`group.com.michaelolu.roundfit`**. Native watch sou
 - `WatchBridge` native module installed (`pod install`).
 - Cleaned up the duplicate/legacy watch targets the New-Target dialog left behind.
 - Created the modern single-target watchOS app **`RoundFitWatch`**:
-  - bundle id `com.michaelolu.roundfit.watchkitapp`, team set, `WKApplication=YES`, `WKCompanionAppBundleIdentifier=com.michaelolu.roundfit`, App Group entitlement, watchOS 10 deployment.
+  - bundle id `co.roundfit.app.watchkitapp`, team set, `WKApplication=YES`, `WKCompanionAppBundleIdentifier=co.roundfit.app`, App Group entitlement, watchOS 10 deployment.
   - Source files added: `WatchSnapshotModels`, `RoundFitWatchApp`, `WatchConnectivityStore`, `WatchViews`.
   - Embedded in the RoundFit iOS app ("Embed Watch Content") + build dependency.
   - **`xcodebuild ... RoundFitWatch ... BUILD SUCCEEDED`** — compiles clean.

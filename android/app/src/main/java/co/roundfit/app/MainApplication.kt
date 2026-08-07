@@ -1,4 +1,4 @@
-package com.michaelolu.roundfit
+package co.roundfit.app
 
 import android.app.Application
 import android.content.res.Configuration

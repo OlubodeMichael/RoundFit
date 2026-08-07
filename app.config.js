@@ -2,7 +2,7 @@ module.exports = {
   expo: {
     name: "RoundFit",
     slug: "roundfit",
-    owner: "michaelolu",
+    owner: "roundfit-llc",
     version: "1.0.0",
     orientation: "portrait",
     scheme: "roundfit",
@@ -26,7 +26,7 @@ module.exports = {
           "Allow RoundFit to access your microphone for video when logging meals.",
         ITSAppUsesNonExemptEncryption: false,
       },
-      bundleIdentifier: "com.michaelolu.roundfit",
+      bundleIdentifier: "co.roundfit.app",
       icon: {
         light: "./assets/icons/ios-light.png",
         dark: "./assets/icons/ios-dark.png",
@@ -46,7 +46,7 @@ module.exports = {
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
       ],
-      package: "com.michaelolu.roundfit",
+      package: "co.roundfit.app",
     },
     web: {
       output: "static",

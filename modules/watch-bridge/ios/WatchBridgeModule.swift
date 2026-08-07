@@ -3,7 +3,7 @@ import Foundation
 import WatchConnectivity
 
 // Shared with the watchOS app + widget. Keep in sync with the JS/Swift constants.
-private let kAppGroup = "group.com.michaelolu.roundfit"
+private let kAppGroup = "group.co.roundfit.app"
 private let kSnapshotKey = "watch.snapshot"
 private let kSnapshotContextKey = "snapshot" // WCSession application-context key
 private let kActionKey = "action"            // WCSession message/userInfo key
