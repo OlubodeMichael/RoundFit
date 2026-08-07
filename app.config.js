@@ -14,7 +14,7 @@ module.exports = {
     },
     ios: {
       buildNumber: "10",
-      supportsTablet: true,
+      supportsTablet: false,
       infoPlist: {
         NSHealthShareUsageDescription:
           "RoundFit reads your health data to track steps, workouts, and active calories so you never have to log them manually.",
