@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,7 +11,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { useFood } from '@/hooks/use-food';
+import {
+  useFood,
+  defaultPortion,
+  macrosForGrams,
+  type Food,
+  type FoodPortion,
+} from '@/hooks/use-food';
 import { useToast } from '@/components/ui/Toast';
 import {
   AnimatedCard,
@@ -24,77 +31,67 @@ import type { MealLabel } from '@/components/log/ManualMealInputModal';
 import { MealLabelPicker, guessMealLabel } from '@/components/log/MealLabelPicker';
 import { QuantityStepper } from '@/components/log/QuantityStepper';
 
-// Mock catalog — should match food/search.tsx. In production this is fetched.
-const CATALOG: Record<string, {
-  id: string; name: string; brand: string;
-  servings: { label: string; grams: number; kcal: number; p: number; c: number; f: number }[];
-}> = {
-  '1':  { id: '1',  name: 'Grilled chicken breast', brand: 'Whole Foods',    servings: [
-    { label: '100 g',       grams: 100,  kcal: 165, p: 31, c: 0,  f: 3.6 },
-    { label: '1 breast',    grams: 170,  kcal: 280, p: 53, c: 0,  f: 6   },
-    { label: '1 oz',        grams: 28,   kcal: 47,  p: 9,  c: 0,  f: 1   },
-  ]},
-  '2':  { id: '2',  name: 'Greek yogurt',           brand: 'Fage · 2%',      servings: [
-    { label: '170 g',       grams: 170,  kcal: 120, p: 17, c: 6,  f: 3   },
-    { label: '1 tbsp',      grams: 15,   kcal: 11,  p: 1.5,c: 0.5,f: 0.3 },
-  ]},
-  '3':  { id: '3',  name: 'Oatmeal',                brand: "Bob's Red Mill", servings: [
-    { label: '40 g',        grams: 40,   kcal: 150, p: 5,  c: 27, f: 3   },
-  ]},
-  '4':  { id: '4',  name: 'Banana',                 brand: 'Fresh',          servings: [
-    { label: '1 medium',    grams: 118,  kcal: 105, p: 1.3,c: 27, f: 0.4 },
-  ]},
-  '5':  { id: '5',  name: 'Almonds',                brand: 'Blue Diamond',   servings: [
-    { label: '1 oz (28 g)', grams: 28,   kcal: 160, p: 6,  c: 6,  f: 14  },
-  ]},
-  '6':  { id: '6',  name: 'Brown rice',             brand: "Uncle Ben's",    servings: [
-    { label: '1 cup',       grams: 195,  kcal: 215, p: 5,  c: 45, f: 1.8 },
-  ]},
-  '7':  { id: '7',  name: 'Salmon fillet',          brand: 'Atlantic',       servings: [
-    { label: '100 g',       grams: 100,  kcal: 208, p: 20, c: 0,  f: 13  },
-  ]},
-  '8':  { id: '8',  name: 'Avocado',                brand: 'Hass',           servings: [
-    { label: '1 medium',    grams: 150,  kcal: 240, p: 3,  c: 12, f: 22  },
-  ]},
-  '9':  { id: '9',  name: 'Egg, large',             brand: 'Cage-free',      servings: [
-    { label: '1 egg',       grams: 50,   kcal: 78,  p: 6,  c: 0.6,f: 5   },
-  ]},
-  '10': { id: '10', name: 'Peanut butter',          brand: 'Jif · natural',  servings: [
-    { label: '2 tbsp',      grams: 32,   kcal: 190, p: 8,  c: 7,  f: 16  },
-  ]},
-};
-
 export default function FoodDetailScreen() {
   const P       = usePalette();
   const router  = useRouter();
   const pad     = useScreenPadding();
   const insets  = useSafeAreaInsets();
   const { id }  = useLocalSearchParams<{ id: string }>();
-  const { addMeal } = useFood();
-  const toast       = useToast();
+  const { getFood, logFoodById } = useFood();
+  const toast   = useToast();
 
-  const food = id ? CATALOG[id] : undefined;
+  const [food,    setFood]    = useState<Food | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const [servingIdx, setServingIdx] = useState(0);
+  const [portionIdx, setPortionIdx] = useState(0);
   const [qty,        setQty]        = useState('1');
   const [meal,       setMeal]       = useState<MealLabel>(guessMealLabel());
   const [saving,     setSaving]     = useState(false);
+
+  useEffect(() => {
+    if (!id) { setLoading(false); return; }
+
+    let cancelled = false;
+    (async () => {
+      const result = await getFood(id);
+      if (cancelled) return;
+
+      setFood(result);
+      if (result) {
+        // Preselect the provider's own default (a labelled serving for packaged
+        // foods, 100 g for generic ones) rather than whatever sorts first.
+        const preferred = defaultPortion(result);
+        const index = result.portions.findIndex((p) => p.grams === preferred.grams);
+        setPortionIdx(index === -1 ? 0 : index);
+      }
+      setLoading(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, [id, getFood]);
 
   const multiplier = useMemo(() => {
     const n = parseFloat(qty);
     return Number.isFinite(n) && n > 0 ? n : 0;
   }, [qty]);
 
+  const portion: FoodPortion | undefined = food?.portions[portionIdx];
+  const grams = portion ? portion.grams * multiplier : 0;
+
+  // Recomputed from per-100g on every change, so any portion/quantity combination
+  // stays consistent without another lookup.
   const live = useMemo(() => {
-    if (!food) return { kcal: 0, p: 0, c: 0, f: 0 };
-    const s = food.servings[servingIdx];
-    return {
-      kcal: Math.round(s.kcal * multiplier),
-      p:    +(s.p * multiplier).toFixed(1),
-      c:    +(s.c * multiplier).toFixed(1),
-      f:    +(s.f * multiplier).toFixed(1),
-    };
-  }, [food, servingIdx, multiplier]);
+    if (!food) return { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    return macrosForGrams(food, grams);
+  }, [food, grams]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: P.bg, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color={P.calories} />
+      </View>
+    );
+  }
 
   if (!food) {
     return (
@@ -119,20 +116,13 @@ export default function FoodDetailScreen() {
   }
 
   const handleLog = async () => {
-    if (multiplier <= 0) {
+    if (multiplier <= 0 || grams <= 0) {
       toast.warning('Invalid amount', 'Enter how many servings.');
       return;
     }
     setSaving(true);
     try {
-      await addMeal({
-        name:     food.name,
-        label:    meal,
-        calories: live.kcal,
-        protein:  live.p,
-        carbs:    live.c,
-        fat:      live.f,
-      });
+      await logFoodById(food, grams, meal);
       toast.success('Food logged', food.name);
       router.back();
     } catch {
@@ -149,7 +139,10 @@ export default function FoodDetailScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <ScreenHeader eyebrow={food.brand} title={food.name} />
+        <ScreenHeader
+          eyebrow={food.brand ?? (food.verified ? 'Generic' : 'Food')}
+          title={food.name}
+        />
 
         {/* ── Live macro hero ─────────────────────────── */}
         <View style={{ paddingHorizontal: 20, marginTop: 4 }}>
@@ -161,10 +154,15 @@ export default function FoodDetailScreen() {
                 </Text>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
                   <Text style={[styles.heroBig, { color: P.text }]}>
-                    {live.kcal}
+                    {live.calories}
                   </Text>
                   <Text style={[styles.heroUnit, { color: P.textDim }]}>  kcal</Text>
                 </View>
+                {grams > 0 && (
+                  <Text style={[styles.heroGrams, { color: P.textFaint }]}>
+                    {Math.round(grams)} g
+                  </Text>
+                )}
               </View>
               <View style={[styles.heroIcon, { backgroundColor: P.caloriesSoft }]}>
                 <Ionicons name="flame" size={20} color={P.calories} />
@@ -172,11 +170,11 @@ export default function FoodDetailScreen() {
             </View>
 
             <View style={[styles.macroRow, { borderTopColor: P.hair }]}>
-              <Macro label="PROTEIN" value={live.p} unit="g" color={P.protein} P={P} />
+              <Macro label="PROTEIN" value={live.protein} unit="g" color={P.protein} P={P} />
               <View style={[styles.vDiv, { backgroundColor: P.hair }]} />
-              <Macro label="CARBS"   value={live.c} unit="g" color={P.carbs}   P={P} />
+              <Macro label="CARBS"   value={live.carbs}   unit="g" color={P.carbs}   P={P} />
               <View style={[styles.vDiv, { backgroundColor: P.hair }]} />
-              <Macro label="FAT"     value={live.f} unit="g" color={P.fat}     P={P} />
+              <Macro label="FAT"     value={live.fat}     unit="g" color={P.fat}     P={P} />
             </View>
           </AnimatedCard>
         </View>
@@ -186,12 +184,12 @@ export default function FoodDetailScreen() {
           <AnimatedCard delay={120}>
             <FieldLabel>Serving size</FieldLabel>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 }}>
-              {food.servings.map((s, i) => {
-                const active = i === servingIdx;
+              {food.portions.map((p, i) => {
+                const active = i === portionIdx;
                 return (
                   <Pressable
-                    key={s.label}
-                    onPress={() => setServingIdx(i)}
+                    key={`${p.label}-${p.grams}`}
+                    onPress={() => setPortionIdx(i)}
                     style={({ pressed }) => [
                       styles.servingPill,
                       {
@@ -205,7 +203,7 @@ export default function FoodDetailScreen() {
                       styles.servingText,
                       { color: active ? '#fff' : P.text },
                     ]}>
-                      {s.label}
+                      {p.label}
                     </Text>
                   </Pressable>
                 );
@@ -229,11 +227,23 @@ export default function FoodDetailScreen() {
         {/* ── CTA ───────────────────────────────────── */}
         <View style={{ paddingHorizontal: 20, marginTop: 22 }}>
           <PrimaryButton
-            label={`Log ${live.kcal} kcal`}
+            label={`Log ${live.calories} kcal`}
             icon="checkmark"
             onPress={handleLog}
             loading={saving}
           />
+        </View>
+
+        {/* ── Data source ───────────────────────────── */}
+        {/* Open Food Facts is ODbL-licensed and requires attribution. */}
+        <View style={{ paddingHorizontal: 20, marginTop: 16 }}>
+          <Text style={[styles.attribution, { color: P.textFaint }]}>
+            {food.source === 'openfoodfacts'
+              ? 'Nutrition data: Open Food Facts (ODbL)'
+              : food.source === 'usda'
+                ? 'Nutrition data: USDA FoodData Central'
+                : 'Your custom food'}
+          </Text>
         </View>
       </ScrollView>
     </View>
@@ -283,6 +293,12 @@ const styles = StyleSheet.create({
     fontWeight:    '800',
     letterSpacing: 0.4,
   },
+  heroGrams: {
+    fontSize:      11,
+    fontWeight:    '700',
+    letterSpacing: 0.2,
+    marginTop:     2,
+  },
   heroIcon: {
     width:          46, height: 46, borderRadius: 15,
     alignItems:     'center',
@@ -308,6 +324,13 @@ const styles = StyleSheet.create({
     fontSize:      12,
     fontWeight:    '800',
     letterSpacing: -0.1,
+  },
+
+  attribution: {
+    fontSize:      10,
+    fontWeight:    '600',
+    letterSpacing: 0.2,
+    textAlign:     'center',
   },
 
   backCta: {

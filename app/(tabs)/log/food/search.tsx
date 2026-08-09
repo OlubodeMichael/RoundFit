@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,42 +14,84 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { AnimatedCard, usePalette, useScreenPadding } from '@/lib/log-theme';
 import { FoodRow } from '@/components/log/FoodRow';
+import { useFood, defaultPortion, macrosForGrams, type Food } from '@/hooks/use-food';
 import { usePostHog } from 'posthog-react-native';
 
-// Mock catalog — swap for real search API results.
-const CATALOG = [
-  { id: '1',  name: 'Grilled chicken breast', brand: 'Whole Foods',       kcal: 165, serving: '100g' },
-  { id: '2',  name: 'Greek yogurt',           brand: 'Fage · 2%',         kcal: 120, serving: '170g' },
-  { id: '3',  name: 'Oatmeal',                brand: "Bob's Red Mill",    kcal: 150, serving: '40g'  },
-  { id: '4',  name: 'Banana',                 brand: 'Fresh',             kcal: 105, serving: '1 med'},
-  { id: '5',  name: 'Almonds',                brand: 'Blue Diamond',      kcal: 160, serving: '28g'  },
-  { id: '6',  name: 'Brown rice',             brand: 'Uncle Ben\'s',      kcal: 215, serving: '1 cup'},
-  { id: '7',  name: 'Salmon fillet',          brand: 'Atlantic',          kcal: 208, serving: '100g' },
-  { id: '8',  name: 'Avocado',                brand: 'Hass',              kcal: 160, serving: '1 med'},
-  { id: '9',  name: 'Egg, large',             brand: 'Cage-free',         kcal:  78, serving: '1 egg'},
-  { id: '10', name: 'Peanut butter',          brand: 'Jif · natural',     kcal: 190, serving: '2 tbsp'},
-];
+/** Long enough to skip most mid-word keystrokes without feeling laggy. */
+const SEARCH_DEBOUNCE_MS = 350;
+/** Single characters match most of the catalogue and waste provider quota. */
+const MIN_QUERY_LENGTH = 2;
 
-const RECENT = ['Chicken breast', 'Oatmeal', 'Banana', 'Greek yogurt'];
+/** Maps a food to the row shape, priced at its default portion. */
+function toRow(food: Food) {
+  const portion = defaultPortion(food);
+  return {
+    id:      food.id,
+    name:    food.name,
+    brand:   food.brand ?? (food.verified ? 'Generic' : 'Food'),
+    kcal:    macrosForGrams(food, portion.grams).calories,
+    serving: portion.label,
+  };
+}
 
 export default function FoodSearchScreen() {
   const P      = usePalette();
   const router = useRouter();
   const pad    = useScreenPadding();
   const insets = useSafeAreaInsets();
-
-  const [query, setQuery] = useState('');
   const posthog = usePostHog();
 
-  const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    return CATALOG.filter((f) =>
-      f.name.toLowerCase().includes(q) || f.brand.toLowerCase().includes(q),
-    );
-  }, [query]);
+  const { searchFoods, getRecentFoods } = useFood();
 
-  const showingResults = query.trim().length > 0;
+  const [query,   setQuery]   = useState('');
+  const [results, setResults] = useState<Food[]>([]);
+  const [recent,  setRecent]  = useState<Food[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+
+  // Responses can land out of order — only the newest query may render.
+  const requestSeq = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const foods = await getRecentFoods();
+      if (!cancelled) setRecent(foods);
+    })();
+    return () => { cancelled = true; };
+  }, [getRecentFoods]);
+
+  const runSearch = useCallback(async (q: string, seq: number) => {
+    const foods = await searchFoods(q);
+    if (seq !== requestSeq.current) return;
+
+    setResults(foods);
+    setLoading(false);
+    setSearched(true);
+    posthog.capture('food_searched', { query: q, result_count: foods.length });
+  }, [searchFoods, posthog]);
+
+  useEffect(() => {
+    const q = query.trim();
+
+    if (q.length < MIN_QUERY_LENGTH) {
+      requestSeq.current += 1; // invalidate any in-flight request
+      setResults([]);
+      setLoading(false);
+      setSearched(false);
+      return;
+    }
+
+    setLoading(true);
+    const seq = ++requestSeq.current;
+    const timer = setTimeout(() => { void runSearch(q, seq); }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [query, runSearch]);
+
+  const openFood = (food: Food) =>
+    router.push(`/(tabs)/log/food/${encodeURIComponent(food.id)}` as any);
+
+  const showingResults = query.trim().length >= MIN_QUERY_LENGTH;
 
   return (
     <View style={{ flex: 1, backgroundColor: P.bg }}>
@@ -65,11 +108,13 @@ export default function FoodSearchScreen() {
             placeholder="Search any food or brand"
             placeholderTextColor={P.textFaint}
             autoFocus
+            autoCorrect={false}
             returnKeyType="search"
-            onSubmitEditing={() => { if (query.trim()) posthog.capture('food_searched', { query: query.trim(), result_count: results.length }); }}
             style={{ flex: 1, color: P.text, fontSize: 15, fontWeight: '600', paddingVertical: 0 }}
           />
-          {!!query && (
+          {loading ? (
+            <ActivityIndicator size="small" color={P.textFaint} />
+          ) : !!query && (
             <Pressable onPress={() => setQuery('')} hitSlop={8}>
               <Ionicons name="close-circle" size={18} color={P.textFaint} />
             </Pressable>
@@ -83,76 +128,61 @@ export default function FoodSearchScreen() {
         showsVerticalScrollIndicator={false}
       >
         {!showingResults ? (
-          <>
-            {/* ── Recent searches ─────────────────────── */}
+          recent.length > 0 ? (
             <View style={{ paddingHorizontal: 20, marginTop: 20 }}>
               <Text style={[styles.section, { color: P.textFaint }]}>RECENT</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-                {RECENT.map((r) => (
-                  <Pressable
-                    key={r}
-                    onPress={() => setQuery(r)}
-                    style={({ pressed }) => [
-                      styles.recentPill,
-                      { backgroundColor: P.card, borderColor: P.cardEdge },
-                      pressed && { opacity: 0.8 },
-                    ]}
-                  >
-                    <Ionicons name="time-outline" size={12} color={P.textFaint} />
-                    <Text style={[styles.recentText, { color: P.textDim }]}>{r}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-
-            {/* ── Popular ─────────────────────────────── */}
-            <View style={{ paddingHorizontal: 20, marginTop: 20 }}>
-              <Text style={[styles.section, { color: P.textFaint }]}>POPULAR</Text>
-              <AnimatedCard delay={200} padding={0} style={{ marginTop: 10 }}>
-                {CATALOG.slice(0, 5).map((item, i) => (
-                  <View key={item.id}>
+              <AnimatedCard delay={80} padding={0} style={{ marginTop: 10 }}>
+                {recent.map((food, i) => (
+                  <View key={food.id}>
                     {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: P.hair, marginLeft: 18 }} />}
-                    <FoodRow
-                      item={item}
-                      onPress={() => router.push(`/(tabs)/log/food/${item.id}` as any)}
-                    />
+                    <FoodRow item={toRow(food)} onPress={() => openFood(food)} />
                   </View>
                 ))}
               </AnimatedCard>
             </View>
-          </>
+          ) : (
+            <View style={{ paddingHorizontal: 20, marginTop: 20 }}>
+              <AnimatedCard delay={80}>
+                <View style={{ alignItems: 'center', gap: 10, paddingVertical: 12 }}>
+                  <Text style={[styles.emptyTitle, { color: P.text }]}>
+                    Search any food
+                  </Text>
+                  <Text style={[styles.emptyBody, { color: P.textFaint, textAlign: 'center' }]}>
+                    Foods you log will show up here for one-tap logging next time.
+                  </Text>
+                </View>
+              </AnimatedCard>
+            </View>
+          )
         ) : (
           <View style={{ paddingHorizontal: 20, marginTop: 8 }}>
             {results.length === 0 ? (
-              <AnimatedCard delay={0}>
-                <View style={{ alignItems: 'center', gap: 10, paddingVertical: 12 }}>
-                  <View style={[styles.emptyIcon, { backgroundColor: P.sunken }]}>
-                    <Ionicons name="search" size={22} color={P.textFaint} />
+              // Only claim "nothing found" once a search has actually returned —
+              // otherwise it flashes while the first request is still in flight.
+              searched && !loading ? (
+                <AnimatedCard delay={0}>
+                  <View style={{ alignItems: 'center', gap: 10, paddingVertical: 12 }}>
+                    <Text style={[styles.emptyTitle, { color: P.text }]}>
+                      Nothing found
+                    </Text>
+                    <Text style={[styles.emptyBody, { color: P.textFaint, textAlign: 'center' }]}>
+                      Try a different spelling, or add it manually.
+                    </Text>
+                    <Pressable
+                      onPress={() => router.push('/(tabs)/log/food/manual')}
+                      style={[styles.emptyCta, { backgroundColor: P.calories }]}
+                    >
+                      <Text style={styles.emptyCtaText}>Add manually</Text>
+                    </Pressable>
                   </View>
-                  <Text style={[styles.emptyTitle, { color: P.text }]}>
-                    Nothing found
-                  </Text>
-                  <Text style={[styles.emptyBody, { color: P.textFaint, textAlign: 'center' }]}>
-                    Try a different spelling, or add it manually.
-                  </Text>
-                  <Pressable
-                    onPress={() => router.push('/(tabs)/log/food/manual')}
-                    style={[styles.emptyCta, { backgroundColor: P.calories }]}
-                  >
-                    <Ionicons name="create" size={14} color="#fff" />
-                    <Text style={styles.emptyCtaText}>Add manually</Text>
-                  </Pressable>
-                </View>
-              </AnimatedCard>
+                </AnimatedCard>
+              ) : null
             ) : (
               <AnimatedCard delay={0} padding={0}>
-                {results.map((item, i) => (
-                  <View key={item.id}>
+                {results.map((food, i) => (
+                  <View key={food.id}>
                     {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: P.hair, marginLeft: 18 }} />}
-                    <FoodRow
-                      item={item}
-                      onPress={() => router.push(`/(tabs)/log/food/${item.id}` as any)}
-                    />
+                    <FoodRow item={toRow(food)} onPress={() => openFood(food)} />
                   </View>
                 ))}
               </AnimatedCard>
@@ -187,26 +217,7 @@ const styles = StyleSheet.create({
     fontWeight:    '800',
     letterSpacing: 1.5,
   },
-  recentPill: {
-    flexDirection:    'row',
-    alignItems:       'center',
-    gap:              6,
-    paddingHorizontal:12,
-    paddingVertical:  7,
-    borderRadius:     999,
-    borderWidth:      StyleSheet.hairlineWidth,
-  },
-  recentText: {
-    fontSize:      12,
-    fontWeight:    '700',
-    letterSpacing: 0.1,
-  },
 
-  emptyIcon: {
-    width:          56, height: 56, borderRadius: 18,
-    alignItems:     'center',
-    justifyContent: 'center',
-  },
   emptyTitle: {
     fontSize:      15,
     fontWeight:    '800',

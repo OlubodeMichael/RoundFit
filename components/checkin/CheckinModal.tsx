@@ -436,7 +436,7 @@ export function CheckinModal({ visible, onClose }: Props) {
                 onPress={handleSkip}
                 style={({ pressed }) => [s.skipBtn, { opacity: pressed ? 0.4 : 1 }]}
               >
-                <Text style={[s.skipText, { color: P.textFaint }]}>Skip today</Text>
+                <Text style={[s.skipText, { color: P.textDim }]}>Skip today</Text>
               </Pressable>
             </Animated.View>
           </View>
@@ -465,7 +465,10 @@ const s = StyleSheet.create({
   },
   footer: {
     paddingTop:     12,
-    paddingBottom:  4,
+    // Must exceed fadeUp's 16pt entrance translate. The sheet clips to its
+    // rounded bounds, so with less headroom "Skip today" is cut through by the
+    // bottom edge for the whole animation — and sits flush against it at rest.
+    paddingBottom:  20,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
 
@@ -509,7 +512,9 @@ const s = StyleSheet.create({
   },
   submitText: { fontSize: 15, fontWeight: '800', letterSpacing: -0.3, color: '#fff' },
   skipBtn:    { alignItems: 'center', paddingVertical: 12, marginTop: 2 },
-  skipText:   { fontSize: 13, fontWeight: '500' },
+  // `textDim`, not `textFaint`: this is an action, and on the light glass
+  // surface textFaint (#A1A1AA) lands around 2.2:1 contrast — unreadable.
+  skipText:   { fontSize: 13, fontWeight: '600' },
 
   // Success reveal
   successWrap:  { alignItems: 'center', paddingTop: 36, paddingBottom: 16 },

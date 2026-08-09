@@ -1,5 +1,4 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { usePalette } from '@/lib/log-theme';
 
@@ -12,9 +11,10 @@ export type FoodRowItem = {
 };
 
 // ─── FoodRow ────────────────────────────────────────────────────────────────
-// Food search / popular list row with leading icon, name + brand, kcal on
-// the right, and a trailing plus affordance. Consumers handle navigation
-// (or direct-add) via `onPress`.
+// Food search result row: name + brand/serving on the left, kcal on the right.
+// Deliberately icon-free — the leading glyph and trailing plus repeated on every
+// row added noise without adding meaning. Consumers handle navigation (or
+// direct-add) via `onPress`.
 export function FoodRow({
   item,
   onPress,
@@ -31,10 +31,6 @@ export function FoodRow({
         pressed && { backgroundColor: P.sunken },
       ]}
     >
-      <View style={[s.icon, { backgroundColor: P.caloriesSoft }]}>
-        <Ionicons name="nutrition" size={14} color={P.calories} />
-      </View>
-
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={[s.name, { color: P.text }]} numberOfLines={1}>
           {item.name}
@@ -48,10 +44,6 @@ export function FoodRow({
         <Text style={[s.kcal, { color: P.text }]}>{item.kcal}</Text>
         <Text style={[s.kcalUnit, { color: P.textFaint }]}>kcal</Text>
       </View>
-
-      <View style={[s.add, { borderColor: P.cardEdge }]}>
-        <Ionicons name="add" size={14} color={P.calories} />
-      </View>
     </Pressable>
   );
 }
@@ -63,11 +55,6 @@ const s = StyleSheet.create({
     gap:              12,
     paddingHorizontal:18,
     paddingVertical:  14,
-  },
-  icon: {
-    width:          32, height: 32, borderRadius: 10,
-    alignItems:     'center',
-    justifyContent: 'center',
   },
   name: {
     fontSize:      14,
@@ -87,11 +74,5 @@ const s = StyleSheet.create({
     fontSize:      9,
     fontWeight:    '800',
     letterSpacing: 1.2,
-  },
-  add: {
-    width:          28, height: 28, borderRadius: 9,
-    borderWidth:    StyleSheet.hairlineWidth,
-    alignItems:     'center',
-    justifyContent: 'center',
   },
 });

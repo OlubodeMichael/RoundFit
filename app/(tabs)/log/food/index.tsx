@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import {
   ScrollView,
   View,
@@ -8,6 +8,7 @@ import {
   Modal,
   Alert,
   Animated,
+  Dimensions,
   Easing,
   Platform,
   Pressable,
@@ -57,12 +58,19 @@ type GroupKey = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
 
 const GROUP_ORDER: GroupKey[] = ['breakfast', 'lunch', 'dinner', 'snack', 'other'];
 
-const GROUP_META: Record<GroupKey, { title: string; emoji: string; accent: keyof Palette }> = {
-  breakfast: { title: 'Breakfast', emoji: '🥞', accent: 'carbs'    },
-  lunch:     { title: 'Lunch',     emoji: '🥗', accent: 'protein'  },
-  dinner:    { title: 'Dinner',    emoji: '🍽️', accent: 'fat'      },
-  snack:     { title: 'Snack',     emoji: '🍎', accent: 'water'    },
-  other:     { title: 'Other',     emoji: '🍴', accent: 'calories' },
+// Ionicons rather than emoji: emoji glyph coverage varies by platform and OS
+// version, and where it's missing these render as tofu (?) boxes. The icon font
+// ships with the app, so it draws identically everywhere — and matches the
+// Ionicons used throughout the rest of the screen.
+const GROUP_META: Record<
+  GroupKey,
+  { title: string; icon: ComponentProps<typeof Ionicons>['name']; accent: keyof Palette }
+> = {
+  breakfast: { title: 'Breakfast', icon: 'cafe',       accent: 'carbs'    },
+  lunch:     { title: 'Lunch',     icon: 'fast-food',  accent: 'protein'  },
+  dinner:    { title: 'Dinner',    icon: 'restaurant', accent: 'fat'      },
+  snack:     { title: 'Snack',     icon: 'nutrition',  accent: 'water'    },
+  other:     { title: 'Other',     icon: 'pizza',      accent: 'calories' },
 };
 
 function groupFor(label: string): GroupKey {
@@ -243,6 +251,26 @@ export default function FoodLogScreen() {
       if (m?.CameraView) setCameraView(() => m.CameraView);
     }
   }, [cameraMode]);
+
+  // ── Camera card entrance ──────────────────────────────────────────────────
+  // The card slides up over the log while the backdrop fades, so the meal list
+  // stays visible behind it — the camera reads as something layered onto this
+  // screen rather than a separate destination.
+  const cardAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(cardAnim, {
+      toValue:         cameraMode ? 1 : 0,
+      duration:        cameraMode ? 280 : 200,
+      easing:          cameraMode ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [cameraMode, cardAnim]);
+
+  const cardTranslateY = cardAnim.interpolate({
+    inputRange:  [0, 1],
+    outputRange: [CAMERA_CARD_HEIGHT + 40, 0],
+  });
 
   // ── Grouped meals ─────────────────────────────────────────────────────────
   const grouped = useMemo(() => {
@@ -517,85 +545,114 @@ export default function FoodLogScreen() {
         </View>
       </ScrollView>
 
-      {/* ── CAMERA MODAL (unchanged behaviour, restyled shell) ─── */}
-      <Modal visible={cameraMode !== null} transparent={false} animationType="slide" onRequestClose={closeCamera}>
+      {/* ── CAMERA CARD ──────────────────────────────────────────
+          Presented as a rounded card layered over the log rather than a
+          fullscreen takeover: the meal list stays visible above it, so
+          capturing reads as "add to this screen", and dismissing returns
+          you exactly where you were. Capture behaviour is unchanged. */}
+      <Modal
+        visible={cameraMode !== null}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        onRequestClose={closeCamera}
+      >
         <View style={cameraStyles.root}>
-          {CameraView ? (
-            <CameraView
-              ref={cameraMode === 'photo' ? cameraRef : undefined}
-              style={cameraStyles.view}
-              facing="back"
-              flash={cameraMode === 'photo' ? flash : 'off'}
-              enableTorch={cameraMode === 'scan' && flash !== 'off'}
-              {...(cameraMode === 'scan' ? {
-                barcodeScannerSettings: { barcodeTypes: FOOD_BARCODE_TYPES },
-                onBarcodeScanned: scanned ? undefined : onBarcodeScanned,
-              } : {})}
-            />
-          ) : (
-            <View style={[cameraStyles.view, cameraStyles.fallback]}>
-              <Text style={cameraStyles.fallbackText}>Camera loading…</Text>
-            </View>
-          )}
+          {/* Backdrop — tap anywhere outside the card to dismiss. */}
+          <Animated.View style={[cameraStyles.backdrop, { opacity: cardAnim }]}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeCamera} />
+          </Animated.View>
 
-          {cameraMode === 'scan' && (
-            <View style={cameraStyles.overlay} pointerEvents="none">
-              <View style={cameraStyles.overlayTop} />
-              <View style={cameraStyles.overlayMid}>
-                <View style={cameraStyles.overlaySide} />
-                <View style={cameraStyles.window}>
-                  <View style={[cameraStyles.corner, cameraStyles.cornerTL]} />
-                  <View style={[cameraStyles.corner, cameraStyles.cornerTR]} />
-                  <View style={[cameraStyles.corner, cameraStyles.cornerBL]} />
-                  <View style={[cameraStyles.corner, cameraStyles.cornerBR]} />
-                  {!scanned && <Animated.View style={[cameraStyles.scanLine, { transform: [{ translateY: scanLineY }] }]} />}
-                </View>
-                <View style={cameraStyles.overlaySide} />
-              </View>
-              <View style={cameraStyles.overlayBottom} />
+          {/* Mode switch sits above the card, like a chip over the preview. */}
+          <Animated.View
+            style={[
+              cameraStyles.modeRow,
+              { bottom: CAMERA_CARD_HEIGHT + insets.bottom + 22, opacity: cardAnim },
+            ]}
+          >
+            <View style={cameraStyles.modePill}>
+              <Pressable
+                onPress={() => switchCameraMode('photo')}
+                style={[cameraStyles.modeBtn, cameraMode === 'photo' && cameraStyles.modeBtnActive]}
+              >
+                <Ionicons name="aperture-outline" size={16} color={cameraMode === 'photo' ? '#111' : 'rgba(255,255,255,0.75)'} />
+                <Text style={[cameraStyles.modeBtnText, { color: cameraMode === 'photo' ? '#111' : 'rgba(255,255,255,0.75)' }]}>
+                  AI Photo
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => switchCameraMode('scan')}
+                style={[cameraStyles.modeBtn, cameraMode === 'scan' && cameraStyles.modeBtnActive]}
+              >
+                <Ionicons name="barcode-outline" size={16} color={cameraMode === 'scan' ? '#111' : 'rgba(255,255,255,0.75)'} />
+                <Text style={[cameraStyles.modeBtnText, { color: cameraMode === 'scan' ? '#111' : 'rgba(255,255,255,0.75)' }]}>
+                  Barcode
+                </Text>
+              </Pressable>
             </View>
-          )}
+          </Animated.View>
 
-          {cameraMode === 'photo' && (
-            <View style={photoGuide.overlay} pointerEvents="none">
-              <View style={photoGuide.frame}>
-                <View style={[photoGuide.corner, photoGuide.tl]} />
-                <View style={[photoGuide.corner, photoGuide.tr]} />
-                <View style={[photoGuide.corner, photoGuide.bl]} />
-                <View style={[photoGuide.corner, photoGuide.br]} />
-              </View>
-              <Text style={photoGuide.hint}>Center your meal in the frame</Text>
-            </View>
-          )}
-
-          <View style={[cameraStyles.topBar, { paddingTop: insets.top + 10 }]}>
-            <TouchableOpacity style={cameraStyles.circle} onPress={closeCamera}>
-              <Ionicons name="close" size={22} color="#FFF" />
-            </TouchableOpacity>
-            <Text style={cameraStyles.title}>
-              {cameraMode === 'scan' ? 'Scan barcode' : 'Snap your meal'}
-            </Text>
-            <TouchableOpacity
-              style={[cameraStyles.circle, flash !== 'off' && { backgroundColor: 'rgba(255,120,73,0.55)' }]}
-              onPress={cycleFlash}
-            >
-              <Ionicons
-                name={flash === 'on' ? 'flash' : flash === 'auto' ? 'flash-outline' : 'flash-off-outline'}
-                size={20}
-                color="#FFF"
+          <Animated.View
+            style={[
+              cameraStyles.card,
+              {
+                height: CAMERA_CARD_HEIGHT,
+                bottom: insets.bottom + 10,
+                transform: [{ translateY: cardTranslateY }],
+              },
+            ]}
+          >
+            {CameraView ? (
+              <CameraView
+                ref={cameraMode === 'photo' ? cameraRef : undefined}
+                style={cameraStyles.view}
+                facing="back"
+                flash={cameraMode === 'photo' ? flash : 'off'}
+                enableTorch={cameraMode === 'scan' && flash !== 'off'}
+                {...(cameraMode === 'scan' ? {
+                  barcodeScannerSettings: { barcodeTypes: FOOD_BARCODE_TYPES },
+                  onBarcodeScanned: scanned ? undefined : onBarcodeScanned,
+                } : {})}
               />
-            </TouchableOpacity>
-          </View>
-
-          <View style={[cameraStyles.unifiedBottom, { paddingBottom: insets.bottom + 16 }]}>
-            {cameraMode === 'photo' ? (
-              <View style={cameraStyles.captureRow}>
-                <TouchableOpacity style={cameraStyles.captureOuter} onPress={capturePhoto}>
-                  <View style={cameraStyles.captureInner} />
-                </TouchableOpacity>
-              </View>
             ) : (
-              <View style={cameraStyles.scanContent}>
+              <View style={[cameraStyles.view, cameraStyles.fallback]}>
+                <Text style={cameraStyles.fallbackText}>Camera loading…</Text>
+              </View>
+            )}
+
+            {cameraMode === 'scan' && (
+              <View style={cameraStyles.overlay} pointerEvents="none">
+                <View style={cameraStyles.overlayTop} />
+                <View style={cameraStyles.overlayMid}>
+                  <View style={cameraStyles.overlaySide} />
+                  <View style={cameraStyles.window}>
+                    <View style={[cameraStyles.corner, cameraStyles.cornerTL]} />
+                    <View style={[cameraStyles.corner, cameraStyles.cornerTR]} />
+                    <View style={[cameraStyles.corner, cameraStyles.cornerBL]} />
+                    <View style={[cameraStyles.corner, cameraStyles.cornerBR]} />
+                    {!scanned && <Animated.View style={[cameraStyles.scanLine, { transform: [{ translateY: scanLineY }] }]} />}
+                  </View>
+                  <View style={cameraStyles.overlaySide} />
+                </View>
+                <View style={cameraStyles.overlayBottom} />
+              </View>
+            )}
+
+            {cameraMode === 'photo' && (
+              <View style={photoGuide.overlay} pointerEvents="none">
+                <View style={photoGuide.frame}>
+                  <View style={[photoGuide.corner, photoGuide.tl]} />
+                  <View style={[photoGuide.corner, photoGuide.tr]} />
+                  <View style={[photoGuide.corner, photoGuide.bl]} />
+                  <View style={[photoGuide.corner, photoGuide.br]} />
+                </View>
+                <Text style={photoGuide.hint}>Center your meal in the frame</Text>
+              </View>
+            )}
+
+            {/* Status line — scan hint, lookup progress, or lookup failure. */}
+            {cameraMode === 'scan' && (
+              <View style={cameraStyles.statusSlot} pointerEvents="box-none">
                 {scanned ? (
                   <View style={cameraStyles.lookupCard}>
                     {scanLookupLoading ? (
@@ -614,34 +671,40 @@ export default function FoodLogScreen() {
                   </View>
                 ) : (
                   <View style={cameraStyles.hint}>
-                    <Ionicons name="barcode-outline" size={18} color="rgba(255,255,255,0.7)" />
+                    <Ionicons name="barcode-outline" size={16} color="rgba(255,255,255,0.8)" />
                     <Text style={cameraStyles.hintText}>Point at a barcode or QR code</Text>
                   </View>
                 )}
               </View>
             )}
 
-            <View style={cameraStyles.modePill}>
-              <Pressable
-                onPress={() => switchCameraMode('photo')}
-                style={[cameraStyles.modeBtn, cameraMode === 'photo' && cameraStyles.modeBtnActive]}
+            {/* Controls ride on the preview: dismiss left, shutter centre,
+                flash right — all within thumb reach at the card's base. */}
+            <View style={cameraStyles.cardControls} pointerEvents="box-none">
+              <TouchableOpacity style={cameraStyles.circle} onPress={closeCamera}>
+                <Ionicons name="chevron-back" size={22} color="#FFF" />
+              </TouchableOpacity>
+
+              {cameraMode === 'photo' ? (
+                <TouchableOpacity style={cameraStyles.captureOuter} onPress={capturePhoto}>
+                  <View style={cameraStyles.captureInner} />
+                </TouchableOpacity>
+              ) : (
+                <View style={cameraStyles.captureSpacer} />
+              )}
+
+              <TouchableOpacity
+                style={[cameraStyles.circle, flash !== 'off' && { backgroundColor: 'rgba(255,120,73,0.55)' }]}
+                onPress={cycleFlash}
               >
-                <Ionicons name="aperture-outline" size={17} color={cameraMode === 'photo' ? '#111' : 'rgba(255,255,255,0.75)'} />
-                <Text style={[cameraStyles.modeBtnText, { color: cameraMode === 'photo' ? '#111' : 'rgba(255,255,255,0.75)' }]}>
-                  AI Photo
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => switchCameraMode('scan')}
-                style={[cameraStyles.modeBtn, cameraMode === 'scan' && cameraStyles.modeBtnActive]}
-              >
-                <Ionicons name="barcode-outline" size={17} color={cameraMode === 'scan' ? '#111' : 'rgba(255,255,255,0.75)'} />
-                <Text style={[cameraStyles.modeBtnText, { color: cameraMode === 'scan' ? '#111' : 'rgba(255,255,255,0.75)' }]}>
-                  Barcode
-                </Text>
-              </Pressable>
+                <Ionicons
+                  name={flash === 'on' ? 'flash' : flash === 'auto' ? 'flash-outline' : 'flash-off-outline'}
+                  size={20}
+                  color="#FFF"
+                />
+              </TouchableOpacity>
             </View>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
 
@@ -786,9 +849,14 @@ function MealGroup({
       <View style={{ borderRadius: 24, overflow: 'hidden' }}>
         {/* Header */}
         <View style={[styles.groupHead, { borderBottomColor: P.hair }]}>
-          <Text style={styles.groupEmoji} allowFontScaling={false}>
-            {meta.emoji}
-          </Text>
+          <View
+            style={[
+              styles.groupIcon,
+              { backgroundColor: P[`${meta.accent}Soft` as keyof Palette] as string },
+            ]}
+          >
+            <Ionicons name={meta.icon} size={22} color={accent} />
+          </View>
           <View style={styles.groupHeadCopy}>
             <Text style={[styles.groupTitle, { color: P.text }]}>{meta.title}</Text>
             <Text style={[styles.groupSub, { color: P.textFaint }]}>
@@ -1033,12 +1101,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18, paddingVertical: 18,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  groupEmoji: {
-    fontSize: 40,
-    lineHeight: 44,
-    width: 48,
-    textAlign: 'center',
-    flexShrink: 0,
+  groupIcon: {
+    width:          44,
+    height:         44,
+    borderRadius:   14,
+    alignItems:     'center',
+    justifyContent: 'center',
+    flexShrink:     0,
   },
   groupHeadCopy: {
     flex: 1,
@@ -1178,28 +1247,65 @@ const styles = StyleSheet.create({
 const SCAN_W = 260;
 const SCAN_H = 220;
 
+/**
+ * Height of the inline camera card.
+ *
+ * 68% of the screen keeps the meal list visible above it — the point of the
+ * inline treatment — while the floor guarantees room for the scan reticle
+ * (220pt) plus the status line and control row beneath it on small devices.
+ */
+const CAMERA_CARD_HEIGHT = Math.max(
+  480,
+  Math.round(Dimensions.get('window').height * 0.68),
+);
+
 const cameraStyles = StyleSheet.create({
-  root:     { flex: 1, backgroundColor: '#000' },
+  root:     { flex: 1 },
   view:     { flex: 1 },
   fallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#111', paddingHorizontal: 20 },
   fallbackText: { color: '#FFF', fontSize: 15, textAlign: 'center' },
 
-  topBar: {
-    position: 'absolute', left: 16, right: 16, top: 0,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
-  unifiedBottom: {
-    position: 'absolute', left: 16, right: 16, bottom: 0,
+
+  /** The preview card itself — inset and heavily rounded so it reads as
+   *  content layered on the log, not a separate screen. */
+  card: {
+    position:     'absolute',
+    left:         12,
+    right:        12,
+    borderRadius: 34,
+    overflow:     'hidden',
+    backgroundColor: '#000',
+  },
+
+  /** Overlaid on the preview's lower edge: dismiss, shutter, flash. */
+  cardControls: {
+    position:       'absolute',
+    left:           18,
+    right:          18,
+    bottom:         18,
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+  },
+  /** Holds the shutter's slot open in scan mode so the row stays balanced. */
+  captureSpacer: { width: 72, height: 72 },
+
+  statusSlot: {
+    position:   'absolute',
+    left:       18,
+    right:      18,
+    bottom:     108,
     alignItems: 'center',
-    gap: 20,
   },
-  captureRow: {
-    alignItems: 'center', justifyContent: 'center',
-    width: '100%',
-  },
-  scanContent: {
-    width: '100%',
-    gap: 12,
+
+  modeRow: {
+    position:   'absolute',
+    left:       12,
+    right:      12,
     alignItems: 'center',
   },
   modePill: {
@@ -1212,7 +1318,7 @@ const cameraStyles = StyleSheet.create({
   },
   modeBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 7,
-    paddingHorizontal: 28, paddingVertical: 13,
+    paddingHorizontal: 22, paddingVertical: 11,
     borderRadius: 999,
   },
   modeBtnActive: {
@@ -1226,21 +1332,23 @@ const cameraStyles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  title: { color: '#FFF', fontSize: 16, fontWeight: '700' },
 
   captureOuter: {
-    width: 82, height: 82, borderRadius: 41,
+    width: 72, height: 72, borderRadius: 36,
     borderWidth: 4, borderColor: '#FFF',
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.18)',
   },
-  captureInner: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#FFF' },
+  captureInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FFF' },
 
   overlay:       { ...StyleSheet.absoluteFillObject },
   overlayTop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.60)' },
   overlayMid:    { flexDirection: 'row', height: SCAN_H },
   overlaySide:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.60)' },
-  overlayBottom: { flex: 1, backgroundColor: 'rgba(0,0,0,0.60)' },
+  // Weighted rather than even: the reticle has to clear the status line and
+  // control row that sit on the card's lower edge, which a true vertical
+  // centre would collide with on shorter screens.
+  overlayBottom: { flex: 1.9, backgroundColor: 'rgba(0,0,0,0.60)' },
   window:        { width: SCAN_W, height: SCAN_H, overflow: 'hidden' },
 
   corner:    { position: 'absolute', width: 22, height: 22, borderColor: '#FF7849', borderWidth: 3 },
@@ -1286,7 +1394,8 @@ const cameraStyles = StyleSheet.create({
 // ───────────────────────────────────────────────────────────────────────────────
 // Photo guide overlay
 // ───────────────────────────────────────────────────────────────────────────────
-const GUIDE = 300;
+// Sized to fit the inline card alongside the control row below it.
+const GUIDE = 260;
 
 const photoGuide = StyleSheet.create({
   overlay: {
@@ -1294,6 +1403,8 @@ const photoGuide = StyleSheet.create({
     alignItems:     'center',
     justifyContent: 'center',
     gap:            18,
+    // Keeps the framing guide clear of the shutter row on the card's edge.
+    paddingBottom:  96,
   },
   frame: {
     width:    GUIDE,

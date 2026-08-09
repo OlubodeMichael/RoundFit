@@ -15,8 +15,14 @@ import {
   buildResourceKey,
   fetchWithResourceCache,
   getResourceCached,
+  invalidateResourceCache,
   ttlForDate,
 } from '@/utils/resource-cache';
+import {
+  foodSearchCacheKey,
+  normalizeFoodQuery,
+  rememberSearchKey,
+} from '@/utils/food-search-cache';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +53,68 @@ export interface BarcodePreview {
   carbs:    number;
   fat:      number;
   imageUrl?: string;
+}
+
+/** A named weight a food can be logged by. Always resolved to grams. */
+export interface FoodPortion {
+  label:      string;
+  grams:      number;
+  isDefault?: boolean;
+}
+
+/**
+ * A food from the search database (USDA / Open Food Facts / user-created).
+ *
+ * Per-100g values are the source of truth — servings are computed from them, so
+ * any portion can be logged without another lookup. Mirrors the backend's
+ * `NormalisedFood`; the app never learns which provider answered.
+ */
+export interface Food {
+  id:      string;
+  name:    string;
+  brand?:  string;
+  source:  'usda' | 'openfoodfacts' | 'custom';
+  barcode?:  string;
+  imageUrl?: string;
+
+  caloriesPer100g: number;
+  proteinPer100g:  number;
+  carbsPer100g:    number;
+  fatPer100g:      number;
+  fibrePer100g?:   number;
+  sugarPer100g?:   number;
+  sodiumPer100g?:  number;
+
+  portions: FoodPortion[];
+  verified: boolean;
+}
+
+export interface FoodMacros {
+  calories: number;
+  protein:  number;
+  carbs:    number;
+  fat:      number;
+}
+
+/** Scales a food's per-100g nutrition to a gram weight, for live UI readouts. */
+export function macrosForGrams(food: Food, grams: number): FoodMacros {
+  const factor = grams / 100;
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+  return {
+    calories: Math.round(food.caloriesPer100g * factor),
+    protein:  round1(food.proteinPer100g * factor),
+    carbs:    round1(food.carbsPer100g * factor),
+    fat:      round1(food.fatPer100g * factor),
+  };
+}
+
+/** The portion the UI should preselect. */
+export function defaultPortion(food: Food): FoodPortion {
+  return (
+    food.portions.find((p) => p.isDefault) ??
+    food.portions.find((p) => p.grams === 100) ??
+    food.portions[0] ?? { label: '100 g', grams: 100 }
+  );
 }
 
 export interface FoodContextValue {
@@ -101,6 +169,21 @@ export interface FoodContextValue {
 
   /** Fetches meals for any date WITHOUT updating context state. */
   fetchForDate: (date: string, force?: boolean) => Promise<MealItem[]>;
+
+  /** Searches the food database. Returns [] for blank or 1-char queries. */
+  searchFoods: (query: string) => Promise<Food[]>;
+
+  /** Full detail (including portions) for one food id. */
+  getFood: (foodId: string) => Promise<Food | null>;
+
+  /** Distinct foods this user logged most recently. */
+  getRecentFoods: () => Promise<Food[]>;
+
+  /**
+   * Logs a food by id and gram weight. The server recomputes the nutrition, so
+   * summaries and streaks can't be driven by client-supplied macros.
+   */
+  logFoodById: (food: Food, grams: number, label: ManualMealInput['label']) => Promise<void>;
 }
 
 // ── API helper ─────────────────────────────────────────────────────────────
@@ -227,6 +310,13 @@ export class ZeroCaloriesError extends Error {
 }
 
 const DEFAULT_MEAL_GOAL = 2100;
+
+/** Foods barely change, so a resolved detail record is good for a long time. */
+const FOOD_DETAIL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Result pages are near-static; stale ones are served instantly then refreshed. */
+const FOOD_SEARCH_TTL_MS = 24 * 60 * 60 * 1000;
+/** Recents change whenever something is logged, and are invalidated on write. */
+const RECENT_FOODS_TTL_MS = 30 * 60 * 1000;
 
 // ── Context ────────────────────────────────────────────────────────────────
 
@@ -581,11 +671,150 @@ export function FoodProvider({ children }: { children: React.ReactNode }) {
     return rows ?? [];
   }, [user?.id]);
 
+  // ── Food database: search ────────────────────────────────────────────────
+  const searchFoods = useCallback(async (query: string): Promise<Food[]> => {
+    const q = normalizeFoodQuery(query);
+    if (q.length < 2) return [];
+
+    const fetchPage = async (): Promise<Food[] | null> => {
+      const { ok, body } = await apiFetch(`/food/search?q=${encodeURIComponent(q)}`);
+      if (!ok) return null;
+      const foods = Array.isArray(body.data) ? (body.data as Food[]) : [];
+      // Returning null for an empty page keeps "no results" out of the cache.
+      // A miss is exactly the case worth retrying — the food may be added
+      // upstream, or the request may have degraded to a partial result.
+      return foods.length > 0 ? foods : null;
+    };
+
+    // No user id yet (cold start mid-auth) — still search, just uncached.
+    if (!user?.id) return (await fetchPage()) ?? [];
+
+    const key = foodSearchCacheKey(user.id, q);
+    const foods = await fetchWithResourceCache<Food[]>(
+      key,
+      FOOD_SEARCH_TTL_MS,
+      fetchPage,
+      // Serve the previous page instantly and refresh behind it: results for a
+      // given query are near-static, so waiting on the network to redraw an
+      // identical list is pure latency.
+      { allowStale: true },
+    );
+
+    if (foods) void rememberSearchKey(user.id, key);
+    return foods ?? [];
+  }, [user?.id]);
+
+  // ── Food database: detail ────────────────────────────────────────────────
+  const getFood = useCallback(async (foodId: string): Promise<Food | null> => {
+    if (!user?.id) return null;
+
+    // Foods are effectively immutable, so this can be cached hard — it saves a
+    // round trip every time the same food is opened from search or recents.
+    const key = buildResourceKey('food-item', user.id, foodId);
+    const food = await fetchWithResourceCache<Food | null>(
+      key,
+      FOOD_DETAIL_TTL_MS,
+      async () => {
+        const { ok, body } = await apiFetch(`/food/${encodeURIComponent(foodId)}`);
+        if (!ok || !body.data) return null;
+        return body.data as Food;
+      },
+    );
+    return food ?? null;
+  }, [user?.id]);
+
+  // ── Food database: recents ───────────────────────────────────────────────
+  const getRecentFoods = useCallback(async (): Promise<Food[]> => {
+    if (!user?.id) return [];
+
+    const key = buildResourceKey('food-recent', user.id);
+    const foods = await fetchWithResourceCache<Food[]>(
+      key,
+      RECENT_FOODS_TTL_MS,
+      async () => {
+        const { ok, body } = await apiFetch('/food/recent');
+        if (!ok) return null;
+        return Array.isArray(body.data) ? (body.data as Food[]) : [];
+      },
+    );
+    return foods ?? [];
+  }, [user?.id]);
+
+  // ── Log a food from the database ─────────────────────────────────────────
+  const logFoodById = useCallback(async (
+    food: Food,
+    grams: number,
+    label: ManualMealInput['label'],
+  ) => {
+    const now     = new Date();
+    const tempId  = `optimistic-${Date.now()}`;
+    // Computed locally only so the row appears instantly; the server recomputes
+    // and the reconcile below replaces these with the authoritative values.
+    const macros  = macrosForGrams(food, grams);
+
+    const optimistic: MealItem = {
+      id:      tempId,
+      meal:    titleMealLabel(label),
+      name:    food.name,
+      cals:    macros.calories,
+      protein: macros.protein,
+      carbs:   macros.carbs,
+      fat:     macros.fat,
+      time:    now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+      imageUrl: food.imageUrl,
+    };
+
+    setMeals((prev) => [...prev, optimistic]);
+    applyTodayOptimistic({
+      caloriesConsumed: macros.calories,
+      proteinConsumed:  macros.protein,
+      carbsConsumed:    macros.carbs,
+      fatConsumed:      macros.fat,
+    });
+
+    const { ok, body } = await apiFetch('/food/log-by-id', {
+      method: 'POST',
+      body:   JSON.stringify({
+        food_id:    food.id,
+        grams,
+        meal_label: label,
+        log_date:   todayDateString(),
+      }),
+    });
+
+    if (ok && body.data) {
+      const saved = fromApiLog(body.data as Record<string, unknown>);
+      saved.meal = titleMealLabel(label);
+      setMeals((prev) => prev.map((m) => m.id === tempId ? saved : m));
+
+      // A newly logged food becomes a "recent" — drop the cached list so the
+      // search screen reflects it next time it opens.
+      if (user?.id) {
+        void invalidateResourceCache(buildResourceKey('food-recent', user.id));
+      }
+
+      const bundle = extractTodayBundle(body);
+      if (bundle) applyTodayReconcile(bundle);
+      void syncToday();
+      return;
+    }
+
+    setMeals((prev) => prev.filter((m) => m.id !== tempId));
+    applyTodayOptimistic({
+      caloriesConsumed: -macros.calories,
+      proteinConsumed:  -macros.protein,
+      carbsConsumed:    -macros.carbs,
+      fatConsumed:      -macros.fat,
+    });
+    throw new Error('Failed to log food');
+  }, [syncToday, user?.id]);
+
   return (
     <FoodContext.Provider value={{
       meals, mealGoal, totalCalories, totalProtein, totalCarbs, totalFat,
       remaining, isLoading,
       addMeal, uploadMealPhoto, previewPhoto, previewBarcode, analyzePhoto, logBarcode, deleteMeal, refreshLogs, fetchForDate,
+      searchFoods, getFood, getRecentFoods, logFoodById,
     }}>
       {children}
     </FoodContext.Provider>

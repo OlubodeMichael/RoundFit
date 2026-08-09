@@ -7,7 +7,6 @@ export default function LogLayout() {
       <Stack.Screen name="food/index" />
       <Stack.Screen name="food/search" />
       <Stack.Screen name="food/[id]" />
-      <Stack.Screen name="food/scan" />
       <Stack.Screen name="food/manual" />
       <Stack.Screen name="food/photo" />
       <Stack.Screen name="workout" />

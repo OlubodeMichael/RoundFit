@@ -57,8 +57,8 @@ Backend endpoints exist; the frontend is a stub (`Purchases.configure()` is neve
 ---
 
 ## 5. 🟡 Feature completeness / "coming soon" hygiene
-- [ ] **Barcode scan** (`log/food/scan.tsx`): UI exists, no decoder installed. Either implement (`expo-camera` barcode support is available) or hide the entry point for v1.
-- [ ] **Food search** (`log/food/search.tsx`): confirm it hits a real DB (Edamam/Open Food Facts) or is hidden. (TODO.md lists it as unfinished — verify current state.)
+- [x] **Barcode scan**: implemented in `log/food/index.tsx` via `expo-camera` `CameraView` → `/food/barcode/preview` (Open Food Facts, USDA Branded fallback). The unused `food/scan.tsx` placeholder has been deleted.
+- [x] **Food search** (`log/food/search.tsx`): hits `GET /food/search` — USDA FoodData Central primary, Open Food Facts for barcode/packaged, Redis-cached. Edamam removed. **Requires backend deploy + `USDA_FDC_API_KEY` in Railway env.** See FOOD_SEARCH_PLAN.md.
 - [ ] Sweep for any remaining dead buttons / placeholder screens and hide or finish them.
 
 ---

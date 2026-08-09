@@ -9,16 +9,16 @@
 - [ ] Add a Privacy Policy screen (Apple requires it for App Store / TestFlight)
 - [ ] Add a Terms of Service screen
 - [ ] Set proper version number and build number in `app.json`
-- [ ] Hide or label "Coming Soon" on broken features (photo food analysis, barcode scan, food search)
+- [ ] Hide or label "Coming Soon" on broken features (photo food analysis)
 
 ---
 
 ## STUBBED / INCOMPLETE (broken in current state)
 
 ### Food Logging
-- [ ] `app/(tabs)/log/food/search.tsx` — wire real food database API (e.g. Open Food Facts); currently shows 10 hardcoded mock items
+- [x] `app/(tabs)/log/food/search.tsx` — wired to `GET /food/search` (USDA FoodData Central + Open Food Facts, Redis-cached). Mock catalogue removed.
 - [x] `app/(tabs)/log/food/photo.tsx` — camera capture → persist to disk → API call → disk-cached result via `utils/photo-cache.ts`
-- [ ] `app/(tabs)/log/food/scan.tsx` — scanner UI exists but no barcode decoder library installed (`expo-barcode-scanner` or similar)
+- [x] Barcode scanning — implemented via `expo-camera` `CameraView` in `log/food/index.tsx`. The decorative `food/scan.tsx` screen was unreachable and has been deleted.
 
 ### Profile
 - [ ] `app/(tabs)/profile/notifications.tsx` — UI and time picker work, but `expo-notifications` not installed so reminders never actually fire
@@ -36,7 +36,7 @@
 - [ ] **Subscription / Paywall** — `paywall.tsx` and `subscription.tsx` are empty stubs; `react-native-purchases` (RevenueCat) not installed; no free vs premium feature gating
 - [ ] **Push Notifications** — `expo-notifications` not in dependencies; install + wire up scheduled reminders
 - [ ] **Account Deletion** — mentioned in profile but no UI or API call exists
-- [ ] **Food Search Database** — no real search endpoint; users limited to manual entry
+- [x] **Food Search Database** — `GET /food/search` live (USDA + Open Food Facts). See FOOD_SEARCH_PLAN.md.
 
 ---
 
@@ -58,7 +58,7 @@
 
 ## POST-LAUNCH (phase 2)
 
-- [ ] Barcode food scan — full implementation
+- [x] Barcode food scan — full implementation
 - [x] Photo food analysis — camera capture → base64 → API → meal creation (+ disk cache)
 - [ ] Claude AI insights — `@anthropic-ai/sdk` not installed, premium feature
 - [ ] Weekly insight reports — data aggregation + report generation
