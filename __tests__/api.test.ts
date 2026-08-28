@@ -5,6 +5,7 @@ jest.mock('expo-secure-store', () => {
     getItemAsync: jest.fn((k: string) => Promise.resolve(store.has(k) ? store.get(k)! : null)),
     setItemAsync: jest.fn((k: string, v: string) => { store.set(k, v); return Promise.resolve(); }),
     deleteItemAsync: jest.fn((k: string) => { store.delete(k); return Promise.resolve(); }),
+    AFTER_FIRST_UNLOCK: 'afterFirstUnlock',
     __store: store,
   };
 });
@@ -237,5 +238,60 @@ describe('proactiveRefreshStateIfNeeded', () => {
   it('returns invalid when there is no refresh token to use', async () => {
     await SecureStore.setItemAsync(TOKEN_KEY, makeJwt({ sub: 'u', exp: PAST }));
     expect(await proactiveRefreshStateIfNeeded()).toBe('invalid');
+  });
+});
+
+// ── Locked-keychain behaviour ──────────────────────────────────────────────
+// iOS wakes the app in the background (HealthKit sleep delivery) while the
+// device is locked. Reads then throw, and treating that as "no session" is what
+// logged users out overnight.
+describe('locked keychain', () => {
+  const getItem = SecureStore.getItemAsync as jest.Mock;
+
+  function lockKeychain() {
+    getItem.mockImplementation(() => Promise.reject(new Error('User interaction is not allowed.')));
+  }
+
+  afterEach(() => {
+    getItem.mockImplementation((k: string) =>
+      Promise.resolve(store.has(k) ? store.get(k)! : null),
+    );
+  });
+
+  it('reports transient — never invalid — so the session is not dropped', async () => {
+    await storeTokens(makeJwt({ sub: 'user-1', exp: PAST }), 'refresh-1');
+    lockKeychain();
+
+    const state = await proactiveRefreshStateIfNeeded(0);
+
+    expect(state).toBe('transient');
+    expect(state).not.toBe('invalid');
+  });
+
+  it('does not claim the access token is absent', async () => {
+    await storeTokens(makeJwt({ sub: 'user-1', exp: FAR_FUTURE }), 'refresh-1');
+    lockKeychain();
+
+    // "Cannot read" must not be reported as "not there" — callers log out on false.
+    await expect(hasStoredAccessToken()).resolves.toBe(true);
+  });
+
+  it('still reports a genuinely absent refresh token as invalid', async () => {
+    await clearTokens();
+
+    await expect(proactiveRefreshStateIfNeeded(0)).resolves.toBe('invalid');
+  });
+});
+
+describe('keychain accessibility', () => {
+  it('stores tokens as AFTER_FIRST_UNLOCK so background wakes can read them', async () => {
+    (SecureStore.setItemAsync as jest.Mock).mockClear();
+    await storeTokens(makeJwt({ sub: 'user-1' }), 'refresh-1');
+
+    const calls = (SecureStore.setItemAsync as jest.Mock).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call[2]).toEqual({ keychainAccessible: 'afterFirstUnlock' });
+    }
   });
 });

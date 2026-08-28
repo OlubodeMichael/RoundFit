@@ -10,6 +10,30 @@ const REFRESH_KEY = "refresh_token";
 const SUB_KEY = "token_sub"; // plain-string owner of the stored session
 const TIMEOUT_MS = 10_000;
 
+// expo-secure-store defaults to WHEN_UNLOCKED, which makes the keychain
+// unreadable whenever iOS wakes us with the device locked — which is exactly
+// when HealthKit background delivery fires (overnight sleep sync). Tokens must
+// survive that, so store them AFTER_FIRST_UNLOCK. Existing installs migrate on
+// their next successful refresh, which rewrites all three keys.
+const KEYCHAIN_OPTS: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+};
+
+type SecureRead = { value: string | null; unreadable: boolean };
+
+/**
+ * Reads a key, distinguishing "nothing stored" from "the keychain could not be
+ * read". Collapsing both to `null` is what turns a locked-device background
+ * wake into a permanent-looking logout.
+ */
+async function readSecure(key: string): Promise<SecureRead> {
+  try {
+    return { value: await SecureStore.getItemAsync(key), unreadable: false };
+  } catch {
+    return { value: null, unreadable: true };
+  }
+}
+
 if (!extra.apiUrl) {
   // Same failure mode as a missing API_KEY but previously silent: every
   // request would target the plain-HTTP localhost fallback and fail in a
@@ -109,10 +133,20 @@ function isInvalidRefreshBody(body: Record<string, unknown>): boolean {
 }
 
 async function executeRefresh(): Promise<string | null> {
-  const [storedRefresh, storedSub] = await Promise.all([
-    SecureStore.getItemAsync(REFRESH_KEY).catch(() => null),
-    SecureStore.getItemAsync(SUB_KEY).catch(() => null),
+  const [refreshRead, subRead] = await Promise.all([
+    readSecure(REFRESH_KEY),
+    readSecure(SUB_KEY),
   ]);
+
+  // Locked keychain: we cannot prove the session is dead, so never report
+  // "invalid" — that is the signal callers turn into a logout.
+  if (refreshRead.unreadable) {
+    lastRefreshFailureReason = "transient";
+    return null;
+  }
+
+  const storedRefresh = refreshRead.value;
+  const storedSub = subRead.value;
   if (!storedRefresh) {
     lastRefreshFailureReason = "invalid";
     return null;
@@ -186,11 +220,13 @@ async function executeRefresh(): Promise<string | null> {
     }
 
     await Promise.all([
-      SecureStore.setItemAsync(TOKEN_KEY, access_token),
+      SecureStore.setItemAsync(TOKEN_KEY, access_token, KEYCHAIN_OPTS),
       typeof refresh_token === "string"
-        ? SecureStore.setItemAsync(REFRESH_KEY, refresh_token)
+        ? SecureStore.setItemAsync(REFRESH_KEY, refresh_token, KEYCHAIN_OPTS)
         : Promise.resolve(),
-      newSub ? SecureStore.setItemAsync(SUB_KEY, newSub) : Promise.resolve(),
+      newSub
+        ? SecureStore.setItemAsync(SUB_KEY, newSub, KEYCHAIN_OPTS)
+        : Promise.resolve(),
     ]);
     console.log("[api] refresh succeeded, new token stored");
     lastRefreshFailureReason = null;
@@ -223,9 +259,7 @@ export async function apiFetch(
   options: ApiFetchOptions = {},
 ): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
   const { includeAuthToken = true, ...requestOptions } = options;
-  const token = includeAuthToken
-    ? await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null)
-    : null;
+  const token = includeAuthToken ? (await readSecure(TOKEN_KEY)).value : null;
 
   const makeHeaders = (t: string | null): Record<string, string> => ({
     "Content-Type": "application/json",
@@ -318,10 +352,17 @@ export async function publicApiFetch(
 
 // ── Token helpers (used by AuthProvider) ──────────────────────────────────
 
-/** Returns true if an access token is currently stored in SecureStore. */
+/**
+ * Returns true if an access token is currently stored in SecureStore.
+ *
+ * Every caller uses this to decide whether to drop the session, so an
+ * unreadable keychain answers `true`: "cannot read" is not "not there", and
+ * guessing the other way logs out a user who still has valid tokens.
+ */
 export async function hasStoredAccessToken(): Promise<boolean> {
-  const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
-  return Boolean(token);
+  const { value, unreadable } = await readSecure(TOKEN_KEY);
+  if (unreadable) return true;
+  return Boolean(value);
 }
 
 /**
@@ -331,7 +372,7 @@ export async function hasStoredAccessToken(): Promise<boolean> {
  * alive server-side.
  */
 export async function getStoredAccessToken(): Promise<string | null> {
-  return SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
+  return (await readSecure(TOKEN_KEY)).value;
 }
 
 /**
@@ -340,7 +381,7 @@ export async function getStoredAccessToken(): Promise<string | null> {
  * Reads app_metadata.provider from the JWT payload — Supabase always sets this.
  */
 export async function isStoredTokenOAuth(): Promise<boolean> {
-  const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
+  const token = (await readSecure(TOKEN_KEY)).value;
   if (!token) return false;
   const payload = decodeJwtPayload(token);
   const meta = payload?.app_metadata as Record<string, unknown> | undefined;
@@ -359,10 +400,10 @@ export async function storeTokens(
 ): Promise<void> {
   const sub = tokenSub(accessToken);
   await Promise.all([
-    SecureStore.setItemAsync(TOKEN_KEY, accessToken),
-    SecureStore.setItemAsync(REFRESH_KEY, refreshToken),
+    SecureStore.setItemAsync(TOKEN_KEY, accessToken, KEYCHAIN_OPTS),
+    SecureStore.setItemAsync(REFRESH_KEY, refreshToken, KEYCHAIN_OPTS),
     sub
-      ? SecureStore.setItemAsync(SUB_KEY, sub)
+      ? SecureStore.setItemAsync(SUB_KEY, sub, KEYCHAIN_OPTS)
       : SecureStore.deleteItemAsync(SUB_KEY).catch(() => {}),
   ]);
 }
@@ -393,7 +434,7 @@ export async function proactiveRefreshIfNeeded(
 export async function proactiveRefreshStateIfNeeded(
   bufferSecs = 300,
 ): Promise<"valid" | "invalid" | "transient"> {
-  const token = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
+  const token = (await readSecure(TOKEN_KEY)).value;
 
   const needsRefresh =
     !token ||
