@@ -1,16 +1,15 @@
+import { useSubscriptionOptional } from "@/context/subscription-context";
+
 /**
- * Whether the current user has an active premium entitlement.
+ * Whether the current user has an active premium entitlement (paying OR in the
+ * 7-day free trial — both look identical here, by design).
  *
- * ⚠️ INTERIM STUB. The RevenueCat frontend is not wired yet (see LAUNCH_CHECKLIST §3
- * and `app/(tabs)/profile/paywall.tsx`), so the client has no entitlement source of
- * truth. Returning `false` keeps every *cloud* (paid) AI path — e.g. OpenAI coaching
- * phrasing — off app-wide until entitlements exist. Free-forever paths are unaffected:
- * on-device Apple FM phrasing and the deterministic template still run for everyone.
- *
- * When RevenueCat lands, replace the body with the real `customerInfo` entitlement
- * check (e.g. `Purchases.getCustomerInfo()` → `entitlements.active['premium']`), and
- * every premium gate that reads this hook flips on automatically.
+ * Reads the RevenueCat-backed `SubscriptionProvider`. Falls back to `false` when
+ * rendered outside the provider or before the SDK is configured, so free-forever
+ * paths (on-device Apple FM phrasing, deterministic templates) still run for
+ * everyone while cloud (paid) paths stay gated.
  */
 export function useIsPremium(): boolean {
-  return false;
+  const subscription = useSubscriptionOptional();
+  return subscription?.isPremium ?? false;
 }

@@ -135,7 +135,10 @@ export default function RevealScreen() {
         setSavingPlan(false);
       }
     }
-    router.push({ pathname: '/auth/sign-up-options', params });
+    // Pre-signup paywall: the plan reveal is peak motivation, so the paywall comes
+    // before account creation. It forwards `params` on to sign-up so the collected
+    // onboarding profile survives the detour.
+    router.push({ pathname: '/paywall', params } as never);
   }
   const goalLabel    = GOAL_LABEL[canonicalGoal];
   const actLabel     = ACTIVITY_LABEL[canonicalActivity];

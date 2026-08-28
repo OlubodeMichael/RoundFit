@@ -15,6 +15,7 @@ import {
 } from "@react-navigation/native";
 import * as Notifications from "expo-notifications";
 import {
+    type Href,
     Stack,
     useGlobalSearchParams,
     usePathname,
@@ -36,6 +37,9 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ToastProvider } from "@/components/ui/Toast";
 import { AuthProvider, hasActiveUserSession } from "@/context/auth-context";
+import { SubscriptionProvider, useSubscriptionOptional } from "@/context/subscription-context";
+import { PAYWALL_ENABLED } from "@/constants/subscription";
+import { configurePurchases } from "@/lib/purchases";
 import { BurnCoachProvider } from "@/context/burn-coach-context";
 import { CheckinProvider } from "@/context/checkin-context";
 import { CycleProvider } from "@/context/cycle-context";
@@ -79,6 +83,7 @@ function AppNavigator() {
   const params = useGlobalSearchParams();
   const previousPathname = useRef<string | undefined>(undefined);
   const navigatorReady = Boolean(navState?.key);
+  const subscription = useSubscriptionOptional();
 
   // Daily insight notification: sleep background delivery + generic fallback.
   useDailyInsightNotification();
@@ -105,7 +110,11 @@ function AppNavigator() {
     if (status === "loading") return;
 
     const top = segments[0];
-    const inPublicOnboarding = top === "auth" || top === "onboarding";
+    // `paywall` is public: it must be reachable before sign-up (pre-signup paywall
+    // placement) and while signed out, otherwise the unauthenticated redirect
+    // below bounces it to /auth and it can never be seen.
+    const inPublicOnboarding =
+      top === "auth" || top === "onboarding" || (top as string) === "paywall";
 
     const authScreen = segments[1];
 
@@ -113,6 +122,24 @@ function AppNavigator() {
     if (status === "needs-profile" && top !== "onboarding") {
       router.replace("/onboarding/complete-profile");
       return;
+    }
+
+    // ── Hard paywall gate (SUBSCRIPTION_PLAN §7) ──────────────────────────────
+    // Inert unless PAYWALL_ENABLED. When on, a signed-in user with no active
+    // entitlement can only be on `/paywall`. `reveal.tsx` → setupOAuthProfile →
+    // status flips to authenticated → this gate fires → the paywall IS the
+    // onboarding paywall (no onboarding screen changes needed).
+    if (PAYWALL_ENABLED && hasActiveUserSession(status, user)) {
+      const subStatus = subscription?.status ?? "disabled";
+      const isPremium = subscription?.isPremium ?? false;
+      if (subStatus !== "loading" && !isPremium && (top as string) !== "paywall") {
+        router.replace("/paywall" as Href);
+        return;
+      }
+      if (isPremium && (top as string) === "paywall") {
+        router.replace("/(tabs)");
+        return;
+      }
     }
 
     const passwordScreen =
@@ -131,7 +158,7 @@ function AppNavigator() {
     if (status === "unauthenticated" && !inPublicOnboarding) {
       router.replace("/auth");
     }
-  }, [navigatorReady, status, user, segments]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [navigatorReady, status, user, segments, subscription?.status, subscription?.isPremium]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const top = segments[0];
   // Hide auth UI until session is known, and while an authenticated user is still on `auth`
@@ -140,7 +167,12 @@ function AppNavigator() {
   const showAuthSplash =
     status === "loading" ||
     (status === "needs-profile" && top !== "onboarding") ||
-    (status === "authenticated" && top === "auth" && !passwordScreen);
+    (status === "authenticated" && top === "auth" && !passwordScreen) ||
+    // Hold the splash while RevenueCat's customerInfo resolves, so a paying user
+    // cold-starting never sees a flash of the paywall before the gate settles.
+    (PAYWALL_ENABLED &&
+      status === "authenticated" &&
+      (subscription?.status ?? "disabled") === "loading");
 
   return (
     <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
@@ -150,6 +182,9 @@ function AppNavigator() {
           <Stack.Screen name="auth" />
           <Stack.Screen name="onboarding" />
           <Stack.Screen name="(tabs)" options={{ gestureEnabled: status !== "authenticated" }} />
+          {/* Hard paywall: not swipe-dismissible — the only exits are purchase or
+              the escape hatches in the screen footer (Restore/Sign out/Delete). */}
+          <Stack.Screen name="paywall" options={{ gestureEnabled: false }} />
           <Stack.Screen name="modal" options={{ presentation: "modal" }} />
           <Stack.Screen
             name="edit-profile"
@@ -188,6 +223,9 @@ export default function RootLayout() {
 
   useEffect(() => {
     setupNotificationChannel();
+    // Configure RevenueCat once, before the provider tree needs it. No-ops on
+    // non-iOS or when EXPO_PUBLIC_REVENUECAT_IOS_KEY is unset.
+    configurePurchases();
   }, []);
 
   if (!fontsLoaded) return <View style={{ flex: 1, backgroundColor: '#FAFAF8' }} />;
@@ -199,6 +237,7 @@ export default function RootLayout() {
         <ThemeProvider>
           <ToastProvider>
             <AuthProvider>
+              <SubscriptionProvider>
               <ProfileProvider>
                 <FoodProvider>
                   <WorkoutProvider>
@@ -237,6 +276,7 @@ export default function RootLayout() {
                   </WorkoutProvider>
                 </FoodProvider>
               </ProfileProvider>
+              </SubscriptionProvider>
             </AuthProvider>
           </ToastProvider>
         </ThemeProvider>
