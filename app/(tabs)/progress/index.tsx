@@ -12,6 +12,7 @@ import {
   StepsMetricCard,
 } from '@/components/home/ActivityCard';
 import { MirrorPromoCard } from '@/components/progress/MirrorPromoCard';
+import { MIRROR_ENABLED } from '@/constants/features';
 import { ProgressCaloriesCard } from '@/components/progress/ProgressCaloriesCard';
 import { ProgressConsistencyCard } from '@/components/progress/ProgressConsistencyCard';
 import { ProgressHeadlineStats } from '@/components/progress/ProgressHeadlineStats';
@@ -235,7 +236,7 @@ export default function ProgressScreen() {
             delay={400}
           />
 
-          <MirrorPromoCard P={P} delay={480} />
+          {MIRROR_ENABLED && <MirrorPromoCard P={P} delay={480} />}
         </View>
       </ScrollView>
     </View>
