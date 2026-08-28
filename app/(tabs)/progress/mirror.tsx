@@ -13,11 +13,13 @@ import { MirrorSectionHeader } from '@/components/progress/MirrorSectionHeader';
 import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
 import type { CardAccent } from '@/components/ui/gradient-card-theme';
 import type { CardAccentVariant } from '@/components/ui/gradient-card-theme';
+import { Redirect } from 'expo-router';
 import {
   ScreenHeader,
   usePalette,
   useScreenPadding,
 } from '@/lib/log-theme';
+import { MIRROR_ENABLED } from '@/constants/features';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -62,6 +64,11 @@ const AI_SYNTHESIS =
 const CARD_PAD = { paddingHorizontal: 16, paddingBottom: 16 };
 
 export default function MirrorScreen() {
+  // Held back from launch. The screen is intact but must not be reachable —
+  // including by deep link or a typed-route jump, which the entry-point gate
+  // alone does not cover. See MIRROR_PLAN.md.
+  if (!MIRROR_ENABLED) return <Redirect href="/(tabs)/progress" />;
+
   const P      = usePalette();
   const pad    = useScreenPadding();
   const insets = useSafeAreaInsets();

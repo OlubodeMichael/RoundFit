@@ -1,17 +1,23 @@
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Redirect, useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 import { NumericStepper } from '@/components/onboarding/numeric-stepper';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
+import { CYCLE_ENABLED } from '@/constants/features';
 
 const MIN_DAYS = 21;
 const MAX_DAYS = 45;
 const DEFAULT_DAYS = 28;
 
 export default function CycleLengthScreen() {
+  // Held back from launch. The screen is intact but must not be reachable —
+  // including by deep link or a typed-route jump, which the entry-point gate
+  // alone does not cover. See CYCLE_FEATURE_REMOVAL_PLAN.md.
+  if (!CYCLE_ENABLED) return <Redirect href="/onboarding" />;
+
   const router = useRouter();
   const params = useLocalSearchParams<{
     name: string; age: string; sex: string; height: string; weight: string; goal: string; activity: string;

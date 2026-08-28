@@ -1,11 +1,12 @@
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Redirect, useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import { ProgressBar } from '@/components/onboarding/progress-bar';
 import { TileGrid, Tile } from '@/components/onboarding/tile-grid';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
+import { CYCLE_ENABLED } from '@/constants/features';
 
 const STAGES: Tile[] = [
   { id: 'regular',       icon: 'sync-outline',     label: 'Regular cycle', desc: 'Predictable monthly cycle' },
@@ -15,6 +16,11 @@ const STAGES: Tile[] = [
 ];
 
 export default function LifeStageScreen() {
+  // Held back from launch. The screen is intact but must not be reachable —
+  // including by deep link or a typed-route jump, which the entry-point gate
+  // alone does not cover. See CYCLE_FEATURE_REMOVAL_PLAN.md.
+  if (!CYCLE_ENABLED) return <Redirect href="/onboarding" />;
+
   const router = useRouter();
   const params = useLocalSearchParams<{
     name: string; age: string; sex: string; height: string; weight: string;
