@@ -55,7 +55,7 @@ export default function HardPaywallScreen() {
         <Text style={s.fallbackTitle}>Plans are unavailable</Text>
         <Text style={s.fallbackBody}>
           Subscriptions aren&apos;t configured on this build. Set
-          EXPO_PUBLIC_REVENUECAT_IOS_KEY to load the paywall.
+          REVENUECAT_IOS_KEY to load the paywall.
         </Text>
         <TouchableOpacity style={s.fallbackCta} onPress={proceed} activeOpacity={0.9}>
           <Text style={s.fallbackCtaText}>Continue</Text>
