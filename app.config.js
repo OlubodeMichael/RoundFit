@@ -121,6 +121,7 @@ module.exports = {
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
       apiUrl: process.env.API_URL,
       apiKey: process.env.API_KEY,
+      revenueCatIosKey: process.env.REVENUECAT_IOS_KEY,
     },
   },
 };

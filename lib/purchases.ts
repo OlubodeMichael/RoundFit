@@ -5,15 +5,16 @@
  * tree mounts (see `app/_layout.tsx`). iOS-only for now — RoundFit sells through
  * the App Store; Android/web return early.
  *
- * The public SDK key comes from `EXPO_PUBLIC_REVENUECAT_IOS_KEY` (Expo inlines
- * `EXPO_PUBLIC_*` at build). Until a real App Store app exists in RevenueCat the
- * only key available is the Test Store key, which cannot validate real StoreKit
- * purchases — so configuration is a no-op when the key is missing.
+ * The public SDK key comes from `extra.revenueCatIosKey` (fed by `REVENUECAT_IOS_KEY`
+ * in `app.config.js`), matching how every other secret reaches the client here.
+ * It must be an App Store key (`appl_…`); a Test Store key cannot validate real
+ * StoreKit purchases. Configuration is a no-op when the key is missing.
  */
+import Constants from "expo-constants";
 import { Platform } from "react-native";
 import Purchases, { LOG_LEVEL } from "react-native-purchases";
 
-const IOS_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY;
+const IOS_KEY = Constants.expoConfig?.extra?.revenueCatIosKey as string | undefined;
 
 let configured = false;
 
@@ -32,8 +33,8 @@ export function configurePurchases(): boolean {
   if (!IOS_KEY) {
     if (__DEV__) {
       console.warn(
-        "[purchases] EXPO_PUBLIC_REVENUECAT_IOS_KEY is not set — RevenueCat is disabled. " +
-          "Set a real iOS public SDK key once the App Store app exists in RevenueCat.",
+        "[purchases] extra.revenueCatIosKey is not set — RevenueCat is disabled. " +
+          "Set REVENUECAT_IOS_KEY to the App Store public SDK key (appl_…).",
       );
     }
     return false;
