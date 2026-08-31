@@ -8,11 +8,18 @@
 /**
  * The RevenueCat entitlement identifier that grants premium access.
  *
- * ⚠️ Must match the entitlement `lookup_key` in the RevenueCat dashboard AND the
- * backend (`services/revenuecat.ts` reads `entitlements['premium']`). Reconciled
- * to `premium` on 2026-07-14 (the dashboard previously only had `Roundfit Pro`).
+ * ⚠️ CASE- AND SPACE-SENSITIVE. This is the `lookup_key` of entitlement
+ * `entl74256771c7` verbatim: capital R, **lowercase f**, one space. RevenueCat
+ * looks it up as a plain object key, so `"RoundFit Pro"` — the way the brand is
+ * spelled everywhere else in this codebase, and the way the RevenueCat *product*
+ * names are spelled — silently returns `undefined` and reports every paying user
+ * as unsubscribed. No error, no warning.
+ *
+ * The backend must match exactly: `roundfit-backend/src/services/revenuecat.ts`.
+ * Changed from `premium` to the dashboard's existing key on 2026-08-31 (decision:
+ * keep the dashboard as-is rather than rename the entitlement).
  */
-export const ENTITLEMENT_ID = "premium";
+export const ENTITLEMENT_ID = "Roundfit Pro";
 
 /**
  * Master switch for the hard paywall gate.

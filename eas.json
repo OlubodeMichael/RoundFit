@@ -1,7 +1,7 @@
 {
   "cli": {
     "version": ">= 16.10.1",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -10,19 +10,25 @@
       "env": {
         "EXPO_NO_CAPABILITY_SYNC": "1"
       },
-      "channel": "development"
+      "channel": "development",
+      "ios": {
+        "scheme": "RoundFit"
+      }
     },
     "preview": {
       "distribution": "internal",
       "env": {
         "EXPO_NO_CAPABILITY_SYNC": "1"
       },
-      "channel": "preview"
+      "channel": "preview",
+      "ios": {
+        "scheme": "RoundFit"
+      }
     },
     "production": {
-      "autoIncrement": true,
       "ios": {
-        "image": "macos-sequoia-15.6-xcode-26.1"
+        "image": "macos-sequoia-15.6-xcode-26.1",
+        "scheme": "RoundFit"
       },
       "channel": "production"
     }

@@ -13,7 +13,14 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "eas:build:ios": "EXPO_NO_CAPABILITY_SYNC=1 eas build --platform ios",
-    "eas:release:ios": "eas build --platform ios --profile production --auto-submit"
+    "eas:release:ios": "eas build --platform ios --profile production --auto-submit",
+    "version:sync": "node scripts/sync-ios-versions.js",
+    "version:bump": "node scripts/sync-ios-versions.js --bump",
+    "version:check": "node scripts/sync-ios-versions.js --check",
+    "ota:production": "eas update --branch production --environment production",
+    "ota:preview": "eas update --branch preview --environment preview",
+    "ota:status": "eas update:list --branch production --limit 5",
+    "ota:rollback": "eas update:rollback --branch production"
   },
   "expo": {
     "autolinking": {

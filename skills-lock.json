@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "aso": {
+      "source": "alexszczurek/before-skills",
+      "sourceType": "github",
+      "skillPath": "skills/aso/SKILL.md",
+      "computedHash": "766ff33a5fc21074d8dd3c557db30b4c41c4ec5703e134ae1eb970b9bec73e05"
+    }
+  }
+}

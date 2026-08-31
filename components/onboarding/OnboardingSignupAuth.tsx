@@ -12,6 +12,8 @@ import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GoogleLogo } from '@/components/ui/GoogleLogo';
+import { PRIVACY_URL, TERMS_URL } from '@/constants/legal';
+import * as WebBrowser from 'expo-web-browser';
 import {
   hasActiveUserSession,
   type AuthError,
@@ -195,9 +197,21 @@ export function OnboardingSignupAuth({
 
         <Text style={s.legal}>
           By continuing you agree to our{' '}
-          <Text style={s.legalAccent}>Terms</Text>
+          <Text
+            style={s.legalAccent}
+            suppressHighlighting
+            onPress={() => WebBrowser.openBrowserAsync(TERMS_URL)}
+          >
+            Terms
+          </Text>
           {' & '}
-          <Text style={s.legalAccent}>Privacy Policy</Text>
+          <Text
+            style={s.legalAccent}
+            suppressHighlighting
+            onPress={() => WebBrowser.openBrowserAsync(PRIVACY_URL)}
+          >
+            Privacy Policy
+          </Text>
         </Text>
 
         {showLoginLink && !profileSetupPending && (

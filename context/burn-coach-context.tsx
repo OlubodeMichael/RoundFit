@@ -49,6 +49,10 @@ export interface BurnCoachActivity {
 export interface BurnCoachContextValue {
   /** The active live workout, or null when idle. */
   liveWorkout: ActiveWorkoutState | null;
+  /** True while any workout is running — cardio (burn) or strength (session). */
+  isRecording: boolean;
+  /** True when the running workout is paused, in either mode. */
+  isPaused: boolean;
   /** Calories burned so far during the active workout. */
   liveBurned: number;
   /** Remaining calories to burn to hit today's goal. */
@@ -136,7 +140,13 @@ export function BurnCoachProvider({ children }: { children: React.ReactNode }) {
       setCoachCatalogEntry(selection.entry);
       const goal = selection.calorieGoal ?? coachData.caloriesToBurn;
       void startWorkoutSession({ ...selection, entrySurface: 'home' });
-      void startLiveWorkout(catalogEntryToBurnActivity(selection.entry), goal);
+
+      // A strength session already gets its own Live Activity — the sets card
+      // from use-workout-session-live-activity. Starting the burn card as well
+      // put two activities on the lock screen for a single workout.
+      if (selection.entry.sessionMode !== 'strength') {
+        void startLiveWorkout(catalogEntryToBurnActivity(selection.entry), goal);
+      }
     },
     [startWorkoutSession, startLiveWorkout, coachData.caloriesToBurn],
   );
@@ -147,7 +157,10 @@ export function BurnCoachProvider({ children }: { children: React.ReactNode }) {
     const sessionSnapshot = workoutSessionSnapshot;
     const liveSnapshot = liveWorkout;
 
-    if (!liveSnapshot) {
+    // Strength runs without a burn activity, so a missing `liveSnapshot` no
+    // longer means "nothing is running" — bail only when there's no session
+    // either, or a strength workout would never be saved or cleared.
+    if (!liveSnapshot && !sessionSnapshot) {
       await endLiveWorkout();
       return;
     }
@@ -164,10 +177,13 @@ export function BurnCoachProvider({ children }: { children: React.ReactNode }) {
       const { recapData: recap } = await finishAndSaveWorkoutSession({
         session: sessionSnapshot,
         completed: {
-          workoutType: liveSnapshot.activity.id,
-          workoutName: liveSnapshot.activity.label,
-          startedAt: liveSnapshot.startedAt,
-          sets: [],
+          // Fall back to the session for strength, which has no burn snapshot.
+          workoutType: liveSnapshot?.activity.id ?? sessionSnapshot.workoutType,
+          workoutName: liveSnapshot?.activity.label ?? sessionSnapshot.workoutName,
+          startedAt: liveSnapshot?.startedAt ?? sessionSnapshot.startedAt,
+          // `completed.sets` is what actually gets logged — hardcoding [] would
+          // silently discard every set logged during a strength session.
+          sets: sessionSnapshot.sets,
         },
         logWorkout,
         healthToday,
@@ -208,13 +224,19 @@ export function BurnCoachProvider({ children }: { children: React.ReactNode }) {
     () => ({
       liveWorkout,
       liveBurned,
+      // "Is a workout running" must cover both modes: strength has a session but
+      // no burn activity, so `liveWorkout` alone would leave the home record
+      // button showing idle mid-workout.
+      isRecording: liveWorkout != null || workoutSessionSnapshot != null,
+      isPaused:
+        (liveWorkout?.pausedAt ?? workoutSessionSnapshot?.pausedAt ?? null) != null,
       caloriesToBurn: coachData.caloriesToBurn,
       activity: coachData.activity,
       goalProgress: coachData.goalProgress,
       openPicker,
       end: () => void end(),
     }),
-    [liveWorkout, liveBurned, coachData, openPicker, end],
+    [liveWorkout, liveBurned, workoutSessionSnapshot, coachData, openPicker, end],
   );
 
   return (

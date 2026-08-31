@@ -8,12 +8,18 @@ module.exports = {
     scheme: "roundfit",
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
+    // Bare workflow cannot resolve `{ policy: "appVersion" }`. Keep this string
+    // equal to `version` so OTA updates only reach matching binaries. Bump both
+    // together whenever native code or a native dependency changes.
     runtimeVersion: "1.0.0",
     updates: {
       url: "https://u.expo.dev/ff296c21-4562-4829-8c02-65d0c9bbe22f",
     },
     ios: {
-      buildNumber: "10",
+      // Bump with `npm run version:bump` — it syncs the watch app, watch
+      // widget and Live Activity extension too, which App Store Connect
+      // requires to carry identical versions to the host app.
+      buildNumber: "16",
       supportsTablet: false,
       infoPlist: {
         NSHealthShareUsageDescription:

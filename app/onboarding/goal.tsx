@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Easing } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
@@ -9,11 +9,37 @@ import { usePostHog } from 'posthog-react-native';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
-const GOALS: { id: string; icon: IoniconsName; label: string; desc: string; meta: string }[] = [
-  { id: 'lose',     icon: 'flame-outline',      label: 'Lose weight',  desc: 'Burn fat, feel lighter',   meta: '-500 kcal/day · 0.45 kg/wk' },
-  { id: 'muscle',   icon: 'barbell-outline',    label: 'Build muscle', desc: 'Get stronger, tone up',    meta: '+300 kcal/day · 0.25 kg/wk' },
-  { id: 'energy',   icon: 'flash-outline',      label: 'Boost energy', desc: 'Feel more alive daily',    meta: 'Maintenance · macro optimised' },
-  { id: 'maintain', icon: 'swap-horizontal',    label: 'Maintain',     desc: 'Stay right where I am',    meta: 'TDEE balanced · no deficit' },
+/**
+ * `base` is the plan-driving goal each option follows — `GOAL_MAP` in
+ * utils/onboarding-mapping.ts knows only these four ids, and each maps to one
+ * calorie delta and macro split. Options that aren't themselves a base (Sleep
+ * better, Get stronger) borrow one, so the list can grow without touching
+ * `UserGoal` or the nutrition tables.
+ */
+type GoalBase = 'lose' | 'muscle' | 'energy' | 'maintain';
+
+const GOALS: { id: string; icon: IoniconsName; label: string; detail: string; base: GoalBase }[] = [
+  { id: 'lose',     icon: 'flame-outline',   label: 'Lose weight',  detail: '-500 kcal/day',    base: 'lose'     },
+  { id: 'muscle',   icon: 'barbell-outline', label: 'Build muscle', detail: '+300 kcal/day',    base: 'muscle'   },
+  { id: 'energy',   icon: 'flash-outline',   label: 'Boost energy', detail: 'Macros tuned',     base: 'energy'   },
+  { id: 'sleep',    icon: 'moon-outline',    label: 'Sleep better', detail: 'Recovery first',   base: 'energy'   },
+  { id: 'strength', icon: 'fitness-outline', label: 'Get stronger', detail: 'Progressive load', base: 'muscle'   },
+  { id: 'maintain', icon: 'swap-horizontal', label: 'Maintain',     detail: 'TDEE balanced',    base: 'maintain' },
+];
+
+const BY_ID = Object.fromEntries(GOALS.map((g) => [g.id, g]));
+
+/**
+ * Uneven tile widths keep the grid from reading as a rigid table. `minHeight` is
+ * a floor, not a fixed height — a label that wraps grows its tile instead of
+ * being clipped, and the row's default `stretch` keeps its neighbour flush.
+ */
+const TILE_MIN_HEIGHT = 104;
+
+const ROWS: { id: string; flex: number }[][] = [
+  [{ id: 'lose',     flex: 1.3 }, { id: 'muscle',   flex: 1   }],
+  [{ id: 'energy',   flex: 1   }, { id: 'sleep',    flex: 1.25 }],
+  [{ id: 'strength', flex: 1.2 }, { id: 'maintain', flex: 1   }],
 ];
 
 export default function GoalScreen() {
@@ -21,99 +47,102 @@ export default function GoalScreen() {
   const params = useLocalSearchParams<{ name: string; age: string; sex: string; height: string; weight: string }>();
   const insets = useSafeAreaInsets();
   const total  = 9;
-  const [selected, setSelected] = useState<string | null>(null);
   const posthog = usePostHog();
 
-  const bg  = '#FAFAF8';
-  const hi  = '#111111';
-  const mid = '#888';
+  /**
+   * Ordered selection — goals combine freely, and the **first** one tapped is the
+   * primary (shown in accent). Only the primary's `base` reaches the nutrition
+   * maths. Deselecting the primary promotes the next in line.
+   */
+  const [selected, setSelected] = useState<string[]>([]);
 
-  const fade  = useRef(new Animated.Value(0)).current;
+  const toggle = (id: string) =>
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const primary     = GOALS.find((g) => g.id === selected[0]) ?? null;
+  const canContinue = primary !== null;
+
+  const fade   = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;
-  const cardFades = [
-    useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current,
-    useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current,
-  ];
-  const cardYs = [
-    useRef(new Animated.Value(28)).current, useRef(new Animated.Value(28)).current,
-    useRef(new Animated.Value(28)).current, useRef(new Animated.Value(28)).current,
-  ];
 
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fade,   { toValue: 1, duration: 500, useNativeDriver: true }),
       Animated.timing(slideY, { toValue: 0, duration: 450, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]).start();
-    cardFades.forEach((f, i) => {
-      Animated.parallel([
-        Animated.timing(f,          { toValue: 1, duration: 400, delay: 150 + i * 80, useNativeDriver: true }),
-        Animated.timing(cardYs[i],  { toValue: 0, duration: 360, delay: 150 + i * 80, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      ]).start();
-    });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canContinue = selected !== null;
-
   return (
-    <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
+    <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
       <View style={s.progress}>
         <ProgressBar step={5} total={total} backHref={{ pathname: '/onboarding/height-weight', params }} isDark={false} />
       </View>
 
-      <View style={{ flex: 1 }}>
-      <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
-        <Text style={[s.headline, { color: hi }]}>Your main{'\n'}goal.</Text>
-        <WhyWeAsk
-          text="We use this to set your calorie target and macro split."
-          style={s.whyWeAsk}
-        />
-      </Animated.View>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scrollBody} showsVerticalScrollIndicator={false}>
+        <Animated.View style={{ opacity: fade, transform: [{ translateY: slideY }] }}>
+          <Text style={s.headline}>Your{'\n'}goals.</Text>
+          <WhyWeAsk
+            text="Pick as many as fit. Your first pick sets your calorie target and macro split."
+            style={s.whyWeAsk}
+          />
 
-      <View style={s.grid}>
-        {GOALS.map((g, i) => {
-          const active = selected === g.id;
-          return (
-            <Animated.View
-              key={g.id}
-              style={[{ opacity: cardFades[i], transform: [{ translateY: cardYs[i] }] }, s.cardWrapper]}
-            >
-              <TouchableOpacity
-                style={[s.card, active && s.cardActive]}
-                onPress={() => setSelected(g.id)}
-                activeOpacity={0.82}
-              >
-                {/* Checkmark badge */}
-                {active && (
-                  <View style={s.checkBadge}>
-                    <Ionicons name="checkmark" size={11} color="#FFF" />
-                  </View>
-                )}
-
-                {/* Icon */}
-                <View style={[s.iconWrap, active ? s.iconWrapActive : s.iconWrapInactive]}>
-                  <Ionicons name={g.icon} size={22} color="#F97316" />
-                </View>
-
-                {/* Label + desc */}
-                <Text style={[s.cardLabel, active && s.cardLabelActive]}>{g.label}</Text>
-                <Text style={[s.cardDesc,  active && s.cardDescActive]}>{g.desc}</Text>
-
-                {/* Meta stat */}
-                <Text style={[s.cardMeta, active && s.cardMetaActive]}>{g.meta}</Text>
-              </TouchableOpacity>
-            </Animated.View>
-          );
-        })}
-      </View>
-      </View>
+          <View style={s.grid}>
+            {ROWS.map((row, ri) => (
+              <View key={ri} style={s.row}>
+                {row.map((cell) => {
+                  const g         = BY_ID[cell.id];
+                  const index     = selected.indexOf(g.id);
+                  const isOn      = index >= 0;
+                  const isPrimary = index === 0;
+                  return (
+                    <TouchableOpacity
+                      key={g.id}
+                      style={[s.tile, { flex: cell.flex }, isOn && s.tileOn, isPrimary && s.tilePrimary]}
+                      onPress={() => toggle(g.id)}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isOn }}
+                      accessibilityLabel={isPrimary ? `${g.label}, primary goal` : g.label}
+                    >
+                      <Ionicons name={g.icon} size={22} color={isPrimary ? '#FFFFFF' : '#F97316'} />
+                      <View>
+                        <Text style={[s.tileLabel, isOn && s.tileLabelOn]} numberOfLines={2}>
+                          {g.label}
+                        </Text>
+                        <Text
+                          style={[s.tileDetail, isOn && s.tileDetailOn, isPrimary && s.tileDetailPrimary]}
+                          numberOfLines={1}
+                        >
+                          {g.detail}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </Animated.View>
+      </ScrollView>
 
       <TouchableOpacity
         style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
         activeOpacity={0.85}
         disabled={!canContinue}
         onPress={() => {
-          posthog.capture('onboarding_goal_selected', { goal: selected });
-          router.push({ pathname: '/onboarding/activity', params: { ...params, goal: selected! } });
+          posthog.capture('onboarding_goal_selected', {
+            goal:       primary!.base,
+            goal_id:    primary!.id,
+            goals:      selected,
+            goal_count: selected.length,
+          });
+          router.push({
+            pathname: '/onboarding/activity',
+            // `goal` stays a single base id so every downstream consumer —
+            // mapOnboardingGoal, utils/nutrition.ts, reveal — is untouched.
+            // `goals` carries the ordered full set alongside it.
+            params: { ...params, goal: primary!.base, goals: selected.join(',') },
+          });
         }}
       >
         <Text style={s.ctaText}>Continue</Text>
@@ -123,60 +152,45 @@ export default function GoalScreen() {
 }
 
 const s = StyleSheet.create({
-  root:     { flex: 1, paddingHorizontal: 28 },
-  progress: { marginBottom: 8 },
-  headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 8 },
+  root:       { flex: 1, backgroundColor: '#FAFAF8', paddingHorizontal: 28 },
+  progress:   { marginBottom: 8 },
+  scrollBody: { paddingBottom: 20 },
+
+  headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 8, color: '#111111' },
   whyWeAsk: { marginBottom: 24 },
 
-  grid:        { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  cardWrapper: { width: '47%' },
+  grid: { gap: 10 },
+  row:  { flexDirection: 'row', gap: 10 },
 
-  card: {
+  tile: {
+    minHeight:       TILE_MIN_HEIGHT,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#EBEBEB',
-    gap: 8,
-    minHeight: 160,
-    overflow: 'hidden',
+    borderRadius:    20,
+    borderWidth:     1,
+    borderColor:     '#EBEBEB',
+    padding:         16,
+    justifyContent:  'space-between',
   },
-  cardActive: {
-    backgroundColor: '#111111',
-    borderColor: '#111111',
+  tileOn:      { backgroundColor: '#111111', borderColor: '#111111' },
+  tilePrimary: { backgroundColor: '#F97316', borderColor: '#F97316' },
+
+  tileLabel: {
+    fontSize:      16,
+    fontWeight:    '800',
+    letterSpacing: -0.3,
+    lineHeight:    20,
+    color:         '#111111',
   },
+  tileLabelOn: { color: '#FFFFFF' },
 
-  checkBadge: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#F97316',
-    alignItems: 'center',
-    justifyContent: 'center',
+  tileDetail: {
+    fontSize:   12.5,
+    fontWeight: '500',
+    color:      '#9A948C',
+    marginTop:  3,
   },
-
-  iconWrap: {
-    width: 48, height: 48, borderRadius: 24,
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 2,
-  },
-  iconWrapActive:   { backgroundColor: '#2A2A2A' },
-  iconWrapInactive: { backgroundColor: 'rgba(249,115,22,0.12)' },
-
-  cardLabel: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3, color: '#111111' },
-  cardLabelActive: { color: '#FFFFFF' },
-
-  cardDesc: { fontSize: 16, lineHeight: 23, fontWeight: '400', color: '#888888' },
-  cardDescActive: { color: '#888888' },
-
-  cardMeta: {
-    fontSize: 15, fontWeight: '500', color: '#BBBBBB',
-    lineHeight: 20, marginTop: 4,
-  },
-  cardMetaActive: { color: '#F97316' },
+  tileDetailOn:      { color: 'rgba(255,255,255,0.55)' },
+  tileDetailPrimary: { color: 'rgba(255,255,255,0.80)' },
 
   cta: {
     backgroundColor: '#111111', borderRadius: 16,

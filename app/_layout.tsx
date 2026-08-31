@@ -39,6 +39,10 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { AuthProvider, hasActiveUserSession } from "@/context/auth-context";
 import { SubscriptionProvider, useSubscriptionOptional } from "@/context/subscription-context";
 import { PAYWALL_ENABLED } from "@/constants/subscription";
+import {
+  consumeSignupPaywall,
+  isAwaitingSignupPaywall,
+} from "@/utils/post-signup-paywall";
 import { configurePurchases } from "@/lib/purchases";
 import { BurnCoachProvider } from "@/context/burn-coach-context";
 import { CheckinProvider } from "@/context/checkin-context";
@@ -67,6 +71,7 @@ function WatchSyncMount() {
 }
 import { useAuth } from "@/hooks/use-auth";
 import { useDailyInsightNotification } from "@/hooks/use-daily-insight-notification";
+import { useOtaUpdates } from "@/hooks/use-ota-updates";
 import { useTheme } from "@/hooks/use-theme";
 
 export const unstable_settings = {
@@ -87,6 +92,9 @@ function AppNavigator() {
 
   // Daily insight notification: sleep background delivery + generic fallback.
   useDailyInsightNotification();
+
+  // EAS Update: download OTA updates and apply them on a foreground return.
+  useOtaUpdates();
 
   useEffect(() => {
     if (previousPathname.current !== pathname) {
@@ -150,6 +158,20 @@ function AppNavigator() {
     // "authenticated" with `user === null` between sign-in and /me hydration.
     if (hasActiveUserSession(status, user) && (top === "auth" || top === "onboarding")) {
       if (!passwordScreen) {
+        // Post-signup paywall: a brand-new account meets the paywall between
+        // sign-up and the home screen. A returning log-in goes straight in —
+        // only the hard gate above may divert it.
+        if (isAwaitingSignupPaywall()) {
+          // Hold until the entitlement resolves. Consuming while it is still
+          // loading would show the paywall to someone whose purchase is about
+          // to restore (reinstall, second device).
+          if ((subscription?.status ?? "disabled") === "loading") return;
+          consumeSignupPaywall();
+          if (!(subscription?.isPremium ?? false)) {
+            router.replace("/paywall" as Href);
+            return;
+          }
+        }
         router.replace("/(tabs)");
         return;
       }
@@ -171,6 +193,11 @@ function AppNavigator() {
     // Hold the splash while RevenueCat's customerInfo resolves, so a paying user
     // cold-starting never sees a flash of the paywall before the gate settles.
     (PAYWALL_ENABLED &&
+      status === "authenticated" &&
+      (subscription?.status ?? "disabled") === "loading") ||
+    // Same reason, for the post-signup handoff: hold the splash rather than
+    // flash the home screen while the entitlement settles and the gate decides.
+    (isAwaitingSignupPaywall() &&
       status === "authenticated" &&
       (subscription?.status ?? "disabled") === "loading");
 

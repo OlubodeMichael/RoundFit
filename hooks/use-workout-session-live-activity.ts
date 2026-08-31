@@ -128,6 +128,13 @@ function useWorkoutSessionLiveActivityImpl(): UseWorkoutSessionLiveActivityResul
   const [openSheetSignal, setOpenSheetSignal] = useState(0);
   const isSupported = Platform.OS === 'ios' && isLiveActivitySupported();
   const laSessionIdRef = useRef<string | null>(null);
+  /**
+   * Icon passed to `start()` for a workout type that isn't in the catalogue.
+   * `WorkoutSession` doesn't carry the SF Symbol, and the session-watching
+   * effect can win the race to create the activity — without this it would fall
+   * back to the generic dumbbell and drop the caller's icon.
+   */
+  const pendingIconRef = useRef<string | undefined>(undefined);
   const sessionMetricsRef = useRef(sessionMetrics);
   sessionMetricsRef.current = sessionMetrics;
 
@@ -147,15 +154,27 @@ function useWorkoutSessionLiveActivityImpl(): UseWorkoutSessionLiveActivityResul
     async (s: WorkoutSession, workoutIcon?: string) => {
       if (!isSupported || laSessionIdRef.current === s.id) return;
 
+      // Claim the session BEFORE any await. Two callers race here for a single
+      // start: `start()` calls this after `contextStart` resolves, and creating
+      // that session also fires the effect below, which calls it too. With the
+      // claim written only after the awaits, both passed this guard and each
+      // requested an activity — leaving two cards on the lock screen for one
+      // workout.
+      laSessionIdRef.current = s.id;
+
       // Dismiss any stale lock-screen card before requesting a new activity.
       try {
         await endSessionLiveActivity();
       } catch {
         // Live Activity may be disabled or already dismissed
       }
-      laSessionIdRef.current = null;
 
-      const icon = workoutIcon ?? getCatalogEntryById(s.workoutType)?.sfSymbol ?? 'dumbbell.fill';
+      const icon =
+        workoutIcon ??
+        pendingIconRef.current ??
+        getCatalogEntryById(s.workoutType)?.sfSymbol ??
+        'dumbbell.fill';
+      pendingIconRef.current = undefined;
       try {
         await startSessionLiveActivity({
           workoutType: s.workoutType,
@@ -163,15 +182,24 @@ function useWorkoutSessionLiveActivityImpl(): UseWorkoutSessionLiveActivityResul
           workoutIcon: icon,
           startTime: s.startedAt,
         });
+      } catch {
+        // Disabled, denied, or over the system limit — release the claim so a
+        // later attempt (resume, another set) can retry rather than assuming a
+        // card exists.
+        if (laSessionIdRef.current === s.id) laSessionIdRef.current = null;
+        return;
+      }
+
+      try {
         if (s.sets.length > 0) {
           await pushSetMetricsToLiveActivity(s.sets);
         }
         if (s.pausedAt != null) {
           await updateSessionLiveActivity({ isActive: false, pausedAt: s.pausedAt });
         }
-        laSessionIdRef.current = s.id;
       } catch {
-        // Live Activity may be disabled or dismissed
+        // The card exists; only a follow-up update failed. Keep the claim so we
+        // don't start a second activity on the next render.
       }
     },
     [isSupported],
@@ -199,9 +227,16 @@ function useWorkoutSessionLiveActivityImpl(): UseWorkoutSessionLiveActivityResul
       workoutName: string;
       workoutIcon?: string;
     }) => {
+      // Park the icon before creating the session: doing so fires the effect
+      // below, which may reach `ensureLiveActivityStarted` first.
+      pendingIconRef.current = workoutIcon;
+
       const selection = buildSelectionFromLegacyParams({ workoutType, workoutName, workoutIcon });
       const created = await contextStart(selection);
-      if (!created) return;
+      if (!created) {
+        pendingIconRef.current = undefined;
+        return;
+      }
 
       await ensureLiveActivityStarted(created, workoutIcon);
     },

@@ -16,6 +16,8 @@
 		495880B6880C35C1A4C8F81C /* WatchConnectivityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C3754BEB6546BB8D22AD535 /* WatchConnectivityStore.swift */; };
 		52016CE47760D5B98B046E4D /* ReadinessComplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 017B39BFA6F458EE0DB5940E /* ReadinessComplication.swift */; };
 		66B0A3BC1F7F6462EBE82963 /* WatchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F956A42CEA51151B25C91D8 /* WatchViews.swift */; };
+		AA10D3510000000000000002 /* WatchHeroViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10F3510000000000000002 /* WatchHeroViews.swift */; };
+		AA10D3510000000000000001 /* WatchDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10F3510000000000000001 /* WatchDesign.swift */; };
 		6A66ECED23570E43A327F3AB /* libPods-RoundFit.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 923897F3E342CF26D533EB75 /* libPods-RoundFit.a */; };
 		6ED54CFBBC22FC4FFB90F0BB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9DAAD571D7B1D5D0AAF9219A /* Assets.xcassets */; };
 		7ACFE790D2A3271E7DE9016D /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 98096A93A715D41186431D30 /* Foundation.framework */; };
@@ -102,6 +104,8 @@
 		2291D70773612D5E67F369A1 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-RoundFit/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		3C3754BEB6546BB8D22AD535 /* WatchConnectivityStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchConnectivityStore.swift; sourceTree = "<group>"; };
 		3F956A42CEA51151B25C91D8 /* WatchViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchViews.swift; sourceTree = "<group>"; };
+		AA10F3510000000000000002 /* WatchHeroViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchHeroViews.swift; sourceTree = "<group>"; };
+		AA10F3510000000000000001 /* WatchDesign.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchDesign.swift; sourceTree = "<group>"; };
 		5B73FBA131BFBC85BDAC1A44 /* Pods-RoundFit.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RoundFit.debug.xcconfig"; path = "Target Support Files/Pods-RoundFit/Pods-RoundFit.debug.xcconfig"; sourceTree = "<group>"; };
 		923897F3E342CF26D533EB75 /* libPods-RoundFit.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-RoundFit.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		98096A93A715D41186431D30 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS11.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
@@ -245,6 +249,8 @@
 				9A3BEFFB4A2C4B6F272593B3 /* RoundFitWatchApp.swift */,
 				3C3754BEB6546BB8D22AD535 /* WatchConnectivityStore.swift */,
 				3F956A42CEA51151B25C91D8 /* WatchViews.swift */,
+				AA10F3510000000000000002 /* WatchHeroViews.swift */,
+				AA10F3510000000000000001 /* WatchDesign.swift */,
 				0BE4A053634A67E59B1C9F67 /* RoundFitWatch.entitlements */,
 				9DAAD571D7B1D5D0AAF9219A /* Assets.xcassets */,
 			);
@@ -668,6 +674,8 @@
 				4382564928144FEA7D2217CD /* RoundFitWatchApp.swift in Sources */,
 				495880B6880C35C1A4C8F81C /* WatchConnectivityStore.swift in Sources */,
 				66B0A3BC1F7F6462EBE82963 /* WatchViews.swift in Sources */,
+				AA10D3510000000000000002 /* WatchHeroViews.swift in Sources */,
+				AA10D3510000000000000001 /* WatchDesign.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -784,7 +792,7 @@
 				CODE_SIGN_ENTITLEMENTS = RoundFitWatch/RoundFitWatch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = TWB4M4FQKQ;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 16;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RoundFitWatch/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RoundFit;
@@ -810,7 +818,7 @@
 				CODE_SIGN_ENTITLEMENTS = RoundFitWatchWidget/RoundFitWatchWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = TWB4M4FQKQ;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 16;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RoundFitWatchWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Readiness;
@@ -956,7 +964,7 @@
 				CODE_SIGN_ENTITLEMENTS = RoundFitWatchWidget/RoundFitWatchWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = TWB4M4FQKQ;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 16;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RoundFitWatchWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Readiness;
@@ -986,7 +994,7 @@
 				CODE_SIGN_ENTITLEMENTS = RoundFitWatch/RoundFitWatch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = TWB4M4FQKQ;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 16;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RoundFitWatch/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RoundFit;
@@ -1022,7 +1030,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = TWB4M4FQKQ;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 16;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1072,7 +1080,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = TWB4M4FQKQ;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 16;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;

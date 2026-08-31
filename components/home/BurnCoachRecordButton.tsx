@@ -19,11 +19,8 @@ const PULSE_DURATION = 1200;
 // red record dot and opens the burn-calories picker on tap; while a workout is
 // recording it pulses and shows a stop square that ends the session on tap.
 export function BurnCoachRecordButton() {
-  const { liveWorkout, openPicker, end } = useBurnCoach();
+  const { isRecording, isPaused, openPicker, end } = useBurnCoach();
   const P = usePalette();
-
-  const isRecording = liveWorkout != null;
-  const isPaused = isRecording && liveWorkout.pausedAt != null;
   const accent = isPaused ? PAUSED_GREY : RECORD_RED;
   const buttonBg = P.isDark ? LIGHT_BG : DARK_BG;
   const buttonEdge = P.isDark ? LIGHT_EDGE : DARK_EDGE;

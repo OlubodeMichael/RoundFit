@@ -7,8 +7,6 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
-	<string>10</string>
-	<key>RCTNewArchEnabled</key>
-	<true/>
+	<string>16</string>
 </dict>
 </plist>

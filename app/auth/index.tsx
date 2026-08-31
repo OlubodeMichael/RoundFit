@@ -176,7 +176,7 @@ export default function AuthLandingScreen() {
           onPress={() => router.push('/auth/auth-options')}
         >
           <Text style={s.loginText}>
-            Have an account?{'  '}
+            Already have an account?{'  '}
             <Text style={s.loginAccent}>Log in</Text>
           </Text>
         </TouchableOpacity>

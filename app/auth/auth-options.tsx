@@ -1,6 +1,16 @@
-import {
-  View, Text, StyleSheet, TouchableOpacity, Animated, Easing,
-} from 'react-native';
+/**
+ * Log-in sheet — the "Have an account? Log in" path off the landing screen.
+ *
+ * Presented as a short `formSheet` sized with `fitToContents` (see `_layout.tsx`),
+ * so this screen must render at its intrinsic height: no `flex: 1` spacers, and no
+ * entrance animation that changes layout. It is dismissed by the native grabber or
+ * a swipe down, so it carries no close button of its own.
+ *
+ * Signing up is deliberately not offered here — the landing screen owns "Get
+ * started". Email is the one option that leaves the sheet: a full log-in form does
+ * not fit a short detent, so it `replace`s the sheet with the full-screen form.
+ */
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
@@ -8,19 +18,22 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { GoogleLogo } from '@/components/ui/GoogleLogo';
 import { hasActiveUserSession } from '@/context/auth-context';
 import { useAuth } from '@/hooks/use-auth';
+import { useSheetPresentation } from '@/hooks/use-sheet-presentation';
+import { PRIVACY_URL, TERMS_URL } from '@/constants/legal';
+import * as WebBrowser from 'expo-web-browser';
 
 const C = {
-  bg:      '#FAFAF8',
-  text:    '#111111',
-  mid:     '#888888',
-  line:    '#E8E3DC',
-  accent:  '#F97316',
-  accentS: 'rgba(249,115,22,0.07)',
+  bg:     '#FAFAF8',
+  text:   '#111111',
+  mid:    '#888888',
+  line:   '#E6E2DA',
+  accent: '#F97316',
 };
 
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { presentedAsSheet, topInset } = useSheetPresentation();
   const {
     signInWithOAuth,
     isLoading,
@@ -32,21 +45,6 @@ export default function LoginScreen() {
   } = useAuth();
 
   const oauthAttemptRef = useRef(false);
-
-  const fade  = useRef(new Animated.Value(0)).current;
-  const slideY = useRef(new Animated.Value(20)).current;
-  const btnsFade = useRef(new Animated.Value(0)).current;
-  const btnsY    = useRef(new Animated.Value(16)).current;
-
-  useEffect(() => {
-    const ease = Easing.out(Easing.cubic);
-    Animated.parallel([
-      Animated.timing(fade,      { toValue: 1, duration: 480, delay:  60, useNativeDriver: true }),
-      Animated.timing(slideY,    { toValue: 0, duration: 480, delay:  60, easing: ease, useNativeDriver: true }),
-      Animated.timing(btnsFade,  { toValue: 1, duration: 480, delay: 220, useNativeDriver: true }),
-      Animated.timing(btnsY,     { toValue: 0, duration: 480, delay: 220, easing: ease, useNativeDriver: true }),
-    ]).start();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (hasActiveUserSession(status, user)) {
@@ -67,160 +65,113 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={[s.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 24 }]}>
+    <View
+      style={[
+        s.root,
+        {
+          // The grabber occupies the top of the sheet; only the full-screen
+          // fallback needs to clear the status bar.
+          paddingTop:    topInset + (presentedAsSheet ? 28 : 20),
+          paddingBottom: insets.bottom + 20,
+        },
+      ]}
+    >
+      <Text style={s.headline}>Welcome back</Text>
+      <Text style={s.sub}>Pick up where you left off.</Text>
 
-      {/* Decorative blob */}
-      <View style={s.bgBlob} pointerEvents="none" />
+      {error && (
+        <TouchableOpacity style={s.errorBanner} onPress={clearError} activeOpacity={0.8}>
+          <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
+          <Text style={s.errorText}>
+            {error === 'OAUTH_FAILED'
+              ? 'Sign in with Google or Apple failed. Please try again.'
+              : 'Something went wrong. Please try again.'}
+          </Text>
+        </TouchableOpacity>
+      )}
 
-      {/* Back */}
-      <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
-        <Ionicons name="chevron-back" size={20} color={C.text} />
-      </TouchableOpacity>
-
-      {/* Heading */}
-      <Animated.View style={[s.headBlock, { opacity: fade, transform: [{ translateY: slideY }] }]}>
-        <View style={s.eyebrowRow}>
-          <View style={s.eyebrowDash} />
-          <Text style={s.eyebrow}>WELCOME</Text>
-        </View>
-        <Text style={s.headline}>
-          Start your{'\n'}
-          <Text style={s.headlineAccent}>round.</Text>
-        </Text>
-        <Text style={s.sub}>{"Pick how you'd like to sign in. Takes about 30 seconds."}</Text>
-      </Animated.View>
-
-      <View style={{ flex: 1 }} />
-
-      {/* Auth options */}
-      <Animated.View style={[s.buttons, { opacity: btnsFade, transform: [{ translateY: btnsY }] }]}>
-
-        {error && (
-          <TouchableOpacity style={s.errorBanner} onPress={clearError} activeOpacity={0.8}>
-            <Ionicons name="alert-circle-outline" size={16} color="#EF4444" />
-            <Text style={s.errorText}>
-              {error === 'OAUTH_FAILED'
-                ? 'Sign in with Google or Apple failed. Please try again.'
-                : 'Something went wrong. Please try again.'}
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Apple */}
+      <View style={s.options}>
         <TouchableOpacity
-          style={[s.appleBtn, { opacity: isLoading ? 0.6 : 1 }]}
+          style={[s.option, { opacity: isLoading ? 0.55 : 1 }]}
           activeOpacity={0.85}
           disabled={isLoading}
           onPress={() => runOAuth('apple')}
         >
-          <Ionicons name="logo-apple" size={20} color="#FFF" />
-          <Text style={s.appleBtnText}>Continue with Apple</Text>
+          <View style={s.optionIcon}>
+            <Ionicons name="logo-apple" size={26} color={C.text} />
+          </View>
+          <Text style={s.optionText}>Continue with Apple</Text>
         </TouchableOpacity>
 
-        {/* Google */}
         <TouchableOpacity
-          style={[s.outlineBtn, { opacity: isLoading ? 0.6 : 1 }]}
+          style={[s.option, { opacity: isLoading ? 0.55 : 1 }]}
           activeOpacity={0.85}
           disabled={isLoading}
           onPress={() => runOAuth('google')}
         >
-          <GoogleLogo size={18} />
-          <Text style={s.outlineBtnText}>Continue with Google</Text>
+          <View style={s.optionIcon}>
+            <GoogleLogo size={24} />
+          </View>
+          <Text style={s.optionText}>Continue with Google</Text>
         </TouchableOpacity>
 
-        {/* Email */}
         <TouchableOpacity
-          style={s.outlineBtn}
+          style={s.option}
           activeOpacity={0.85}
-          onPress={() => router.push('/auth/email-login')}
+          // Replace, not push: a full log-in form does not fit the short detent,
+          // and leaving the sheet mounted underneath would make the form animate
+          // in over a screen that is still presenting a modal.
+          onPress={() => router.replace('/auth/email-login')}
         >
-          <Ionicons name="mail-outline" size={19} color={C.text} />
-          <Text style={s.outlineBtnText}>Continue with email</Text>
+          <View style={s.optionIcon}>
+            <Ionicons name="mail-outline" size={25} color={C.text} />
+          </View>
+          <Text style={s.optionText}>Continue with email</Text>
         </TouchableOpacity>
+      </View>
 
-        {/* OR divider */}
-        <View style={s.dividerRow}>
-          <View style={s.dividerLine} />
-          <Text style={s.dividerText}>OR</Text>
-          <View style={s.dividerLine} />
-        </View>
-
-        {/* Create account */}
-        <TouchableOpacity
-          style={s.createBtn}
-          activeOpacity={0.9}
-          onPress={() => router.push('/onboarding/value-hook')}
+      <Text style={s.legal}>
+        By continuing you agree to our{' '}
+        <Text
+          style={s.legalLink}
+          suppressHighlighting
+          onPress={() => WebBrowser.openBrowserAsync(TERMS_URL)}
         >
-          <Text style={s.createBtnText}>Create new account  →</Text>
-        </TouchableOpacity>
-
-        {/* Legal */}
-        <Text style={s.legal}>
-          By continuing you agree to our{' '}
-          <Text style={s.legalLink}>Terms</Text>
-          {' '}and{' '}
-          <Text style={s.legalLink}>Privacy Policy</Text>.
+          Terms
+        </Text>{' '}
+        and{' '}
+        <Text
+          style={s.legalLink}
+          suppressHighlighting
+          onPress={() => WebBrowser.openBrowserAsync(PRIVACY_URL)}
+        >
+          Privacy Policy
         </Text>
-
-      </Animated.View>
-
+        .
+      </Text>
     </View>
   );
 }
 
 const s = StyleSheet.create({
   root: {
-    flex:              1,
     backgroundColor:   C.bg,
     paddingHorizontal: 24,
   },
 
-  bgBlob: {
-    position:        'absolute',
-    top:             -60,
-    right:           -70,
-    width:           200,
-    height:          200,
-    borderRadius:    100,
-    backgroundColor: C.accentS,
-  },
-
-  backBtn: {
-    width:           36,
-    height:          36,
-    borderRadius:    18,
-    backgroundColor: '#F0EDE8',
-    alignItems:      'center',
-    justifyContent:  'center',
-    marginBottom:    8,
-  },
-
-  headBlock:   { gap: 12 },
-  eyebrowRow:  { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  eyebrowDash: { width: 20, height: 2, backgroundColor: C.accent, borderRadius: 1 },
-  eyebrow:     {
-    fontFamily:    'Syne_700Bold',
-    fontSize:      10,
-    letterSpacing: 2.2,
-    color:         C.accent,
-  },
-
   headline: {
     fontFamily:    'Syne_800ExtraBold',
-    fontSize:      48,
-    lineHeight:    54,
-    letterSpacing: -2,
+    fontSize:      34,
+    lineHeight:    40,
+    letterSpacing: -1.2,
     color:         C.text,
   },
-  headlineAccent: { color: C.accent },
-
   sub: {
     fontSize:   15,
-    lineHeight: 22,
+    lineHeight: 21,
     color:      C.mid,
+    marginTop:  6,
   },
-
-  buttons: { gap: 12 },
 
   errorBanner: {
     flexDirection:     'row',
@@ -232,7 +183,7 @@ const s = StyleSheet.create({
     borderRadius:      12,
     paddingVertical:   12,
     paddingHorizontal: 14,
-    marginBottom:      4,
+    marginTop:         18,
   },
   errorText: {
     flex:       1,
@@ -241,76 +192,35 @@ const s = StyleSheet.create({
     color:      '#EF4444',
   },
 
-  appleBtn: {
-    flexDirection:   'row',
-    alignItems:      'center',
-    justifyContent:  'center',
-    gap:             10,
-    backgroundColor: '#000000',
-    borderRadius:    16,
-    paddingVertical: 18,
-  },
-  appleBtnText: {
-    color:      '#FFF',
-    fontSize:   15,
-    fontWeight: '700',
-  },
-
-  outlineBtn: {
+  options:   { gap: 12, marginTop: 26 },
+  option: {
     flexDirection:     'row',
     alignItems:        'center',
-    justifyContent:    'center',
-    gap:               10,
     backgroundColor:   '#FFFFFF',
-    borderRadius:      16,
+    borderRadius:      18,
     borderWidth:       1,
-    borderColor:       '#E6E2DA',
-    paddingVertical:   17,
+    borderColor:       C.line,
+    paddingVertical:   21,
+    paddingHorizontal: 20,
   },
-  outlineBtnText: {
+  optionIcon: {
+    width:          30,
+    alignItems:     'center',
+    justifyContent: 'center',
+    marginRight:    16,
+  },
+  optionText: {
+    fontSize:   17,
+    fontWeight: '600',
     color:      C.text,
-    fontSize:   15,
-    fontWeight: '700',
-  },
-
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           12,
-    marginVertical: 2,
-  },
-  dividerLine: { flex: 1, height: 1, backgroundColor: C.line },
-  dividerText: {
-    fontSize:      12,
-    fontWeight:    '600',
-    color:         C.mid,
-    letterSpacing: 0.8,
-  },
-
-  createBtn: {
-    backgroundColor: C.accent,
-    borderRadius:    14,
-    paddingVertical: 17,
-    alignItems:      'center',
-    shadowColor:     C.accent,
-    shadowOffset:    { width: 0, height: 8 },
-    shadowOpacity:   0.28,
-    shadowRadius:    16,
-    elevation:       8,
-  },
-  createBtnText: {
-    color:         '#FFF',
-    fontFamily:    'Syne_700Bold',
-    fontSize:      15,
-    letterSpacing: 0.1,
   },
 
   legal: {
     fontSize:   12,
+    lineHeight: 17,
     color:      C.mid,
     textAlign:  'center',
-    lineHeight: 18,
-    marginTop:  4,
+    marginTop:  22,
   },
   legalLink: {
     color:      C.text,

@@ -23,6 +23,7 @@ import {
   writeCachedAuthUser,
 } from "@/utils/auth-user-cache";
 import { prefetchAvatarImage } from "@/utils/avatar-image-cache";
+import { markJustSignedUp, clearSignupPaywall } from "@/utils/post-signup-paywall";
 import { createAppleSignInNonce } from "@/utils/apple-sign-in-nonce";
 import * as AppleAuthentication from "expo-apple-authentication";
 import Constants from "expo-constants";
@@ -815,12 +816,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
           lastMeFetchAtRef.current = Date.now();
           setUser(inlineProfile);
+          markJustSignedUp();
           setStatus("authenticated");
           return true;
         }
 
         try {
           setUser(await loadUserFromServer(email, true));
+          markJustSignedUp();
           setStatus("authenticated");
           return true;
         } catch (err) {
@@ -1185,6 +1188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         setUser(nextUser);
         setProfileSetupPending(false);
+        markJustSignedUp();
         setStatus("authenticated");
         return true;
       } catch (err) {
@@ -1211,6 +1215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     }).catch(() => {});
     await clearTokens();
+    clearSignupPaywall();
     const { clearUserCachesOnLogout } = await import('@/utils/clear-user-caches');
     await clearUserCachesOnLogout();
 

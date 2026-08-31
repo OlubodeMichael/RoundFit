@@ -3,6 +3,10 @@
 **Scope decided:** Paid launch (RevenueCat wired) + crash reporting before release.
 **Generated:** 2026-07-06 — verified against current code, supersedes the stale `MVP_TODO.md` / `TODO.md`.
 
+> **For submission, work from `SUBMISSION_CHECKLIST.md`** (verified 2026-08-31).
+> Several items below are stale — legal pages are hosted, `buildNumber` is set,
+> and `useIsPremium` is no longer a stub.
+
 Legend: 🔴 blocker · 🟡 needed for paid scope · 🟢 recommended · ⚪ post-launch
 
 ---

@@ -5,6 +5,7 @@ import {
   mapOnboardingSex,
 } from '@/utils/onboarding-mapping';
 import { hasActiveUserSession, type UserGoal, type UserProfile } from '@/context/auth-context';
+import { isAwaitingSignupPaywall } from '@/utils/post-signup-paywall';
 import { useAuth } from '@/hooks/use-auth';
 import {
   buildOnboardingProfile,
@@ -100,6 +101,10 @@ export default function RevealScreen() {
   const [savingPlan, setSavingPlan] = useState(false);
 
   useEffect(() => {
+    // A just-created account is routed by the gate in `app/_layout.tsx`, which
+    // sends it through the paywall on the way to the app. Redirecting here would
+    // race straight past it.
+    if (isAwaitingSignupPaywall()) return;
     if (hasActiveUserSession(status, user)) {
       router.replace('/(tabs)');
     }
@@ -129,16 +134,18 @@ export default function RevealScreen() {
     if (profileSetupPending && canFinishOAuth) {
       setSavingPlan(true);
       try {
+        // On success the account exists and the root gate takes over from here,
+        // routing through the paywall before the home screen.
         const ok = await setupOAuthProfile(oauthProfile);
         if (ok) return;
       } finally {
         setSavingPlan(false);
       }
     }
-    // Pre-signup paywall: the plan reveal is peak motivation, so the paywall comes
-    // before account creation. It forwards `params` on to sign-up so the collected
-    // onboarding profile survives the detour.
-    router.push({ pathname: '/paywall', params } as never);
+    // Sign-up comes first: the paywall now sits *after* account creation, so it
+    // is the root gate — not this screen — that presents it. Params carry the
+    // collected onboarding profile through to registration.
+    router.push({ pathname: '/auth/sign-up-options', params } as never);
   }
   const goalLabel    = GOAL_LABEL[canonicalGoal];
   const actLabel     = ACTIVITY_LABEL[canonicalActivity];

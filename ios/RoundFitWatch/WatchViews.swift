@@ -43,24 +43,10 @@ extension View {
 // Shared components
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A circular progress ring — soft track, bright gradient fill, rounded cap.
-struct ProgressRing: View {
-    let progress: Double
-    let tint: Color
-    var lineWidth: CGFloat = 9
-
-    var body: some View {
-        ZStack {
-            Circle().stroke(tint.opacity(0.18), lineWidth: lineWidth)
-            Circle()
-                .trim(from: 0, to: max(0.002, min(progress, 1)))
-                .stroke(tint.gradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        }
-    }
-}
-
-/// A ring-centred stat page: header, ring with icon + number inside, footnote.
+/// A goal-bearing metric as a segmented dial — the same composition as the macro
+/// dials on the phone home screen: value centred, goal beneath it, then a legend
+/// row carrying the label and completion. Every ring in the watch app renders
+/// through this, so calories, protein and strain all read as one family.
 struct RingStatPage: View {
     let tint: Color
     let progress: Double
@@ -70,23 +56,46 @@ struct RingStatPage: View {
     let label: String
     var footnote: String? = nil
 
+    private var percent: Int { Int((min(max(progress, 0), 1) * 100).rounded()) }
+
     var body: some View {
-        VStack(spacing: WatchMetrics.sectionSpacing) {
-            SectionHeader(text: label, tint: tint)
-            ZStack {
-                ProgressRing(progress: progress, tint: tint)
-                VStack(spacing: 0) {
-                    Image(systemName: icon).font(.footnote).foregroundStyle(tint)
-                    Text(centerValue).statNumber(WatchMetrics.statRing)
-                    Text(centerUnit).font(.system(size: 11)).foregroundStyle(.secondary)
+        ZStack {
+            GlowBackdrop(tint: tint, intensity: 0.13)
+
+            VStack(spacing: 9) {
+                SegmentedDial(progress: progress, tint: tint, size: WatchMetrics.ring) {
+                    VStack(spacing: -2) {
+                        HeroNumber(value: centerValue, size: 32)
+                        Text(centerUnit)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                }
+
+                // Legend — dot, label, completion. Mirrors the phone's macro row.
+                HStack(spacing: 5) {
+                    Circle().fill(tint).frame(width: 6, height: 6)
+                    Text(label)
+                        .font(.system(size: 12, weight: .bold))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text("\(percent)%")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(tint)
+                        .monospacedDigit()
+                }
+
+                if let footnote {
+                    Text(footnote)
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
                 }
             }
-            .frame(width: WatchMetrics.ring, height: WatchMetrics.ring)
-            if let footnote {
-                Text(footnote).font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
-            }
+            .sectionPadding()
         }
-        .sectionPadding()
     }
 }
 
@@ -100,58 +109,27 @@ struct MetricPage: View {
     var detail: String? = nil
 
     var body: some View {
-        VStack(spacing: WatchMetrics.sectionSpacing) {
-            SectionHeader(text: label, tint: tint)
-            Image(systemName: icon).font(.title2).foregroundStyle(tint)
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value).statNumber()
-                Text(unit).font(.caption).foregroundStyle(.secondary)
+        ZStack {
+            GlowBackdrop(tint: tint, intensity: 0.16)
+
+            VStack(spacing: 7) {
+                SectionHeader(text: label, tint: tint)
+                Image(systemName: icon)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(tint)
+                HeroNumber(value: value, unit: unit, size: 40)
+                if let detail {
+                    VerdictChip(text: detail, tint: tint)
+                }
             }
-            if let detail {
-                Text(detail).font(.caption2).foregroundStyle(.tertiary)
-            }
+            .sectionPadding()
         }
-        .sectionPadding()
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Readiness — score gauge, then swipe through the recovery detail metrics
 // ─────────────────────────────────────────────────────────────────────────────
-
-/// Recovery — shows just the score. Tap it to open the full, scrollable list of
-/// underlying metrics (sleep, strain, soreness, HRV, resting HR).
-struct RecoveryScoreView: View {
-    let readiness: WatchSnapshot.Readiness
-    let updatedAt: String
-    private var scoreTint: Color { WatchTheme.scoreTint(readiness.score) }
-
-    var body: some View {
-        NavigationStack {
-            NavigationLink {
-                RecoveryDetailView(readiness: readiness, updatedAt: updatedAt)
-            } label: {
-                VStack(spacing: 8) {
-                    SectionHeader(text: "Readiness")
-                    ZStack {
-                        ProgressRing(progress: Double(readiness.score ?? 0) / 100, tint: scoreTint)
-                        Text(readiness.score.map(String.init) ?? "–").statNumber(WatchMetrics.statHuge)
-                    }
-                    .frame(width: WatchMetrics.ring, height: WatchMetrics.ring)
-                    Text(readiness.label).font(.headline).foregroundStyle(readiness.moodColor)
-                    HStack(spacing: 3) {
-                        Text("Details")
-                        Image(systemName: "chevron.right")
-                    }
-                    .font(.caption2).foregroundStyle(.tertiary)
-                }
-                .frame(maxWidth: .infinity)
-                .sectionPadding()
-            }
-            .buttonStyle(.plain)
-        }
-    }
-}
 
 /// The full recovery breakdown, opened from the score — a scrollable list of every
 /// metric. Each row drills further into its own detail (sleep graph, strain ring, …).
@@ -348,18 +326,22 @@ struct CoachView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: WatchMetrics.sectionSpacing) {
+            VStack(alignment: .leading, spacing: 7) {
                 SectionHeader(text: "Coach", tint: tint)
                 Text(coaching.title)
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
                     .foregroundStyle(tint)
+                    .fixedSize(horizontal: false, vertical: true)
+                // A hairline in the mood tint ties the message to the verdict.
+                Capsule().fill(tint.opacity(0.5)).frame(width: 26, height: 2)
                 Text(coaching.message)
-                    .font(.body)
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .sectionPadding()
+            .background(GlowBackdrop(tint: tint, intensity: 0.12))
         }
     }
 }
@@ -372,18 +354,22 @@ struct ActivityView: View {
     let activity: WatchSnapshot.Activity
 
     var body: some View {
-        VStack(spacing: 14) {
-            SectionHeader(text: "Activity", tint: WatchTheme.steps)
-            if let s = activity.steps {
-                ActivityStat(icon: "shoeprints.fill", tint: WatchTheme.steps,
-                             value: s.formatted(), label: "Steps")
+        ZStack {
+            GlowBackdrop(tint: WatchTheme.steps, intensity: 0.13)
+
+            VStack(spacing: 12) {
+                SectionHeader(text: "Activity", tint: WatchTheme.steps)
+                if let s = activity.steps {
+                    ActivityStat(icon: "shoeprints.fill", tint: WatchTheme.steps,
+                                 value: s.formatted(), label: "Steps")
+                }
+                if let c = activity.caloriesBurned {
+                    ActivityStat(icon: "flame.fill", tint: WatchTheme.calories,
+                                 value: "\(c)", label: "Cal Burned")
+                }
             }
-            if let c = activity.caloriesBurned {
-                ActivityStat(icon: "flame.fill", tint: WatchTheme.calories,
-                             value: "\(c)", label: "Cal Burned")
-            }
+            .sectionPadding()
         }
-        .sectionPadding()
     }
 }
 
@@ -423,10 +409,17 @@ struct WaterView: View {
         let progress = goal > 0 ? Double(current) / Double(goal) : 0
 
         NavigationStack {
-            VStack(spacing: WatchMetrics.sectionSpacing) {
+            VStack(spacing: 7) {
                 SectionHeader(text: "Water", tint: WatchTheme.water)
                 WaterJar(progress: progress).frame(width: 62, height: 82)
-                Text("\(current) / \(goal) ml").statNumber(16)
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text("\(current)")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                    Text("/ \(goal) ml")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
                 NavigationLink {
                     WaterLogOptionsView()
                 } label: {
@@ -462,9 +455,13 @@ struct WaterJar: View {
                 .shadow(color: .black.opacity(0.35), radius: 1, y: 0.5)
         }
         .onAppear {
+            // Delay forever-animation until after first paint so TabView launch
+            // doesn't compete with the scene-update watchdog.
             guard !reduceMotion else { return }
-            withAnimation(.linear(duration: 2.2).repeatForever(autoreverses: false)) {
-                phase = 2 * .pi
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                withAnimation(.linear(duration: 2.2).repeatForever(autoreverses: false)) {
+                    phase = 2 * .pi
+                }
             }
         }
     }
@@ -751,5 +748,27 @@ enum WatchTime {
         if mins < 1 { return "just now" }
         if mins < 60 { return "\(mins)m ago" }
         return "\(mins / 60)h ago"
+    }
+
+    /// "7.5" — hours at one decimal, trimmed of a trailing .0. Used where a dial
+    /// or mini stat has no room for "7h 30m".
+    static func hoursCompact(_ h: Double) -> String {
+        let rounded = (h * 10).rounded() / 10
+        return rounded == rounded.rounded()
+            ? String(Int(rounded))
+            : String(format: "%.1f", rounded)
+    }
+
+    /// "Sun, Aug 9" from the snapshot's `YYYY-MM-DD` date. Falls back to the raw
+    /// string rather than showing nothing if the format ever changes.
+    static func weekdayDate(_ ymd: String) -> String {
+        let parser = DateFormatter()
+        parser.dateFormat = "yyyy-MM-dd"
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        guard let d = parser.date(from: ymd) else { return ymd }
+
+        let out = DateFormatter()
+        out.dateFormat = "EEE, MMM d"
+        return out.string(from: d)
     }
 }
