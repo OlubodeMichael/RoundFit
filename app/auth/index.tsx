@@ -1,275 +1,108 @@
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
-import { useRouter } from 'expo-router';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { setStatusBarStyle } from 'expo-status-bar';
+import * as WebBrowser from 'expo-web-browser';
+import { useCallback, useEffect, useRef } from 'react';
+import { Animated, Easing, Image, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useEffect, useRef } from 'react';
-import { CalorieBudgetCard, LIGHT_CALORIE_PALETTE } from '@/components/home/CalorieBudgetCard';
-import { DailyBudgetMetricsRow } from '@/components/home/DailyBudgetMetricsRow';
 
-const COLORS = {
-  bg:         '#FAFAF8',
-  text:       '#111111',
-  mid:        '#888888',
-  line:       '#E8E3DC',
-  lineSoft:   '#EFE9E2',
-  accent:     '#F97316',
-  accentSoft: 'rgba(249,115,22,0.07)',
-  dark:       '#131318',
-  green:      '#22C55E',
+import { PRIVACY_URL, TERMS_URL } from '@/constants/legal';
+import { useReduceMotion } from '@/hooks/use-reduce-motion';
+
+const HERO = require('../../assets/images/welcome-athlete.png');
+const LOGO = require('../../assets/icons/ios-dark.png');
+const C = {
+  obsidian: '#08080C', cream: '#F7F3EE', orange: '#F97316',
+  creamDim: 'rgba(247,243,238,0.72)', creamMute: 'rgba(247,243,238,0.46)',
+  hairline: 'rgba(247,243,238,0.18)', glass: 'rgba(10,10,14,0.72)',
 };
+const HEADLINE = ['every', 'choice', 'counts.'] as const;
 
-// Static demo data shown on the auth preview card
-const DEMO = {
-  eaten:      1247,
-  goal:       2100,
-  burned:     400,
-  stepsToday: 4312,
-  remaining:  1647,
-  dateLabel:  'Today · May 14',
-};
-
+/** A full-screen sports poster for signed-out users. */
 export default function AuthLandingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const reduceMotion = useReduceMotion();
+  const reveal = useRef(new Animated.Value(0)).current;
+  const heroScale = useRef(new Animated.Value(1.04)).current;
+  const contentY = useRef(new Animated.Value(18)).current;
 
-  const logoFade    = useRef(new Animated.Value(0)).current;
-  const logoY       = useRef(new Animated.Value(-10)).current;
-  const streakFade  = useRef(new Animated.Value(0)).current;
-  const streakX     = useRef(new Animated.Value(-14)).current;
-  const cardFade    = useRef(new Animated.Value(0)).current;
-  const floatAnim   = useRef(new Animated.Value(22)).current;  // entrance offset → float loop
-  const liveFade    = useRef(new Animated.Value(0)).current;
-  const liveY       = useRef(new Animated.Value(8)).current;
-  const btnsFade    = useRef(new Animated.Value(0)).current;
-  const btnsY       = useRef(new Animated.Value(14)).current;
-  const breathe     = useRef(new Animated.Value(0)).current;
+  useFocusEffect(useCallback(() => {
+    setStatusBarStyle('light');
+    return () => setStatusBarStyle('dark');
+  }, []));
 
   useEffect(() => {
-    const ease = Easing.out(Easing.cubic);
     Animated.parallel([
-      Animated.timing(logoFade,    { toValue: 1, duration: 480, delay:  60, useNativeDriver: true }),
-      Animated.timing(logoY,       { toValue: 0, duration: 480, delay:  60, easing: ease, useNativeDriver: true }),
-      Animated.timing(streakFade,  { toValue: 1, duration: 560, delay: 180, useNativeDriver: true }),
-      Animated.timing(streakX,     { toValue: 0, duration: 560, delay: 180, easing: ease, useNativeDriver: true }),
-      Animated.timing(cardFade,    { toValue: 1, duration: 650, delay: 260, useNativeDriver: true }),
-      Animated.timing(liveFade,    { toValue: 1, duration: 480, delay: 440, useNativeDriver: true }),
-      Animated.timing(liveY,       { toValue: 0, duration: 480, delay: 440, easing: ease, useNativeDriver: true }),
-      Animated.timing(btnsFade,    { toValue: 1, duration: 460, delay: 560, useNativeDriver: true }),
-      Animated.timing(btnsY,       { toValue: 0, duration: 460, delay: 560, easing: ease, useNativeDriver: true }),
+      Animated.timing(reveal, { toValue: 1, duration: reduceMotion ? 0 : 650, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(heroScale, { toValue: 1, duration: reduceMotion ? 0 : 1100, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(contentY, { toValue: 0, duration: reduceMotion ? 0 : 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]).start();
+  }, [contentY, heroScale, reduceMotion, reveal]);
 
-    // Card float: slide in from below, then gently bob forever
-    Animated.sequence([
-      Animated.timing(floatAnim, {
-        toValue: 0, duration: 700, delay: 260,
-        easing: Easing.out(Easing.cubic), useNativeDriver: true,
-      }),
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(floatAnim, { toValue: -8, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(floatAnim, { toValue:  0, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        ])
-      ),
-    ]).start();
-
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(breathe, { toValue: 1, duration: 850, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(breathe, { toValue: 0, duration: 850, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ])
-    ).start();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const dotOpac = breathe.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] });
+  const displaySize = Math.min(70, width * 0.18, height * 0.078);
 
   return (
-    <View style={[s.root, { paddingTop: insets.top + 14, paddingBottom: insets.bottom + 16 }]}>
-
-      <View style={s.bgBlob} pointerEvents="none" />
-
-      {/* ── Wordmark ── */}
-      <Animated.View style={[s.logoRow, { opacity: logoFade, transform: [{ translateY: logoY }] }]}>
-        <Text style={s.logo}>Round<Text style={s.logoAccent}>Fit</Text></Text>
-        <View style={s.logoDot} />
+    <View style={s.root}>
+      <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ scale: heroScale }] }]}>
+        <Image source={HERO} resizeMode="cover" style={s.hero} accessibilityIgnoresInvertColors />
       </Animated.View>
+      <LinearGradient colors={['rgba(8,8,12,0.22)', 'rgba(8,8,12,0.02)', 'rgba(8,8,12,0.16)']} locations={[0, 0.48, 1]} style={StyleSheet.absoluteFill} pointerEvents="none" />
+      <LinearGradient colors={['transparent', 'rgba(8,8,12,0.14)', 'rgba(8,8,12,0.97)']} locations={[0.52, 0.72, 1]} style={StyleSheet.absoluteFill} pointerEvents="none" />
 
-      <View style={{ flex: 1 }} />
+      <Animated.View style={[s.frame, { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 10, opacity: reveal, transform: [{ translateY: contentY }] }]}>
+        <View style={s.brandRow}>
+          <Image source={LOGO} style={s.logoMark} resizeMode="cover" accessibilityIgnoresInvertColors />
+          <Text style={s.wordmark}>ound<Text style={s.wordmarkAccent}>Fit</Text></Text>
+        </View>
 
-      {/* ── Preview cards — centred, floating ── */}
-      <Animated.View style={[s.cardsSection, { opacity: cardFade, transform: [{ translateY: floatAnim }] }]}>
+        <View style={s.headline}>
+          {HEADLINE.map((word, index) => (
+            <Text key={word} numberOfLines={1} style={[s.display, { fontSize: displaySize, lineHeight: displaySize * 0.93, letterSpacing: displaySize * -0.045 }, index === 1 && s.displayAccent]}>
+              {word}
+            </Text>
+          ))}
+          <Text style={s.kicker}>TRAIN  ·  FUEL  ·  RECOVER</Text>
+        </View>
 
-        <Animated.View style={[s.streakBadge, { opacity: streakFade, transform: [{ translateX: streakX }] }]}>
-          <Text style={s.streakFlame}>🔥</Text>
-          <View>
-            <Text style={s.streakDays}>14 days</Text>
-            <Text style={s.streakSub}>STREAK</Text>
-          </View>
-        </Animated.View>
-
-        <CalorieBudgetCard
-            P={LIGHT_CALORIE_PALETTE}
-            eaten={DEMO.eaten}
-            goal={DEMO.goal}
-            remaining={DEMO.remaining}
-            dateLabel={DEMO.dateLabel}
-          />
-        <DailyBudgetMetricsRow
-          P={LIGHT_CALORIE_PALETTE}
-          eaten={DEMO.eaten}
-          goal={DEMO.goal}
-          burned={DEMO.burned}
-          healthData={{
-            id: 'demo',
-            active_calories: DEMO.burned,
-            resting_calories: 0,
-            total_calories_burned: DEMO.burned,
-            steps: DEMO.stepsToday,
-            distance: 3.2,
-            distance_unit: 'km',
-            avg_heart_rate: null,
-            max_heart_rate: null,
-            resting_heart_rate: null,
-            hrv: null,
-            vo2_max: null,
-            active_minutes: null,
-            stand_hours: null,
-            exercise_minutes: null,
-            mindfulness_minutes: null,
-            sleep_hours: null,
-            sleep_quality: null,
-            deep_sleep_hours: null,
-            rem_sleep_hours: null,
-            sleep_efficiency: null,
-            time_in_bed_hours: null,
-            bedtime_iso: null,
-            wakeup_iso: null,
-            stress_score: null,
-            source: 'manual',
-            recorded_at: new Date().toISOString(),
-          }}
-        />
-
-        <Animated.View style={[s.livePill, { opacity: liveFade, transform: [{ translateY: liveY }] }]}>
-          <Animated.View style={[s.liveDot, { opacity: dotOpac }]} />
-          <Text style={s.liveTag}>LIVE</Text>
-          <Text style={s.liveRunner}>🏃</Text>
-          <Text style={s.liveActivity}>Walk 85 min · 434 kcal</Text>
-        </Animated.View>
-
-      </Animated.View>
-
-      <View style={{ flex: 1 }} />
-
-      {/* ── Actions — pinned bottom ── */}
-      <Animated.View style={[s.buttons, { opacity: btnsFade, transform: [{ translateY: btnsY }] }]}>
-        <TouchableOpacity
-          style={s.primaryBtn}
-          activeOpacity={0.9}
-          onPress={() => router.push('/onboarding/value-hook')}
-        >
-          <Text style={s.primaryText}>Get started</Text>
-          <Text style={s.primaryArrow}>  →</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={s.loginBtn}
-          activeOpacity={0.7}
-          onPress={() => router.push('/auth/auth-options')}
-        >
-          <Text style={s.loginText}>
-            Already have an account?{'  '}
-            <Text style={s.loginAccent}>Log in</Text>
+        <View style={s.spacer} />
+        <View style={s.actions}>
+          <Text style={s.promise}>One clear view of what moves you forward.</Text>
+          <TouchableOpacity style={s.primaryBtn} activeOpacity={0.88} onPress={() => router.push('/onboarding/age-sex')} accessibilityRole="button" accessibilityLabel="Get started with RoundFit">
+            <Text style={s.primaryText}>Get started</Text>
+            <View style={s.arrowDisc}><Ionicons name="arrow-forward" size={17} color={C.obsidian} /></View>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.loginBtn} activeOpacity={0.75} onPress={() => router.push('/auth/auth-options')} accessibilityRole="button">
+            <Text style={s.loginText}>Log in</Text>
+          </TouchableOpacity>
+          <Text style={s.legal}>
+            By continuing you agree to our{' '}
+            <Text style={s.legalLink} onPress={() => WebBrowser.openBrowserAsync(TERMS_URL)}>Terms</Text>
+            {' '}and{' '}
+            <Text style={s.legalLink} onPress={() => WebBrowser.openBrowserAsync(PRIVACY_URL)}>Privacy Policy</Text>
           </Text>
-        </TouchableOpacity>
+        </View>
       </Animated.View>
-
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  root: {
-    flex:              1,
-    backgroundColor:   COLORS.bg,
-    paddingHorizontal: 22,
-  },
-
-  bgBlob: {
-    position:        'absolute',
-    top:             -70,
-    right:           -80,
-    width:           230,
-    height:          230,
-    borderRadius:    115,
-    backgroundColor: COLORS.accentSoft,
-  },
-
-  logoRow:    { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  logo:       { fontFamily: 'Syne_800ExtraBold', fontSize: 20, color: COLORS.text, letterSpacing: -0.2 },
-  logoAccent: { color: COLORS.accent },
-  logoDot:    { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.accent },
-
-  cardsSection: { gap: 8, marginBottom: 20 },
-
-  streakBadge: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               10,
-    alignSelf:         'flex-start',
-    backgroundColor:   '#FFFFFF',
-    borderRadius:      14,
-    paddingVertical:   8,
-    paddingHorizontal: 13,
-    borderWidth:       1,
-    borderColor:       COLORS.lineSoft,
-    shadowColor:       '#000',
-    shadowOffset:      { width: 0, height: 2 },
-    shadowOpacity:     0.06,
-    shadowRadius:      8,
-    elevation:         3,
-  },
-  streakFlame: { fontSize: 20 },
-  streakDays:  { fontFamily: 'Syne_700Bold', fontSize: 13, color: COLORS.text },
-  streakSub:   { fontFamily: 'Syne_700Bold', fontSize: 9, letterSpacing: 1.4, color: COLORS.mid, marginTop: 1 },
-
-  livePill: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    gap:               7,
-    alignSelf:         'flex-end',
-    backgroundColor:   COLORS.dark,
-    borderRadius:      50,
-    paddingVertical:   9,
-    paddingHorizontal: 14,
-    marginTop:         -18,
-    shadowColor:       '#000',
-    shadowOffset:      { width: 0, height: 4 },
-    shadowOpacity:     0.26,
-    shadowRadius:      10,
-    elevation:         8,
-  },
-  liveDot:      { width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.green },
-  liveTag:      { fontFamily: 'Syne_700Bold', fontSize: 10, color: COLORS.green, letterSpacing: 1.2 },
-  liveRunner:   { fontSize: 12 },
-  liveActivity: { fontSize: 12, color: '#FFFFFF', letterSpacing: 0.2 },
-
-  buttons:    { gap: 0 },
-  primaryBtn: {
-    backgroundColor: COLORS.accent,
-    borderRadius:    14,
-    paddingVertical: 16,
-    flexDirection:   'row',
-    alignItems:      'center',
-    justifyContent:  'center',
-    shadowColor:     COLORS.accent,
-    shadowOffset:    { width: 0, height: 8 },
-    shadowOpacity:   0.28,
-    shadowRadius:    18,
-    elevation:       10,
-  },
-  primaryText:  { color: '#FFF', fontFamily: 'Syne_700Bold', fontSize: 16, letterSpacing: 0.3 },
-  primaryArrow: { color: '#FFF', fontFamily: 'Syne_700Bold', fontSize: 16 },
-
-  loginBtn:   { paddingVertical: 14, alignItems: 'center' },
-  loginText:  { fontSize: 14, color: COLORS.mid },
-  loginAccent: { color: COLORS.accent, fontFamily: 'Syne_700Bold' },
+  root: { flex: 1, backgroundColor: C.obsidian }, hero: { width: '100%', height: '100%' }, frame: { flex: 1, paddingHorizontal: 22 },
+  brandRow: { flexDirection: 'row', alignItems: 'center' },
+  logoMark: { width: 42, height: 42, borderRadius: 11 },
+  wordmark: { marginLeft: -8, fontFamily: 'ArchivoBlack_400Regular', fontSize: 15, color: C.cream, letterSpacing: -0.5 }, wordmarkAccent: { color: C.orange },
+  headline: { marginTop: 30 },
+  display: { fontFamily: 'ArchivoBlack_400Regular', color: C.cream, includeFontPadding: false, textTransform: 'lowercase' }, displayAccent: { color: C.orange },
+  kicker: { marginTop: 15, fontFamily: 'Archivo_600SemiBold', fontSize: 12, color: C.creamDim, letterSpacing: 2.1 }, spacer: { flex: 1 }, actions: { gap: 10 },
+  promise: { marginBottom: 2, color: C.cream, fontFamily: 'Archivo_500Medium', fontSize: 14, textAlign: 'center' },
+  primaryBtn: { minHeight: 60, paddingLeft: 24, paddingRight: 8, borderRadius: 999, backgroundColor: C.orange, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', shadowColor: C.orange, shadowOffset: { width: 0, height: 9 }, shadowOpacity: 0.28, shadowRadius: 22, elevation: 10 },
+  primaryText: { color: '#FFFFFF', fontFamily: 'Archivo_600SemiBold', fontSize: 17 },
+  arrowDisc: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.cream, alignItems: 'center', justifyContent: 'center' },
+  loginBtn: { minHeight: 54, borderRadius: 999, borderWidth: 1, borderColor: C.hairline, backgroundColor: C.glass, alignItems: 'center', justifyContent: 'center' },
+  loginText: { color: C.cream, fontFamily: 'Archivo_600SemiBold', fontSize: 16 },
+  legal: { marginTop: 2, color: C.creamMute, fontFamily: 'Archivo_500Medium', fontSize: 10.5, lineHeight: 15, textAlign: 'center' },
+  legalLink: { color: C.creamDim, fontFamily: 'Archivo_600SemiBold' },
 });

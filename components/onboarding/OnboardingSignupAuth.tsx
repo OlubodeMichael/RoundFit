@@ -28,7 +28,6 @@ import {
 const ORANGE = '#F97316';
 const INK = '#111110';
 const DIM = '#8C8880';
-const RULE = '#E6E2DA';
 
 const ERROR_LABELS: Record<AuthError, string> = {
   EMAIL_IN_USE: 'An account with this email already exists.',
@@ -168,32 +167,47 @@ export function OnboardingSignupAuth({
               activeOpacity={0.84}
               disabled={showLoading}
               onPress={() => void signInWithOAuth('apple')}
+              accessibilityRole="button"
+              accessibilityLabel="Continue with Apple"
             >
               <Ionicons name="logo-apple" size={20} color="#FFF" />
               <Text style={s.appleBtnText}>Continue with Apple</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[s.outlineBtn, { opacity: showLoading ? 0.55 : 1 }]}
-              activeOpacity={0.84}
-              disabled={showLoading}
-              onPress={() => void signInWithOAuth('google')}
-            >
-              <GoogleLogo size={18} />
-              <Text style={s.outlineBtnText}>Continue with Google</Text>
-            </TouchableOpacity>
+            <View style={s.secondaryRow}>
+              <TouchableOpacity
+                style={[s.secondaryBtn, { opacity: showLoading ? 0.55 : 1 }]}
+                activeOpacity={0.84}
+                disabled={showLoading}
+                onPress={() => void signInWithOAuth('google')}
+                accessibilityRole="button"
+                accessibilityLabel="Continue with Google"
+              >
+                <GoogleLogo size={18} />
+                <Text style={s.secondaryBtnText}>Google</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[s.secondaryBtn, { opacity: showLoading ? 0.55 : 1 }]}
+                activeOpacity={0.84}
+                disabled={showLoading}
+                onPress={() => router.push({ pathname: '/auth/sign-up', params })}
+                accessibilityRole="button"
+                accessibilityLabel="Continue with email"
+              >
+                <Ionicons name="mail-outline" size={19} color={INK} />
+                <Text style={s.secondaryBtnText}>Email</Text>
+              </TouchableOpacity>
+            </View>
           </>
         )}
 
-        <TouchableOpacity
-          style={[s.outlineBtn, { opacity: showLoading ? 0.55 : 1 }]}
-          activeOpacity={0.84}
-          disabled={showLoading}
-          onPress={() => router.push({ pathname: '/auth/sign-up', params })}
-        >
-          <Ionicons name="mail-outline" size={19} color={INK} />
-          <Text style={s.outlineBtnText}>Continue with email</Text>
-        </TouchableOpacity>
+        {awaitingOAuthSave && (
+          <View style={s.savingNote}>
+            <Ionicons name="lock-closed" size={13} color={DIM} />
+            <Text style={s.savingNoteText}>Your account is connected. Finish saving your plan.</Text>
+          </View>
+        )}
 
         <Text style={s.legal}>
           By continuing you agree to our{' '}
@@ -238,7 +252,7 @@ export function OnboardingSignupAuth({
 }
 
 const s = StyleSheet.create({
-  buttons: { gap: 12 },
+  buttons: { gap: 10 },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -285,28 +299,31 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
     backgroundColor: '#000000',
-    borderRadius: 16,
-    paddingVertical: 18,
+    minHeight: 56,
+    borderRadius: 999,
+    paddingHorizontal: 18,
   },
-  appleBtnText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
-  outlineBtn: {
+  appleBtnText: { color: '#FFF', fontFamily: 'Archivo_600SemiBold', fontSize: 15 },
+  secondaryRow: { flexDirection: 'row', gap: 10 },
+  secondaryBtn: {
+    flex: 1,
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: RULE,
-    paddingVertical: 17,
+    gap: 8,
+    backgroundColor: '#F2EFEB',
+    borderRadius: 18,
   },
-  outlineBtnText: { color: INK, fontSize: 15, fontWeight: '700' },
+  secondaryBtnText: { color: INK, fontFamily: 'Archivo_600SemiBold', fontSize: 14 },
+  savingNote: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  savingNoteText: { fontFamily: 'Archivo_400Regular', fontSize: 11, color: DIM },
   legal: {
     fontSize: 12,
     color: DIM,
     textAlign: 'center',
     lineHeight: 18,
-    marginTop: 4,
+    marginTop: 2,
   },
   legalAccent: { color: INK, fontWeight: '600' },
   loginText: { fontSize: 13, fontWeight: '500', color: DIM, textAlign: 'center' },

@@ -1,10 +1,10 @@
-import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { MeasurementPicker } from '@/components/onboarding/measurement-picker';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 // ── Conversion helpers ─────────────────────────────────────────────────────
 // Store metric as precise floats; round only for display so every lb/in tick is reachable.
@@ -32,16 +32,14 @@ function formatHeight(totalIn: number): string {
 export default function HeightWeightScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string }>();
-  const insets = useSafeAreaInsets();
-  const total  = 9;
 
   // Internal values always stored in metric
   const [weightKg, setWeightKg] = useState(DEFAULT_WEIGHT_KG);
   const [heightCm, setHeightCm] = useState(DEFAULT_HEIGHT_CM);
 
   // Independent unit states per measurement
-  const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('kg');
-  const [heightUnit, setHeightUnit] = useState<'cm' | 'in'>('cm');
+  const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('lb');
+  const [heightUnit, setHeightUnit] = useState<'cm' | 'in'>('in');
 
   // ── Weight derived values ───────────────────────────────────────────────
   const weightRulerValue   = weightUnit === 'kg' ? Math.round(weightKg) : kgToLb(weightKg);
@@ -74,12 +72,9 @@ export default function HeightWeightScreen() {
   const unitParam = weightUnit === 'lb' || heightUnit === 'in' ? 'imperial' : 'metric';
 
   return (
-    <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 20 }]}>
-      <View style={s.progress}>
-        <ProgressBar step={4} total={total} backHref="/onboarding/age-sex" isDark={false} />
-      </View>
+    <View style={s.root}>
 
-      <Text style={s.headline}>Height &{'\n'}weight.</Text>
+      <OnboardingQuestion before="What are your " emphasis="height" after=" and weight?" />
       <WhyWeAsk
         text="We use this to calculate your personal calorie targets."
         style={s.whyWeAsk}
@@ -103,8 +98,8 @@ export default function HeightWeightScreen() {
           labelEvery={10}
           tickSpacing={8}
           unitOptions={[
-            { label: 'Kg',    active: weightUnit === 'kg', onPress: () => setWeightUnit('kg') },
-            { label: 'Pound', active: weightUnit === 'lb', onPress: () => setWeightUnit('lb') },
+            { label: 'lb', active: weightUnit === 'lb', onPress: () => setWeightUnit('lb') },
+            { label: 'kg', active: weightUnit === 'kg', onPress: () => setWeightUnit('kg') },
           ]}
         />
 
@@ -124,15 +119,14 @@ export default function HeightWeightScreen() {
           formatLabel={heightLabelFmt}
           tickSpacing={heightUnit === 'in' ? 14 : 8}
           unitOptions={[
-            { label: 'Feet',   active: heightUnit === 'in', onPress: () => setHeightUnit('in') },
-            { label: 'Meters', active: heightUnit === 'cm', onPress: () => setHeightUnit('cm') },
+            { label: 'ft · in', active: heightUnit === 'in', onPress: () => setHeightUnit('in') },
+            { label: 'cm', active: heightUnit === 'cm', onPress: () => setHeightUnit('cm') },
           ]}
         />
       </ScrollView>
 
-      <TouchableOpacity
-        style={s.cta}
-        activeOpacity={0.88}
+      <PrimaryCTA
+        label="Continue"
         onPress={() => router.push({
           pathname: '/onboarding/goal',
           params: {
@@ -142,9 +136,7 @@ export default function HeightWeightScreen() {
             unit:   unitParam,
           },
         })}
-      >
-        <Text style={s.ctaText}>Continue  →</Text>
-      </TouchableOpacity>
+      />
     </View>
   );
 }

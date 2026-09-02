@@ -14,15 +14,24 @@ import {
   parseOnboardingParam,
 } from '@/utils/onboarding-profile';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Animated, Easing,
-  ScrollView, useWindowDimensions,
+  View, Text, StyleSheet, Animated, Easing,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import Svg, { Path, Line, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
-import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
+import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import Svg, {
+  Circle,
+  Defs,
+  G,
+  Line,
+  LinearGradient as SvgGradient,
+  Path,
+  Rect,
+  Stop,
+  Text as SvgText,
+} from 'react-native-svg';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -90,7 +99,8 @@ export default function RevealScreen() {
     goal: string; activity: string; unit: string;
   }>();
   const insets          = useSafeAreaInsets();
-  const { width: scrW } = useWindowDimensions();
+  const { width: scrW, height: scrH } = useWindowDimensions();
+  const compact = scrH < 800;
   const {
     profileSetupPending,
     setupOAuthProfile,
@@ -149,9 +159,10 @@ export default function RevealScreen() {
   }
   const goalLabel    = GOAL_LABEL[canonicalGoal];
   const actLabel     = ACTIVITY_LABEL[canonicalActivity];
-  const weightLabel  = parseOnboardingParam(params.unit) === 'imperial'
-    ? `${Math.round(weightKg * 2.20462)} lb`
-    : `${Math.round(weightKg)} kg`;
+  const isImperial   = parseOnboardingParam(params.unit) === 'imperial';
+  const weightFactor = isImperial ? 2.20462 : 1;
+  const weightUnit   = isImperial ? 'lb' : 'kg';
+  const weightLabel  = `${Math.round(weightKg * weightFactor)} ${weightUnit}`;
   const readyDays    = computeReadyDays(canonicalGoal, weightKg);
   const caloricDelta = plan.calorieBudget - plan.tdee;
 
@@ -177,13 +188,25 @@ export default function RevealScreen() {
       return weightKg + curved * total;
     });
   }, [weightKg, weeklyDelta]);
+  const withoutRoundFitPoints = useMemo(
+    () => Array.from({ length: 13 }, () => weightKg),
+    [weightKg],
+  );
   const projEnd   = projPoints[12];
   const projDelta = projEnd - weightKg;
   const projColor = projDelta < 0 ? '#EF4444' : '#22C55E';
   const projSign  = projDelta >= 0 ? '+' : '-';
+  const displayProjDelta = Math.abs(projDelta * weightFactor);
+  const projectionUnit = canonicalGoal === 'lose_weight'
+    ? `${weightUnit} fat`
+    : canonicalGoal === 'build_muscle'
+      ? `${weightUnit} lean`
+      : PROJ_UNIT[canonicalGoal];
 
-  // Chart width = screen - horizontal padding (20×2) - card padding (16×2)
-  const chartW = scrW - 72;
+  const [chartSize, setChartSize] = useState({
+    width: scrW - 72,
+    height: compact ? 62 : 140,
+  });
 
   // Guard against any non-finite/zero budget so the hero never renders blank
   // or "NaN" (e.g. if upstream params arrive malformed).
@@ -267,11 +290,8 @@ export default function RevealScreen() {
   }, [calorieTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <View style={[s.root, { paddingTop: insets.top + 16 }]}>
-      <ScrollView
-        contentContainerStyle={[s.scroll, { paddingBottom: 16 }]}
-        showsVerticalScrollIndicator={false}
-      >
+    <View style={[s.root, { paddingTop: insets.top + (compact ? 6 : 12) }]}>
+      <View style={[s.content, compact && s.contentCompact]}>
         {/* ── Status row ───────────────────────────────────── */}
         <Animated.View style={[s.topRow, { opacity: topFade }]}>
           <View style={s.readyBadge}>
@@ -282,15 +302,9 @@ export default function RevealScreen() {
         </Animated.View>
 
         {/* ── Greeting ─────────────────────────────────────── */}
-        <Animated.View style={{ opacity: headFade, transform: [{ translateY: headY }], marginBottom: 10 }}>
-          <Text style={s.greeting}>
-            Hi, {name}.{'  '}
-            <Text style={s.greetingSub}>Your daily target</Text>
-          </Text>
-          <WhyWeAsk
-            text="Calculated from the details you shared."
-            style={s.whyWeAsk}
-          />
+        <Animated.View style={[s.intro, { opacity: headFade, transform: [{ translateY: headY }] }]}>
+          <Text style={s.greeting}>Hi, {name}.</Text>
+          <Text style={s.greetingSub}>Here’s the plan built from your answers.</Text>
         </Animated.View>
 
         {/* ── Hero number ──────────────────────────────────── */}
@@ -299,47 +313,42 @@ export default function RevealScreen() {
             fine). No opacity gate either, so the number can't be hidden by an
             unfinished animation. Show the target immediately and let the
             count-up animate `displayCals` toward it. */}
-        <Animated.View style={[s.heroBlock, { transform: [{ translateY: heroY }] }]}>
-          <Text style={s.calNumber} numberOfLines={1}>
-            {(displayCals > 0 ? displayCals : calorieTarget).toLocaleString()}
-          </Text>
-          <Text style={s.calLabel}>kcal / day</Text>
-        </Animated.View>
-
-        {/* ── Profile pills ────────────────────────────────── */}
-        <Animated.View style={[s.pillsRow, { opacity: heroFade }]}>
-          {[weightLabel, goalLabel, actLabel].map((t) => (
-            <View key={t} style={s.pill}>
-              <Text style={s.pillText}>{t}</Text>
+        <Animated.View style={[s.heroCard, compact && s.heroCardCompact, { transform: [{ translateY: heroY }] }]}>
+          <View style={s.heroHeader}>
+            <Text style={s.heroEyebrow}>DAILY CALORIE TARGET</Text>
+            <View style={s.readyChip}>
+              <View style={s.readyChipDot} />
+              <Text style={s.readyChipText}>PERSONALIZED</Text>
             </View>
-          ))}
+          </View>
+
+          <View style={s.targetRow}>
+            <Text style={[s.calNumber, compact && s.calNumberCompact]} numberOfLines={1}>
+              {(displayCals > 0 ? displayCals : calorieTarget).toLocaleString()}
+            </Text>
+            <View style={s.targetUnitBlock}>
+              <Text style={s.calUnit}>kcal</Text>
+              <Text style={s.calPerDay}>per day</Text>
+            </View>
+          </View>
+
+          <View style={s.heroPills}>
+            {[weightLabel, goalLabel, actLabel].map((t) => (
+              <View key={t} style={s.heroPill}>
+                <Text style={s.heroPillText} numberOfLines={1}>{t}</Text>
+              </View>
+            ))}
+          </View>
         </Animated.View>
 
         {/* ── Cards ────────────────────────────────────────── */}
         <Animated.View style={[s.cards, { opacity: bodyFade, transform: [{ translateY: bodyY }] }]}>
-
-          {/* 12-week projection */}
-          <View style={s.card}>
-            <View style={s.cardHeaderRow}>
-              <Text style={s.cardLabel}>12-WEEK PROJECTION</Text>
-              {projDelta !== 0 && (
-                <Text style={[s.projDelta, { color: projColor }]}>
-                  {projSign}{Math.abs(projDelta).toFixed(1)} {PROJ_UNIT[canonicalGoal]}
-                </Text>
-              )}
-            </View>
-            <View style={{ marginTop: 14 }}>
-              <ProjectionChart points={projPoints} width={chartW} shouldAnimate={chartReady} />
-            </View>
-            <View style={s.projFooter}>
-              <Text style={s.projLabel}>Now · {weightKg.toFixed(0)} kg</Text>
-              <Text style={s.projLabel}>Wk 12 · {projEnd.toFixed(1)} kg</Text>
-            </View>
-          </View>
-
           {/* Macro split */}
-          <View style={s.card}>
-            <Text style={s.cardLabel}>MACRO SPLIT</Text>
+          <View style={[s.macroCard, compact && s.cardCompact]}>
+            <View style={s.cardHeaderRow}>
+              <Text style={s.cardLabel}>DAILY MACROS</Text>
+              <Text style={s.cardHint}>Built for {goalLabel.toLowerCase()}</Text>
+            </View>
             <View style={s.macroBar}>
               {macroData.map(m => (
                 <View key={m.key} style={{ flex: m.pct, backgroundColor: m.color }} />
@@ -355,42 +364,80 @@ export default function RevealScreen() {
                   <Text style={s.macroGrams}>
                     {m.grams}<Text style={s.macroGUnit}>g</Text>
                   </Text>
-                  <Text style={s.macroMeta}>
-                    {m.pct}% · {m.kcal.toLocaleString()} kcal
-                  </Text>
+                  <Text style={s.macroMeta}>{m.pct}% of calories</Text>
                 </View>
               ))}
             </View>
           </View>
 
-          {/* BMR · TDEE · TARGET */}
+          {/* 12-week projection */}
+          <View style={[s.projectionCard, compact && s.cardCompact, compact && s.projectionCardCompact]}>
+            <View style={s.cardHeaderRow}>
+              <View>
+                <Text style={s.cardLabel}>12-WEEK OUTLOOK</Text>
+                <Text style={s.projectionTitle}>
+                  {projDelta === 0 ? 'Maintain your current pace' : `${projSign}${displayProjDelta.toFixed(1)} ${projectionUnit}`}
+                </Text>
+              </View>
+              <View style={[s.projectionBadge, { backgroundColor: `${projColor}18` }]}>
+                <Text style={[s.projDelta, { color: projColor }]}>WEEK 12</Text>
+              </View>
+            </View>
+            <View
+              style={[s.chartArea, compact && s.chartAreaCompact]}
+              onLayout={(event) => {
+                const { width, height } = event.nativeEvent.layout;
+                if (width > 0 && height > 0) {
+                  setChartSize((current) => (
+                    Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1
+                      ? current
+                      : { width, height }
+                  ));
+                }
+              }}
+            >
+              <ProjectionChart
+                points={projPoints}
+                comparisonPoints={withoutRoundFitPoints}
+                width={chartSize.width}
+                height={chartSize.height}
+                displayUnit={weightUnit}
+                valueMultiplier={weightFactor}
+                shouldAnimate={chartReady}
+              />
+            </View>
+            <View style={s.projFooter}>
+              <Text style={s.projLabel}>Now · {(weightKg * weightFactor).toFixed(isImperial ? 0 : 1)} {weightUnit}</Text>
+              <Text style={s.projLabel}>{(projEnd * weightFactor).toFixed(1)} {weightUnit} projected</Text>
+            </View>
+          </View>
+
+          {/* BMR · TDEE · GOAL CHANGE */}
           <View style={s.statsRow}>
-            <StatCard label="BMR"    value={plan.bmr}           sub="at rest"                                        />
-            <StatCard label="TDEE"   value={plan.tdee}          sub={ACTIVITY_MULT[canonicalActivity]}               />
-            <StatCard label="TARGET" value={plan.calorieBudget} sub={`${caloricDelta >= 0 ? '+' : ''}${caloricDelta}`} dark />
+            <StatCard label="BMR" value={plan.bmr} sub="at rest" />
+            <StatCard label="TDEE" value={plan.tdee} sub={ACTIVITY_MULT[canonicalActivity]} />
+            <StatCard
+              label="GOAL CHANGE"
+              value={Math.abs(caloricDelta)}
+              sub={`${caloricDelta >= 0 ? '+' : '-'} kcal`}
+              dark
+            />
           </View>
 
         </Animated.View>
-
-      </ScrollView>
+      </View>
 
       {/* ── Continue to account creation ─────────────────── */}
-      <Animated.View style={[s.bottom, { opacity: bottomFade, transform: [{ translateY: bottomY }], paddingBottom: insets.bottom + 20 }]}>
-        <TouchableOpacity
-          style={[s.cta, { opacity: savingPlan || isLoading ? 0.6 : 1 }]}
-          activeOpacity={0.84}
+      <Animated.View style={[s.bottom, { opacity: bottomFade, transform: [{ translateY: bottomY }] }]}>
+        <PrimaryCTA
           disabled={savingPlan || isLoading}
           onPress={() => void handleContinue()}
-        >
-          <Text style={s.ctaText}>
-            {savingPlan
+          label={savingPlan
               ? 'Saving your plan…'
               : profileSetupPending && canFinishOAuth
                 ? 'Save plan & continue'
                 : 'Continue'}
-          </Text>
-          <Ionicons name="arrow-forward" size={16} color="#FFF" />
-        </TouchableOpacity>
+        />
       </Animated.View>
     </View>
   );
@@ -398,34 +445,55 @@ export default function RevealScreen() {
 
 // ── Projection sparkline ───────────────────────────────────────────────────
 function ProjectionChart({
-  points, width, shouldAnimate,
-}: { points: number[]; width: number; shouldAnimate: boolean }) {
-  const H   = 130;
-  const pad = 8;
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const range = max - min;
+  points, comparisonPoints, width, height, displayUnit, valueMultiplier, shouldAnimate,
+}: {
+  points: number[];
+  comparisonPoints: number[];
+  width: number;
+  height: number;
+  displayUnit: string;
+  valueMultiplier: number;
+  shouldAnimate: boolean;
+}) {
+  const H   = height;
+  const plotLeft = 36;
+  const plotRight = width - 8;
+  const verticalPad = 10;
+  const axisY = H - verticalPad;
+  const allPoints = [...points, ...comparisonPoints];
+  const min = Math.min(...allPoints);
+  const max = Math.max(...allPoints);
+  const rawRange = max - min;
+  const domainPad = rawRange < 0.1 ? 1 : rawRange * 0.16;
+  const domainMin = min - domainPad;
+  const domainMax = max + domainPad;
+  const range = domainMax - domainMin;
   const n = points.length - 1;
 
-  const xs = points.map((_, i) => pad + (i / n) * (width - pad * 2));
-  const ys = points.map(p =>
-    range < 0.1
-      ? H * 0.42
-      : H - pad - ((p - min) / range) * (H - pad * 2),
-  );
+  const xs = points.map((_, i) => plotLeft + (i / n) * (plotRight - plotLeft));
+  const toY = (point: number) => axisY - ((point - domainMin) / range) * (H - verticalPad * 2);
+  const ys = points.map(toY);
+  const comparisonYs = comparisonPoints.map(toY);
 
   // Catmull-Rom → cubic bezier for a smooth curve through all points
-  let line = `M ${xs[0].toFixed(1)} ${ys[0].toFixed(1)}`;
-  for (let i = 0; i < n; i++) {
-    const x0 = xs[Math.max(i - 1, 0)]; const y0 = ys[Math.max(i - 1, 0)];
-    const x1 = xs[i];                  const y1 = ys[i];
-    const x2 = xs[i + 1];             const y2 = ys[i + 1];
-    const x3 = xs[Math.min(i + 2, n)]; const y3 = ys[Math.min(i + 2, n)];
-    const cp1x = x1 + (x2 - x0) / 6;  const cp1y = y1 + (y2 - y0) / 6;
-    const cp2x = x2 - (x3 - x1) / 6;  const cp2y = y2 - (y3 - y1) / 6;
-    line += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}`;
-  }
-  const area = `${line} L ${xs[n].toFixed(1)} ${H} L ${xs[0].toFixed(1)} ${H} Z`;
+  const buildLine = (lineYs: number[]) => {
+    let path = `M ${xs[0].toFixed(1)} ${lineYs[0].toFixed(1)}`;
+    for (let i = 0; i < n; i++) {
+      const x0 = xs[Math.max(i - 1, 0)]; const y0 = lineYs[Math.max(i - 1, 0)];
+      const x1 = xs[i];                  const y1 = lineYs[i];
+      const x2 = xs[i + 1];             const y2 = lineYs[i + 1];
+      const x3 = xs[Math.min(i + 2, n)]; const y3 = lineYs[Math.min(i + 2, n)];
+      const cp1x = x1 + (x2 - x0) / 6;  const cp1y = y1 + (y2 - y0) / 6;
+      const cp2x = x2 - (x3 - x1) / 6;  const cp2y = y2 - (y3 - y1) / 6;
+      path += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+    }
+    return path;
+  };
+  const line = buildLine(ys);
+  const comparisonLine = buildLine(comparisonYs);
+  const area = `${line} L ${xs[n].toFixed(1)} ${axisY} L ${xs[0].toFixed(1)} ${axisY} Z`;
+  const comparisonArea = `${comparisonLine} L ${xs[n].toFixed(1)} ${axisY} L ${xs[0].toFixed(1)} ${axisY} Z`;
+  const planRises = ys[n] < comparisonYs[n];
 
   const PATH_LEN    = width * 2; // upper bound on actual path length
   const dashOffset  = useRef(new Animated.Value(PATH_LEN)).current;
@@ -447,8 +515,23 @@ function ProjectionChart({
     );
   }, [shouldAnimate]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const axisY  = H - pad;
   const rightX = xs[n];
+  const yTicks = [domainMax, (domainMax + domainMin) / 2, domainMin];
+  const displayedRange = rawRange * valueMultiplier;
+  const formatTick = (value: number) => (
+    displayedRange < 5
+      ? (value * valueMultiplier).toFixed(1)
+      : Math.round(value * valueMultiplier).toString()
+  );
+  const comparisonLabelIndex = Math.round(n * 0.46);
+  const planLabelIndex = Math.round(n * 0.72);
+  const clampLabelY = (y: number) => Math.max(12, Math.min(H - 12, y));
+  const comparisonLabelX = xs[comparisonLabelIndex];
+  const planLabelX = xs[planLabelIndex];
+  const comparisonLabelY = clampLabelY(
+    comparisonYs[comparisonLabelIndex] + (rawRange < 0.1 ? 13 : 0),
+  );
+  const planLabelY = clampLabelY(ys[planLabelIndex] - (rawRange < 0.1 ? 13 : 0));
 
   return (
     <Svg width={width} height={H}>
@@ -457,23 +540,76 @@ function ProjectionChart({
           <Stop offset="0" stopColor={ORANGE} stopOpacity="0.22" />
           <Stop offset="1" stopColor={ORANGE} stopOpacity="0" />
         </SvgGradient>
+        <SvgGradient id="comparisonFill" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor="#9C9892" stopOpacity="0.18" />
+          <Stop offset="1" stopColor="#9C9892" stopOpacity="0" />
+        </SvgGradient>
       </Defs>
 
-      {/* Horizontal grid lines */}
-      <Line x1={0} y1={pad + (axisY - pad) * 0.33} x2={rightX} y2={pad + (axisY - pad) * 0.33}
-        stroke="#111" strokeOpacity="0.10" strokeWidth={1} strokeDasharray="4 5" />
-      <Line x1={0} y1={pad + (axisY - pad) * 0.66} x2={rightX} y2={pad + (axisY - pad) * 0.66}
-        stroke="#111" strokeOpacity="0.10" strokeWidth={1} strokeDasharray="4 5" />
+      <SvgText
+        x={1}
+        y={8}
+        fontFamily="Archivo_600SemiBold"
+        fontSize={8}
+        fill="#9A958E"
+      >
+        {displayUnit.toUpperCase()}
+      </SvgText>
+
+      {yTicks.map((tick, index) => {
+        const y = toY(tick);
+        return (
+          <G key={index}>
+            <Line
+              x1={plotLeft}
+              y1={y}
+              x2={rightX}
+              y2={y}
+              stroke="#111"
+              strokeOpacity={index === yTicks.length - 1 ? 0.16 : 0.09}
+              strokeWidth={1}
+              strokeDasharray={index === yTicks.length - 1 ? undefined : '4 5'}
+            />
+            <SvgText
+              x={plotLeft - 7}
+              y={y + 3}
+              textAnchor="end"
+              fontFamily="Archivo_500Medium"
+              fontSize={8.5}
+              fill="#8F8A83"
+            >
+              {formatTick(tick)}
+            </SvgText>
+          </G>
+        );
+      })}
 
       {/* Y axis */}
-      <Line x1={0} y1={0} x2={0} y2={axisY}
+      <Line x1={plotLeft} y1={verticalPad} x2={plotLeft} y2={axisY}
         stroke="#111" strokeOpacity="0.18" strokeWidth={1} />
 
       {/* X axis */}
-      <Line x1={0} y1={axisY} x2={rightX} y2={axisY}
+      <Line x1={plotLeft} y1={axisY} x2={rightX} y2={axisY}
         stroke="#111" strokeOpacity="0.18" strokeWidth={1} />
 
-      <AnimatedPath d={area} fill="url(#areaFill)" fillOpacity={fillOpacity} />
+      {planRises ? (
+        <>
+          <AnimatedPath d={area} fill="url(#areaFill)" fillOpacity={fillOpacity} />
+          <AnimatedPath d={comparisonArea} fill="url(#comparisonFill)" fillOpacity={fillOpacity} />
+        </>
+      ) : (
+        <>
+          <AnimatedPath d={comparisonArea} fill="url(#comparisonFill)" fillOpacity={fillOpacity} />
+          <AnimatedPath d={area} fill="url(#areaFill)" fillOpacity={fillOpacity} />
+        </>
+      )}
+      <Path
+        d={comparisonLine}
+        stroke="#9C9892"
+        strokeWidth={2.5}
+        fill="none"
+        strokeLinecap="round"
+      />
       <AnimatedPath
         d={line}
         stroke={ORANGE}
@@ -484,6 +620,45 @@ function ProjectionChart({
         strokeDasharray={`${PATH_LEN}`}
         strokeDashoffset={dashOffset}
       />
+      <Rect
+        x={comparisonLabelX - 57}
+        y={comparisonLabelY - 10}
+        width={114}
+        height={20}
+        rx={10}
+        fill="#F1EFEC"
+      />
+      <SvgText
+        x={comparisonLabelX}
+        y={comparisonLabelY + 3.5}
+        textAnchor="middle"
+        fontFamily="Archivo_600SemiBold"
+        fontSize={9.5}
+        fill="#77736D"
+      >
+        Without RoundFit
+      </SvgText>
+      <Rect
+        x={planLabelX - 46}
+        y={planLabelY - 10}
+        width={92}
+        height={20}
+        rx={10}
+        fill="#FFF0E5"
+      />
+      <SvgText
+        x={planLabelX}
+        y={planLabelY + 3.5}
+        textAnchor="middle"
+        fontFamily="Archivo_600SemiBold"
+        fontSize={9.5}
+        fill={ORANGE}
+      >
+        With RoundFit
+      </SvgText>
+      <Circle cx={xs[0]} cy={ys[0]} r={5} fill={INK} stroke="#FFFFFF" strokeWidth={2} />
+      <Circle cx={xs[n]} cy={comparisonYs[n]} r={3.5} fill="#9C9892" />
+      <Circle cx={xs[n]} cy={ys[n]} r={4} fill={ORANGE} />
     </Svg>
   );
 }
@@ -501,15 +676,16 @@ function StatCard({ label, value, sub, dark }: { label: string; value: number; s
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  root:   { flex: 1, backgroundColor: BG },
-  scroll: { paddingHorizontal: 20 },
+  root: { flex: 1, backgroundColor: BG },
+  content: { flex: 1, paddingHorizontal: 20, gap: 10 },
+  contentCompact: { gap: 7 },
 
   // Top row
   topRow: {
     flexDirection:  'row',
     alignItems:     'center',
     justifyContent: 'space-between',
-    marginBottom:   28,
+    minHeight:      22,
   },
   readyBadge: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   readyDot:   { width: 7, height: 7, borderRadius: 3.5, backgroundColor: ORANGE },
@@ -517,107 +693,114 @@ const s = StyleSheet.create({
   daysText:   { fontSize: 12, fontWeight: '700', color: DIM, letterSpacing: 0.1 },
 
   // Greeting
-  greeting:    { fontSize: 19, fontWeight: '800', color: INK, letterSpacing: -0.3 },
-  greetingSub: { fontSize: 19, fontWeight: '500', color: DIM },
-  whyWeAsk:    { marginTop: 6, marginBottom: 4 },
+  intro: { gap: 1 },
+  greeting: { fontFamily: 'Archivo_600SemiBold', fontSize: 22, lineHeight: 27, color: INK, letterSpacing: -0.5 },
+  greetingSub: { fontFamily: 'Archivo_400Regular', fontSize: 13.5, lineHeight: 19, color: DIM },
 
   // Hero
-  heroBlock: { marginBottom: 20, gap: 4 },
+  heroCard: {
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderRadius: 26,
+    backgroundColor: INK,
+  },
+  heroCardCompact: { paddingVertical: 12 },
+  heroHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  heroEyebrow: { fontFamily: 'Archivo_600SemiBold', fontSize: 9.5, letterSpacing: 1.25, color: ORANGE },
+  readyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: '#292929',
+  },
+  readyChipDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#22C55E' },
+  readyChipText: { fontFamily: 'Archivo_600SemiBold', fontSize: 8, letterSpacing: 0.8, color: '#BDBDBD' },
+  targetRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 12, marginVertical: 5 },
   calNumber: {
-    fontSize:      80,
-    lineHeight:    80,
-    letterSpacing: -4,
-    fontWeight:    '900',
-    color:         INK,
+    fontFamily:    'Archivo_600SemiBold',
+    fontSize:      60,
+    lineHeight:    66,
+    letterSpacing: -3,
+    color:         '#FFFFFF',
     fontVariant:   ['tabular-nums'],
   },
-  calLabel: { fontSize: 13, fontWeight: '700', letterSpacing: 0.3, color: ORANGE },
-
-  // Pills
-  pillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 28 },
-  pill:     { backgroundColor: '#ECEAE6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
-  pillText: { fontSize: 12, fontWeight: '700', color: INK, letterSpacing: 0.1 },
+  calNumberCompact: { fontSize: 52, lineHeight: 56 },
+  targetUnitBlock: { paddingBottom: 7, gap: 0 },
+  calUnit: { fontFamily: 'Archivo_600SemiBold', fontSize: 14, color: ORANGE },
+  calPerDay: { fontFamily: 'Archivo_400Regular', fontSize: 11, color: '#777777' },
+  heroPills: { flexDirection: 'row', gap: 6 },
+  heroPill: { flexShrink: 1, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, backgroundColor: '#292929' },
+  heroPillText: { fontFamily: 'Archivo_500Medium', fontSize: 10, color: '#D7D7D7' },
 
   // Cards container
-  cards: { gap: 16 },
+  cards: { flex: 1, gap: 9 },
 
-  // Card
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-  },
+  // Cards
+  macroCard: { padding: 15, borderRadius: 22, backgroundColor: '#EEEAE5' },
+  projectionCard: { flex: 1, minHeight: 170, padding: 15, borderRadius: 22, backgroundColor: '#FFFFFF' },
+  projectionCardCompact: { minHeight: 125 },
+  cardCompact: { paddingVertical: 11 },
   cardHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardLabel:     { fontSize: 10, fontWeight: '800', letterSpacing: 1.4, color: DIM },
+  cardLabel: { fontFamily: 'Archivo_600SemiBold', fontSize: 9.5, letterSpacing: 1.25, color: DIM },
+  cardHint: { fontFamily: 'Archivo_500Medium', fontSize: 10.5, color: '#AAA49C' },
 
   // Projection
-  projDelta:  { fontSize: 12, fontWeight: '700', letterSpacing: -0.1 },
-  projFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
-  projLabel:  { fontSize: 11, fontWeight: '600', color: DIM, letterSpacing: 0.1 },
+  projectionTitle: { fontFamily: 'Archivo_600SemiBold', fontSize: 16, lineHeight: 20, color: INK, marginTop: 2 },
+  projectionBadge: { paddingHorizontal: 9, paddingVertical: 6, borderRadius: 999 },
+  projDelta: { fontFamily: 'Archivo_600SemiBold', fontSize: 9, letterSpacing: 0.7 },
+  chartArea: { flex: 1, minHeight: 88, marginTop: 8 },
+  chartAreaCompact: { minHeight: 48 },
+  projFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 },
+  projLabel: { fontFamily: 'Archivo_500Medium', fontSize: 10, color: DIM },
 
   // Macro split
   macroBar: {
     flexDirection: 'row',
-    height:        8,
-    borderRadius:  4,
+    height:        6,
+    borderRadius:  3,
     overflow:      'hidden',
-    marginTop:     16,
+    marginTop:     10,
     gap:           2,
   },
-  macroGrid:   { flexDirection: 'row', marginTop: 20, gap: 4 },
-  macroDotRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 6 },
-  macroDot:    { width: 7, height: 7, borderRadius: 3.5 },
-  macroName:   { fontSize: 10, fontWeight: '700', color: DIM, letterSpacing: 0.3 },
+  macroGrid:   { flexDirection: 'row', marginTop: 10, gap: 4 },
+  macroDotRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 },
+  macroDot:    { width: 6, height: 6, borderRadius: 3 },
+  macroName:   { fontFamily: 'Archivo_500Medium', fontSize: 10, color: DIM },
   macroGrams:  {
-    fontSize:      18,
-    fontWeight:    '800',
+    fontFamily:    'Archivo_600SemiBold',
+    fontSize:      17,
     color:         INK,
     letterSpacing: -0.5,
     fontVariant:   ['tabular-nums'],
   },
-  macroGUnit: { fontSize: 12, fontWeight: '600', color: DIM },
-  macroMeta:  { fontSize: 10, fontWeight: '500', color: DIM, letterSpacing: 0.1, marginTop: 2 },
+  macroGUnit: { fontFamily: 'Archivo_500Medium', fontSize: 11, color: DIM },
+  macroMeta:  { fontFamily: 'Archivo_400Regular', fontSize: 9, color: DIM, marginTop: 1 },
 
   // Stats row
-  statsRow: { flexDirection: 'row', gap: 12 },
+  statsRow: { flexDirection: 'row', gap: 8 },
   statCard: {
     flex:            1,
-    backgroundColor: '#FFFFFF',
+    minHeight:       66,
+    backgroundColor: '#EEEAE5',
     borderRadius:    18,
-    padding:         16,
-    gap:             3,
-    shadowColor:     '#000',
-    shadowOffset:    { width: 0, height: 2 },
-    shadowOpacity:   0.06,
-    shadowRadius:    8,
-    elevation:       2,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap:             1,
   },
   statCardDark: { backgroundColor: INK },
-  statLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 1.2, color: DIM },
+  statLabel: { fontFamily: 'Archivo_600SemiBold', fontSize: 8, letterSpacing: 1, color: DIM },
   statValue: {
-    fontSize:      20,
-    fontWeight:    '800',
+    fontFamily:    'Archivo_600SemiBold',
+    fontSize:      17,
     letterSpacing: -0.8,
     color:         INK,
     fontVariant:   ['tabular-nums'],
   },
-  statSub: { fontSize: 10, fontWeight: '600', letterSpacing: 0.1 },
+  statSub: { fontFamily: 'Archivo_500Medium', fontSize: 9, letterSpacing: 0.1 },
 
   // Bottom
-  bottom: { gap: 12, paddingHorizontal: 20 },
-  cta: {
-    flexDirection:   'row',
-    alignItems:      'center',
-    justifyContent:  'center',
-    gap:             10,
-    backgroundColor: INK,
-    borderRadius:    18,
-    paddingVertical: 19,
-  },
-  ctaText:    { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.2 },
+  bottom: { paddingHorizontal: 20 },
 });

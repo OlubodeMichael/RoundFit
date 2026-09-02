@@ -1,28 +1,24 @@
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 const LEVELS = [
-  { id: 'sedentary', num: '01', label: 'Sedentary',         multiplier: '× 1.20',  sub: 'Desk job, little exercise',      kcal: '+0 kcal'   },
-  { id: 'light',     num: '02', label: 'Lightly active',    multiplier: '× 1.375', sub: '1–3 light workouts / week',      kcal: '+260 kcal' },
-  { id: 'moderate',  num: '03', label: 'Moderately active', multiplier: '× 1.55',  sub: '3–5 workouts / week',            kcal: '+520 kcal' },
-  { id: 'very',      num: '04', label: 'Very active',       multiplier: '× 1.725', sub: '6–7 workouts or physical job',   kcal: '+820 kcal' },
+  { id: 'sedentary', icon: 'desktop-outline' as const, label: 'Not very active', sub: 'Mostly sitting, with little exercise' },
+  { id: 'light', icon: 'walk-outline' as const, label: 'Lightly active', sub: 'Light exercise 1–3 days a week' },
+  { id: 'moderate', icon: 'bicycle-outline' as const, label: 'Moderately active', sub: 'Exercise 3–5 days a week' },
+  { id: 'very', icon: 'barbell-outline' as const, label: 'Very active', sub: 'Hard exercise or a physical job most days' },
 ];
 
 export default function ActivityScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string; height: string; weight: string; goal: string }>();
-  const insets = useSafeAreaInsets();
-  const total  = 9;
   const [selected, setSelected] = useState<string | null>(null);
 
   const bg = '#FAFAF8';
-  const hi = '#111111';
-  const lo = '#E8E3DC';
 
   const fade  = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;
@@ -45,15 +41,12 @@ export default function ActivityScreen() {
   const canContinue = selected !== null;
 
   return (
-    <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
-      <View style={s.progress}>
-        <ProgressBar step={6} total={total} backHref={{ pathname: '/onboarding/goal', params }} isDark={false} />
-      </View>
+    <View style={[s.root, { backgroundColor: bg }]}>
 
       <View style={{ flex: 1 }}>
       <Animated.View style={[{ opacity: fade, transform: [{ translateY: slideY }] }]}>
-        <Text style={[s.headline, { color: hi }]}>Your{'\n'}activity.</Text>
-        <Text style={s.subheadline}>Outside of structured workouts, on a typical week.</Text>
+        <OnboardingQuestion before="How " emphasis="active" after=" is your typical week?" />
+        <Text style={s.subheadline}>Choose the option that best describes most weeks.</Text>
         <WhyWeAsk
           text="We use this to estimate how many calories you burn daily."
           style={s.whyWeAsk}
@@ -63,43 +56,36 @@ export default function ActivityScreen() {
       <View style={s.list}>
         {LEVELS.map((lvl, i) => {
           const active = selected === lvl.id;
-          const isLast = i === LEVELS.length - 1;
           return (
             <Animated.View
               key={lvl.id}
-              style={[{ opacity: rowFades[i], transform: [{ translateY: rowYs[i] }] }]}
+              style={{ opacity: rowFades[i], transform: [{ translateY: rowYs[i] }] }}
             >
               <TouchableOpacity
-                style={s.row}
+                style={[s.row, active && s.rowActive]}
                 onPress={() => setSelected(lvl.id)}
                 activeOpacity={0.75}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: active }}
+                accessibilityLabel={`${lvl.label}. ${lvl.sub}`}
               >
-                {/* Number */}
-                <Text style={[s.rowNum, { color: active ? '#F97316' : '#DDDDDD' }]}>
-                  {lvl.num}
-                </Text>
-
-                {/* Label + sub */}
-                <View style={s.rowText}>
-                  <View style={s.rowLabelRow}>
-                    <Text style={[s.rowLabel, { color: active ? '#F97316' : hi }]}>{lvl.label}</Text>
-                    <Text style={[s.rowMultiplier, { color: active ? '#F97316' : '#BBBBBB' }]}> {lvl.multiplier}</Text>
-                  </View>
-                  <Text style={s.rowSub}>{lvl.sub}</Text>
+                <View style={s.iconSlot}>
+                  <Ionicons
+                    name={lvl.icon}
+                    size={27}
+                    color={active ? '#E85D2A' : '#171717'}
+                  />
                 </View>
 
-                {/* Kcal + circle */}
-                <View style={s.rowRight}>
-                  <Text style={[s.rowKcal, { color: active ? '#F97316' : '#BBBBBB' }]}>{lvl.kcal}</Text>
-                  <View style={[s.checkCircle, {
-                    borderColor: active ? '#F97316' : lo,
-                    backgroundColor: active ? '#F97316' : 'transparent',
-                  }]}>
-                    {active && <Ionicons name="checkmark" size={12} color="#FFF" />}
-                  </View>
+                <View style={s.rowText}>
+                  <Text style={[s.rowLabel, active && s.rowLabelActive]}>{lvl.label}</Text>
+                  <Text style={[s.rowSub, active && s.rowSubActive]}>{lvl.sub}</Text>
+                </View>
+
+                <View style={[s.radio, active && s.radioActive]}>
+                  {active && <View style={s.radioDot} />}
                 </View>
               </TouchableOpacity>
-              {!isLast && <View style={s.divider} />}
             </Animated.View>
           );
         })}
@@ -107,58 +93,50 @@ export default function ActivityScreen() {
 
       </View>
 
-      <TouchableOpacity
-        style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
-        activeOpacity={0.85}
+      <PrimaryCTA
+        label="Continue"
         disabled={!canContinue}
         onPress={() => router.push({
           pathname: '/onboarding/units',
           params: { ...params, activity: selected! },
         })}
-      >
-        <Text style={s.ctaText}>Continue</Text>
-      </TouchableOpacity>
+      />
     </View>
   );
 }
 
 const s = StyleSheet.create({
   root:        { flex: 1, paddingHorizontal: 28 },
-  progress:    { marginBottom: 8 },
-  headline:    { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 8 },
   subheadline: { fontSize: 17, fontWeight: '400', lineHeight: 24, marginBottom: 6, color: '#888888' },
   whyWeAsk:    { marginBottom: 22 },
 
-  list: { gap: 0 },
-  row:  {
-    flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 20, gap: 12,
+  list: { gap: 10 },
+  row: {
+    minHeight: 82,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderRadius: 22,
+    backgroundColor: '#F2F1F6',
   },
-
-  rowNum: {
-    fontSize: 28, fontWeight: '900', letterSpacing: -1,
-    minWidth: 36, fontVariant: ['tabular-nums'],
+  rowActive: { backgroundColor: '#FCE5DD' },
+  iconSlot: { width: 48, alignItems: 'flex-start', justifyContent: 'center' },
+  rowText: { flex: 1, gap: 3, paddingRight: 10 },
+  rowLabel: { fontFamily: 'Archivo_600SemiBold', fontSize: 17, lineHeight: 21, color: '#111111' },
+  rowLabelActive: { color: '#E85D2A' },
+  rowSub: { fontFamily: 'Archivo_400Regular', fontSize: 13.5, lineHeight: 18, color: '#98969E' },
+  rowSubActive: { color: '#D06A43' },
+  radio: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E4E1E5',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-
-  rowText:     { flex: 1, gap: 4 },
-  rowLabelRow: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap' },
-  rowLabel:    { fontSize: 19, fontWeight: '700' },
-  rowMultiplier: { fontSize: 15, fontWeight: '500' },
-  rowSub:      { fontSize: 16, lineHeight: 23, color: '#888888' },
-
-  rowRight: { alignItems: 'flex-end', gap: 6 },
-  rowKcal:  { fontSize: 15, fontWeight: '600', textAlign: 'right', fontVariant: ['tabular-nums'] },
-
-  checkCircle: {
-    width: 24, height: 24, borderRadius: 12, borderWidth: 1.5,
-    alignItems: 'center', justifyContent: 'center',
-  },
-
-  divider: { height: 1, backgroundColor: '#E8E3DC' },
-
-  cta: {
-    backgroundColor: '#111111', borderRadius: 16,
-    paddingVertical: 18, alignItems: 'center',
-  },
-  ctaText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+  radioActive: { borderColor: '#FFFFFF' },
+  radioDot: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#F0642D' },
 });

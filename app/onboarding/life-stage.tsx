@@ -1,10 +1,9 @@
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { Redirect, useRouter, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
-import { ProgressBar } from '@/components/onboarding/progress-bar';
 import { TileGrid, Tile } from '@/components/onboarding/tile-grid';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import { CYCLE_ENABLED } from '@/constants/features';
 
@@ -26,11 +25,9 @@ export default function LifeStageScreen() {
     name: string; age: string; sex: string; height: string; weight: string;
     goal: string; activity: string; cycleLength: string; cyclePhase: string;
   }>();
-  const insets = useSafeAreaInsets();
   const [selected, setSelected] = useState<string | null>(null);
 
   const bg  = '#FAFAF8';
-  const hi  = '#111111';
   const mid = '#888';
 
   const fade   = useRef(new Animated.Value(0)).current;
@@ -48,13 +45,10 @@ export default function LifeStageScreen() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
-      <View style={s.progress}>
-        <ProgressBar step={9} total={12} backHref={{ pathname: '/onboarding/cycle-phase', params }} isDark={false} />
-      </View>
+    <View style={[s.root, { backgroundColor: bg }]}>
 
       <Animated.View style={{ opacity: fade, transform: [{ translateY: slideY }] }}>
-        <Text style={[s.headline, { color: hi }]}>Your life{'\n'}stage.</Text>
+        <OnboardingQuestion before="Which " emphasis="life stage" after=" fits you best?" />
         <Text style={[s.sub, { color: mid }]}>We tailor calories and macros to where you are.</Text>
         <WhyWeAsk
           text="We use this to account for hormonal shifts in your nutrition plan."

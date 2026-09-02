@@ -181,7 +181,7 @@ export default function LoginScreen() {
               <Text style={s.ctaText}>{isLoading ? 'Logging in…' : 'Log in  →'}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => router.push('/onboarding/value-hook')} activeOpacity={0.7}>
+            <TouchableOpacity onPress={() => router.push('/onboarding/age-sex')} activeOpacity={0.7}>
               <Text style={[s.switchLink, { color: mid }]}>
                 New here?{'  '}
                 <Text style={{ color: '#F97316', fontWeight: '700' }}>Get started</Text>

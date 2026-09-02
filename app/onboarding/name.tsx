@@ -1,17 +1,16 @@
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput,
+  View, StyleSheet, TextInput,
   Animated, KeyboardAvoidingView, Platform, Easing,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
-import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 export default function NameScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ age: string; sex: string; height: string; weight: string; goal: string; activity: string; unit: string }>();
-  const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
 
   const [name, setName]   = useState('');
@@ -52,21 +51,11 @@ export default function NameScreen() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
-        <View style={s.progress}>
-          <ProgressBar
-            step={params.sex === 'female' ? 11 : 8}
-            total={params.sex === 'female' ? 12 : 9}
-            backHref={{ pathname: '/onboarding/units', params }}
-            isDark={false}
-          />
-        </View>
+      <View style={[s.root, { backgroundColor: bg }]}>
 
         <View style={{ flex: 1 }}>
           <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>
-            <Text style={[s.headline, { color: hi }]}>
-              {"What's your\nname?"}
-            </Text>
+            <OnboardingQuestion before="What should we " emphasis="call you" after="?" />
             <WhyWeAsk
               text="We use this to personalize your plan and dashboard."
               style={s.whyWeAsk}
@@ -102,14 +91,11 @@ export default function NameScreen() {
           </Animated.View>
         </View>
 
-        <TouchableOpacity
-          style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
-          activeOpacity={0.85}
+        <PrimaryCTA
+          label="Continue"
           disabled={!canContinue}
           onPress={() => router.push({ pathname: '/onboarding/health-connect', params: { ...params, name: name.trim() } })}
-        >
-          <Text style={s.ctaText}>Continue</Text>
-        </TouchableOpacity>
+        />
       </View>
     </KeyboardAvoidingView>
   );

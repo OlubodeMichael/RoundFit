@@ -1,8 +1,8 @@
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
@@ -13,12 +13,6 @@ const SEX_OPTIONS = [
 
 export default function AgeSexScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ name?: string; from?: string }>();
-  const backHref =
-    params.from === 'login'
-      ? '/onboarding/complete-profile'
-      : '/onboarding/value-hook';
-  const insets = useSafeAreaInsets();
 
   const [age, setAge] = useState(25);
   const [sex, setSex] = useState<'male' | 'female' | null>(null);
@@ -42,14 +36,11 @@ export default function AgeSexScreen() {
   const canContinue = sex !== null;
 
   return (
-    <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
-      <View style={s.progress}>
-        <ProgressBar step={3} total={9} backHref={backHref} isDark={false} />
-      </View>
+    <View style={[s.root, { backgroundColor: bg }]}>
 
       <View style={{ flex: 1 }}>
         <Animated.View style={[s.body, { opacity: fade, transform: [{ translateY: slideY }] }]}>
-          <Text style={[s.headline, { color: hi }]}>About you.</Text>
+          <OnboardingQuestion before="What’s your " emphasis="age" after=" and biological sex?" />
           <WhyWeAsk
             text="We use this to calculate your personal calorie targets."
             style={s.whyWeAsk}
@@ -128,17 +119,14 @@ export default function AgeSexScreen() {
         </Animated.View>
       </View>
 
-      <TouchableOpacity
-        style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
-        activeOpacity={0.85}
+      <PrimaryCTA
+        label="Continue"
         disabled={!canContinue}
         onPress={() => router.push({
           pathname: '/onboarding/height-weight',
           params: { age: String(age), sex },
         })}
-      >
-        <Text style={s.ctaText}>Continue</Text>
-      </TouchableOpacity>
+      />
     </View>
   );
 }

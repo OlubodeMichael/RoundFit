@@ -1,10 +1,9 @@
-import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
+import { View, StyleSheet, Animated, Easing } from 'react-native';
 import { Redirect, useRouter, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
-import { ProgressBar } from '@/components/onboarding/progress-bar';
 import { TileGrid, Tile } from '@/components/onboarding/tile-grid';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import { CYCLE_ENABLED } from '@/constants/features';
 
@@ -26,13 +25,9 @@ export default function CyclePhaseScreen() {
     name: string; age: string; sex: string; height: string; weight: string;
     goal: string; activity: string; cycleLength: string;
   }>();
-  const insets = useSafeAreaInsets();
   const [selected, setSelected] = useState<string | null>(null);
 
   const bg  = '#FAFAF8';
-  const hi  = '#111111';
-  const mid = '#888';
-
   const fade   = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;
 
@@ -48,14 +43,10 @@ export default function CyclePhaseScreen() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <View style={[s.root, { backgroundColor: bg, paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
-      <View style={s.progress}>
-        <ProgressBar step={8} total={12} backHref={{ pathname: '/onboarding/cycle-length', params }} isDark={false} />
-      </View>
+    <View style={[s.root, { backgroundColor: bg }]}>
 
       <Animated.View style={{ opacity: fade, transform: [{ translateY: slideY }] }}>
-        <Text style={[s.headline, { color: hi }]}>Your current{'\n'}phase.</Text>
-        <Text style={[s.sub, { color: mid }]}>Where are you in your cycle today?</Text>
+        <OnboardingQuestion before="Where are you in your " emphasis="cycle" after=" today?" />
         <WhyWeAsk
           text="We use this to adjust your targets for where you are right now."
           style={s.whyWeAsk}

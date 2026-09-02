@@ -10,6 +10,8 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { hasActiveUserSession } from '@/context/auth-context';
 import { useAuth } from '@/hooks/use-auth';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
@@ -106,7 +108,7 @@ export default function CompleteProfileScreen() {
     <View
       style={[
         s.root,
-        { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 16 },
+        { paddingTop: insets.top + 8 },
       ]}
     >
       <View style={s.bgBlob} pointerEvents="none" />
@@ -126,10 +128,7 @@ export default function CompleteProfileScreen() {
             <Text style={s.eyebrow}>ONE MORE STEP</Text>
           </View>
 
-          <Text style={s.headline}>
-            {"You're signed in."}
-          </Text>
-          <Text style={s.headlineAccent}>Create your profile.</Text>
+          <OnboardingQuestion before="Ready to create your " emphasis="profile" after="?" style={s.profileQuestion} />
 
           <Text style={s.sub}>
             Your account is connected. We just need a few details to build your
@@ -158,16 +157,12 @@ export default function CompleteProfileScreen() {
       </View>
 
       <Animated.View style={[s.footer, { opacity: btnFade }]}>
-        <TouchableOpacity
-          style={s.cta}
-          activeOpacity={0.88}
+        <PrimaryCTA
+          label="Continue"
           onPress={() =>
             router.push({ pathname: '/onboarding/age-sex', params: { from: 'login' } })
           }
-        >
-          <Text style={s.ctaText}>Continue</Text>
-          <Ionicons name="arrow-forward" size={18} color="#FFF" />
-        </TouchableOpacity>
+        />
       </Animated.View>
     </View>
   );
@@ -219,6 +214,7 @@ const s = StyleSheet.create({
     letterSpacing: 2,
     color: ORANGE,
   },
+  profileQuestion: { marginBottom: 14 },
   headline: {
     fontSize: 42,
     fontWeight: '900',

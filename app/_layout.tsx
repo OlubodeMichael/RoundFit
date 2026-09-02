@@ -1,4 +1,9 @@
 import {
+    Archivo_500Medium,
+    Archivo_600SemiBold,
+} from "@expo-google-fonts/archivo";
+import { ArchivoBlack_400Regular } from "@expo-google-fonts/archivo-black";
+import {
     BarlowCondensed_600SemiBold,
     BarlowCondensed_700Bold,
     BarlowCondensed_800ExtraBold,
@@ -207,7 +212,16 @@ function AppNavigator() {
         {status === "authenticated" && <WatchSyncMount />}
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
           <Stack.Screen name="auth" />
-          <Stack.Screen name="onboarding" />
+          <Stack.Screen
+            name="onboarding"
+            options={{
+              presentation: "card",
+              animation: "slide_from_right",
+              gestureEnabled: true,
+              fullScreenGestureEnabled: true,
+              animationMatchesGesture: true,
+            }}
+          />
           <Stack.Screen name="(tabs)" options={{ gestureEnabled: status !== "authenticated" }} />
           {/* Hard paywall: not swipe-dismissible — the only exits are purchase or
               the escape hatches in the screen footer (Restore/Sign out/Delete). */}
@@ -243,6 +257,12 @@ export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     Syne_700Bold,
     Syne_800ExtraBold,
+    // Display face for the signed-out landing screen (app/auth/index.tsx).
+    // Archivo Black ships as a single weight, so the matching Archivo family
+    // carries the button labels and small text on that screen.
+    ArchivoBlack_400Regular,
+    Archivo_500Medium,
+    Archivo_600SemiBold,
     BarlowCondensed_600SemiBold,
     BarlowCondensed_700Bold,
     BarlowCondensed_800ExtraBold,

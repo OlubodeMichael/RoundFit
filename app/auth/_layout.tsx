@@ -23,6 +23,17 @@ export default function AuthLayout() {
             sheetCornerRadius:    28,
           }}
         />
+
+        {/* The email path off "Choose how to continue" opens over the options
+            screen rather than replacing it, so backing out returns the user to
+            Apple/Google without re-running the onboarding push. */}
+        <Stack.Screen
+          name="sign-up"
+          options={{
+            presentation: 'modal',
+            animation:    'slide_from_bottom',
+          }}
+        />
       </Stack>
     </>
   );

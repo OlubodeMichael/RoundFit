@@ -1,9 +1,9 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Easing } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import { usePostHog } from 'posthog-react-native';
 
@@ -45,8 +45,6 @@ const ROWS: { id: string; flex: number }[][] = [
 export default function GoalScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string; height: string; weight: string }>();
-  const insets = useSafeAreaInsets();
-  const total  = 9;
   const posthog = usePostHog();
 
   /**
@@ -73,14 +71,11 @@ export default function GoalScreen() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
-      <View style={s.progress}>
-        <ProgressBar step={5} total={total} backHref={{ pathname: '/onboarding/height-weight', params }} isDark={false} />
-      </View>
+    <View style={s.root}>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scrollBody} showsVerticalScrollIndicator={false}>
         <Animated.View style={{ opacity: fade, transform: [{ translateY: slideY }] }}>
-          <Text style={s.headline}>Your{'\n'}goals.</Text>
+          <OnboardingQuestion before="What are you " emphasis="working toward" after="?" />
           <WhyWeAsk
             text="Pick as many as fit. Your first pick sets your calorie target and macro split."
             style={s.whyWeAsk}
@@ -90,10 +85,11 @@ export default function GoalScreen() {
             {ROWS.map((row, ri) => (
               <View key={ri} style={s.row}>
                 {row.map((cell) => {
-                  const g         = BY_ID[cell.id];
-                  const index     = selected.indexOf(g.id);
-                  const isOn      = index >= 0;
-                  const isPrimary = index === 0;
+                  const g              = BY_ID[cell.id];
+                  const selectionIndex = selected.indexOf(g.id);
+                  const goalNumber     = GOALS.findIndex((goal) => goal.id === g.id) + 1;
+                  const isOn           = selectionIndex >= 0;
+                  const isPrimary      = selectionIndex === 0;
                   return (
                     <TouchableOpacity
                       key={g.id}
@@ -104,8 +100,23 @@ export default function GoalScreen() {
                       accessibilityState={{ selected: isOn }}
                       accessibilityLabel={isPrimary ? `${g.label}, primary goal` : g.label}
                     >
-                      <Ionicons name={g.icon} size={22} color={isPrimary ? '#FFFFFF' : '#F97316'} />
-                      <View>
+                      <View style={s.tileTop}>
+                        <View style={[s.iconShell, isOn && s.iconShellOn, isPrimary && s.iconShellPrimary]}>
+                          <Ionicons name={g.icon} size={20} color={isPrimary ? '#111111' : '#F97316'} />
+                        </View>
+                        {isPrimary ? (
+                          <View style={s.primaryBadge}>
+                            <Text style={s.primaryBadgeText}>PRIMARY</Text>
+                          </View>
+                        ) : isOn ? (
+                          <View style={s.checkBadge}>
+                            <Ionicons name="checkmark" size={13} color="#111111" />
+                          </View>
+                        ) : (
+                          <Text style={s.tileNumber}>{String(goalNumber).padStart(2, '0')}</Text>
+                        )}
+                      </View>
+                      <View style={s.tileCopy}>
                         <Text style={[s.tileLabel, isOn && s.tileLabelOn]} numberOfLines={2}>
                           {g.label}
                         </Text>
@@ -125,9 +136,8 @@ export default function GoalScreen() {
         </Animated.View>
       </ScrollView>
 
-      <TouchableOpacity
-        style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
-        activeOpacity={0.85}
+      <PrimaryCTA
+        label="Continue"
         disabled={!canContinue}
         onPress={() => {
           posthog.capture('onboarding_goal_selected', {
@@ -144,19 +154,15 @@ export default function GoalScreen() {
             params: { ...params, goal: primary!.base, goals: selected.join(',') },
           });
         }}
-      >
-        <Text style={s.ctaText}>Continue</Text>
-      </TouchableOpacity>
+      />
     </View>
   );
 }
 
 const s = StyleSheet.create({
   root:       { flex: 1, backgroundColor: '#FAFAF8', paddingHorizontal: 28 },
-  progress:   { marginBottom: 8 },
   scrollBody: { paddingBottom: 20 },
 
-  headline: { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48, marginBottom: 8, color: '#111111' },
   whyWeAsk: { marginBottom: 24 },
 
   grid: { gap: 10 },
@@ -164,37 +170,40 @@ const s = StyleSheet.create({
 
   tile: {
     minHeight:       TILE_MIN_HEIGHT,
-    backgroundColor: '#FFFFFF',
-    borderRadius:    20,
-    borderWidth:     1,
-    borderColor:     '#EBEBEB',
-    padding:         16,
+    backgroundColor: '#F1EEE9',
+    borderRadius:    22,
+    borderWidth:     0,
+    padding:         14,
     justifyContent:  'space-between',
   },
-  tileOn:      { backgroundColor: '#111111', borderColor: '#111111' },
-  tilePrimary: { backgroundColor: '#F97316', borderColor: '#F97316' },
+  tileOn:      { backgroundColor: '#19181D' },
+  tilePrimary: { backgroundColor: '#F97316' },
+
+  tileTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  iconShell: { width: 38, height: 38, borderRadius: 13, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  iconShellOn: { backgroundColor: 'rgba(249,115,22,0.16)' },
+  iconShellPrimary: { backgroundColor: '#F7F3EE' },
+  tileNumber: { marginTop: 3, fontFamily: 'Archivo_600SemiBold', fontSize: 10, letterSpacing: 1, color: '#AAA39A', fontVariant: ['tabular-nums'] },
+  primaryBadge: { marginTop: 2, paddingHorizontal: 7, paddingVertical: 4, borderRadius: 999, backgroundColor: 'rgba(17,17,17,0.14)' },
+  primaryBadgeText: { fontFamily: 'Archivo_600SemiBold', fontSize: 7.5, letterSpacing: 1, color: '#111111' },
+  checkBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#F7F3EE', alignItems: 'center', justifyContent: 'center' },
+  tileCopy: { marginTop: 18 },
 
   tileLabel: {
-    fontSize:      16,
-    fontWeight:    '800',
+    fontFamily:    'Archivo_600SemiBold',
+    fontSize:      16.5,
     letterSpacing: -0.3,
-    lineHeight:    20,
+    lineHeight:    21,
     color:         '#111111',
   },
   tileLabelOn: { color: '#FFFFFF' },
 
   tileDetail: {
-    fontSize:   12.5,
-    fontWeight: '500',
-    color:      '#9A948C',
+    fontFamily: 'Archivo_500Medium',
+    fontSize:   12,
+    color:      '#918A82',
     marginTop:  3,
   },
   tileDetailOn:      { color: 'rgba(255,255,255,0.55)' },
   tileDetailPrimary: { color: 'rgba(255,255,255,0.80)' },
-
-  cta: {
-    backgroundColor: '#111111', borderRadius: 16,
-    paddingVertical: 18, alignItems: 'center',
-  },
-  ctaText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
 });

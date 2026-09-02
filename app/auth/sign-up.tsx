@@ -16,6 +16,7 @@ import {
 } from '@/context/auth-context';
 import { buildOnboardingProfile } from '@/utils/onboarding-profile';
 import { safeBack } from '@/utils/navigation';
+import { useSheetPresentation } from '@/hooks/use-sheet-presentation';
 
 const ERROR_LABELS: Record<AuthError, string> = {
   EMAIL_IN_USE:        'An account with this email already exists.',
@@ -30,6 +31,9 @@ const ERROR_LABELS: Record<AuthError, string> = {
 export default function SignUpScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // Presented as a modal, so the window's status-bar inset would show up as a
+  // phantom gap above the header. `topInset` is 0 inside a sheet.
+  const { presentedAsSheet, topInset } = useSheetPresentation();
   const params = useLocalSearchParams<{
     name: string; age: string; sex: string;
     height: string; weight: string;
@@ -57,7 +61,7 @@ export default function SignUpScreen() {
 
   useEffect(() => {
     if (profileSetupPending) {
-      router.replace({ pathname: '/auth/sign-up-options', params });
+      safeBack(router, { pathname: '/auth/sign-up-options', params });
     }
   }, [profileSetupPending, params, router]);
 
@@ -121,14 +125,16 @@ export default function SignUpScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={[s.root, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 28 }]}>
+        <View style={[s.root, { paddingTop: topInset + 16, paddingBottom: insets.bottom + 28 }]}>
 
           <TouchableOpacity
-            style={s.backBtn}
+            style={[s.backBtn, { backgroundColor: lo }]}
             onPress={() => safeBack(router, { pathname: '/onboarding/reveal', params })}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={presentedAsSheet ? 'Close' : 'Go back'}
           >
-            <Ionicons name="chevron-back" size={20} color={hi} />
+            <Ionicons name={presentedAsSheet ? 'close' : 'chevron-back'} size={20} color={hi} />
           </TouchableOpacity>
 
           <Animated.View style={[s.headBlock, { opacity: fade, transform: [{ translateY: slideY }] }]}>
@@ -232,7 +238,7 @@ export default function SignUpScreen() {
 
 const s = StyleSheet.create({
   root:    { flex: 1, paddingHorizontal: 28, gap: 32 },
-  backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginLeft: -4 },
+  backBtn: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   headBlock: { gap: 10 },
   headline:  { fontSize: 36, fontWeight: '900', letterSpacing: -1.5, lineHeight: 42 },
   sub:       { fontSize: 15, fontWeight: '400', lineHeight: 22 },

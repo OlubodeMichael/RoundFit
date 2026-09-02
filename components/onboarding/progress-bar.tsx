@@ -1,50 +1,44 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { useRouter, type Href } from 'expo-router';
-import { safeBack } from '@/utils/navigation';
+import { View, Text, StyleSheet } from 'react-native';
 
 interface Props {
   step:   number;
   total:  number;
-  /** Used when there is nothing to pop (e.g. after `router.replace`). */
-  backHref: Href;
-  onBack?: () => void;
   isDark: boolean;
 }
 
-export function ProgressBar({ step, total, backHref, onBack, isDark }: Props) {
-  const router = useRouter();
-  const handleBack = onBack ?? (() => safeBack(router, backHref));
-  const hi  = isDark ? '#F5F5F5' : '#111111';
-  const mid = isDark ? '#444'    : '#CCC';
-  const lo  = isDark ? '#2A2A2A' : '#E8E3DC';
-  const pct = ((step - 1) / (total - 1)) * 100;
+export function ProgressBar({ step, total, isDark }: Props) {
+  const currentStep = Math.max(1, step - 1);
+  const stepCount = Math.max(1, total - 1);
+  const mid = isDark ? 'rgba(247,243,238,0.48)' : '#8A8783';
+  const track = isDark ? 'rgba(247,243,238,0.13)' : '#E3DED8';
+  const progressWidth = `${Math.min(100, (currentStep / stepCount) * 100)}%` as `${number}%`;
 
   return (
     <View style={s.root}>
-      <TouchableOpacity
-        style={s.back}
-        onPress={handleBack}
-        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+      <View
+        style={s.progress}
+        accessible
+        accessibilityRole="progressbar"
+        accessibilityLabel="Onboarding progress"
+        accessibilityValue={{ min: 1, max: stepCount, now: currentStep, text: `Step ${currentStep} of ${stepCount}` }}
       >
-        <Ionicons name="chevron-back" size={20} color={hi} />
-      </TouchableOpacity>
-
-      <View style={[s.track, { backgroundColor: lo }]}>
-        <View style={[s.fill, { width: `${pct}%` }]} />
+        <Text style={[s.count, { color: mid }]}>
+          <Text style={s.current}>{String(currentStep).padStart(2, '0')}</Text>
+          {'  /  '}{String(stepCount).padStart(2, '0')}
+        </Text>
+        <View style={[s.track, { backgroundColor: track }]}>
+          <View style={[s.fill, { width: progressWidth }]} />
+        </View>
       </View>
-
-      <Text style={[s.fraction, { color: mid }]}>
-        {step - 1}<Text style={{ color: mid }}>/{total - 1}</Text>
-      </Text>
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  root:     { flexDirection: 'row', alignItems: 'center', gap: 16, height: 44 },
-  back:     { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: -8 },
-  track:    { flex: 1, height: 2, borderRadius: 1, overflow: 'hidden' },
-  fill:     { height: 2, borderRadius: 1, backgroundColor: '#F97316' },
-  fraction: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, minWidth: 24, textAlign: 'right' },
+  root: { height: 38, justifyContent: 'center' },
+  progress: { flex: 1, justifyContent: 'center', gap: 7 },
+  count: { alignSelf: 'flex-end', fontFamily: 'Archivo_500Medium', fontSize: 10, letterSpacing: 0.7, fontVariant: ['tabular-nums'] },
+  current: { color: '#F97316', fontFamily: 'Archivo_600SemiBold' },
+  track: { width: '100%', height: 3, borderRadius: 999, overflow: 'hidden' },
+  fill: { height: 3, borderRadius: 999, backgroundColor: '#F97316' },
 });

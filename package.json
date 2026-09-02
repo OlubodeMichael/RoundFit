@@ -28,6 +28,8 @@
     }
   },
   "dependencies": {
+    "@expo-google-fonts/archivo": "^0.4.2",
+    "@expo-google-fonts/archivo-black": "^0.4.1",
     "@expo-google-fonts/barlow-condensed": "^0.4.1",
     "@expo-google-fonts/syne": "^0.4.2",
     "@expo/vector-icons": "^15.0.3",
@@ -38,8 +40,8 @@
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.8",
     "@supabase/supabase-js": "^2.105.4",
-    "expo": "~54.0.33",
     "apple-llm": "file:./modules/apple-llm",
+    "expo": "~54.0.33",
     "expo-apple-authentication": "~8.0.8",
     "expo-application": "~7.0.8",
     "expo-blur": "~15.0.8",

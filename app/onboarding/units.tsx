@@ -1,9 +1,8 @@
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef, useState } from 'react';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 export default function UnitsScreen() {
@@ -12,138 +11,107 @@ export default function UnitsScreen() {
     name: string; age: string; sex: string;
     height: string; weight: string; goal: string; activity: string;
   }>();
-  const insets = useSafeAreaInsets();
-  const [unit, setUnit] = useState<'metric' | 'imperial' | null>(null);
+  const [unit, setUnit] = useState<'metric' | 'imperial'>('imperial');
 
-  // Derive display values from upstream params
-  const weightKg    = Number(params.weight) || 70;
-  const heightCm    = Number(params.height) || 172;
-  const weightLb    = Math.round(weightKg * 2.20462);
-  const totalIn     = Math.round(heightCm / 2.54);
-  const heightFt    = Math.floor(totalIn / 12);
-  const heightInRem = totalIn % 12;
+  const weightKg = Number(params.weight) || 70;
+  const heightCm = Number(params.height) || 170;
+  const weightLb = Math.round(weightKg * 2.20462);
+  const totalInches = Math.round(heightCm / 2.54);
+  const heightFeet = Math.floor(totalInches / 12);
+  const heightInches = totalInches % 12;
+
+  const preview = unit === 'metric'
+    ? { weight: `${Math.round(weightKg)} kg`, height: `${Math.round(heightCm)} cm`, distance: 'km' }
+    : { weight: `${weightLb} lb`, height: `${heightFeet}′ ${heightInches}″`, distance: 'mi' };
 
   const fade   = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;
-  const card1F = useRef(new Animated.Value(0)).current;
-  const card2F = useRef(new Animated.Value(0)).current;
-  const card1Y = useRef(new Animated.Value(28)).current;
-  const card2Y = useRef(new Animated.Value(28)).current;
+  const panelFade = useRef(new Animated.Value(0)).current;
+  const panelY = useRef(new Animated.Value(28)).current;
 
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fade,   { toValue: 1, duration: 500, useNativeDriver: true }),
       Animated.timing(slideY, { toValue: 0, duration: 450, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]).start();
-    [[card1F, card1Y, 150], [card2F, card2Y, 240]].forEach(([f, y, delay]) => {
-      Animated.parallel([
-        Animated.timing(f as Animated.Value, { toValue: 1, duration: 400, delay: delay as number, useNativeDriver: true }),
-        Animated.timing(y as Animated.Value, { toValue: 0, duration: 360, delay: delay as number, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      ]).start();
-    });
+    Animated.parallel([
+      Animated.timing(panelFade, { toValue: 1, duration: 420, delay: 140, useNativeDriver: true }),
+      Animated.timing(panelY, { toValue: 0, duration: 380, delay: 140, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+    ]).start();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canContinue = unit !== null;
-
-  const CARDS = [
+  const OPTIONS = [
     {
       key:    'metric'   as const,
       label:  'Metric',
-      tags:   ['kg', 'cm', 'km'],
-      weight: `${weightKg} kg`,
-      height: `${heightCm} cm`,
-      anim:   { fade: card1F, y: card1Y },
+      units:  'kg · cm',
     },
     {
       key:    'imperial' as const,
       label:  'Imperial',
-      tags:   ['lb', 'ft·in', 'mph'],
-      weight: `${weightLb} lb`,
-      height: `${heightFt}'${heightInRem}"`,
-      anim:   { fade: card2F, y: card2Y },
+      units:  'lb · ft',
     },
   ];
 
   return (
-    <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
-      <View style={s.progress}>
-        <ProgressBar
-          step={7}
-          total={9}
-          backHref={{
-            pathname: '/onboarding/activity',
-            params,
-          }}
-          isDark={false}
-        />
-      </View>
+    <View style={s.root}>
 
       <View style={{ flex: 1 }}>
       <Animated.View style={{ opacity: fade, transform: [{ translateY: slideY }] }}>
-        <Text style={s.headline}>Your unit.</Text>
+        <OnboardingQuestion before="Which " emphasis="units" after=" feel familiar?" />
         <WhyWeAsk
           text="We use this to show weights and measurements in the format you prefer."
           style={s.whyWeAsk}
         />
       </Animated.View>
 
-      {/* ── Cards ── */}
-      <View style={s.grid}>
-        {CARDS.map((c) => {
-          const active = unit === c.key;
-          return (
-            <Animated.View
-              key={c.key}
-              style={[s.cardWrap, { opacity: c.anim.fade, transform: [{ translateY: c.anim.y }] }]}
-            >
+      <Animated.View style={[s.unitControl, { opacity: panelFade, transform: [{ translateY: panelY }] }]}>
+        <View style={s.switchTrack} accessibilityRole="radiogroup">
+          {OPTIONS.map((option) => {
+            const active = unit === option.key;
+            return (
               <TouchableOpacity
-                style={[s.card, active && s.cardActive]}
-                onPress={() => setUnit(c.key)}
+                key={option.key}
+                style={[s.switchOption, active && s.switchOptionActive]}
+                onPress={() => setUnit(option.key)}
                 activeOpacity={0.82}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: active }}
+                accessibilityLabel={`${option.label}, ${option.units}`}
               >
-                {/* Icon + checkmark row */}
-                <View style={s.iconRow}>
-                  <View style={[s.iconSquare, active ? s.iconSquareActive : s.iconSquareInactive]}>
-                    <Ionicons name="options-outline" size={22} color="#F97316" />
-                  </View>
-                  {active && (
-                    <View style={s.checkBadge}>
-                      <Ionicons name="checkmark" size={12} color="#FFF" />
-                    </View>
-                  )}
-                </View>
-
-                {/* Label */}
-                <Text style={[s.cardLabel, active && s.cardLabelActive]}>{c.label}</Text>
-
-                {/* Tag pills */}
-                <View style={s.tagsRow}>
-                  {c.tags.map(t => (
-                    <View key={t} style={[s.tag, active && s.tagActive]}>
-                      <Text style={[s.tagText, active && s.tagTextActive]}>{t}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                {/* Divider */}
-                <View style={[s.divider, active && s.dividerActive]} />
-
-                {/* "YOU ARE" stats */}
-                <Text style={[s.youAre, active && s.youAreActive]}>YOU ARE</Text>
-
-                <View style={s.statRow}>
-                  <Text style={[s.statKey, active && s.statKeyActive]}>Weight</Text>
-                  <Text style={[s.statVal, active && s.statValActive]}>{c.weight}</Text>
-                </View>
-                <View style={s.statRow}>
-                  <Text style={[s.statKey, active && s.statKeyActive]}>Height</Text>
-                  <Text style={[s.statVal, active && s.statValActive]}>{c.height}</Text>
-                </View>
+                <Text style={[s.switchLabel, active && s.switchLabelActive]}>{option.label}</Text>
+                <Text style={[s.switchUnits, active && s.switchUnitsActive]}>{option.units}</Text>
               </TouchableOpacity>
-            </Animated.View>
-          );
-        })}
-      </View>
+            );
+          })}
+        </View>
+
+        <View style={s.previewCard}>
+          <View style={s.previewHeader}>
+            <Text style={s.previewEyebrow}>YOUR MEASUREMENTS</Text>
+            <View style={s.systemPill}>
+              <Text style={s.systemPillText}>{unit === 'metric' ? 'METRIC' : 'IMPERIAL'}</Text>
+            </View>
+          </View>
+
+          <View style={s.measurements}>
+            <View style={s.measurement}>
+              <Text style={s.measurementLabel}>Weight</Text>
+              <Text style={s.measurementValue} adjustsFontSizeToFit numberOfLines={1}>{preview.weight}</Text>
+            </View>
+            <View style={s.measurementDivider} />
+            <View style={s.measurement}>
+              <Text style={s.measurementLabel}>Height</Text>
+              <Text style={s.measurementValue} adjustsFontSizeToFit numberOfLines={1}>{preview.height}</Text>
+            </View>
+          </View>
+
+          <View style={s.distanceRow}>
+            <Text style={s.distanceLabel}>Distance and speed</Text>
+            <Text style={s.distanceValue}>{preview.distance}</Text>
+          </View>
+        </View>
+      </Animated.View>
 
       {/* Footer note */}
       <Animated.View style={{ opacity: fade }}>
@@ -153,91 +121,73 @@ export default function UnitsScreen() {
       </Animated.View>
       </View>
 
-      <TouchableOpacity
-        style={[s.cta, { opacity: canContinue ? 1 : 0.35 }]}
-        activeOpacity={0.85}
-        disabled={!canContinue}
+      <PrimaryCTA
+        label="Continue"
         onPress={() => router.push({
           pathname: '/onboarding/name',
-          params: { ...params, unit: unit! },
+          params: { ...params, unit },
         })}
-      >
-        <Text style={s.ctaText}>Continue  →</Text>
-      </TouchableOpacity>
+      />
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  root:     { flex: 1, backgroundColor: '#FAFAF8', paddingHorizontal: 20 },
-  progress: { marginBottom: 8 },
-  headline: {
-    fontSize: 42, fontWeight: '900', letterSpacing: -2,
-    lineHeight: 48, color: '#111111', marginBottom: 8,
-  },
-  whyWeAsk: { marginBottom: 16 },
-
-  // ── Cards ──────────────────────────────────────────────────────────────────
-  grid:     { flexDirection: 'row', gap: 12, marginBottom: 18 },
-  cardWrap: { flex: 1 },
-
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 16,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#EBEBEB',
-  },
-  cardActive: {
-    backgroundColor: '#111111',
-    borderColor: '#111111',
-  },
-
-  iconRow: {
+  root: { flex: 1, backgroundColor: '#FAFAF8', paddingHorizontal: 28 },
+  whyWeAsk: { marginBottom: 22 },
+  unitControl: { gap: 14, marginBottom: 18 },
+  switchTrack: {
     flexDirection: 'row',
+    gap: 5,
+    padding: 5,
+    borderRadius: 22,
+    backgroundColor: '#EDE9E4',
+  },
+  switchOption: {
+    flex: 1,
+    minHeight: 66,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  switchOptionActive: { backgroundColor: '#F97316' },
+  switchLabel: { fontFamily: 'Archivo_600SemiBold', fontSize: 16, color: '#625D57' },
+  switchLabelActive: { color: '#FFFFFF' },
+  switchUnits: { fontFamily: 'Archivo_500Medium', fontSize: 11, color: '#9A948D' },
+  switchUnitsActive: { color: 'rgba(255,255,255,0.72)' },
+  previewCard: {
+    overflow: 'hidden',
+    padding: 22,
+    borderRadius: 28,
+    backgroundColor: '#111111',
+  },
+  previewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 },
+  previewEyebrow: { fontFamily: 'Archivo_600SemiBold', fontSize: 10, letterSpacing: 1.3, color: '#777777' },
+  systemPill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: '#2B2B2B' },
+  systemPillText: { fontFamily: 'Archivo_600SemiBold', fontSize: 9, letterSpacing: 0.9, color: '#F97316' },
+  measurements: { flexDirection: 'row', alignItems: 'stretch', marginBottom: 24 },
+  measurement: { flex: 1, gap: 7 },
+  measurementDivider: { width: 1, marginHorizontal: 18, backgroundColor: '#303030' },
+  measurementLabel: { fontFamily: 'Archivo_400Regular', fontSize: 13, color: '#888888' },
+  measurementValue: {
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 27,
+    lineHeight: 32,
+    letterSpacing: -1,
+    color: '#FFFFFF',
+    fontVariant: ['tabular-nums'],
+  },
+  distanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#2B2B2B',
   },
-  iconSquare: {
-    width: 52, height: 52, borderRadius: 14,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  iconSquareInactive: { backgroundColor: 'rgba(249,115,22,0.10)' },
-  iconSquareActive:   { backgroundColor: '#2A1A0E' },
-
-  checkBadge: {
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: '#F97316',
-    alignItems: 'center', justifyContent: 'center',
-  },
-
-  cardLabel:       { fontSize: 20, fontWeight: '800', letterSpacing: -0.5, color: '#111111' },
-  cardLabelActive: { color: '#FFFFFF' },
-
-  tagsRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  tag:     { backgroundColor: '#F2F0EC', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
-  tagActive: { backgroundColor: '#2A2A2A' },
-  tagText:       { fontSize: 11, fontWeight: '600', color: '#555555' },
-  tagTextActive: { color: '#888888' },
-
-  divider:       { height: 1, backgroundColor: '#EBEBEB', marginVertical: 2 },
-  dividerActive: { backgroundColor: '#2A2A2A' },
-
-  youAre:       { fontSize: 10, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', color: '#AAAAAA' },
-  youAreActive: { color: '#555555' },
-
-  statRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  statKey:       { fontSize: 15, fontWeight: '400', color: '#AAAAAA' },
-  statKeyActive: { color: '#666666' },
-  statVal:       { fontSize: 18, fontWeight: '800', letterSpacing: -0.5, color: '#111111', fontVariant: ['tabular-nums'] },
-  statValActive: { color: '#FFFFFF' },
-
-  // ── Footer note ────────────────────────────────────────────────────────────
-  note:     { fontSize: 13, color: '#AAAAAA', textAlign: 'center' },
-  noteBold: { fontWeight: '700', color: '#888888' },
-
-  // ── CTA ────────────────────────────────────────────────────────────────────
-  cta:     { backgroundColor: '#111111', borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
-  ctaText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+  distanceLabel: { fontFamily: 'Archivo_400Regular', fontSize: 13, color: '#888888' },
+  distanceValue: { fontFamily: 'Archivo_600SemiBold', fontSize: 14, color: '#F97316' },
+  note: { fontFamily: 'Archivo_400Regular', fontSize: 13, lineHeight: 18, color: '#AAA7AD', textAlign: 'center' },
+  noteBold: { fontFamily: 'Archivo_600SemiBold', color: '#77747A' },
 });

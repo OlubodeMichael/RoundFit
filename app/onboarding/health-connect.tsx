@@ -1,15 +1,19 @@
 import {
-  View, Text, StyleSheet, TouchableOpacity, Animated,
+  View, Text, StyleSheet, TouchableOpacity, Animated, Alert,
   Easing, Platform, Image, useWindowDimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Svg, { Path } from 'react-native-svg';
-import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { PrimaryCTA } from '@/components/onboarding/primary-cta';
+import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
-import { HEALTHKIT_READ_IDENTIFIERS, isExpoGoEnvironment } from '@/utils/healthkit';
+import {
+  getHealthKitModule,
+  HEALTHKIT_READ_IDENTIFIERS,
+  isExpoGoEnvironment,
+} from '@/utils/healthkit';
 
 const HERO_H = 300;
 const CARD_S = 76;
@@ -22,8 +26,8 @@ export default function HealthConnectScreen() {
     height: string; weight: string;
     goal: string; activity: string; unit: string;
   }>();
-  const insets  = useSafeAreaInsets();
   const { width: screenW } = useWindowDimensions();
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // ── Layout ─────────────────────────────────────────────────────────────────
   const cx = screenW / 2;
@@ -87,32 +91,60 @@ export default function HealthConnectScreen() {
   const goToReveal = () => router.push({ pathname: '/onboarding/reveal', params });
 
   const handleConnect = async () => {
-    if (!expoGo) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { requestAuthorization } = require('@kingstinct/react-native-healthkit');
-        await requestAuthorization({ toRead: HEALTHKIT_READ_IDENTIFIERS });
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        await AsyncStorage.setItem('@roundfit/health_connected', 'true');
-      } catch {
-        // HealthKit unavailable, proceed anyway
-      }
+    if (isConnecting) return;
+
+    if (expoGo) {
+      Alert.alert(
+        'Apple Health needs a development build',
+        'Open RoundFit from its installed development build to grant Health permissions.',
+      );
+      return;
     }
-    goToReveal();
+
+    const healthKit = getHealthKitModule();
+    if (!healthKit) {
+      Alert.alert('Apple Health unavailable', 'Apple Health could not be opened on this device.');
+      return;
+    }
+
+    setIsConnecting(true);
+    try {
+      const available = typeof healthKit.isHealthDataAvailable === 'function'
+        ? healthKit.isHealthDataAvailable()
+        : await healthKit.isHealthDataAvailableAsync();
+
+      if (!available) {
+        Alert.alert('Apple Health unavailable', 'Apple Health is not available on this device.');
+        return;
+      }
+
+      const completed = await healthKit.requestAuthorization({
+        toRead: HEALTHKIT_READ_IDENTIFIERS,
+      });
+
+      if (!completed) {
+        Alert.alert(
+          'Permission not completed',
+          'Grant access in Health → Sharing → Apps → RoundFit, or tap Skip to continue without connecting.',
+        );
+        return;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      await AsyncStorage.setItem('@roundfit/health_connected', 'true');
+      goToReveal();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Please try again.';
+      Alert.alert('Could not connect Apple Health', message);
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
 
   return (
-    <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
-      <View style={s.progress}>
-        <ProgressBar
-          step={params.sex === 'female' ? 12 : 9}
-          total={params.sex === 'female' ? 12 : 9}
-          backHref={{ pathname: '/onboarding/name', params }}
-          isDark={false}
-        />
-      </View>
+    <View style={s.root}>
 
       {/* ── Hero illustration ───────────────────────────────────────────────── */}
       <Animated.View style={[{ height: HERO_H }, s.hero, {
@@ -175,7 +207,7 @@ export default function HealthConnectScreen() {
       {/* ── Headline + body ─────────────────────────────────────────────────── */}
       <View style={{ flex: 1 }}>
         <Animated.View style={[s.textBlock, { opacity: textFade, transform: [{ translateY: textY }] }]}>
-          <Text style={s.headline}>Sync with{'\n'}Apple Health</Text>
+          <OnboardingQuestion before="Want your plan to " emphasis="adapt" after=" automatically?" />
           <WhyWeAsk
             text="We use this to keep your plan updated without manual logging."
             style={s.whyWeAsk}
@@ -188,9 +220,11 @@ export default function HealthConnectScreen() {
 
       {/* ── CTAs ────────────────────────────────────────────────────────────── */}
       <Animated.View style={[s.ctaBlock, { opacity: bottomFade }]}>
-        <TouchableOpacity style={s.ctaPrimary} activeOpacity={0.85} onPress={handleConnect}>
-          <Text style={s.ctaPrimaryText}>Continue</Text>
-        </TouchableOpacity>
+        <PrimaryCTA
+          label={isConnecting ? 'Connecting…' : 'Continue'}
+          disabled={isConnecting}
+          onPress={handleConnect}
+        />
         <TouchableOpacity style={s.ctaSkip} activeOpacity={0.6} onPress={goToReveal}>
           <Text style={s.ctaSkipText}>Skip</Text>
         </TouchableOpacity>
