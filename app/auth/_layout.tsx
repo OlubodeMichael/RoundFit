@@ -6,9 +6,8 @@ export default function AuthLayout() {
     <>
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
-        {/* "Have an account? Log in" opens a short sheet over the landing screen
-            rather than pushing a page. `fitToContents` sizes the sheet to the
-            content, so the screen must stay compact and free of flex spacers.
+        {/* The login chooser owns its content-height sheet UI. A transparent modal
+            keeps the landing screen visible without native detent sizing issues.
             Note: a native stack renders its *first* screen as a full-screen card
             regardless of `presentation`, so the `router.replace()` entry points
             (reset-password, OnboardingSignupAuth) still land here full-screen —
@@ -16,11 +15,9 @@ export default function AuthLayout() {
         <Stack.Screen
           name="auth-options"
           options={{
-            presentation:         'formSheet',
-            animation:            'default',
-            sheetAllowedDetents:  'fitToContents',
-            sheetGrabberVisible:  true,
-            sheetCornerRadius:    28,
+            presentation: 'transparentModal',
+            animation: 'fade_from_bottom',
+            contentStyle: { backgroundColor: 'transparent' },
           }}
         />
 
@@ -29,6 +26,17 @@ export default function AuthLayout() {
             Apple/Google without re-running the onboarding push. */}
         <Stack.Screen
           name="sign-up"
+          options={{
+            presentation: 'modal',
+            animation:    'slide_from_bottom',
+          }}
+        />
+
+        {/* Same for the log-in form. It still arrives via `replace` from the
+            options sheet above, so it presents over the landing screen rather
+            than stacking a second card on top of a sheet. */}
+        <Stack.Screen
+          name="email-login"
           options={{
             presentation: 'modal',
             animation:    'slide_from_bottom',

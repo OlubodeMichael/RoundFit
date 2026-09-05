@@ -1,9 +1,10 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Easing } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
 import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
+import { useOnboardingDraft } from '@/components/onboarding/onboarding-draft';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import { usePostHog } from 'posthog-react-native';
 
@@ -46,16 +47,17 @@ export default function GoalScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string; height: string; weight: string }>();
   const posthog = usePostHog();
+  const { draft, updateDraft } = useOnboardingDraft();
 
   /**
    * Ordered selection — goals combine freely, and the **first** one tapped is the
    * primary (shown in accent). Only the primary's `base` reaches the nutrition
    * maths. Deselecting the primary promotes the next in line.
    */
-  const [selected, setSelected] = useState<string[]>([]);
+  const selected = draft.goals;
 
   const toggle = (id: string) =>
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    updateDraft({ goals: selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id] });
 
   const primary     = GOALS.find((g) => g.id === selected[0]) ?? null;
   const canContinue = primary !== null;

@@ -1,9 +1,10 @@
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
 import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
+import { useOnboardingDraft } from '@/components/onboarding/onboarding-draft';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 const LEVELS = [
@@ -16,7 +17,8 @@ const LEVELS = [
 export default function ActivityScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ name: string; age: string; sex: string; height: string; weight: string; goal: string }>();
-  const [selected, setSelected] = useState<string | null>(null);
+  const { draft, updateDraft } = useOnboardingDraft();
+  const selected = draft.activity;
 
   const bg = '#FAFAF8';
 
@@ -63,7 +65,7 @@ export default function ActivityScreen() {
             >
               <TouchableOpacity
                 style={[s.row, active && s.rowActive]}
-                onPress={() => setSelected(lvl.id)}
+                onPress={() => updateDraft({ activity: lvl.id })}
                 activeOpacity={0.75}
                 accessibilityRole="radio"
                 accessibilityState={{ checked: active }}
@@ -73,7 +75,7 @@ export default function ActivityScreen() {
                   <Ionicons
                     name={lvl.icon}
                     size={27}
-                    color={active ? '#E85D2A' : '#171717'}
+                    color={active ? '#FFFFFF' : '#171717'}
                   />
                 </View>
 
@@ -120,13 +122,20 @@ const s = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: '#F2F1F6',
   },
-  rowActive: { backgroundColor: '#FCE5DD' },
+  rowActive: {
+    backgroundColor: '#F97316',
+    shadowColor: '#F97316',
+    shadowOffset: { width: 0, height: 7 },
+    shadowOpacity: 0.2,
+    shadowRadius: 14,
+    elevation: 6,
+  },
   iconSlot: { width: 48, alignItems: 'flex-start', justifyContent: 'center' },
   rowText: { flex: 1, gap: 3, paddingRight: 10 },
   rowLabel: { fontFamily: 'Archivo_600SemiBold', fontSize: 17, lineHeight: 21, color: '#111111' },
-  rowLabelActive: { color: '#E85D2A' },
+  rowLabelActive: { color: '#FFFFFF' },
   rowSub: { fontFamily: 'Archivo_400Regular', fontSize: 13.5, lineHeight: 18, color: '#98969E' },
-  rowSubActive: { color: '#D06A43' },
+  rowSubActive: { color: 'rgba(255,255,255,0.82)' },
   radio: {
     width: 28,
     height: 28,
@@ -137,6 +146,9 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  radioActive: { borderColor: '#FFFFFF' },
-  radioDot: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#F0642D' },
+  radioActive: {
+    borderColor: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  radioDot: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#FFFFFF' },
 });

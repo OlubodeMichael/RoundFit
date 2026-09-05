@@ -1,10 +1,8 @@
 /**
  * Log-in sheet — the "Have an account? Log in" path off the landing screen.
  *
- * Presented as a short `formSheet` sized with `fitToContents` (see `_layout.tsx`),
- * so this screen must render at its intrinsic height: no `flex: 1` spacers, and no
- * entrance animation that changes layout. It is dismissed by the native grabber or
- * a swipe down, so it carries no close button of its own.
+ * Presented over the landing screen as a content-height bottom sheet. Owning the
+ * sheet here avoids inconsistent native detent sizing across iOS versions.
  *
  * Signing up is deliberately not offered here — the landing screen owns "Get
  * started". Email is the one option that leaves the sheet: a full log-in form does
@@ -14,12 +12,13 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
+import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GoogleLogo } from '@/components/ui/GoogleLogo';
 import { hasActiveUserSession } from '@/context/auth-context';
 import { useAuth } from '@/hooks/use-auth';
-import { useSheetPresentation } from '@/hooks/use-sheet-presentation';
 import { PRIVACY_URL, TERMS_URL } from '@/constants/legal';
+import { safeBack } from '@/utils/navigation';
 import * as WebBrowser from 'expo-web-browser';
 
 const C = {
@@ -33,7 +32,6 @@ const C = {
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { presentedAsSheet, topInset } = useSheetPresentation();
   const {
     signInWithOAuth,
     isLoading,
@@ -65,17 +63,22 @@ export default function LoginScreen() {
   };
 
   return (
-    <View
-      style={[
-        s.root,
-        {
-          // The grabber occupies the top of the sheet; only the full-screen
-          // fallback needs to clear the status bar.
-          paddingTop:    topInset + (presentedAsSheet ? 28 : 20),
-          paddingBottom: insets.bottom + 20,
-        },
-      ]}
-    >
+    <View style={s.overlay}>
+      <StatusBar style="light" />
+      <TouchableOpacity
+        style={StyleSheet.absoluteFill}
+        activeOpacity={1}
+        onPress={() => safeBack(router, '/auth')}
+        accessibilityRole="button"
+        accessibilityLabel="Close login options"
+      />
+
+      <View style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 18) + 14 }]}>
+      <View style={s.grabber} />
+      <View style={s.eyebrow}>
+        <View style={s.eyebrowDot} />
+        <Text style={s.eyebrowText}>ROUND FIT ACCOUNT</Text>
+      </View>
       <Text style={s.headline}>Welcome back</Text>
       <Text style={s.sub}>Pick up where you left off.</Text>
 
@@ -92,15 +95,18 @@ export default function LoginScreen() {
 
       <View style={s.options}>
         <TouchableOpacity
-          style={[s.option, { opacity: isLoading ? 0.55 : 1 }]}
+          style={[s.option, s.appleOption, { opacity: isLoading ? 0.55 : 1 }]}
           activeOpacity={0.85}
           disabled={isLoading}
           onPress={() => runOAuth('apple')}
+          accessibilityRole="button"
+          accessibilityLabel="Continue with Apple"
         >
           <View style={s.optionIcon}>
-            <Ionicons name="logo-apple" size={26} color={C.text} />
+            <Ionicons name="logo-apple" size={25} color="#FFFFFF" />
           </View>
-          <Text style={s.optionText}>Continue with Apple</Text>
+          <Text style={[s.optionText, s.appleOptionText]}>Continue with Apple</Text>
+          <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -108,25 +114,32 @@ export default function LoginScreen() {
           activeOpacity={0.85}
           disabled={isLoading}
           onPress={() => runOAuth('google')}
+          accessibilityRole="button"
+          accessibilityLabel="Continue with Google"
         >
           <View style={s.optionIcon}>
             <GoogleLogo size={24} />
           </View>
           <Text style={s.optionText}>Continue with Google</Text>
+          <Ionicons name="arrow-forward" size={19} color={C.text} />
         </TouchableOpacity>
 
         <TouchableOpacity
           style={s.option}
           activeOpacity={0.85}
-          // Replace, not push: a full log-in form does not fit the short detent,
-          // and leaving the sheet mounted underneath would make the form animate
-          // in over a screen that is still presenting a modal.
+          // Replace, not push: the form is presented as a modal (see the auth
+          // stack layout), and pushing it would stack that card on top of this
+          // sheet. Replacing hands the slot over, so the modal comes up against
+          // the landing screen instead.
           onPress={() => router.replace('/auth/email-login')}
+          accessibilityRole="button"
+          accessibilityLabel="Continue with email"
         >
           <View style={s.optionIcon}>
             <Ionicons name="mail-outline" size={25} color={C.text} />
           </View>
           <Text style={s.optionText}>Continue with email</Text>
+          <Ionicons name="arrow-forward" size={19} color={C.text} />
         </TouchableOpacity>
       </View>
 
@@ -149,28 +162,70 @@ export default function LoginScreen() {
         </Text>
         .
       </Text>
+      </View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  root: {
-    backgroundColor:   C.bg,
-    paddingHorizontal: 24,
+  overlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(5,5,8,0.38)',
+  },
+  sheet: {
+    backgroundColor: C.bg,
+    paddingHorizontal: 22,
+    paddingTop: 12,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 28,
+    elevation: 24,
+  },
+  grabber: {
+    width: 42,
+    height: 5,
+    borderRadius: 3,
+    alignSelf: 'center',
+    marginBottom: 19,
+    backgroundColor: '#CEC9C2',
+  },
+
+  eyebrow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  eyebrowDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: C.accent,
+  },
+  eyebrowText: {
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 10,
+    letterSpacing: 1.5,
+    color: '#77716A',
   },
 
   headline: {
-    fontFamily:    'Syne_800ExtraBold',
-    fontSize:      34,
-    lineHeight:    40,
-    letterSpacing: -1.2,
+    fontFamily:    'ArchivoBlack_400Regular',
+    fontSize:      31,
+    lineHeight:    36,
+    letterSpacing: -1.1,
     color:         C.text,
   },
   sub: {
-    fontSize:   15,
-    lineHeight: 21,
+    fontFamily: 'Archivo_500Medium',
+    fontSize:   14,
+    lineHeight: 20,
     color:      C.mid,
-    marginTop:  6,
+    marginTop:  4,
   },
 
   errorBanner: {
@@ -192,35 +247,37 @@ const s = StyleSheet.create({
     color:      '#EF4444',
   },
 
-  options:   { gap: 12, marginTop: 26 },
+  options:   { gap: 10, marginTop: 22 },
   option: {
+    minHeight:         64,
     flexDirection:     'row',
     alignItems:        'center',
-    backgroundColor:   '#FFFFFF',
-    borderRadius:      18,
-    borderWidth:       1,
-    borderColor:       C.line,
-    paddingVertical:   21,
-    paddingHorizontal: 20,
+    backgroundColor:   '#F0ECE7',
+    borderRadius:      17,
+    paddingVertical:   16,
+    paddingHorizontal: 18,
   },
+  appleOption: { backgroundColor: C.text },
   optionIcon: {
-    width:          30,
+    width:          28,
     alignItems:     'center',
     justifyContent: 'center',
-    marginRight:    16,
+    marginRight:    13,
   },
   optionText: {
-    fontSize:   17,
-    fontWeight: '600',
+    flex:       1,
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize:   16,
     color:      C.text,
   },
+  appleOptionText: { color: '#FFFFFF' },
 
   legal: {
     fontSize:   12,
     lineHeight: 17,
     color:      C.mid,
     textAlign:  'center',
-    marginTop:  22,
+    marginTop:  18,
   },
   legalLink: {
     color:      C.text,

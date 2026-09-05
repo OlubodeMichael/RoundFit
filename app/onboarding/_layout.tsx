@@ -1,4 +1,5 @@
 import { ProgressBar } from '@/components/onboarding/progress-bar';
+import { OnboardingDraftProvider } from '@/components/onboarding/onboarding-draft';
 import { OnboardingFooter, OnboardingFooterProvider } from '@/components/onboarding/primary-cta';
 import { CYCLE_ENABLED } from '@/constants/features';
 import { Stack, useLocalSearchParams, usePathname } from 'expo-router';
@@ -46,11 +47,15 @@ export default function OnboardingLayout() {
       step: extendedPath ? 9 : 6,
       total,
     },
-    '/onboarding/name': {
+    '/onboarding/health-choice': {
       step: extendedPath ? 10 : 7,
       total,
     },
     '/onboarding/health-connect': {
+      step: extendedPath ? 10 : 7,
+      total,
+    },
+    '/onboarding/name': {
       step: extendedPath ? 11 : 8,
       total,
     },
@@ -59,28 +64,30 @@ export default function OnboardingLayout() {
   const progress = progressByPath[pathname];
 
   return (
-    <OnboardingFooterProvider>
-      <View style={s.root}>
-        <StatusBar style="dark" />
-        {progress && (
-          <View style={[s.progressShell, { paddingTop: insets.top }]}>
-            <ProgressBar {...progress} isDark={false} />
+    <OnboardingDraftProvider>
+      <OnboardingFooterProvider>
+        <View style={s.root}>
+          <StatusBar style="dark" />
+          {progress && (
+            <View style={[s.progressShell, { paddingTop: insets.top }]}>
+              <ProgressBar {...progress} isDark={false} />
+            </View>
+          )}
+          <View style={s.content}>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                presentation: 'card',
+                animation: 'fade_from_bottom',
+                gestureEnabled: true,
+                contentStyle: { backgroundColor: '#FAFAF8' },
+              }}
+            />
           </View>
-        )}
-        <View style={s.content}>
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              presentation: 'card',
-              animation: 'fade_from_bottom',
-              gestureEnabled: true,
-              contentStyle: { backgroundColor: '#FAFAF8' },
-            }}
-          />
+          <OnboardingFooter />
         </View>
-        <OnboardingFooter />
-      </View>
-    </OnboardingFooterProvider>
+      </OnboardingFooterProvider>
+    </OnboardingDraftProvider>
   );
 }
 

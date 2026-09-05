@@ -61,6 +61,7 @@ module.exports = {
     plugins: [
       "@react-native-community/datetimepicker",
       "expo-router",
+      "expo-audio",
       "expo-apple-authentication",
       [
         "@kingstinct/react-native-healthkit",

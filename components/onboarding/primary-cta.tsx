@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useRouter } from 'expo-router';
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { type StyleProp, StyleSheet, Text, TouchableOpacity, View, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -10,10 +10,11 @@ interface Props {
   label: string;
   onPress: () => void;
   disabled?: boolean;
+  hidden?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
-type FooterAction = { label: string; onPress: () => void; disabled: boolean };
+type FooterAction = { label: string; onPress: () => void; disabled: boolean; hidden: boolean };
 type FooterContextValue = {
   action: FooterAction | null;
   register: (action: FooterAction) => void;
@@ -65,7 +66,7 @@ function FooterButtons({ action, style }: { action: FooterAction; style?: StyleP
 export function OnboardingFooter() {
   const context = useContext(FooterContext);
   const insets = useSafeAreaInsets();
-  if (!context?.action) return null;
+  if (!context?.action || context.action.hidden) return null;
 
   return (
     <View style={[s.shell, { paddingBottom: insets.bottom + 12 }]}>
@@ -75,19 +76,21 @@ export function OnboardingFooter() {
 }
 
 /** Registers a screen's action with the persistent footer. */
-export function PrimaryCTA({ label, onPress, disabled = false, style }: Props) {
+export function PrimaryCTA({ label, onPress, disabled = false, hidden = false, style }: Props) {
   const context = useContext(FooterContext);
   const register = context?.register;
   const onPressRef = useRef(onPress);
   onPressRef.current = onPress;
 
-  useEffect(() => {
-    if (!register) return;
-    register({ label, disabled, onPress: () => onPressRef.current() });
-  }, [disabled, label, register]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!register) return;
+      register({ label, disabled, hidden, onPress: () => onPressRef.current() });
+    }, [disabled, hidden, label, register]),
+  );
 
-  if (context) return null;
-  return <FooterButtons action={{ label, disabled, onPress }} style={style} />;
+  if (context || hidden) return null;
+  return <FooterButtons action={{ label, disabled, hidden, onPress }} style={style} />;
 }
 
 const s = StyleSheet.create({

@@ -55,10 +55,27 @@ function jsonRes(status: number, body: unknown) {
 }
 
 let fetchMock: jest.Mock;
+
+// utils/api.ts logs on the refresh paths this suite drives on purpose: expired
+// access token, transient refresh failure, and the sub mismatch. Those logs are
+// wanted in the app and only noise in the runner. Spy rather than silence
+// globally, so the calls are still recorded for any test that wants to assert
+// on them, and console is restored between tests.
+let consoleSpies: jest.SpyInstance[] = [];
+
 beforeEach(() => {
   store.clear();
   fetchMock = jest.fn();
   global.fetch = fetchMock as unknown as typeof fetch;
+  consoleSpies = [
+    jest.spyOn(console, 'log').mockImplementation(() => {}),
+    jest.spyOn(console, 'warn').mockImplementation(() => {}),
+    jest.spyOn(console, 'error').mockImplementation(() => {}),
+  ];
+});
+
+afterEach(() => {
+  consoleSpies.forEach((spy) => spy.mockRestore());
 });
 
 describe('token helpers', () => {

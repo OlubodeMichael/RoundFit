@@ -61,7 +61,7 @@ export default function HealthConnectScreen() {
 
   useEffect(() => {
     if (Platform.OS !== 'ios') {
-      router.replace({ pathname: '/onboarding/reveal', params });
+      router.replace({ pathname: '/onboarding/name', params });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -88,7 +88,7 @@ export default function HealthConnectScreen() {
   if (Platform.OS !== 'ios') return null;
 
   const expoGo     = isExpoGoEnvironment();
-  const goToReveal = () => router.push({ pathname: '/onboarding/reveal', params });
+  const goToName = () => router.push({ pathname: '/onboarding/name', params });
 
   const handleConnect = async () => {
     if (isConnecting) return;
@@ -133,7 +133,7 @@ export default function HealthConnectScreen() {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       await AsyncStorage.setItem('@roundfit/health_connected', 'true');
-      goToReveal();
+      goToName();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Please try again.';
       Alert.alert('Could not connect Apple Health', message);
@@ -225,7 +225,7 @@ export default function HealthConnectScreen() {
           disabled={isConnecting}
           onPress={handleConnect}
         />
-        <TouchableOpacity style={s.ctaSkip} activeOpacity={0.6} onPress={goToReveal}>
+        <TouchableOpacity style={s.ctaSkip} activeOpacity={0.6} onPress={goToName}>
           <Text style={s.ctaSkipText}>Skip</Text>
         </TouchableOpacity>
       </Animated.View>

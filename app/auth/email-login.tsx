@@ -9,11 +9,15 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { hasActiveUserSession } from '@/context/auth-context';
 import { useAuth } from '@/hooks/use-auth';
 import { safeBack } from '@/utils/navigation';
+import { useSheetPresentation } from '@/hooks/use-sheet-presentation';
 import { usePostHog } from 'posthog-react-native';
 
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // Presented as a modal, so the window's status-bar inset would show up as a
+  // phantom gap above the header. `topInset` is 0 inside a sheet.
+  const { presentedAsSheet, topInset } = useSheetPresentation();
   const { signIn, signInWithOAuth, isLoading, error, clearError, status, user } = useAuth();
   const posthog = usePostHog();
 
@@ -74,11 +78,17 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={[s.root, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 28 }]}>
+        <View style={[s.root, { paddingTop: topInset + 8, paddingBottom: insets.bottom + 28 }]}>
 
           {/* Back */}
-          <TouchableOpacity style={s.backBtn} onPress={() => safeBack(router, '/auth/auth-options')} activeOpacity={0.7}>
-            <Ionicons name="chevron-back" size={22} color={hi} />
+          <TouchableOpacity
+            style={[s.backBtn, { backgroundColor: lo }]}
+            onPress={() => safeBack(router, '/auth/auth-options')}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={presentedAsSheet ? 'Close' : 'Go back'}
+          >
+            <Ionicons name={presentedAsSheet ? 'close' : 'chevron-back'} size={22} color={hi} />
           </TouchableOpacity>
 
           {/* Heading */}
@@ -197,7 +207,7 @@ export default function LoginScreen() {
 
 const s = StyleSheet.create({
   root:    { flex: 1, paddingHorizontal: 28, gap: 40 },
-  backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginLeft: -4 },
+  backBtn: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
 
   headBlock: { gap: 10 },
   headline:  { fontSize: 42, fontWeight: '900', letterSpacing: -2, lineHeight: 48 },

@@ -20,6 +20,14 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import Reanimated, {
+  Easing as ReanimatedEasing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
 import Svg, {
   Circle,
@@ -46,6 +54,13 @@ const MACRO_COLORS = {
   carbs:   '#FACC15',
   fat:     '#A78BFA',
 };
+
+const BUILD_STEPS = [
+  { title: 'Daily calorie target', detail: 'Applying your BMR and activity level' },
+  { title: 'Macro balance', detail: 'Balancing protein, carbs and fats' },
+  { title: '12-week outlook', detail: 'Mapping progress from your current weight' },
+  { title: 'Personal plan', detail: 'Bringing everything together' },
+];
 
 // ── Labels ─────────────────────────────────────────────────────────────────
 const GOAL_LABEL: Record<UserGoal, string> = {
@@ -109,6 +124,67 @@ export default function RevealScreen() {
     user,
   } = useAuth();
   const [savingPlan, setSavingPlan] = useState(false);
+  const [buildingPlan, setBuildingPlan] = useState(true);
+  const [buildProgress, setBuildProgress] = useState(8);
+  const [buildStep, setBuildStep] = useState(0);
+  const reducedMotion = useReducedMotion();
+  const loaderProgress = useSharedValue(0.08);
+  const loaderOpacity = useSharedValue(1);
+
+  const loaderBarStyle = useAnimatedStyle(() => ({
+    width: loaderProgress.get() * Math.max(scrW - 48, 0),
+  }));
+  const loaderContentStyle = useAnimatedStyle(() => ({
+    opacity: loaderOpacity.get(),
+  }));
+
+  useEffect(() => {
+    const duration = reducedMotion ? 900 : 2800;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const scheduleStep = (at: number, step: number) => {
+      timers.push(setTimeout(() => {
+        setBuildStep(step);
+      }, at));
+    };
+
+    setBuildProgress(8);
+    setBuildStep(0);
+    loaderProgress.set(0.08);
+    loaderOpacity.set(1);
+    loaderProgress.set(withTiming(1, {
+      duration,
+      easing: ReanimatedEasing.linear,
+    }));
+
+    const startedAt = Date.now();
+    const progressTimer = setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      setBuildProgress(Math.min(100, Math.max(8, Math.round(elapsed / duration * 100))));
+    }, 100);
+
+    scheduleStep(duration * 0.22, 1);
+    scheduleStep(duration * 0.48, 2);
+    scheduleStep(duration * 0.74, 3);
+    scheduleStep(duration * 0.93, 4);
+
+    timers.push(setTimeout(() => {
+      clearInterval(progressTimer);
+      setBuildProgress(100);
+      loaderOpacity.set(withTiming(0, {
+        duration: reducedMotion ? 0 : 180,
+        easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+      }));
+    }, duration));
+    timers.push(setTimeout(
+      () => setBuildingPlan(false),
+      duration + (reducedMotion ? 0 : 180),
+    ));
+
+    return () => {
+      clearInterval(progressTimer);
+      timers.forEach(clearTimeout);
+    };
+  }, [loaderOpacity, loaderProgress, reducedMotion]);
 
   useEffect(() => {
     // A just-created account is routed by the gate in `app/_layout.tsx`, which
@@ -230,6 +306,7 @@ export default function RevealScreen() {
   const countRef   = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    if (buildingPlan) return;
     const target = calorieTarget;
     setDisplayCals(0);
     setChartReady(false);
@@ -287,7 +364,62 @@ export default function RevealScreen() {
       clearTimeout(tFallback);
       if (countRef.current) clearInterval(countRef.current);
     };
-  }, [calorieTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [buildingPlan, calorieTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (buildingPlan) {
+    return (
+      <View style={[s.loaderRoot, { paddingTop: insets.top + 20 }]}>
+        <Reanimated.View style={[s.loaderContent, loaderContentStyle]}>
+          <View style={s.loaderEyebrow}>
+            <View style={s.loaderEyebrowDot} />
+            <Text style={s.loaderEyebrowText}>BUILDING YOUR PLAN</Text>
+          </View>
+
+          <View style={s.loaderMain}>
+            <Text style={s.loaderPercent}>{buildProgress}%</Text>
+            <Text style={s.loaderHeadline}>Putting your plan together</Text>
+            <Text style={s.loaderStatus}>
+              {BUILD_STEPS[Math.min(buildStep, BUILD_STEPS.length - 1)].detail}
+            </Text>
+
+            <View style={s.loaderTrack}>
+              <Reanimated.View style={[s.loaderFill, loaderBarStyle]} />
+            </View>
+
+            <View style={s.loaderChecklist}>
+              {BUILD_STEPS.map((step, index) => {
+                const complete = buildStep > index;
+                const active = buildStep === index;
+                return (
+                  <View key={step.title} style={s.loaderStep}>
+                    <View style={[
+                      s.loaderStepIcon,
+                      complete && s.loaderStepIconComplete,
+                      active && s.loaderStepIconActive,
+                    ]}>
+                      {complete ? (
+                        <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                      ) : active ? (
+                        <View style={s.loaderActiveDot} />
+                      ) : null}
+                    </View>
+                    <View style={s.loaderStepCopy}>
+                      <Text style={[s.loaderStepTitle, (complete || active) && s.loaderStepTitleOn]}>
+                        {step.title}
+                      </Text>
+                      <Text style={s.loaderStepDetail}>{step.detail}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        </Reanimated.View>
+
+        <PrimaryCTA label="Continue" disabled hidden onPress={() => undefined} />
+      </View>
+    );
+  }
 
   return (
     <View style={[s.root, { paddingTop: insets.top + (compact ? 6 : 12) }]}>
@@ -676,6 +808,112 @@ function StatCard({ label, value, sub, dark }: { label: string; value: number; s
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
+  loaderRoot: {
+    flex: 1,
+    paddingHorizontal: 24,
+    backgroundColor: BG,
+  },
+  loaderContent: { flex: 1 },
+  loaderEyebrow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  loaderEyebrowDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: ORANGE },
+  loaderEyebrowText: {
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 10,
+    letterSpacing: 1.25,
+    color: '#746F68',
+  },
+  loaderMain: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingBottom: 30,
+  },
+  loaderPercent: {
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 68,
+    lineHeight: 74,
+    letterSpacing: -3.5,
+    color: INK,
+    fontVariant: ['tabular-nums'],
+  },
+  loaderHeadline: {
+    maxWidth: 320,
+    marginTop: 8,
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 30,
+    lineHeight: 35,
+    letterSpacing: -1.1,
+    color: INK,
+  },
+  loaderStatus: {
+    minHeight: 21,
+    marginTop: 10,
+    fontFamily: 'Archivo_400Regular',
+    fontSize: 14,
+    lineHeight: 21,
+    color: DIM,
+  },
+  loaderTrack: {
+    width: '100%',
+    height: 6,
+    marginTop: 24,
+    borderRadius: 3,
+    overflow: 'hidden',
+    backgroundColor: '#E4DFD9',
+  },
+  loaderFill: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 3,
+    backgroundColor: ORANGE,
+  },
+  loaderChecklist: {
+    marginTop: 28,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: '#F0ECE7',
+  },
+  loaderStep: {
+    minHeight: 67,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  loaderStepIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    borderColor: '#CEC7C0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FAF9F7',
+  },
+  loaderStepIconComplete: {
+    borderColor: ORANGE,
+    backgroundColor: ORANGE,
+  },
+  loaderStepIconActive: {
+    borderColor: ORANGE,
+    backgroundColor: '#FFF0E5',
+  },
+  loaderActiveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: ORANGE },
+  loaderStepCopy: { flex: 1, gap: 2 },
+  loaderStepTitle: {
+    fontFamily: 'Archivo_500Medium',
+    fontSize: 14,
+    color: '#9A958E',
+  },
+  loaderStepTitleOn: { fontFamily: 'Archivo_600SemiBold', color: INK },
+  loaderStepDetail: {
+    fontFamily: 'Archivo_400Regular',
+    fontSize: 11,
+    lineHeight: 15,
+    color: '#8C8880',
+  },
+
   root: { flex: 1, backgroundColor: BG },
   content: { flex: 1, paddingHorizontal: 20, gap: 10 },
   contentCompact: { gap: 7 },

@@ -1,11 +1,12 @@
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { Redirect, useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { TileGrid, Tile } from '@/components/onboarding/tile-grid';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
 import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import { CYCLE_ENABLED } from '@/constants/features';
+import { useOnboardingDraft } from '@/components/onboarding/onboarding-draft';
 
 const STAGES: Tile[] = [
   { id: 'regular',       icon: 'sync-outline',     label: 'Regular cycle', desc: 'Predictable monthly cycle' },
@@ -15,17 +16,13 @@ const STAGES: Tile[] = [
 ];
 
 export default function LifeStageScreen() {
-  // Held back from launch. The screen is intact but must not be reachable —
-  // including by deep link or a typed-route jump, which the entry-point gate
-  // alone does not cover. See CYCLE_FEATURE_REMOVAL_PLAN.md.
-  if (!CYCLE_ENABLED) return <Redirect href="/onboarding" />;
-
   const router = useRouter();
   const params = useLocalSearchParams<{
     name: string; age: string; sex: string; height: string; weight: string;
     goal: string; activity: string; cycleLength: string; cyclePhase: string;
   }>();
-  const [selected, setSelected] = useState<string | null>(null);
+  const { draft, updateDraft } = useOnboardingDraft();
+  const selected = draft.lifeStage;
 
   const bg  = '#FAFAF8';
   const mid = '#888';
@@ -34,6 +31,7 @@ export default function LifeStageScreen() {
   const slideY = useRef(new Animated.Value(24)).current;
 
   useEffect(() => {
+    if (!CYCLE_ENABLED) return;
     if (params.sex !== 'female') {
       router.replace({ pathname: '/onboarding/units', params });
       return;
@@ -43,6 +41,8 @@ export default function LifeStageScreen() {
       Animated.timing(slideY, { toValue: 0, duration: 450, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]).start();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!CYCLE_ENABLED) return <Redirect href="/onboarding" />;
 
   return (
     <View style={[s.root, { backgroundColor: bg }]}>
@@ -56,7 +56,7 @@ export default function LifeStageScreen() {
         />
       </Animated.View>
 
-      <TileGrid tiles={STAGES} selected={selected} onSelect={setSelected} />
+      <TileGrid tiles={STAGES} selected={selected} onSelect={(value) => updateDraft({ lifeStage: value })} />
 
       <View style={{ flex: 1 }} />
 

@@ -1,8 +1,10 @@
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
 import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
+import { useOnboardingDraft } from '@/components/onboarding/onboarding-draft';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 export default function UnitsScreen() {
@@ -11,7 +13,8 @@ export default function UnitsScreen() {
     name: string; age: string; sex: string;
     height: string; weight: string; goal: string; activity: string;
   }>();
-  const [unit, setUnit] = useState<'metric' | 'imperial'>('imperial');
+  const { draft, updateDraft } = useOnboardingDraft();
+  const { unit } = draft;
 
   const weightKg = Number(params.weight) || 70;
   const heightCm = Number(params.height) || 170;
@@ -42,14 +45,16 @@ export default function UnitsScreen() {
 
   const OPTIONS = [
     {
-      key:    'metric'   as const,
-      label:  'Metric',
-      units:  'kg · cm',
-    },
-    {
       key:    'imperial' as const,
       label:  'Imperial',
-      units:  'lb · ft',
+      units:  'lb  ·  ft & in  ·  mi',
+      description: 'Pounds, feet, inches and miles',
+    },
+    {
+      key:    'metric'   as const,
+      label:  'Metric',
+      units:  'kg  ·  cm  ·  km',
+      description: 'Kilograms, centimetres and kilometres',
     },
   ];
 
@@ -66,49 +71,51 @@ export default function UnitsScreen() {
       </Animated.View>
 
       <Animated.View style={[s.unitControl, { opacity: panelFade, transform: [{ translateY: panelY }] }]}>
-        <View style={s.switchTrack} accessibilityRole="radiogroup">
+        <View style={s.optionList} accessibilityRole="radiogroup">
           {OPTIONS.map((option) => {
             const active = unit === option.key;
             return (
               <TouchableOpacity
                 key={option.key}
-                style={[s.switchOption, active && s.switchOptionActive]}
-                onPress={() => setUnit(option.key)}
+                style={[s.unitOption, active && s.unitOptionActive]}
+                onPress={() => updateDraft({ unit: option.key })}
                 activeOpacity={0.82}
                 accessibilityRole="radio"
                 accessibilityState={{ checked: active }}
-                accessibilityLabel={`${option.label}, ${option.units}`}
+                accessibilityLabel={`${option.label}. ${option.description}`}
               >
-                <Text style={[s.switchLabel, active && s.switchLabelActive]}>{option.label}</Text>
-                <Text style={[s.switchUnits, active && s.switchUnitsActive]}>{option.units}</Text>
+                <View style={s.optionCopy}>
+                  <View style={s.optionTitleRow}>
+                    <Text style={[s.optionLabel, active && s.optionLabelActive]}>{option.label}</Text>
+                    {option.key === 'imperial' && (
+                      <View style={[s.defaultPill, active && s.defaultPillActive]}>
+                        <Text style={[s.defaultText, active && s.defaultTextActive]}>DEFAULT</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[s.optionUnits, active && s.optionUnitsActive]}>{option.units}</Text>
+                  <Text style={[s.optionDescription, active && s.optionDescriptionActive]}>
+                    {option.description}
+                  </Text>
+                </View>
+
+                <View style={[s.selection, active && s.selectionActive]}>
+                  {active && <Ionicons name="checkmark" size={15} color="#F97316" />}
+                </View>
               </TouchableOpacity>
             );
           })}
         </View>
 
-        <View style={s.previewCard}>
-          <View style={s.previewHeader}>
-            <Text style={s.previewEyebrow}>YOUR MEASUREMENTS</Text>
-            <View style={s.systemPill}>
-              <Text style={s.systemPillText}>{unit === 'metric' ? 'METRIC' : 'IMPERIAL'}</Text>
-            </View>
+        <View style={s.exampleRow}>
+          <View style={s.exampleIcon}>
+            <Ionicons name="eye-outline" size={19} color="#F97316" />
           </View>
-
-          <View style={s.measurements}>
-            <View style={s.measurement}>
-              <Text style={s.measurementLabel}>Weight</Text>
-              <Text style={s.measurementValue} adjustsFontSizeToFit numberOfLines={1}>{preview.weight}</Text>
-            </View>
-            <View style={s.measurementDivider} />
-            <View style={s.measurement}>
-              <Text style={s.measurementLabel}>Height</Text>
-              <Text style={s.measurementValue} adjustsFontSizeToFit numberOfLines={1}>{preview.height}</Text>
-            </View>
-          </View>
-
-          <View style={s.distanceRow}>
-            <Text style={s.distanceLabel}>Distance and speed</Text>
-            <Text style={s.distanceValue}>{preview.distance}</Text>
+          <View style={s.exampleCopy}>
+            <Text style={s.exampleLabel}>Your measurements will look like</Text>
+            <Text style={s.exampleValue}>
+              {preview.weight}  ·  {preview.height}  ·  {preview.distance}
+            </Text>
           </View>
         </View>
       </Animated.View>
@@ -124,7 +131,7 @@ export default function UnitsScreen() {
       <PrimaryCTA
         label="Continue"
         onPress={() => router.push({
-          pathname: '/onboarding/name',
+          pathname: '/onboarding/health-choice',
           params: { ...params, unit },
         })}
       />
@@ -135,59 +142,101 @@ export default function UnitsScreen() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#FAFAF8', paddingHorizontal: 28 },
   whyWeAsk: { marginBottom: 22 },
-  unitControl: { gap: 14, marginBottom: 18 },
-  switchTrack: {
-    flexDirection: 'row',
-    gap: 5,
-    padding: 5,
-    borderRadius: 22,
-    backgroundColor: '#EDE9E4',
-  },
-  switchOption: {
-    flex: 1,
-    minHeight: 66,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-  },
-  switchOptionActive: { backgroundColor: '#F97316' },
-  switchLabel: { fontFamily: 'Archivo_600SemiBold', fontSize: 16, color: '#625D57' },
-  switchLabelActive: { color: '#FFFFFF' },
-  switchUnits: { fontFamily: 'Archivo_500Medium', fontSize: 11, color: '#9A948D' },
-  switchUnitsActive: { color: 'rgba(255,255,255,0.72)' },
-  previewCard: {
-    overflow: 'hidden',
-    padding: 22,
-    borderRadius: 28,
-    backgroundColor: '#111111',
-  },
-  previewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 },
-  previewEyebrow: { fontFamily: 'Archivo_600SemiBold', fontSize: 10, letterSpacing: 1.3, color: '#777777' },
-  systemPill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: '#2B2B2B' },
-  systemPillText: { fontFamily: 'Archivo_600SemiBold', fontSize: 9, letterSpacing: 0.9, color: '#F97316' },
-  measurements: { flexDirection: 'row', alignItems: 'stretch', marginBottom: 24 },
-  measurement: { flex: 1, gap: 7 },
-  measurementDivider: { width: 1, marginHorizontal: 18, backgroundColor: '#303030' },
-  measurementLabel: { fontFamily: 'Archivo_400Regular', fontSize: 13, color: '#888888' },
-  measurementValue: {
-    fontFamily: 'Archivo_600SemiBold',
-    fontSize: 27,
-    lineHeight: 32,
-    letterSpacing: -1,
-    color: '#FFFFFF',
-    fontVariant: ['tabular-nums'],
-  },
-  distanceRow: {
+  unitControl: { gap: 16, marginBottom: 18 },
+  optionList: { gap: 12 },
+  unitOption: {
+    minHeight: 108,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#2B2B2B',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderRadius: 16,
+    backgroundColor: '#F0ECE7',
   },
-  distanceLabel: { fontFamily: 'Archivo_400Regular', fontSize: 13, color: '#888888' },
-  distanceValue: { fontFamily: 'Archivo_600SemiBold', fontSize: 14, color: '#F97316' },
+  unitOptionActive: {
+    backgroundColor: '#F97316',
+    shadowColor: '#F97316',
+    shadowOffset: { width: 0, height: 7 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  optionCopy: { flex: 1, gap: 4, paddingRight: 16 },
+  optionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  optionLabel: {
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 18,
+    letterSpacing: -0.3,
+    color: '#111111',
+  },
+  optionLabelActive: { color: '#FFFFFF' },
+  optionUnits: {
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 13,
+    letterSpacing: 0.15,
+    color: '#F97316',
+  },
+  optionUnitsActive: { color: '#FFFFFF' },
+  optionDescription: {
+    fontFamily: 'Archivo_400Regular',
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: '#7C766F',
+  },
+  optionDescriptionActive: { color: 'rgba(255,255,255,0.78)' },
+  defaultPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 7,
+    backgroundColor: '#FFFFFF',
+  },
+  defaultPillActive: { backgroundColor: 'rgba(255,255,255,0.2)' },
+  defaultText: {
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 8,
+    letterSpacing: 0.8,
+    color: '#F97316',
+  },
+  defaultTextActive: { color: '#FFFFFF' },
+  selection: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#D2CBC4',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectionActive: { borderColor: '#FFFFFF' },
+  exampleRow: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: '#FFF1E7',
+  },
+  exampleIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  exampleCopy: { flex: 1, gap: 3 },
+  exampleLabel: { fontFamily: 'Archivo_400Regular', fontSize: 12, color: '#8B694F' },
+  exampleValue: {
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 16,
+    letterSpacing: -0.25,
+    color: '#111111',
+    fontVariant: ['tabular-nums'],
+  },
   note: { fontFamily: 'Archivo_400Regular', fontSize: 13, lineHeight: 18, color: '#AAA7AD', textAlign: 'center' },
   noteBold: { fontFamily: 'Archivo_600SemiBold', color: '#77747A' },
 });

@@ -6,14 +6,16 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
 import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
+import { useOnboardingDraft } from '@/components/onboarding/onboarding-draft';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 
 export default function NameScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ age: string; sex: string; height: string; weight: string; goal: string; activity: string; unit: string }>();
   const inputRef = useRef<TextInput>(null);
+  const { draft, updateDraft } = useOnboardingDraft();
 
-  const [name, setName]   = useState('');
+  const name = draft.name;
   const [isFocused, setFocus] = useState(false);
 
   const bg  = '#FAFAF8';
@@ -67,14 +69,14 @@ export default function NameScreen() {
                 ref={inputRef}
                 style={[s.input, { color: hi }]}
                 value={name}
-                onChangeText={setName}
+                onChangeText={(value) => updateDraft({ name: value })}
                 placeholder="Your first name"
                 placeholderTextColor={lo}
                 autoCapitalize="words"
                 returnKeyType="done"
                 onFocus={() => setFocus(true)}
                 onBlur={() => setFocus(false)}
-                onSubmitEditing={() => canContinue && router.push({ pathname: '/onboarding/health-connect', params: { ...params, name: name.trim() } })}
+                onSubmitEditing={() => canContinue && router.push({ pathname: '/onboarding/reveal', params: { ...params, name: name.trim() } })}
               />
               {/* Underline */}
               <View style={[s.underlineTrack, { backgroundColor: lo }]}>
@@ -94,7 +96,7 @@ export default function NameScreen() {
         <PrimaryCTA
           label="Continue"
           disabled={!canContinue}
-          onPress={() => router.push({ pathname: '/onboarding/health-connect', params: { ...params, name: name.trim() } })}
+          onPress={() => router.push({ pathname: '/onboarding/reveal', params: { ...params, name: name.trim() } })}
         />
       </View>
     </KeyboardAvoidingView>

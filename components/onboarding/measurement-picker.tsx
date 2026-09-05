@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { RulerPicker } from './ruler-picker';
 
 export interface UnitOption {
@@ -43,116 +43,123 @@ export function MeasurementPicker({
   unitOptions,
 }: MeasurementPickerProps) {
   return (
-    <View style={s.card}>
-      {/* ── Header ─────────────────────────────── */}
+    <View style={s.field}>
       <View style={s.header}>
         <Text style={s.headerLabel}>{label}</Text>
-        <View style={s.pill}>
+
+        <View style={s.unitToggle} accessibilityRole="radiogroup">
           {unitOptions.map((opt) => (
-            <TouchableOpacity
+            <Pressable
               key={opt.label}
               onPress={opt.onPress}
-              style={[s.pillOption, opt.active && s.pillActive]}
-              activeOpacity={0.75}
+              style={({ pressed }) => [
+                s.unitOption,
+                opt.active && s.unitOptionActive,
+                pressed && s.unitOptionPressed,
+              ]}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: opt.active }}
+              accessibilityLabel={`Use ${opt.label} for ${label.toLowerCase()}`}
             >
-              <Text style={[s.pillText, opt.active && s.pillTextActive]}>
+              <Text style={[s.unitText, opt.active && s.unitTextActive]}>
                 {opt.label}
               </Text>
-            </TouchableOpacity>
+            </Pressable>
           ))}
         </View>
       </View>
 
-      {/* ── Big number ─────────────────────────── */}
       <View style={s.numberRow}>
-        <Text style={s.number}>{displayValue}</Text>
+        <Text style={s.number} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+          {displayValue}
+        </Text>
         <Text style={s.unitLabel}>{displayUnit}</Text>
       </View>
 
-      {/* ── Ruler ──────────────────────────────── */}
-      <RulerPicker
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        majorEvery={majorEvery}
-        labelEvery={labelEvery}
-        formatLabel={formatLabel}
-        onChange={onChange}
-        isDark={false}
-        tickSpacing={tickSpacing}
-      />
+      <View style={s.rulerWell}>
+        <RulerPicker
+          value={value}
+          min={min}
+          max={max}
+          step={step}
+          majorEvery={majorEvery}
+          labelEvery={labelEvery}
+          formatLabel={formatLabel}
+          onChange={onChange}
+          isDark={false}
+          tickSpacing={tickSpacing}
+          accessibilityLabel={`${label} picker`}
+          accessibilityValueText={`${displayValue}${displayUnit ? ` ${displayUnit}` : ''}`}
+        />
+      </View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  card: {
-    backgroundColor: '#F2F1EE',
-    borderRadius:    20,
-    paddingHorizontal: 20,
-    paddingTop:      12,
-    paddingBottom:   14,
-  },
-
-  // ── Header ──────────────────────────────────
+  field: { gap: 8 },
   header: {
-    flexDirection:  'row',
-    alignItems:     'center',
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom:   8,
   },
   headerLabel: {
-    fontSize:      15,
-    fontWeight:    '500',
-    color:         '#888888',
-    letterSpacing: 0.1,
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 19,
+    color: '#111111',
+    letterSpacing: -0.4,
   },
-
-  // Unit toggle pill
-  pill: {
-    flexDirection:   'row',
-    backgroundColor: '#E5E4E0',
-    borderRadius:    50,
-    padding:         3,
+  unitToggle: {
+    flexDirection: 'row',
+    backgroundColor: '#EFEBE6',
+    borderRadius: 999,
+    padding: 3,
   },
-  pillOption: {
+  unitOption: {
+    minHeight: 34,
+    minWidth: 50,
     paddingHorizontal: 14,
-    paddingVertical:   7,
-    borderRadius:      50,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  pillActive: {
-    backgroundColor: '#111111',
-  },
-  pillText: {
-    fontSize:      13,
-    fontWeight:    '600',
-    color:         '#999999',
+  unitOptionActive: { backgroundColor: '#111111' },
+  unitOptionPressed: { opacity: 0.68 },
+  unitText: {
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 13,
+    color: '#6F6A63',
     letterSpacing: -0.1,
   },
-  pillTextActive: {
-    color: '#FFFFFF',
-  },
-
-  // ── Big number ──────────────────────────────
+  unitTextActive: { color: '#FFFFFF' },
   numberRow: {
     flexDirection: 'row',
-    alignItems:    'baseline',
-    gap:           6,
-    marginBottom:  8,
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 70,
   },
   number: {
-    fontSize:      54,
-    fontWeight:    '900',
-    letterSpacing: -2.5,
-    color:         '#111111',
-    lineHeight:    58,
+    maxWidth: '78%',
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 60,
+    letterSpacing: -3,
+    color: '#111111',
+    lineHeight: 66,
+    fontVariant: ['tabular-nums'],
   },
   unitLabel: {
-    fontSize:      22,
-    fontWeight:    '500',
-    color:         '#999999',
+    fontFamily: 'Archivo_500Medium',
+    fontSize: 18,
+    color: '#77716A',
     letterSpacing: -0.3,
-    paddingBottom: 6,
+    paddingBottom: 7,
+  },
+  rulerWell: {
+    height: 96,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: '#F1EEEA',
+    overflow: 'hidden',
   },
 });

@@ -1,28 +1,23 @@
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { Redirect, useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { NumericStepper } from '@/components/onboarding/numeric-stepper';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
 import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import { CYCLE_ENABLED } from '@/constants/features';
+import { useOnboardingDraft } from '@/components/onboarding/onboarding-draft';
 
 const MIN_DAYS = 21;
 const MAX_DAYS = 45;
-const DEFAULT_DAYS = 28;
-
 export default function CycleLengthScreen() {
-  // Held back from launch. The screen is intact but must not be reachable —
-  // including by deep link or a typed-route jump, which the entry-point gate
-  // alone does not cover. See CYCLE_FEATURE_REMOVAL_PLAN.md.
-  if (!CYCLE_ENABLED) return <Redirect href="/onboarding" />;
-
   const router = useRouter();
   const params = useLocalSearchParams<{
     name: string; age: string; sex: string; height: string; weight: string; goal: string; activity: string;
   }>();
 
-  const [days, setDays] = useState(DEFAULT_DAYS);
+  const { draft, updateDraft } = useOnboardingDraft();
+  const days = draft.cycleLength;
 
   const bg  = '#FAFAF8';
   const mid = '#888';
@@ -31,6 +26,7 @@ export default function CycleLengthScreen() {
   const slideY = useRef(new Animated.Value(24)).current;
 
   useEffect(() => {
+    if (!CYCLE_ENABLED) return;
     if (params.sex !== 'female') {
       router.replace({ pathname: '/onboarding/units', params });
       return;
@@ -40,6 +36,10 @@ export default function CycleLengthScreen() {
       Animated.timing(slideY, { toValue: 0, duration: 450, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]).start();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Held back from launch. Keep hooks unconditional so this route remains safe
+  // if the feature flag changes while the app is running.
+  if (!CYCLE_ENABLED) return <Redirect href="/onboarding" />;
 
   return (
     <View style={[s.root, { backgroundColor: bg }]}>
@@ -59,7 +59,7 @@ export default function CycleLengthScreen() {
           unit="days"
           min={MIN_DAYS}
           max={MAX_DAYS}
-          onChange={setDays}
+          onChange={(value) => updateDraft({ cycleLength: value })}
         />
 
         <Text style={[s.hint, { color: mid }]}>Not sure? 28 days is typical.</Text>

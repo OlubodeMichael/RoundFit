@@ -1,11 +1,12 @@
 import { View, StyleSheet, Animated, Easing } from 'react-native';
 import { Redirect, useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { TileGrid, Tile } from '@/components/onboarding/tile-grid';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
 import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
 import { CYCLE_ENABLED } from '@/constants/features';
+import { useOnboardingDraft } from '@/components/onboarding/onboarding-draft';
 
 const PHASES: Tile[] = [
   { id: 'menstrual',  icon: 'water-outline', label: 'Menstrual',  desc: 'On your period right now' },
@@ -15,23 +16,20 @@ const PHASES: Tile[] = [
 ];
 
 export default function CyclePhaseScreen() {
-  // Held back from launch. The screen is intact but must not be reachable —
-  // including by deep link or a typed-route jump, which the entry-point gate
-  // alone does not cover. See CYCLE_FEATURE_REMOVAL_PLAN.md.
-  if (!CYCLE_ENABLED) return <Redirect href="/onboarding" />;
-
   const router = useRouter();
   const params = useLocalSearchParams<{
     name: string; age: string; sex: string; height: string; weight: string;
     goal: string; activity: string; cycleLength: string;
   }>();
-  const [selected, setSelected] = useState<string | null>(null);
+  const { draft, updateDraft } = useOnboardingDraft();
+  const selected = draft.cyclePhase;
 
   const bg  = '#FAFAF8';
   const fade   = useRef(new Animated.Value(0)).current;
   const slideY = useRef(new Animated.Value(24)).current;
 
   useEffect(() => {
+    if (!CYCLE_ENABLED) return;
     if (params.sex !== 'female') {
       router.replace({ pathname: '/onboarding/units', params });
       return;
@@ -41,6 +39,8 @@ export default function CyclePhaseScreen() {
       Animated.timing(slideY, { toValue: 0, duration: 450, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]).start();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!CYCLE_ENABLED) return <Redirect href="/onboarding" />;
 
   return (
     <View style={[s.root, { backgroundColor: bg }]}>
@@ -53,7 +53,7 @@ export default function CyclePhaseScreen() {
         />
       </Animated.View>
 
-      <TileGrid tiles={PHASES} selected={selected} onSelect={setSelected} />
+      <TileGrid tiles={PHASES} selected={selected} onSelect={(value) => updateDraft({ cyclePhase: value })} />
 
       <View style={{ flex: 1 }} />
 
