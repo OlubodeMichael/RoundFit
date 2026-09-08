@@ -50,7 +50,6 @@ export interface SleepLogScreenViewModel {
   isToday: boolean;
   dateLabel: string;
   saveLabel: string;
-  noSleepModalDescription: string;
   hero: SleepLogHeroView;
   stages: SleepLogStagesView;
   /** Apple Health read-only experience (banner, stages, auto-saved footer). */
@@ -65,5 +64,4 @@ export interface SleepLogScreenViewModel {
   deepM: string;
   pickerVisible: boolean;
   saving: boolean;
-  noSleepModalVisible: boolean;
 }

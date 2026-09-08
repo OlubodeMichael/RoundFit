@@ -84,9 +84,8 @@ export function deriveQualityFromHealthKit(hk: HealthData): { score: number; qua
 export function isHealthKitDisplayMode(
   hk: HealthData | null,
   persistedManualLog: boolean,
-  manualMode: boolean,
 ): boolean {
-  return hk != null && !persistedManualLog && !manualMode;
+  return hk != null && !persistedManualLog;
 }
 
 /** Hero: time-asleep from HealthKit in HK mode; otherwise bed/wake window. */

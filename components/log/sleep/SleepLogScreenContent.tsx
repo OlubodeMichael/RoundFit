@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { usePalette } from '@/lib/log-theme';
 import { SleepTimePicker } from '@/components/log/SleepTimePicker';
-import { AnnouncementModal } from '@/components/ui/AnnouncementModal';
 import type { SleepLogActions } from '@/hooks/use-sleep-log';
 import type { SleepLogScreenViewModel } from '@/types/sleep-log';
 import { SleepStarFieldBackground } from '@/components/log/sleep/SleepStarFieldBackground';
@@ -113,19 +112,6 @@ export function SleepLogScreenContent({ view, actions }: SleepLogScreenContentPr
           onSave={actions.handleSave}
         />
       </ScrollView>
-
-      <AnnouncementModal
-        visible={view.noSleepModalVisible}
-        onClose={() => actions.setNoSleepModalVisible(false)}
-        onPrimary={actions.enterManualMode}
-        icon="moon"
-        iconColor={P.sleep}
-        iconBg={P.sleepSoft}
-        title="No Sleep Detected"
-        description={view.noSleepModalDescription}
-        primaryLabel="Log Manually"
-        dismissLabel="Maybe Later"
-      />
     </View>
   );
 }

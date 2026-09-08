@@ -43,8 +43,6 @@ export interface SleepLogActions {
   setPickerVisible: (v: boolean) => void;
   confirmTimePicker: (bedtime: string, wakeup: string) => void;
   handleSave: () => void;
-  setNoSleepModalVisible: (v: boolean) => void;
-  enterManualMode: () => void;
 }
 
 export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLogActions } {
@@ -75,10 +73,7 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
 
   const [dateHealthData, setDateHealthData]     = useState<HealthData | null>(null);
   const [dateRecoveryLog, setDateRecoveryLog]   = useState<RecoveryLog | null>(null);
-  // Start true: we always load on mount, and the no-sleep modal keys off this.
-  // Starting false let the modal flash visible for one render before the load
-  // ran, and the rapid visible→hidden toggle left a stuck (invisible) iOS modal
-  // layer capturing touches — the header (back / date toggle) went dead.
+  // Start true because the screen always loads the selected date on mount.
   const [loadingDate, setLoadingDate]         = useState(true);
 
   const [bedtime, setBedtime]           = useState(SLEEP_FORM_DEFAULTS.bedtime);
@@ -90,11 +85,9 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   const [notes, setNotes]               = useState('');
   const [saving, setSaving]             = useState(false);
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [noSleepModalVisible, setNoSleepModalVisible] = useState(false);
   const [qualityExpanded, setQualityExpanded] = useState(false);
   const [notesExpanded, setNotesExpanded]     = useState(false);
   const [savedSource, setSavedSource]         = useState<RecoverySource | null>(null);
-  const [manualMode, setManualMode]           = useState(false);
   const [sleepSegments, setSleepSegments]     = useState<SleepSegment[]>([]);
   const [segmentsLoading, setSegmentsLoading] = useState(false);
 
@@ -148,15 +141,14 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
   }, [activeDate, fetchHealthForDate, fetchRecoveryByDate]);
 
   const isHealthKitView = useMemo(
-    () => isHealthKitDisplayMode(hkSleep, persistedManualLog, manualMode),
-    [hkSleep, persistedManualLog, manualMode],
+    () => isHealthKitDisplayMode(hkSleep, persistedManualLog),
+    [hkSleep, persistedManualLog],
   );
 
   useEffect(() => {
     setQualityExpanded(false);
     setNotesExpanded(false);
     setSavedSource(null);
-    setManualMode(false);
 
     const initial = buildInitialFormFields(hkSleep, recoveryForDate);
     setBedtime(initial.bedtime);
@@ -176,18 +168,6 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
       setQualityScore(null);
     }
   }, [activeDate, hkSleep, recoveryForDate]);
-
-  useEffect(() => {
-    // Suppress the "no sleep" prompt when sleep already exists for the day —
-    // either from HealthKit (hkSleep) or a manual/recovery log. Manual logs never
-    // produce hkSleep, so checking hkSleep alone re-prompted after every manual save.
-    const hasLoggedSleep = !!hkSleep || (recoveryForDate?.sleep_hours ?? 0) > 0;
-    if (isToday && !loadingDate && health.isConnected && !hasLoggedSleep) {
-      setNoSleepModalVisible(true);
-    } else {
-      setNoSleepModalVisible(false);
-    }
-  }, [isToday, loadingDate, hkSleep, recoveryForDate, health.isConnected]);
 
   useEffect(() => {
     setSleepSegments([]);
@@ -287,7 +267,6 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
     isToday,
     dateLabel,
     saveLabel: isToday ? 'Save sleep log' : `Save for ${dateLabel}`,
-    noSleepModalDescription: `Apple Health didn't find any sleep data for ${dateLabel.toLowerCase()}. Enter your sleep time below to log it manually.`,
     hero: {
       bedtime,
       wakeup,
@@ -314,12 +293,11 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
     deepM,
     pickerVisible,
     saving,
-    noSleepModalVisible,
   }), [
     activeDate, isToday, dateLabel, bedtime, wakeup, hours, loadingDate, hkSleep,
     recoveryForDate, segmentsLoading, sleepSegments, stageSummary, hypnogram,
     isHealthKitView, persistedManualLog, qualityDisplay, qualityExpanded, notes,
-    notesExpanded, deepH, deepM, pickerVisible, saving, noSleepModalVisible,
+    notesExpanded, deepH, deepM, pickerVisible, saving,
   ]);
 
   const performSave = useCallback(async () => {
@@ -408,15 +386,6 @@ export function useSleepLog(): { view: SleepLogScreenViewModel; actions: SleepLo
       setPickerVisible(false);
     },
     handleSave: () => { void performSave(); },
-    setNoSleepModalVisible,
-    enterManualMode: () => {
-      setManualMode(true);
-      setSleepSegments([]);
-      setSegmentsLoading(false);
-      setQualityScore(null);
-      setQualityExpanded(true);
-      setNoSleepModalVisible(false);
-    },
   }), [navigateDate, performSave]);
 
   return { view, actions };
