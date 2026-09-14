@@ -2,25 +2,56 @@
  * RevenueCat SDK configuration.
  *
  * `configurePurchases()` is called once from `RootLayout` before the provider
- * tree mounts (see `app/_layout.tsx`). iOS-only for now — RoundFit sells through
+ * tree mounts (see `app/_layout.tsx`). iOS-only for now, RoundFit sells through
  * the App Store; Android/web return early.
  *
- * The public SDK key comes from `extra.revenueCatIosKey` (fed by `REVENUECAT_IOS_KEY`
- * in `app.config.js`), matching how every other secret reaches the client here.
- * It must be an App Store key (`appl_…`); a Test Store key cannot validate real
- * StoreKit purchases. Configuration is a no-op when the key is missing.
+ * Two stores are wired:
+ *
+ *  - **App Store** (`extra.revenueCatIosKey`, from `REVENUECAT_IOS_KEY`, an
+ *    `appl_…` key). Real StoreKit purchases. Requires the products to be
+ *    fetchable from App Store Connect, which needs an approved (or at least
+ *    submitted) IAP, an active Paid Applications Agreement, and a real device.
+ *  - **Test Store** (`extra.revenueCatTestStoreKey`, from
+ *    `REVENUECAT_TEST_STORE_KEY`, a `test_…` key). RevenueCat's simulated store:
+ *    offerings load and purchases complete without App Store Connect, so the
+ *    paywall and every entitlement path are testable in the simulator and in
+ *    dev builds while Apple review is pending.
+ *
+ * `USE_TEST_STORE` in `constants/subscription.ts` picks between them. A Test
+ * Store key cannot validate real StoreKit purchases, so that flag MUST be false
+ * before any build that goes to real users. Configuration is a no-op when the
+ * selected key is missing.
  */
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 import Purchases, { LOG_LEVEL } from "react-native-purchases";
 
-const IOS_KEY = Constants.expoConfig?.extra?.revenueCatIosKey as string | undefined;
+import { USE_TEST_STORE } from "@/constants/subscription";
+
+const APP_STORE_KEY = Constants.expoConfig?.extra?.revenueCatIosKey as string | undefined;
+const TEST_STORE_KEY = Constants.expoConfig?.extra?.revenueCatTestStoreKey as
+  | string
+  | undefined;
+
+/** Which RevenueCat store the SDK is talking to, once configured. */
+export type PurchasesStore = "app_store" | "test_store";
 
 let configured = false;
+let activeStore: PurchasesStore | null = null;
 
 /** True once `Purchases.configure` has run with a usable key. */
 export function isPurchasesConfigured(): boolean {
   return configured;
+}
+
+/** The store the SDK was configured against, or null before configuration. */
+export function purchasesStore(): PurchasesStore | null {
+  return activeStore;
+}
+
+/** True when the SDK is running against the simulated Test Store. */
+export function isTestStore(): boolean {
+  return activeStore === "test_store";
 }
 
 /**
@@ -30,18 +61,46 @@ export function isPurchasesConfigured(): boolean {
 export function configurePurchases(): boolean {
   if (configured) return true;
   if (Platform.OS !== "ios") return false;
-  if (!IOS_KEY) {
+
+  // Test Store first when the flag is on. Falling back to the App Store key
+  // rather than disabling purchases keeps a build usable if the test key is
+  // missing from the environment, which is what happens on EAS builds until
+  // REVENUECAT_TEST_STORE_KEY is added there.
+  const store: PurchasesStore =
+    USE_TEST_STORE && TEST_STORE_KEY ? "test_store" : "app_store";
+  const apiKey = store === "test_store" ? TEST_STORE_KEY : APP_STORE_KEY;
+
+  if (!apiKey) {
     if (__DEV__) {
       console.warn(
-        "[purchases] extra.revenueCatIosKey is not set — RevenueCat is disabled. " +
-          "Set REVENUECAT_IOS_KEY to the App Store public SDK key (appl_…).",
+        "[purchases] no RevenueCat key configured, RevenueCat is disabled. " +
+          "Set REVENUECAT_IOS_KEY (appl_…) or, with USE_TEST_STORE on, " +
+          "REVENUECAT_TEST_STORE_KEY (test_…).",
       );
     }
     return false;
   }
 
+  if (USE_TEST_STORE && !TEST_STORE_KEY && __DEV__) {
+    console.warn(
+      "[purchases] USE_TEST_STORE is on but extra.revenueCatTestStoreKey is " +
+        "unset, falling back to the App Store key.",
+    );
+  }
+
   if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.WARN);
-  Purchases.configure({ apiKey: IOS_KEY });
+  Purchases.configure({ apiKey });
   configured = true;
+  activeStore = store;
+
+  // Loud on purpose, including in release builds: a Test Store binary takes no
+  // real money and grants entitlements to anyone, so it must never ship quietly.
+  if (store === "test_store") {
+    console.warn(
+      "[purchases] RevenueCat is running against the TEST STORE. " +
+        "Purchases are simulated. Set USE_TEST_STORE to false before shipping.",
+    );
+  }
+
   return true;
 }

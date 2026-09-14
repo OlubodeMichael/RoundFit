@@ -14,7 +14,6 @@ export default function ProfileLayout() {
       <Stack.Screen name="cycle" />
       <Stack.Screen name="notifications" />
       <Stack.Screen name="subscription" />
-      <Stack.Screen name="paywall" />
       <Stack.Screen name="help" />
       <Stack.Screen name="wearable" />
     </Stack>

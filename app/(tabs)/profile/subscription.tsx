@@ -42,7 +42,7 @@ export default function SubscriptionScreen() {
               color="#F59E0B"
               label="Upgrade to Premium"
               P={P}
-              onPress={() => router.push('/(tabs)/profile/paywall')}
+              onPress={() => router.push({ pathname: '/paywall', params: { source: 'settings' } })}
             />
           </>
         )}

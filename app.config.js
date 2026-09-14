@@ -129,6 +129,7 @@ module.exports = {
       apiUrl: process.env.API_URL,
       apiKey: process.env.API_KEY,
       revenueCatIosKey: process.env.REVENUECAT_IOS_KEY,
+      revenueCatTestStoreKey: process.env.REVENUECAT_TEST_STORE_KEY,
     },
   },
 };

@@ -22,6 +22,26 @@
 export const ENTITLEMENT_ID = "Roundfit Pro";
 
 /**
+ * Use RevenueCat's simulated **Test Store** instead of the real App Store.
+ *
+ * ON while the App Store products sit in `WAITING_FOR_REVIEW`: StoreKit returns
+ * no products for them yet, so `getOfferings()` fails with "None of the products
+ * registered in the RevenueCat dashboard could be fetched from App Store Connect"
+ * and the paywall has no plans to show. The Test Store serves the same offering
+ * (`RoundFit Pro`, with `$rc_annual` + `$rc_monthly`) from RevenueCat's own
+ * backend, so offerings load, purchases complete, and the `Roundfit Pro`
+ * entitlement turns on, all without App Store Connect or a real device.
+ *
+ * ⚠️ MUST be `false` before any build that reaches real users. Test Store
+ * purchases are simulated: they take no money and would hand every installer a
+ * free entitlement. `configurePurchases()` logs a release-visible warning while
+ * this is on, and SUBMISSION_CHECKLIST.md tracks flipping it back.
+ *
+ * Flip to `false` once the IAPs are approved in App Store Connect.
+ */
+export const USE_TEST_STORE = true;
+
+/**
  * Master switch for the hard paywall gate.
  *
  * **OFF until Phase 0 of SUBSCRIPTION_PLAN.md is complete** — i.e. real App Store

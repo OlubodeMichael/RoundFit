@@ -1,109 +1,185 @@
-/**
- * Hard paywall — renders the RevenueCat-hosted paywall (see SUBSCRIPTION_PLAN.md §6).
- *
- * The paywall design lives in the RevenueCat dashboard and is attached to the
- * **current offering** (`RoundFit Pro` → paywall `pw4dc9a9e35bf64396`), so the
- * layout, copy and prices are all remote-configurable without shipping a build.
- *
- * NOTE: this supersedes SUBSCRIPTION_PLAN §6's "custom RN screen, not
- * react-native-purchases-ui" decision — the RC paywall was designed to match the
- * brand, so the A/B-without-shipping upside now wins.
- *
- * Two mount points, two exits:
- *  - Pre-signup (from onboarding `reveal`, no account yet) → on to sign-up,
- *    forwarding the collected onboarding params.
- *  - Post-auth hard gate (signed in, entitlement lapsed) → back into the app.
- *
- * Apple 3.1.2 items (prices, trial terms, auto-renew, Restore, Terms, Privacy)
- * are the responsibility of the *dashboard* paywall design — verify them there.
- */
-import { hasActiveUserSession, useAuth } from "@/context/auth-context";
-import { useSubscription } from "@/context/subscription-context";
-import { isPurchasesConfigured } from "@/lib/purchases";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { usePostHog } from "posthog-react-native";
-import { useEffect } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import RevenueCatUI from "react-native-purchases-ui";
+import { RoundFitPaywall, type PaywallPlan } from '@/components/paywall/RoundFitPaywall';
+import { hasActiveUserSession, useAuth } from '@/context/auth-context';
+import { useSubscription } from '@/context/subscription-context';
+import { isPurchasesConfigured } from '@/lib/purchases';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { usePostHog } from 'posthog-react-native';
+import { useEffect, useMemo, useState } from 'react';
+import Purchases, {
+  INTRO_ELIGIBILITY_STATUS,
+  PACKAGE_TYPE,
+  type PurchasesPackage,
+} from 'react-native-purchases';
 
-export default function HardPaywallScreen() {
-  const router = useRouter();
-  const posthog = usePostHog();
-  const params = useLocalSearchParams();
-  const { status: authStatus, user } = useAuth();
-  const { refresh } = useSubscription();
-
-  const signedIn = hasActiveUserSession(authStatus, user);
-  const configured = isPurchasesConfigured();
-
-  const proceed = () => {
-    if (signedIn) router.replace("/(tabs)");
-    else router.push({ pathname: "/auth/sign-up-options", params } as never);
-  };
-
-  useEffect(() => {
-    posthog.capture("paywall_viewed", {
-      source: signedIn ? "trial_expired" : "onboarding",
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // No SDK key (or non-iOS) → RevenueCatUI cannot render. Never a dead screen
-  // (SUBSCRIPTION_PLAN §10.4): give an explicit state and a way forward.
-  if (!configured) {
-    return (
-      <View style={s.fallback}>
-        <Text style={s.fallbackTitle}>Plans are unavailable</Text>
-        <Text style={s.fallbackBody}>
-          Subscriptions aren&apos;t configured on this build. Set
-          REVENUECAT_IOS_KEY to load the paywall.
-        </Text>
-        <TouchableOpacity style={s.fallbackCta} onPress={proceed} activeOpacity={0.9}>
-          <Text style={s.fallbackCtaText}>Continue</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  return (
-    <RevenueCatUI.Paywall
-      onPurchaseCompleted={async () => {
-        posthog.capture("purchase_completed");
-        await refresh();
-        proceed();
-      }}
-      onPurchaseError={({ error }) => {
-        posthog.capture("purchase_failed", { reason: error?.message ?? "unknown" });
-      }}
-      onRestoreCompleted={async () => {
-        posthog.capture("restore_completed");
-        await refresh();
-        proceed();
-      }}
-      // The dashboard paywall carries a close (X) — Apple 3.1.2 requires an exit.
-      // Pre-signup that continues to account creation; once PAYWALL_ENABLED is on,
-      // the router gate re-asserts the lock for a signed-in user with no entitlement.
-      onDismiss={proceed}
-    />
+function isUserCancelled(error: unknown): boolean {
+  return !!(
+    error &&
+    typeof error === 'object' &&
+    'userCancelled' in error &&
+    error.userCancelled
   );
 }
 
-const s = StyleSheet.create({
-  fallback: {
-    flex: 1,
-    backgroundColor: "#FAF7F2",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-    gap: 12,
-  },
-  fallbackTitle: { color: "#0C0C0C", fontSize: 20, fontWeight: "800" },
-  fallbackBody: { color: "#6B6B6B", fontSize: 14, lineHeight: 20, textAlign: "center" },
-  fallbackCta: {
-    marginTop: 12,
-    backgroundColor: "#0C0C0C",
-    borderRadius: 28,
-    paddingVertical: 14,
-    paddingHorizontal: 40,
-  },
-  fallbackCtaText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-});
+function packageForType(
+  packages: PurchasesPackage[],
+  type: PACKAGE_TYPE,
+  identifierHint: string,
+) {
+  return (
+    packages.find((pkg) => pkg.packageType === type) ??
+    packages.find((pkg) => pkg.identifier.toLowerCase().includes(identifierHint))
+  );
+}
+
+export default function HardPaywallScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams<{ source?: string }>();
+  const posthog = usePostHog();
+  const { status: authStatus, user } = useAuth();
+  const { status, offerings, purchase, restore } = useSubscription();
+  const [purchasing, setPurchasing] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [annualTrialEligible, setAnnualTrialEligible] = useState(false);
+
+  const signedIn = hasActiveUserSession(authStatus, user);
+  const openedFromSettings = params.source === 'settings';
+  const packages = useMemo(
+    () => offerings?.current?.availablePackages ?? [],
+    [offerings],
+  );
+  const annual = useMemo(
+    () => packageForType(packages, PACKAGE_TYPE.ANNUAL, 'annual'),
+    [packages],
+  );
+  const monthly = useMemo(
+    () => packageForType(packages, PACKAGE_TYPE.MONTHLY, 'monthly'),
+    [packages],
+  );
+
+  const proceed = () => {
+    if (openedFromSettings) {
+      router.back();
+      return;
+    }
+    if (signedIn) router.replace('/(tabs)');
+    else router.push({ pathname: '/auth/sign-up-options', params } as never);
+  };
+
+  useEffect(() => {
+    posthog.capture('paywall_viewed', {
+      source: openedFromSettings ? 'settings' : signedIn ? 'trial_expired' : 'onboarding',
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!annual || !isPurchasesConfigured()) {
+      setAnnualTrialEligible(false);
+      return;
+    }
+
+    let cancelled = false;
+    Purchases.checkTrialOrIntroductoryPriceEligibility([annual.product.identifier])
+      .then((eligibility) => {
+        if (cancelled) return;
+        setAnnualTrialEligible(
+          eligibility[annual.product.identifier]?.status ===
+            INTRO_ELIGIBILITY_STATUS.INTRO_ELIGIBILITY_STATUS_ELIGIBLE,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setAnnualTrialEligible(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [annual]);
+
+  const savings = useMemo(() => {
+    if (!annual || !monthly || monthly.product.price <= 0) return null;
+    const percent = Math.round((1 - annual.product.price / (monthly.product.price * 12)) * 100);
+    return percent > 0 ? `SAVE ${percent}%` : null;
+  }, [annual, monthly]);
+
+  const handlePurchase = async (plan: PaywallPlan) => {
+    const selectedPackage = plan === 'annual' ? annual : monthly;
+    if (!selectedPackage) {
+      setMessage('That plan is temporarily unavailable.');
+      return;
+    }
+
+    setPurchasing(true);
+    setMessage(null);
+    posthog.capture('purchase_started', { plan, product_id: selectedPackage.product.identifier });
+
+    try {
+      const entitled = await purchase(selectedPackage);
+      if (!entitled) {
+        setMessage('We could not confirm your subscription. Please try again.');
+        return;
+      }
+      posthog.capture('purchase_completed', {
+        plan,
+        product_id: selectedPackage.product.identifier,
+        price: selectedPackage.product.price,
+        currency: selectedPackage.product.currencyCode,
+      });
+      proceed();
+    } catch (error) {
+      if (!isUserCancelled(error)) {
+        posthog.capture('purchase_failed', {
+          plan,
+          reason: error instanceof Error ? error.message : 'unknown',
+        });
+        setMessage('Purchase could not be completed. Please try again.');
+      }
+    } finally {
+      setPurchasing(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    setPurchasing(true);
+    setMessage(null);
+    try {
+      const restored = await restore();
+      posthog.capture('restore_completed', { found: restored });
+      if (restored) proceed();
+      else setMessage('No active purchase was found.');
+    } catch (error) {
+      posthog.capture('restore_failed', {
+        reason: error instanceof Error ? error.message : 'unknown',
+      });
+      setMessage('Restore could not be completed. Please try again.');
+    } finally {
+      setPurchasing(false);
+    }
+  };
+
+  const plansUnavailable =
+    !isPurchasesConfigured() || status === 'loading' || !annual || !monthly;
+
+  const unavailableMessage = !isPurchasesConfigured()
+    ? 'Subscriptions are unavailable on this build.'
+    : status === 'loading' || !offerings
+      ? 'Loading plans…'
+      : !annual || !monthly
+        ? 'Plans are temporarily unavailable.'
+        : null;
+
+  return (
+    <RoundFitPaywall
+      annualPrice={annual?.product.priceString ?? '—'}
+      annualMonthlyPrice={annual?.product.pricePerMonthString}
+      monthlyPrice={monthly?.product.priceString ?? '—'}
+      annualBadge={savings ?? undefined}
+      annualHasTrial={annualTrialEligible}
+      purchasing={purchasing}
+      purchaseDisabled={plansUnavailable}
+      message={message ?? unavailableMessage}
+      onClose={proceed}
+      onContinue={(plan) => void handlePurchase(plan)}
+      onRestore={() => void handleRestore()}
+    />
+  );
+}

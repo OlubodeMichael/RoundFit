@@ -226,6 +226,10 @@ function AppNavigator() {
           {/* Hard paywall: not swipe-dismissible — the only exits are purchase or
               the escape hatches in the screen footer (Restore/Sign out/Delete). */}
           <Stack.Screen name="paywall" options={{ gestureEnabled: false }} />
+          <Stack.Screen
+            name="new-paywall"
+            options={{ animation: "slide_from_bottom", presentation: "fullScreenModal" }}
+          />
           <Stack.Screen name="modal" options={{ presentation: "modal" }} />
           <Stack.Screen
             name="edit-profile"

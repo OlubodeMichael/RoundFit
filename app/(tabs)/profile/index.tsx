@@ -8,6 +8,8 @@ import {
   HeartPulse,
   HelpCircle,
   LogOut,
+  PanelsTopLeft,
+  Sparkles,
   Shield,
   ShieldCheck,
   Sun,
@@ -136,6 +138,25 @@ export default function ProfileScreen() {
         <ProfileRow P={P} icon={FileText} label="Terms of Service"
           onPress={() => WebBrowser.openBrowserAsync(TERMS_URL)} />
       </ProfileGroup>
+
+      {/* Internal paywall preview — stripped from production builds. */}
+      {__DEV__ && (
+        <ProfileGroup P={P} title="Paywall">
+          <ProfileRow
+            P={P}
+            icon={PanelsTopLeft}
+            label="Official Paywall"
+            onPress={() => router.push({ pathname: '/paywall', params: { source: 'settings' } })}
+          />
+          <ProfileDivider P={P} />
+          <ProfileRow
+            P={P}
+            icon={Sparkles}
+            label="New Paywall Design"
+            onPress={() => router.push('/new-paywall')}
+          />
+        </ProfileGroup>
+      )}
 
       {/* ── Session ───────────────────────────────────────────────────── */}
       <ProfileGroup P={P} title="Session">
