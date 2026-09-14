@@ -21,8 +21,8 @@ import type { HealthData } from '@/context/health-context';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
-const BOTTOM_SLOT_HEIGHT = 13;
-const HEADER_ICON_SIZE = 26;
+const BOTTOM_SLOT_HEIGHT = 17;
+const HEADER_ICON_SIZE = 19;
 
 /** Home palette — includes budget + movement metric fields. */
 export type DailyBudgetMetricsPalette = ActivityCardPalette & {
@@ -173,14 +173,17 @@ function BudgetMetricCard({
       layout="metric"
       delay={delay}
       style={style}
+      contentStyle={s.metricCard}
     >
       <View style={s.cardHeader}>
         <View style={s.headerMain}>
-          <Ionicons name={icon} size={HEADER_ICON_SIZE} color={accent.iconBg} />
+          <View style={[s.iconWell, { backgroundColor: accent.iconSoft }]}>
+            <Ionicons name={icon} size={HEADER_ICON_SIZE} color={accent.iconBg} />
+          </View>
           <Text style={[s.label, { color: P.textDim }]}>{label}</Text>
         </View>
         {showTrail ? (
-          <View style={s.headerTrail}>
+          <View style={[s.headerTrail, { backgroundColor: accent.iconSoft }]}>
             {trailLabel ? (
               <Text
                 style={[s.headerMeta, { color: P.textFaint }]}
@@ -243,6 +246,13 @@ const s = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  metricCard: {
+    minHeight: 134,
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    paddingTop: 13,
+    paddingBottom: 14,
+  },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -252,7 +262,7 @@ const s = StyleSheet.create({
   headerMain: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 9,
     flexShrink: 1,
     minWidth: 0,
   },
@@ -262,6 +272,16 @@ const s = StyleSheet.create({
     gap: 4,
     flexShrink: 0,
     maxWidth: '48%',
+    minHeight: 26,
+    paddingHorizontal: 9,
+    borderRadius: 13,
+  },
+  iconWell: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerMeta: {
     fontSize: 9,
@@ -269,42 +289,42 @@ const s = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   label: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: -0.1,
+    fontFamily: 'Archivo_600SemiBold',
+    fontSize: 12,
+    letterSpacing: -0.15,
   },
   trailPct: {
-    fontSize: 11,
-    fontWeight: '800',
+    fontFamily: 'Archivo_700Bold',
+    fontSize: 10,
     fontVariant: ['tabular-nums'],
   },
   cardBody: {
     flex: 1,
     justifyContent: 'flex-end',
-    minHeight: 48,
+    minHeight: 54,
   },
   bottomSlot: {
     height: BOTTOM_SLOT_HEIGHT,
     justifyContent: 'flex-end',
   },
   value: {
-    fontSize: 24,
-    lineHeight: 26,
-    letterSpacing: -0.8,
+    fontSize: 32,
+    lineHeight: 34,
+    letterSpacing: -1,
     fontVariant: ['tabular-nums'],
   },
   sub: {
-    fontSize: 10,
-    fontWeight: '500',
-    marginTop: 2,
+    fontFamily: 'Archivo_500Medium',
+    fontSize: 10.5,
+    marginTop: 1,
   },
   track: {
-    height: 5,
-    borderRadius: 3,
+    height: 7,
+    borderRadius: 4,
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: 4,
   },
 });

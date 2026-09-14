@@ -19,7 +19,7 @@ import {
     type DistanceUnit,
 } from "@/utils/units";
 
-const HEADER_ICON_SIZE = 26;
+const HEADER_ICON_SIZE = 19;
 
 export interface ActivityCardPalette {
   text: string;
@@ -102,10 +102,13 @@ export function StepsMetricCard({
       layout="metric"
       delay={delay}
       style={style}
+      contentStyle={s.metricCard}
     >
       <View style={s.cardHeader}>
         <View style={s.headerMain}>
-          <Ionicons name="footsteps" size={HEADER_ICON_SIZE} color={accent.iconBg} />
+          <View style={[s.iconWell, { backgroundColor: accent.iconSoft }]}>
+            <Ionicons name="footsteps" size={HEADER_ICON_SIZE} color={accent.iconBg} />
+          </View>
           <Text style={[s.label, { color: P.textDim }]} numberOfLines={1}>
             Steps
           </Text>
@@ -113,7 +116,9 @@ export function StepsMetricCard({
         {goalComplete ? (
           <Ionicons name="checkmark-circle" size={16} color={P.protein} />
         ) : (
-          <Text style={[s.trailPct, { color: stepColor }]}>{pctLabel}%</Text>
+          <View style={[s.statusPill, { backgroundColor: accent.iconSoft }]}>
+            <Text style={[s.trailPct, { color: stepColor }]}>{pctLabel}%</Text>
+          </View>
         )}
       </View>
 
@@ -181,15 +186,21 @@ export function DistanceMetricCard({
       layout="metric"
       delay={delay}
       style={style}
+      contentStyle={s.metricCard}
     >
       <View style={s.cardHeader}>
         <View style={s.headerMain}>
-          <Ionicons
-            name="navigate"
-            size={HEADER_ICON_SIZE}
-            color={accent.iconBg}
-          />
+          <View style={[s.iconWell, { backgroundColor: accent.iconSoft }]}>
+            <Ionicons
+              name="navigate"
+              size={HEADER_ICON_SIZE}
+              color={accent.iconBg}
+            />
+          </View>
           <Text style={[s.label, { color: P.textDim }]}>Distance</Text>
+        </View>
+        <View style={[s.statusPill, { backgroundColor: accent.iconSoft }]}>
+          <Text style={[s.statusText, { color: accent.iconBg }]}>TODAY</Text>
         </View>
       </View>
 
@@ -240,13 +251,20 @@ function valueFont(isDark: boolean): string {
 }
 
 /** Reserves equal space under the value block on both metric cards. */
-const METRIC_BOTTOM_SLOT_HEIGHT = 13;
+const METRIC_BOTTOM_SLOT_HEIGHT = 17;
 
 const s = StyleSheet.create({
   metricsRow: {
     flexDirection: "row",
     alignItems: "stretch",
     gap: 10,
+  },
+  metricCard: {
+    minHeight: 134,
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    paddingTop: 13,
+    paddingBottom: 14,
   },
   cardHeader: {
     flexDirection: "row",
@@ -258,13 +276,32 @@ const s = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 9,
     minWidth: 0,
+  },
+  iconWell: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusPill: {
+    minHeight: 26,
+    paddingHorizontal: 9,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusText: {
+    fontFamily: "Archivo_700Bold",
+    fontSize: 8,
+    letterSpacing: 0.7,
   },
   cardBody: {
     flex: 1,
     justifyContent: "flex-end",
-    minHeight: 44,
+    minHeight: 54,
     minWidth: 0,
   },
   bottomSlot: {
@@ -273,14 +310,14 @@ const s = StyleSheet.create({
   },
   label: {
     flex: 1,
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: -0.1,
+    fontFamily: "Archivo_600SemiBold",
+    fontSize: 12,
+    letterSpacing: -0.15,
   },
   value: {
-    fontSize: 24,
-    lineHeight: 26,
-    letterSpacing: -0.8,
+    fontSize: 32,
+    lineHeight: 34,
+    letterSpacing: -1,
     fontVariant: ["tabular-nums"],
   },
   valueRow: {
@@ -290,29 +327,29 @@ const s = StyleSheet.create({
     flexWrap: "wrap",
   },
   unit: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Archivo_600SemiBold",
+    fontSize: 12,
     letterSpacing: -0.1,
   },
   sub: {
-    fontSize: 10,
-    fontWeight: "500",
-    marginTop: 2,
+    fontFamily: "Archivo_500Medium",
+    fontSize: 10.5,
+    marginTop: 1,
     fontVariant: ["tabular-nums"],
   },
   track: {
-    height: 5,
-    borderRadius: 3,
+    height: 7,
+    borderRadius: 4,
     overflow: "hidden",
   },
   fill: {
     height: "100%",
-    borderRadius: 3,
+    borderRadius: 4,
   },
   trailPct: {
     flexShrink: 0,
-    fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Archivo_700Bold",
+    fontSize: 10,
     fontVariant: ["tabular-nums"],
   },
 });
