@@ -11,6 +11,7 @@ import type {
 } from "@/components/log/workout/types";
 import { AppModal } from "@/components/ui/AppModal";
 import { useToast } from "@/components/ui/Toast";
+import { useAuth } from "@/context/auth-context";
 import type { Workout } from "@/context/workout-context";
 import {
     UI_INTENSITY_MAP,
@@ -19,7 +20,6 @@ import {
 } from "@/context/workout-context";
 import {
     DayNavigator,
-    PrimaryButton,
     usePalette,
     useScreenPadding,
 } from "@/lib/log-theme";
@@ -37,6 +37,10 @@ import { MuscleGroupBanner } from "@/components/log/workout/MuscleGroupBanner";
 import { ExerciseOptionGroup } from "@/components/log/workout/ExerciseOptionGroup";
 import { ExerciseCustomAddRow } from "@/components/log/workout/ExerciseCustomAddRow";
 import { ExercisePickerFilters } from "@/components/log/workout/ExercisePickerFilters";
+import {
+  ExerciseSetsEditorModal,
+  type ExerciseSetDraft,
+} from "@/components/log/workout/ExerciseSetsEditorModal";
 import { useExerciseLibrary } from "@/hooks/use-exercise-library";
 import { getCatalogEntryById, getBackendTypeForCatalogId } from "@/config/workout-catalog";
 import { useWorkoutSession } from "@/context/workout-session-context";
@@ -44,6 +48,13 @@ import { useWorkoutSessionLiveActivity } from "@/hooks/use-workout-session-live-
 import { useWorkoutHistory } from "@/hooks/use-workout-history";
 import { useWorkoutImportReview } from "@/hooks/use-workout-import-review";
 import { usePendingWorkoutImports } from "@/hooks/use-pending-workout-imports";
+import { useUnits } from "@/hooks/use-units";
+import { formatWeightKgField, storedWeightToKg } from "@/utils/body-units";
+import { consumeWorkoutEditId } from "@/utils/pending-workout-edit";
+import {
+  fetchWorkoutSetsCached,
+  findWorkoutByIdCached,
+} from "@/utils/workout-cache";
 import { addLocalCalendarDays, getLocalDateString } from "@/utils/date";
 import type { WorkoutLauncherIntent, WorkoutSelection } from "@/types/workout-session";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -72,16 +83,6 @@ const INTENSITY_CAL_RATE = {
   hard: CALORIES_PER_MINUTE.high,
 } as const;
 
-// Colors cycle across exercises within a workout
-const EX_COLORS = [
-  "#22D3EE",
-  "#34D399",
-  "#F97316",
-  "#F59E0B",
-  "#A78BFA",
-  "#F472B6",
-] as const;
-
 function newSet(): SetRow {
   return {
     id: `s${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -107,6 +108,7 @@ function LogWorkoutSheet({
   const insets = useSafeAreaInsets();
   const toast = useToast();
   const posthog = usePostHog();
+  const units = useUnits();
   const { logWorkout, logSets, deleteWorkout } = useWorkouts();
 
   const [page, setPage] = useState<SheetPage>("form");
@@ -120,6 +122,7 @@ function LogWorkoutSheet({
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
+  const [editingExercise, setEditingExercise] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) setPage("form");
@@ -149,7 +152,10 @@ function LogWorkoutSheet({
         grouped[s.exercise].push({
           id: s.id,
           reps: String(s.reps ?? ""),
-          weight: String(s.weight ?? ""),
+          weight:
+            s.weight != null
+              ? formatWeightKgField(storedWeightToKg(s.weight, s.weight_unit), units.profileUnit)
+              : "",
         });
       }
       setSelected(
@@ -221,51 +227,6 @@ function LogWorkoutSheet({
     [removeCustomExercise],
   );
 
-  const addSet = useCallback(
-    (n: string) =>
-      setSelected((prev) =>
-        prev.map((e) =>
-          e.name === n ? { ...e, sets: [...e.sets, newSet()] } : e,
-        ),
-      ),
-    [],
-  );
-  const removeSet = useCallback(
-    (n: string, id: string) =>
-      setSelected((prev) =>
-        prev.map((e) =>
-          e.name === n
-            ? {
-                ...e,
-                sets:
-                  e.sets.length === 1
-                    ? e.sets
-                    : e.sets.filter((s) => s.id !== id),
-              }
-            : e,
-        ),
-      ),
-    [],
-  );
-  const updateSet = useCallback(
-    (n: string, id: string, p: Partial<SetRow>) =>
-      setSelected((prev) =>
-        prev.map((e) =>
-          e.name === n
-            ? {
-                ...e,
-                sets: e.sets.map((s) => (s.id === id ? { ...s, ...p } : s)),
-              }
-            : e,
-        ),
-      ),
-    [],
-  );
-  const removeExercise = useCallback(
-    (n: string) => setSelected((prev) => prev.filter((e) => e.name !== n)),
-    [],
-  );
-
   const resetForm = useCallback(() => {
     setType("strength");
     setHours("0");
@@ -276,6 +237,7 @@ function LogWorkoutSheet({
     setSelected([]);
     setActiveCategory("all");
     setNotesOpen(false);
+    setEditingExercise(null);
     setPage("form");
   }, []);
 
@@ -286,6 +248,21 @@ function LogWorkoutSheet({
     }
     if (isStrength && selected.length === 0) {
       toast.warning("No exercises", "Pick at least one exercise.");
+      return;
+    }
+    if (
+      isStrength &&
+      selected.some(
+        (exercise) =>
+          exercise.sets.length === 0 ||
+          exercise.sets.some((set) => {
+            const reps = parseInt(set.reps, 10);
+            const weight = parseFloat(set.weight);
+            return !Number.isFinite(reps) || reps <= 0 || !Number.isFinite(weight) || weight < 0;
+          }),
+      )
+    ) {
+      toast.warning("Incomplete sets", "Add reps and weight for every set.");
       return;
     }
     const label =
@@ -308,7 +285,9 @@ function LogWorkoutSheet({
               exercise: ex.name,
               sets: 1,
               reps: parseInt(s.reps) || undefined,
-              weight: parseFloat(s.weight) || undefined,
+              weight: s.weight.trim() === ""
+                ? undefined
+                : units.toKg(parseFloat(s.weight), units.weightUnit),
               weight_unit: "kg" as const,
             })),
           ),
@@ -344,38 +323,31 @@ function LogWorkoutSheet({
       sheetHeight="full"
       openAnimation="ease"
       dismissGestureArea="handle"
+      keyboardAvoiding
     >
-      {/* ── Inline header ── */}
-      <View style={[sh.header, { borderBottomColor: P.hair }]}>
+      {/* Exercise picker keeps a compact navigation header. */}
+      {page === "exercises" && <View style={[sh.header, { borderBottomColor: P.hair }]}>
         <Pressable
-          onPress={page === "exercises" ? () => setPage("form") : onClose}
+          onPress={() => setPage("form")}
           hitSlop={12}
           style={[sh.navBtn, { backgroundColor: P.sunken }]}
         >
           <Ionicons
-            name={page === "exercises" ? "chevron-back" : "close"}
+            name="chevron-back"
             size={16}
             color={P.text}
           />
         </Pressable>
         <Text style={[sh.sheetTitle, { color: P.text }]}>
-          {page === "exercises"
-            ? "SELECT EXERCISES"
-            : editWorkout
-              ? "EDIT WORKOUT"
-              : "LOG WORKOUT"}
+          Select exercises
         </Text>
-        {page === "exercises" ? (
-          <Pressable
-            onPress={() => setPage("form")}
-            style={[sh.doneSmall, { backgroundColor: P.workout }]}
-          >
-            <Text style={sh.doneSmallText}>Done</Text>
-          </Pressable>
-        ) : (
-          <View style={sh.navBtn} />
-        )}
-      </View>
+        <Pressable
+          onPress={() => setPage("form")}
+          style={[sh.doneSmall, { backgroundColor: P.workout }]}
+        >
+          <Text style={sh.doneSmallText}>Done</Text>
+        </Pressable>
+      </View>}
 
       {/* ── EXERCISE PICKER ── */}
       {page === "exercises" && (
@@ -499,11 +471,36 @@ function LogWorkoutSheet({
 
       {/* ── FORM ── */}
       {page === "form" && (
-        <ScrollView
-          contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={fp.formRoot}>
+          <ScrollView
+            automaticallyAdjustKeyboardInsets
+            contentContainerStyle={fp.scrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+          <View style={fp.formHeader}>
+            <View style={fp.formHeaderCopy}>
+              <Text style={[fp.formEyebrow, { color: P.workout }]}>
+                {editWorkout ? "EDIT WORKOUT" : "NEW WORKOUT"}
+              </Text>
+              <Text style={[fp.formTitle, { color: P.text }]}>
+                {editWorkout ? "Workout details" : "Log manually"}
+              </Text>
+            </View>
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              hitSlop={10}
+              style={({ pressed }) => [
+                fp.formClose,
+                { backgroundColor: P.sunken },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Ionicons name="close" size={17} color={P.textDim} />
+            </Pressable>
+          </View>
           {/* Activity type — horizontal scroll */}
           <View style={fp.section}>
             <Text style={[fp.sectionLabel, { color: P.textFaint }]}>
@@ -640,180 +637,19 @@ function LogWorkoutSheet({
               )}
             </View>
 
-            {/* Selected exercise cards — scoreboard set editor */}
-            {selected.map((ex, exIdx) => (
-              <View
-                key={ex.name}
-                style={[
-                  fp.exCard,
-                  { backgroundColor: P.card, borderColor: P.cardEdge },
-                ]}
-              >
-                {/* Exercise header */}
-                <View style={[fp.exCardHead, { borderBottomColor: P.hair }]}>
-                  <View
-                    style={[
-                      fp.exColorBar,
-                      { backgroundColor: EX_COLORS[exIdx % EX_COLORS.length] },
-                    ]}
+            {selected.length > 0 && (
+              <View style={[fp.exerciseList, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
+                {selected.map((exercise, index) => (
+                  <EditExerciseSummaryRow
+                    key={exercise.name}
+                    exercise={exercise}
+                    showDivider={index > 0}
+                    weightUnit={units.weightUnit}
+                    onPress={() => setEditingExercise(exercise.name)}
                   />
-                  <Text style={[fp.exCardName, { color: P.text }]}>
-                    {ex.name.toUpperCase()}
-                  </Text>
-                  <Pressable
-                    onPress={() => removeExercise(ex.name)}
-                    hitSlop={10}
-                    style={[fp.exRemove, { backgroundColor: P.sunken }]}
-                  >
-                    <Ionicons name="close" size={14} color={P.textFaint} />
-                  </Pressable>
-                </View>
-
-                {/* Set table header */}
-                {isStrength && (
-                  <View
-                    style={[fp.setTableHead, { borderBottomColor: P.hair }]}
-                  >
-                    <Text
-                      style={[
-                        fp.setTableHdr,
-                        { color: P.textFaint, width: 36 },
-                      ]}
-                    >
-                      SET
-                    </Text>
-                    <Text
-                      style={[fp.setTableHdr, { color: P.textFaint, flex: 1 }]}
-                    >
-                      REPS
-                    </Text>
-                    <View style={{ width: 28 }} />
-                    <Text
-                      style={[fp.setTableHdr, { color: P.textFaint, flex: 1 }]}
-                    >
-                      WEIGHT
-                    </Text>
-                    <View style={{ width: 28 }} />
-                  </View>
-                )}
-
-                {/* Set rows */}
-                {isStrength &&
-                  ex.sets.map((set, idx) => (
-                    <View
-                      key={set.id}
-                      style={[
-                        fp.setInputRow,
-                        idx < ex.sets.length - 1 && {
-                          borderBottomWidth: StyleSheet.hairlineWidth,
-                          borderBottomColor: P.hair,
-                        },
-                      ]}
-                    >
-                      {/* Set number */}
-                      <View
-                        style={[
-                          fp.setNumBadge,
-                          { backgroundColor: P.sunken, width: 36 },
-                        ]}
-                      >
-                        <Text style={[fp.setNumText, { color: P.textFaint }]}>
-                          {String(idx + 1).padStart(2, "0")}
-                        </Text>
-                      </View>
-
-                      {/* Reps input */}
-                      <View
-                        style={[
-                          fp.setNumInput,
-                          {
-                            backgroundColor: P.sunken,
-                            borderColor: P.cardEdge,
-                            flex: 1,
-                          },
-                        ]}
-                      >
-                        <TextInput
-                          value={set.reps}
-                          onChangeText={(t) =>
-                            updateSet(ex.name, set.id, {
-                              reps: t.replace(/[^0-9]/g, ""),
-                            })
-                          }
-                          placeholder="—"
-                          placeholderTextColor={P.cardEdge}
-                          keyboardType="number-pad"
-                          style={[fp.setInputText, { color: P.text }]}
-                        />
-                      </View>
-
-                      <Text style={[fp.setX, { color: P.textFaint }]}>×</Text>
-
-                      {/* Weight input */}
-                      <View
-                        style={[
-                          fp.setNumInput,
-                          {
-                            backgroundColor: P.sunken,
-                            borderColor: P.cardEdge,
-                            flex: 1,
-                          },
-                        ]}
-                      >
-                        <TextInput
-                          value={set.weight}
-                          onChangeText={(t) =>
-                            updateSet(ex.name, set.id, {
-                              weight: t.replace(/[^0-9.]/g, ""),
-                            })
-                          }
-                          placeholder="kg"
-                          placeholderTextColor={P.cardEdge}
-                          keyboardType="decimal-pad"
-                          style={[fp.setInputText, { color: P.text }]}
-                        />
-                      </View>
-
-                      {/* Remove set */}
-                      <Pressable
-                        onPress={() => removeSet(ex.name, set.id)}
-                        hitSlop={10}
-                        disabled={ex.sets.length === 1}
-                        style={{ width: 28, alignItems: "center" }}
-                      >
-                        <Ionicons
-                          name="remove-circle-outline"
-                          size={18}
-                          color={
-                            ex.sets.length === 1 ? P.cardEdge : P.textFaint
-                          }
-                        />
-                      </Pressable>
-                    </View>
-                  ))}
-
-                {/* Add set button */}
-                {isStrength && (
-                  <Pressable
-                    onPress={() => addSet(ex.name)}
-                    style={({ pressed }) => [
-                      fp.addSetRow,
-                      { borderTopColor: P.hair },
-                      pressed && { opacity: 0.7 },
-                    ]}
-                  >
-                    <Ionicons
-                      name="add-circle-outline"
-                      size={16}
-                      color={P.workout}
-                    />
-                    <Text style={[fp.addSetText, { color: P.workout }]}>
-                      Add set
-                    </Text>
-                  </Pressable>
-                )}
+                ))}
               </View>
-            ))}
+            )}
 
             {/* Add/edit exercises button */}
             <Pressable
@@ -843,7 +679,7 @@ function LogWorkoutSheet({
           </View>
 
           {/* Notes */}
-          <View style={[fp.section, { marginTop: 8 }]}>
+          <View style={fp.section}>
             <Pressable
               onPress={() => setNotesOpen((v) => !v)}
               style={fp.notesToggle}
@@ -879,23 +715,118 @@ function LogWorkoutSheet({
             )}
           </View>
 
-          {/* Save */}
-          <View style={{ paddingHorizontal: 20, marginTop: 24 }}>
-            <PrimaryButton
-              label={
-                editWorkout
-                  ? `Save ${activeTypeLabel.toLowerCase()}`
-                  : `Log ${activeTypeLabel.toLowerCase()}`
-              }
-              icon="checkmark"
+          </ScrollView>
+          <View
+            style={[
+              fp.saveBar,
+              {
+                borderTopColor: P.hair,
+                paddingBottom: 8,
+              },
+            ]}
+          >
+            <Pressable
+              accessibilityRole="button"
+              onPress={onClose}
+              style={({ pressed }) => [
+                fp.cancelButton,
+                { borderColor: P.cardEdge },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Text style={[fp.cancelButtonText, { color: P.text }]}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ busy: saving, disabled: saving }}
+              disabled={saving}
               onPress={handleSave}
-              loading={saving}
-              accent={P.workout}
-            />
+              style={({ pressed }) => [
+                fp.saveButton,
+                { backgroundColor: P.workout },
+                pressed && !saving && { opacity: 0.82 },
+                saving && { opacity: 0.6 },
+              ]}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={fp.saveButtonText}>
+                  {editWorkout ? "Save changes" : `Log ${activeTypeLabel.toLowerCase()}`}
+                </Text>
+              )}
+            </Pressable>
           </View>
-        </ScrollView>
+        </View>
       )}
+      <ExerciseSetsEditorModal
+        visible={editingExercise != null}
+        exercise={editingExercise ?? ""}
+        sets={selected.find((exercise) => exercise.name === editingExercise)?.sets ?? []}
+        weightUnit={units.weightUnit}
+        onChange={(sets: ExerciseSetDraft[]) => {
+          if (!editingExercise) return;
+          setSelected((current) =>
+            current.map((exercise) =>
+              exercise.name === editingExercise ? { ...exercise, sets } : exercise,
+            ),
+          );
+        }}
+        onClose={() => setEditingExercise(null)}
+      />
     </AppModal>
+  );
+}
+
+function EditExerciseSummaryRow({
+  exercise,
+  showDivider,
+  weightUnit,
+  onPress,
+}: {
+  exercise: SelectedExercise;
+  showDivider: boolean;
+  weightUnit: "kg" | "lb";
+  onPress: () => void;
+}) {
+  const P = usePalette();
+  const complete = exercise.sets.length > 0 && exercise.sets.every((set) => {
+    const reps = parseInt(set.reps, 10);
+    const weight = parseFloat(set.weight);
+    return Number.isFinite(reps) && reps > 0 && Number.isFinite(weight) && weight >= 0;
+  });
+  const firstSet = exercise.sets[0];
+  const preview = firstSet
+    ? `${firstSet.reps || "–"} reps × ${firstSet.weight || "–"} ${weightUnit}`
+    : "Add set details";
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Edit sets for ${exercise.name}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        fp.exerciseSummaryRow,
+        showDivider && { borderTopColor: P.hair, borderTopWidth: StyleSheet.hairlineWidth },
+        pressed && { backgroundColor: P.sunken },
+      ]}
+    >
+      <View style={[fp.exerciseSummaryIcon, { backgroundColor: P.workoutSoft }]}>
+        <Ionicons name="barbell-outline" size={18} color={P.workout} />
+      </View>
+      <View style={fp.exerciseSummaryCopy}>
+        <Text style={[fp.exerciseSummaryName, { color: P.text }]} numberOfLines={1}>
+          {exercise.name}
+        </Text>
+        <Text style={[fp.exerciseSummaryMeta, { color: P.textFaint }]} numberOfLines={1}>
+          {exercise.sets.length} {exercise.sets.length === 1 ? "set" : "sets"} · {preview}
+        </Text>
+      </View>
+      <View style={fp.exerciseSummaryStatus}>
+        {complete && <Ionicons name="checkmark-circle" size={19} color={P.workout} />}
+        <Ionicons name="chevron-forward" size={18} color={P.textFaint} />
+      </View>
+    </Pressable>
   );
 }
 
@@ -920,9 +851,9 @@ const sh = StyleSheet.create({
   sheetTitle: {
     flex: 1,
     textAlign: "center",
-    fontFamily: "Syne_800ExtraBold",
-    fontSize: 12,
-    letterSpacing: 2,
+    fontSize: 17,
+    fontWeight: "800",
+    letterSpacing: -0.25,
   },
   doneSmall: {
     height: 32,
@@ -983,11 +914,55 @@ const sh = StyleSheet.create({
 // ── Form styles ───────────────────────────────────────────────────────────────
 
 const fp = StyleSheet.create({
-  section: { paddingHorizontal: 20, marginTop: 24 },
+  formRoot: { flex: 1 },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 20, gap: 20 },
+  formHeader: { flexDirection: "row", alignItems: "flex-start", paddingTop: 4 },
+  formHeaderCopy: { flex: 1 },
+  formEyebrow: { fontSize: 11, fontWeight: "800", letterSpacing: 1.4, marginBottom: 4 },
+  formTitle: {
+    fontFamily: "Syne_700Bold",
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.8,
+    lineHeight: 32,
+  },
+  formClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 4,
+  },
+  saveBar: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  cancelButton: {
+    flex: 1,
+    height: 52,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelButtonText: { fontSize: 15, fontWeight: "700" },
+  saveButton: {
+    flex: 2,
+    height: 52,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveButtonText: { color: "#fff", fontSize: 15, fontWeight: "800", letterSpacing: -0.2 },
+  section: { gap: 10 },
   sectionLabel: {
     fontFamily: "Syne_800ExtraBold",
-    fontSize: 9,
-    letterSpacing: 2.2,
+    fontSize: 11,
+    letterSpacing: 1.2,
     marginBottom: 12,
   },
 
@@ -1026,7 +1001,7 @@ const fp = StyleSheet.create({
     height: 16,
   },
   dotSeg: { width: 6, borderRadius: 2 },
-  intLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 0.2 },
+  intLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 0.1 },
 
   // Exercise cards
   exHead: {
@@ -1037,88 +1012,31 @@ const fp = StyleSheet.create({
   },
   exBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   exBadgeText: { fontSize: 11, fontWeight: "800" },
-  exCard: {
+  exerciseList: {
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 12,
     overflow: "hidden",
+    marginBottom: 12,
   },
-  exCardHead: {
+  exerciseSummaryRow: {
+    minHeight: 76,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  exColorBar: { width: 3, height: 16, borderRadius: 2 },
-  exCardName: {
-    flex: 1,
-    fontFamily: "Syne_800ExtraBold",
-    fontSize: 10,
-    letterSpacing: 1.6,
-  },
-  exRemove: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
+  exerciseSummaryIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-
-  // Set table
-  setTableHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  setTableHdr: { fontSize: 8, fontWeight: "800", letterSpacing: 1.2 },
-  setInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  setNumBadge: {
-    height: 36,
-    borderRadius: 9,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  setNumText: {
-    fontFamily: "BarlowCondensed_700Bold",
-    fontSize: 14,
-    letterSpacing: 0.5,
-  },
-  setNumInput: {
-    height: 36,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  setInputText: {
-    fontFamily: "BarlowCondensed_700Bold",
-    fontSize: 20,
-    letterSpacing: -0.3,
-    textAlign: "center",
-    width: "100%",
-  },
-  setX: { fontSize: 15, fontWeight: "700", textAlign: "center", width: 28 },
-  addSetRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  addSetText: { fontSize: 13, fontWeight: "700" },
-
+  exerciseSummaryCopy: { flex: 1, gap: 4 },
+  exerciseSummaryName: { fontSize: 15, fontWeight: "800", letterSpacing: -0.2 },
+  exerciseSummaryMeta: { fontSize: 12, fontWeight: "600" },
+  exerciseSummaryStatus: { flexDirection: "row", alignItems: "center", gap: 2 },
   addExBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1157,6 +1075,7 @@ export default function WorkoutLogScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { editId } = useLocalSearchParams<{ editId?: string }>();
+  const { user } = useAuth();
   const toast = useToast();
   const posthog = usePostHog();
   const { workouts, logWorkout, logSets, refreshWorkouts, fetchForDate } = useWorkouts();
@@ -1249,8 +1168,38 @@ export default function WorkoutLogScreen() {
     void pendingImports.refresh(false);
   };
 
+  const openWorkoutEditor = useCallback(async (workoutId: string) => {
+    const fromToday = workouts.find((workout) => workout.id === workoutId);
+    const fromPast = pastWorkouts.find((workout) => workout.id === workoutId);
+    const fromHistory = workoutHistory.groups
+      .flatMap((group) => group.workouts)
+      .find((workout) => workout.id === workoutId);
+    let target = fromToday ?? fromPast ?? fromHistory ?? null;
+
+    if (!target && user?.id) {
+      target = await findWorkoutByIdCached(user.id, workoutId, workouts);
+    }
+    if (!target) {
+      toast.error("Could not edit", "This workout could not be loaded.");
+      return;
+    }
+
+    const sets =
+      target.sets.length > 0 || !user?.id
+        ? target.sets
+        : await fetchWorkoutSetsCached(user.id, workoutId);
+
+    setEditingWorkout({ ...target, sets });
+    setSheetOpen(true);
+  }, [pastWorkouts, toast, user?.id, workoutHistory.groups, workouts]);
+
+  const openWorkoutEditorRef = useRef(openWorkoutEditor);
+  openWorkoutEditorRef.current = openWorkoutEditor;
+
   useFocusEffect(
     useCallback(() => {
+      const pendingId = consumeWorkoutEditId();
+      if (pendingId) void openWorkoutEditorRef.current(pendingId);
       syncOnFocusRef.current();
     }, []),
   );
@@ -1261,12 +1210,9 @@ export default function WorkoutLogScreen() {
 
   useEffect(() => {
     if (!editId) return;
-    const target = workouts.find((workout) => workout.id === editId);
-    if (!target) return;
-    setEditingWorkout(target);
-    setSheetOpen(true);
+    void openWorkoutEditor(editId);
     router.setParams({ editId: undefined });
-  }, [editId, router, workouts]);
+  }, [editId, openWorkoutEditor, router]);
 
   const hasActiveLiveSession =
     session.active != null ||
@@ -1354,13 +1300,26 @@ export default function WorkoutLogScreen() {
 
   const handleLogSave = useCallback(
     async (selection: WorkoutSelection) => {
-      const { entry, durationMins, intensity, presetExercises, notes } = selection;
+      const { entry, durationMins, intensity, presetExercises, exerciseSets, notes } = selection;
       if (!durationMins || durationMins === 0) {
         toast.warning("Missing duration", "How long was this workout?");
         return;
       }
       if (entry.sessionMode === "strength" && (!presetExercises || presetExercises.length === 0)) {
-        toast.warning("No exercises", "Pick at least one exercise.");
+        toast.warning("No exercise", "Pick an exercise.");
+        return;
+      }
+      if (
+        entry.sessionMode === "strength" &&
+        presetExercises?.some((exercise) => {
+          const sets = exerciseSets?.[exercise];
+          return (
+            !sets?.length ||
+            sets.some((set) => set.reps <= 0 || !Number.isFinite(set.weightKg) || set.weightKg < 0)
+          );
+        })
+      ) {
+        toast.warning("Incomplete sets", "Add reps and weight for every set.");
         return;
       }
 
@@ -1386,11 +1345,15 @@ export default function WorkoutLogScreen() {
         if (entry.sessionMode === "strength" && presetExercises && presetExercises.length > 0) {
           await logSets(
             w.id,
-            presetExercises.map((name) => ({
-              exercise: name,
-              sets: 1,
-              weight_unit: "kg" as const,
-            })),
+            presetExercises.flatMap((name) =>
+              (exerciseSets?.[name] ?? []).map((set) => ({
+                exercise: name,
+                sets: 1,
+                reps: set.reps,
+                weight: set.weightKg,
+                weight_unit: "kg" as const,
+              })),
+            ),
           );
         }
 
@@ -1399,6 +1362,9 @@ export default function WorkoutLogScreen() {
           duration_mins: durationMins,
           intensity: backendIntensity,
           exercises_count: presetExercises?.length ?? 0,
+          sets_count: exerciseSets
+            ? Object.values(exerciseSets).reduce((total, sets) => total + sets.length, 0)
+            : 0,
           estimated_cals: estimatedCals,
         });
 

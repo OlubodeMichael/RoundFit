@@ -41,6 +41,26 @@ export function formatWeightForStats(kg: number, unit: ProfileUnit): string {
     : `${roundMetric(kg, 1)} kg`;
 }
 
+export function storedWeightToKg(weight: number, storedUnit: 'kg' | 'lbs'): number {
+  return storedUnit === 'lbs' ? weight / LB_PER_KG : weight;
+}
+
+/** Formats a persisted workout-set weight in the profile's preferred unit. */
+export function formatWorkoutSetWeight(
+  weight: number,
+  storedUnit: 'kg' | 'lbs',
+  profileUnit: ProfileUnit,
+): string | null {
+  if (!Number.isFinite(weight) || weight < 0) return null;
+  if (weight === 0) return 'Bodyweight';
+
+  const weightKg = storedWeightToKg(weight, storedUnit);
+  const displayWeight = profileUnit === 'imperial' ? weightKg * LB_PER_KG : weightKg;
+  const rounded = roundMetric(displayWeight, 1);
+  const unit = profileUnit === 'imperial' ? 'lb' : 'kg';
+  return `${rounded.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${unit}`;
+}
+
 export function formatHeightCmField(cm: number | undefined): string {
   if (cm === undefined || cm === null || Number.isNaN(cm)) return '';
   return String(roundMetric(cm, 1));

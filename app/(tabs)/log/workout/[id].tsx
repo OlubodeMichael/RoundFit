@@ -11,6 +11,8 @@ import { useWorkouts } from '@/hooks/use-workouts';
 import { useWorkoutDetail } from '@/hooks/use-workout-detail';
 import { useHealthKitWorkoutByUuid } from '@/hooks/use-healthkit-workout-by-uuid';
 import { ScreenHeader, usePalette, useScreenPadding } from '@/lib/log-theme';
+import { safeBack } from '@/utils/navigation';
+import { requestWorkoutEdit } from '@/utils/pending-workout-edit';
 
 export default function WorkoutDetailScreen() {
   const P = usePalette();
@@ -28,10 +30,8 @@ export default function WorkoutDetailScreen() {
 
   const handleEdit = useCallback(() => {
     if (!workout) return;
-    router.replace({
-      pathname: '/(tabs)/log/workout',
-      params: { editId: workout.id },
-    });
+    requestWorkoutEdit(workout.id);
+    safeBack(router, '/(tabs)/log/workout');
   }, [router, workout]);
 
   const handleDelete = useCallback(() => {

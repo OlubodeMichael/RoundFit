@@ -29,18 +29,24 @@ export function WorkoutDetailHero({
     <View style={styles.wrap}>
       <AnimatedCard delay={delay} padding={0} style={styles.card}>
         <View style={[styles.icon, { backgroundColor: P.workoutSoft }]}>
-          <Ionicons name={icon} size={30} color={P.workout} />
+          <Ionicons name={icon} size={27} color={P.workout} />
         </View>
-        {meta != null && (
-          <Text style={[styles.meta, { color: P.textFaint }]}>{meta}</Text>
-        )}
-        <Text style={[styles.title, { color: P.text }]}>{title}</Text>
-        {sourceLabel != null && (
-          <View style={[styles.chip, { backgroundColor: P.sunken, borderColor: P.cardEdge }]}>
-            <Ionicons name="heart" size={11} color={APPLE_FITNESS_HEART_COLOR} />
-            <Text style={[styles.chipText, { color: P.textDim }]}>{sourceLabel}</Text>
-          </View>
-        )}
+        <View style={styles.copy}>
+          {meta != null && (
+            <Text style={[styles.meta, { color: P.textFaint }]}>{meta}</Text>
+          )}
+          <Text style={[styles.title, { color: P.text }]}>{title}</Text>
+          {sourceLabel != null && (
+            <View style={styles.sourceRow}>
+              <Ionicons
+                name={sourceLabel === 'Apple Fitness' ? 'heart' : 'checkmark-circle'}
+                size={13}
+                color={sourceLabel === 'Apple Fitness' ? APPLE_FITNESS_HEART_COLOR : P.workout}
+              />
+              <Text style={[styles.sourceText, { color: P.textDim }]}>{sourceLabel}</Text>
+            </View>
+          )}
+        </View>
       </AnimatedCard>
     </View>
   );
@@ -48,32 +54,34 @@ export function WorkoutDetailHero({
 
 const styles = StyleSheet.create({
   wrap: { paddingHorizontal: WORKOUT_DETAIL_PAD, marginTop: 4 },
-  card: { alignItems: 'center', gap: 8, paddingVertical: 24, paddingHorizontal: 20 },
+  card: {
+    minHeight: 112,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+  },
   icon: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
+    width: 58,
+    height: 58,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
   },
-  meta: { fontSize: 13, fontWeight: '600', letterSpacing: 0.1, textAlign: 'center' },
+  copy: { flex: 1, alignItems: 'flex-start', gap: 4 },
+  meta: { fontSize: 12, fontWeight: '600', letterSpacing: 0.1 },
   title: {
-    fontSize: 26,
+    fontSize: 25,
     fontWeight: '800',
     letterSpacing: -0.5,
-    textAlign: 'center',
-    lineHeight: 32,
+    lineHeight: 30,
   },
-  chip: {
+  sourceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    marginTop: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 2,
   },
-  chipText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.2 },
+  sourceText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.2 },
 });

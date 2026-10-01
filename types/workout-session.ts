@@ -23,6 +23,8 @@ export interface WorkoutSelection {
   presetExercises?: string[];
   /** Log-past intent only — filled in configure step. */
   durationMins?: number;
+  /** Log-past strength intent only — ordered sets entered for each selected exercise. */
+  exerciseSets?: Record<string, { reps: number; weightKg: number }[]>;
   intensity?: WorkoutIntensity;
   notes?: string;
 }

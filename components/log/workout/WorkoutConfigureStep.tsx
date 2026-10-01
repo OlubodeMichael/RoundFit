@@ -15,6 +15,11 @@ import type { WorkoutLauncherIntent } from '@/types/workout-session';
 
 import { CALORIES_PER_MINUTE, INTENSITY_OPTIONS } from './constants';
 import { ExercisePicker } from './ExercisePicker';
+import {
+  createExerciseSetDraft,
+  ExerciseSetsEditorModal,
+  type ExerciseSetDraft,
+} from './ExerciseSetsEditorModal';
 import { WorkoutDurationPicker } from './WorkoutDurationPicker';
 import type { Intensity, WorkoutType } from './types';
 
@@ -31,6 +36,9 @@ export interface WorkoutConfigureStepProps {
   onLogHoursChange: (value: string) => void;
   logMinutes: string;
   onLogMinutesChange: (value: string) => void;
+  exerciseSets: Record<string, ExerciseSetDraft[]>;
+  onExerciseSetsChange: (value: Record<string, ExerciseSetDraft[]>) => void;
+  weightUnit: 'kg' | 'lb';
   logIntensity: Intensity;
   onLogIntensityChange: (value: Intensity) => void;
   logNotes: string;
@@ -57,6 +65,9 @@ export function WorkoutConfigureStep(props: WorkoutConfigureStepProps) {
     onLogHoursChange,
     logMinutes,
     onLogMinutesChange,
+    exerciseSets,
+    onExerciseSetsChange,
+    weightUnit,
     logIntensity,
     onLogIntensityChange,
     logNotes,
@@ -64,6 +75,7 @@ export function WorkoutConfigureStep(props: WorkoutConfigureStepProps) {
   } = props;
   const P = usePalette();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [editingExercise, setEditingExercise] = useState<string | null>(null);
   const [notesOpen, setNotesOpen] = useState(() => logNotes.length > 0);
 
   if (intent === 'log') {
@@ -75,13 +87,6 @@ export function WorkoutConfigureStep(props: WorkoutConfigureStepProps) {
     return (
       <View style={styles.wrap}>
         <ActivitySummary entry={entry} />
-        {isStrength && (
-          <LogExerciseSection
-            presetExercises={presetExercises}
-            required
-            onOpenPicker={() => setPickerOpen(true)}
-          />
-        )}
         <WorkoutDurationPicker
           variant="configure"
           hours={logHours}
@@ -91,6 +96,18 @@ export function WorkoutConfigureStep(props: WorkoutConfigureStepProps) {
           estimatedCals={estimatedCals}
           totalMinutes={totalMinutes}
         />
+        {isStrength && (
+          <>
+            <LogExerciseSection
+              presetExercises={presetExercises}
+              exerciseSets={exerciseSets}
+              weightUnit={weightUnit}
+              required
+              onOpenPicker={() => setPickerOpen(true)}
+              onEditExercise={setEditingExercise}
+            />
+          </>
+        )}
         <LogIntensitySection
           intensity={logIntensity}
           onIntensityChange={onLogIntensityChange}
@@ -110,8 +127,27 @@ export function WorkoutConfigureStep(props: WorkoutConfigureStepProps) {
           onClose={() => setPickerOpen(false)}
           onConfirm={(exercises) => {
             onPresetExercisesChange(exercises);
+            onExerciseSetsChange(
+              Object.fromEntries(
+                exercises.map((exercise) => [
+                  exercise,
+                  exerciseSets[exercise] ?? [createExerciseSetDraft()],
+                ]),
+              ),
+            );
             setPickerOpen(false);
           }}
+        />
+        <ExerciseSetsEditorModal
+          visible={editingExercise != null}
+          exercise={editingExercise ?? ''}
+          sets={editingExercise ? exerciseSets[editingExercise] ?? [] : []}
+          weightUnit={weightUnit}
+          onChange={(sets) => {
+            if (!editingExercise) return;
+            onExerciseSetsChange({ ...exerciseSets, [editingExercise]: sets });
+          }}
+          onClose={() => setEditingExercise(null)}
         />
       </View>
     );
@@ -177,35 +213,47 @@ function ActivitySummary({ entry }: { entry: WorkoutCatalogEntry }) {
 
 function LogExerciseSection({
   presetExercises,
+  exerciseSets,
+  weightUnit,
   required,
   onOpenPicker,
+  onEditExercise,
 }: {
   presetExercises: string[];
+  exerciseSets: Record<string, ExerciseSetDraft[]>;
+  weightUnit: 'kg' | 'lb';
   required?: boolean;
   onOpenPicker: () => void;
+  onEditExercise: (exercise: string) => void;
 }) {
   const P = usePalette();
   return (
     <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: P.text }]}>
-        Exercises{required ? '' : ' (optional)'}
-      </Text>
+      <View style={styles.sectionHeadingRow}>
+        <Text style={[styles.sectionTitle, { color: P.text }]}>
+          Exercises{required ? '' : ' (optional)'}
+        </Text>
+        {presetExercises.length > 0 && (
+          <Pressable onPress={onOpenPicker} hitSlop={8}>
+            <Text style={[styles.editLink, { color: P.workout }]}>Edit list</Text>
+          </Pressable>
+        )}
+      </View>
       <Text style={[styles.hint, { color: P.textFaint }]}>
-        {required
-          ? 'Pick at least one exercise you performed.'
-          : 'Pick lifts before you start, or add them during the session.'}
+        {required ? 'Choose an exercise, then add its sets.' : 'Pick lifts before you start.'}
       </Text>
       {presetExercises.length > 0 && (
-        <View style={styles.pillRow}>
-          {presetExercises.map((name) => (
-            <View
+        <View style={[styles.exerciseList, { backgroundColor: P.card, borderColor: P.cardEdge }]}>
+          {presetExercises.map((name, index) => (
+            <ExerciseOverviewRow
               key={name}
-              style={[styles.pill, { backgroundColor: P.workoutSoft, borderColor: P.workout }]}
-            >
-              <Text style={[styles.pillText, { color: P.workout }]} numberOfLines={1}>
-                {name}
-              </Text>
-            </View>
+              name={name}
+              index={index}
+              sets={exerciseSets[name] ?? []}
+              weightUnit={weightUnit}
+              showDivider={index > 0}
+              onPress={() => onEditExercise(name)}
+            />
           ))}
         </View>
       )}
@@ -215,10 +263,69 @@ function LogExerciseSection({
       >
         <Ionicons name="barbell-outline" size={18} color={P.workout} />
         <Text style={[styles.actionBtnText, { color: P.text }]}>
-          {presetExercises.length > 0 ? 'Edit exercises' : 'Choose exercises'}
+          {presetExercises.length > 0 ? 'Add or remove exercises' : 'Choose exercises'}
         </Text>
       </Pressable>
     </View>
+  );
+}
+
+function ExerciseOverviewRow({
+  name,
+  index,
+  sets,
+  weightUnit,
+  showDivider,
+  onPress,
+}: {
+  name: string;
+  index: number;
+  sets: ExerciseSetDraft[];
+  weightUnit: 'kg' | 'lb';
+  showDivider: boolean;
+  onPress: () => void;
+}) {
+  const P = usePalette();
+  const complete =
+    sets.length > 0 &&
+    sets.every((set) => {
+      const reps = parseInt(set.reps, 10);
+      const weight = parseFloat(set.weight);
+      return Number.isFinite(reps) && reps > 0 && Number.isFinite(weight) && weight >= 0;
+    });
+  const preview = sets
+    .filter((set) => set.reps !== '' || set.weight !== '')
+    .slice(0, 3)
+    .map((set) => `${set.reps || '–'} × ${set.weight || '–'} ${weightUnit}`)
+    .join('  ·  ');
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Edit sets for ${name}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.exerciseRow,
+        showDivider && { borderTopColor: P.hair, borderTopWidth: StyleSheet.hairlineWidth },
+        pressed && { backgroundColor: P.sunken },
+      ]}
+    >
+      <View style={[styles.exerciseNumber, { backgroundColor: P.workoutSoft }]}>
+        <Text style={[styles.exerciseNumberText, { color: P.workout }]}>{index + 1}</Text>
+      </View>
+      <View style={styles.exerciseSummary}>
+        <Text style={[styles.exerciseName, { color: P.text }]} numberOfLines={1}>
+          {name}
+        </Text>
+        <Text style={[styles.exerciseMeta, { color: complete ? P.workout : P.textFaint }]} numberOfLines={1}>
+          {preview || `${sets.length || 1} set${sets.length === 1 ? '' : 's'} · Add reps and weight`}
+        </Text>
+      </View>
+      <View style={styles.exerciseStatus}>
+        {complete && <Ionicons name="checkmark-circle" size={20} color={P.workout} />}
+        <Ionicons name="chevron-forward" size={18} color={P.textFaint} />
+      </View>
+    </Pressable>
   );
 }
 
@@ -430,7 +537,14 @@ const styles = StyleSheet.create({
   summaryLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6 },
   summaryTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.3, marginTop: 2 },
   section: { gap: 10 },
+  sectionHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   sectionTitle: { fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
+  editLink: { fontSize: 13, fontWeight: '800' },
   hint: { fontSize: 13, lineHeight: 19 },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pill: {
@@ -451,6 +565,24 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   actionBtnText: { fontSize: 15, fontWeight: '700' },
+  exerciseList: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  exerciseRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  exerciseNumber: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exerciseNumberText: { fontSize: 11, fontWeight: '800' },
+  exerciseSummary: { flex: 1, gap: 4 },
+  exerciseName: { fontSize: 15, fontWeight: '800' },
+  exerciseMeta: { fontSize: 12, fontWeight: '600' },
+  exerciseStatus: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   skipLink: { fontSize: 13, fontWeight: '600', textAlign: 'center' },
   intGrid: { flexDirection: 'row', gap: 8 },
   intCard: {

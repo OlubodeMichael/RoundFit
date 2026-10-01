@@ -19,6 +19,7 @@ export function WorkoutDetailHighlightStrip({
   delay = 60,
 }: WorkoutDetailHighlightStripProps) {
   const P = usePalette();
+  const compact = metrics.length > 2;
 
   return (
     <View style={styles.pad}>
@@ -32,7 +33,14 @@ export function WorkoutDetailHighlightStrip({
               )}
               <Text style={[styles.label, { color: P.textFaint }]}>{metric.label}</Text>
               <View style={styles.valueRow}>
-                <Text style={[styles.value, { color: P.text }]}>{metric.value}</Text>
+                <Text
+                  style={[styles.value, compact && styles.valueCompact, { color: P.text }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
+                >
+                  {metric.value}
+                </Text>
                 {metric.unit != null && (
                   <Text style={[styles.unit, { color: P.textDim }]}>{metric.unit}</Text>
                 )}
@@ -49,16 +57,16 @@ const styles = StyleSheet.create({
   pad: { paddingHorizontal: WORKOUT_DETAIL_PAD, marginTop: 14 },
   row: {
     flexDirection: 'row',
-    marginTop: 14,
-    paddingTop: 14,
+    marginTop: 12,
+    paddingTop: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  cell: { flex: 1, alignItems: 'center', gap: 4, position: 'relative' },
+  cell: { flex: 1, alignItems: 'flex-start', gap: 5, position: 'relative', paddingHorizontal: 10 },
   divider: {
     position: 'absolute',
     left: 0,
-    top: 4,
-    bottom: 4,
+    top: 2,
+    bottom: 2,
     width: StyleSheet.hairlineWidth,
   },
   label: {
@@ -74,5 +82,6 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     letterSpacing: -0.6,
   },
+  valueCompact: { fontSize: 21, letterSpacing: -0.35 },
   unit: { fontSize: 14, fontWeight: '600' },
 });

@@ -1,7 +1,6 @@
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import type { ComponentProps } from 'react';
 
 import { WORKOUT_DETAIL_PAD } from '@/components/log/workout/workout-detail-layout';
 import { AnimatedCard, FieldLabel, usePalette } from '@/lib/log-theme';
@@ -99,15 +98,26 @@ export function WorkoutExerciseBlock({
         },
       ]}
     >
-      <Text style={[styles.exerciseName, { color: P.text }]}>{name}</Text>
-      {sets.map((set) => (
-        <View key={set.id} style={styles.setRow}>
-          <View style={[styles.setBadge, { backgroundColor: P.sunken }]}>
-            <Text style={[styles.setBadgeText, { color: P.textFaint }]}>{set.index}</Text>
-          </View>
-          <Text style={[styles.setDetail, { color: P.textDim }]}>
-            {set.reps} reps{set.weight != null ? ` · ${set.weight}` : ''}
+      <View style={styles.exerciseHeading}>
+        <Text style={[styles.exerciseName, { color: P.text }]}>{name}</Text>
+        <View style={[styles.setCount, { backgroundColor: P.workoutSoft }]}>
+          <Text style={[styles.setCountText, { color: P.workout }]}>
+            {sets.length} {sets.length === 1 ? 'set' : 'sets'}
           </Text>
+        </View>
+      </View>
+      <View style={styles.setColumns}>
+        <Text style={[styles.setColumnSmall, { color: P.textFaint }]}>Set</Text>
+        <Text style={[styles.setColumn, { color: P.textFaint }]}>Reps</Text>
+        <Text style={[styles.setColumn, { color: P.textFaint }]}>Weight</Text>
+      </View>
+      {sets.map((set) => (
+        <View key={set.id} style={[styles.setRow, { borderTopColor: P.hair }]}>
+          <View style={[styles.setBadge, { backgroundColor: P.workoutSoft }]}>
+            <Text style={[styles.setBadgeText, { color: P.workout }]}>{set.index}</Text>
+          </View>
+          <Text style={[styles.setValue, { color: P.text }]}>{set.reps}</Text>
+          <Text style={[styles.setValue, { color: P.text }]}>{set.weight ?? '—'}</Text>
         </View>
       ))}
     </View>
@@ -137,17 +147,48 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     letterSpacing: -0.2,
   },
-  sectionBody: { marginTop: 10, gap: 10 },
-  exerciseBlock: { gap: 8 },
-  exerciseName: { fontSize: 15, fontWeight: '800', letterSpacing: -0.2 },
-  setRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  sectionBody: { marginTop: 14, gap: 18 },
+  exerciseBlock: { gap: 0 },
+  exerciseHeading: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingBottom: 12,
+  },
+  exerciseName: { flex: 1, fontSize: 17, fontWeight: '800', letterSpacing: -0.25 },
+  setCount: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 },
+  setCountText: { fontSize: 11, fontWeight: '800' },
+  setColumns: { flexDirection: 'row', alignItems: 'center', paddingBottom: 7 },
+  setColumnSmall: {
+    width: 46,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  setColumn: {
+    flex: 1,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  setRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
   setBadge: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 18,
   },
   setBadgeText: { fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  setDetail: { fontSize: 14, fontWeight: '500' },
+  setValue: { flex: 1, fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
 });

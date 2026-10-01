@@ -12,7 +12,6 @@ import {
 } from '@/components/log/workout/workout-display';
 import {
   WorkoutDetailActions,
-  WorkoutDetailFooterNote,
   WorkoutDetailHero,
   WorkoutDetailRows,
   WorkoutDetailSection,
@@ -21,7 +20,9 @@ import {
   workoutDetailContentStyle,
 } from '@/components/log/workout/WorkoutDetailUI';
 import type { Workout } from '@/context/workout-context';
+import { useUnits } from '@/hooks/use-units';
 import { usePalette } from '@/lib/log-theme';
+import { formatWorkoutSetWeight } from '@/utils/body-units';
 import { getLocalDateString } from '@/utils/date';
 
 export interface WorkoutDetailContentProps {
@@ -32,6 +33,7 @@ export interface WorkoutDetailContentProps {
 
 export function WorkoutDetailContent({ workout, onEdit, onDelete }: WorkoutDetailContentProps) {
   const P = usePalette();
+  const { profileUnit } = useUnits();
   const meta = WORKOUT_META[workout.type] ?? WORKOUT_META.other;
   const sourceLabel = workoutSourceLabel(workout.source);
   const timeRange = formatWorkoutTimeRange(workout.started_at, workout.ended_at);
@@ -68,14 +70,25 @@ export function WorkoutDetailContent({ workout, onEdit, onDelete }: WorkoutDetai
     distance != null
       ? { icon: 'navigate-outline' as const, label: 'Distance', value: distance }
       : null,
+  ].filter((row): row is NonNullable<typeof row> => row != null);
+
+  const summaryMetrics = [
+    {
+      label: 'Duration',
+      value: fmtWorkoutDuration(workout.duration_mins),
+    },
+    {
+      label: 'Calories',
+      value: Math.round(workout.calories_burned).toLocaleString(),
+      unit: 'kcal',
+    },
     workout.intensity != null
       ? {
-          icon: 'speedometer-outline' as const,
           label: 'Intensity',
           value: INTENSITY_LABEL[workout.intensity],
         }
       : null,
-  ].filter((row): row is NonNullable<typeof row> => row != null);
+  ].filter((metric): metric is NonNullable<typeof metric> => metric != null);
 
   return (
     <ScrollView
@@ -86,33 +99,13 @@ export function WorkoutDetailContent({ workout, onEdit, onDelete }: WorkoutDetai
         icon={meta.icon}
         title={meta.label}
         meta={heroMeta || undefined}
-        sourceLabel={sourceLabel}
+        sourceLabel={sourceLabel ?? workoutFooterLabel(workout.source)}
       />
 
-      <WorkoutHighlightStrip
-        metrics={[
-          {
-            label: 'Duration',
-            value: fmtWorkoutDuration(workout.duration_mins),
-          },
-          {
-            label: 'Calories',
-            value: Math.round(workout.calories_burned).toLocaleString(),
-            unit: 'kcal',
-          },
-        ]}
-      />
-
-      <WorkoutDetailRows rows={detailRows} delay={120} />
-
-      {workout.notes ? (
-        <WorkoutDetailSection title="Notes" delay={160}>
-          <Text style={[styles.notesText, { color: P.text }]}>{workout.notes}</Text>
-        </WorkoutDetailSection>
-      ) : null}
+      <WorkoutHighlightStrip metrics={summaryMetrics} />
 
       {exerciseGroups.size > 0 ? (
-        <WorkoutDetailSection title="Sets" delay={200}>
+        <WorkoutDetailSection title="Exercises" delay={120}>
           {Array.from(exerciseGroups.entries()).map(([exercise, sets], index) => (
             <WorkoutExerciseBlock
               key={exercise}
@@ -122,17 +115,22 @@ export function WorkoutDetailContent({ workout, onEdit, onDelete }: WorkoutDetai
                 id: set.id,
                 index: index + 1,
                 reps: set.reps != null ? String(set.reps) : '—',
-                weight:
-                  set.weight != null && set.weight > 0
-                    ? `${set.weight} ${set.weight_unit}`
-                    : undefined,
+                weight: set.weight != null
+                  ? formatWorkoutSetWeight(set.weight, set.weight_unit, profileUnit) ?? undefined
+                  : undefined,
               }))}
             />
           ))}
         </WorkoutDetailSection>
       ) : null}
 
-      <WorkoutDetailFooterNote>{workoutFooterLabel(workout.source)}</WorkoutDetailFooterNote>
+      <WorkoutDetailRows rows={detailRows} delay={160} />
+
+      {workout.notes ? (
+        <WorkoutDetailSection title="Notes" delay={200}>
+          <Text style={[styles.notesText, { color: P.text }]}>{workout.notes}</Text>
+        </WorkoutDetailSection>
+      ) : null}
 
       <WorkoutDetailActions onEdit={onEdit} onDelete={onDelete} />
     </ScrollView>

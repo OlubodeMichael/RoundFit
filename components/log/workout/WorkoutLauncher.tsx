@@ -18,6 +18,7 @@ import {
 } from '@/config/workout-catalog';
 import { UI_INTENSITY_MAP } from '@/context/workout-context';
 import { useWorkoutRecent } from '@/hooks/use-workout-recent';
+import { useUnits } from '@/hooks/use-units';
 import { usePalette } from '@/lib/log-theme';
 import type {
   WorkoutLauncherIntent,
@@ -32,6 +33,7 @@ import {
   type WorkoutCategoryFilter,
 } from './WorkoutCategoryChips';
 import { WorkoutConfigureStep } from './WorkoutConfigureStep';
+import type { ExerciseSetDraft } from './ExerciseSetsEditorModal';
 import { WorkoutLauncherHeader } from './WorkoutLauncherHeader';
 import type { Intensity } from './types';
 
@@ -64,6 +66,7 @@ export function WorkoutLauncher({
   const insets = useSafeAreaInsets();
   const posthog = usePostHog();
   const { recordRecentFromSelection } = useWorkoutRecent();
+  const units = useUnits();
 
   const [step, setStep] = useState<LauncherStep>('browse');
   const [category, setCategory] = useState<WorkoutCategoryFilter>('all');
@@ -73,6 +76,7 @@ export function WorkoutLauncher({
   const [calorieGoalText, setCalorieGoalText] = useState('');
   const [logHours, setLogHours] = useState('0');
   const [logMinutes, setLogMinutes] = useState('45');
+  const [exerciseSets, setExerciseSets] = useState<Record<string, ExerciseSetDraft[]>>({});
   const [logIntensity, setLogIntensity] = useState<Intensity>('moderate');
   const [logNotes, setLogNotes] = useState('');
 
@@ -90,6 +94,7 @@ export function WorkoutLauncher({
     setCalorieGoalText('');
     setLogHours('0');
     setLogMinutes('45');
+    setExerciseSets({});
     setLogIntensity('moderate');
     setLogNotes('');
   }, []);
@@ -122,6 +127,7 @@ export function WorkoutLauncher({
     (entry: WorkoutCatalogEntry) => {
       setSelectedEntry(entry);
       setPresetExercises([]);
+      setExerciseSets({});
       posthog.capture('workout_activity_selected', {
         activity_id: entry.id,
         category: getCatalogEntryCategory(entry),
@@ -177,6 +183,27 @@ export function WorkoutLauncher({
     if (durationMins === 0) return;
 
     if (selectedEntry.sessionMode === 'strength' && presetExercises.length === 0) return;
+    const parsedExerciseSets = Object.fromEntries(
+      presetExercises.map((exercise) => [
+        exercise,
+        (exerciseSets[exercise] ?? []).map((set) => ({
+          reps: parseInt(set.reps, 10),
+          weightKg: units.toKg(parseFloat(set.weight), units.weightUnit),
+        })),
+      ]),
+    );
+    if (
+      selectedEntry.sessionMode === 'strength' &&
+      presetExercises.some((exercise) => {
+        const sets = parsedExerciseSets[exercise];
+        return !sets?.length || sets.some((set) =>
+          !Number.isFinite(set.reps) ||
+          set.reps <= 0 ||
+          !Number.isFinite(set.weightKg) ||
+          set.weightKg < 0
+        );
+      })
+    ) return;
 
     const backendIntensity = UI_INTENSITY_MAP[logIntensity] ?? 'moderate';
 
@@ -184,6 +211,7 @@ export function WorkoutLauncher({
       entry: selectedEntry,
       intent: 'log',
       durationMins,
+      ...(selectedEntry.sessionMode === 'strength' ? { exerciseSets: parsedExerciseSets } : {}),
       intensity: backendIntensity,
       ...(presetExercises.length > 0 ? { presetExercises } : {}),
       ...(logNotes.trim() ? { notes: logNotes.trim() } : {}),
@@ -199,9 +227,11 @@ export function WorkoutLauncher({
     logHours,
     logMinutes,
     logIntensity,
+    exerciseSets,
     logNotes,
     presetExercises,
     recordRecentFromSelection,
+    units,
     onClose,
   ]);
 
@@ -211,7 +241,16 @@ export function WorkoutLauncher({
     intent === 'log' &&
     selectedEntry != null &&
     logDurationMins > 0 &&
-    (selectedEntry.sessionMode !== 'strength' || presetExercises.length > 0);
+    (selectedEntry.sessionMode !== 'strength' ||
+      (presetExercises.length > 0 &&
+        presetExercises.every((exercise) => {
+          const sets = exerciseSets[exercise];
+          return sets?.length > 0 && sets.every((set) => {
+            const reps = parseInt(set.reps, 10);
+            const weight = parseFloat(set.weight);
+            return Number.isFinite(reps) && reps > 0 && Number.isFinite(weight) && weight >= 0;
+          });
+        })));
 
   const title =
     step === 'browse'
@@ -254,6 +293,7 @@ export function WorkoutLauncher({
         />
 
         <ScrollView
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={[
             styles.scroll,
             { paddingBottom: insets.bottom + (showFooter ? 100 : 24) },
@@ -288,6 +328,9 @@ export function WorkoutLauncher({
               onLogHoursChange={setLogHours}
               logMinutes={logMinutes}
               onLogMinutesChange={setLogMinutes}
+              exerciseSets={exerciseSets}
+              onExerciseSetsChange={setExerciseSets}
+              weightUnit={units.weightUnit}
               logIntensity={logIntensity}
               onLogIntensityChange={setLogIntensity}
               logNotes={logNotes}
