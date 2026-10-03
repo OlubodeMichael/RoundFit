@@ -45,18 +45,24 @@ export const ENTITLEMENT_ID = "Roundfit Pro";
 export const USE_TEST_STORE = __DEV__;
 
 /**
- * Master switch for the hard paywall gate.
+ * Master switch for the whole paid tier.
  *
- * ON. RoundFit is a hard-gated app: a signed-in user with no active entitlement
- * is redirected to `/paywall` on every launch, and the gate in `app/_layout.tsx`
- * sends them straight back if they dismiss it.
+ * ON. RoundFit gates **individual Pro surfaces**, not the app. There is no hard
+ * launch gate: everyone can log food, workouts, sleep and water, see today's
+ * numbers, and keep a streak. Pro buys the AI and analysis layer on top.
  *
- * That makes the paywall a single point of failure. If `getOfferings()` returns
- * nothing, the purchase button is disabled and there is no way past the screen
- * except Restore, so the whole app is unreachable. Offerings loading on a real
- * device is therefore a release blocker, not a nice-to-have: verify it in
- * TestFlight before every submission. See `app/paywall.tsx` for the
- * `plansUnavailable` state and SUBSCRIPTION_PLAN.md §7 for the gate itself.
+ * Pro surfaces, each asking `useProAccess()` and rendering `ProLock` when locked:
+ *  - AI daily insight, AI weekly insight (`app/(tabs)/insights/*`)
+ *  - Progress detail: recovery, stress, weight trends (`app/(tabs)/progress/*`)
+ *  - Food AI photo, barcode scan, food search (`app/(tabs)/log/food/*`)
+ *  - LLM coaching phrasing (`hooks/use-daily-coaching.ts`, silent downgrade to
+ *    the deterministic template rather than a lock)
+ *
+ * The backend enforces the same set through `requirePremium`, so a modified
+ * client gains nothing but a 403. See SUBSCRIPTION_PLAN.md §3.
+ *
+ * Setting this to `false` opens every surface to everyone, which is the fastest
+ * way to neutralise the paid tier without unpicking call sites.
  *
  * Requires the real `appl_…` key (`REVENUECAT_IOS_KEY`, reaching the app through
  * `app.config.js` → `extra.revenueCatIosKey`) and the hosted legal pages.

@@ -31,6 +31,8 @@ const FOCUS_ICON: Record<InsightFocus, React.ComponentProps<typeof Ionicons>['na
   consistency: 'checkmark-circle',
 };
 import { addLocalCalendarDays, getLocalDateString } from '@/utils/date';
+import { ProLock } from '@/components/paywall/ProLock';
+import { useProAccess } from '@/hooks/use-pro-access';
 import {
   formatSleepHours,
   recomputeNormalizedDay,
@@ -171,7 +173,7 @@ function withLiveNutrition(
 
 // ── Screen ─────────────────────────────────────────────────────────────────
 
-export default function DailyInsightScreen() {
+function DailyInsightScreenContent() {
   const P      = usePalette();
   const pad    = useScreenPadding();
   const insets = useSafeAreaInsets();
@@ -452,3 +454,33 @@ const styles = StyleSheet.create({
     fontSize: 16, fontWeight: '500', lineHeight: 24, letterSpacing: -0.1,
   },
 });
+
+
+/**
+ * Pro gate for daily insight.
+ *
+ * A wrapper rather than an early return inside the screen: the content
+ * component never mounts while locked, so none of its hooks, fetches or
+ * HealthKit reads run for a user who cannot see the result.
+ */
+export default function DailyInsightScreen() {
+  const pro = useProAccess();
+  const router = useRouter();
+
+  // Never flash a lock at a subscriber whose entitlement is still resolving.
+  if (!pro.ready) return null;
+
+  if (!pro.isPro) {
+    return (
+      <ProLock
+        title="Daily insight"
+        description="Your day read back to you: what moved the needle, what to fix tomorrow, written fresh each morning."
+        icon="bulb-outline"
+        source="insights_daily"
+        onBack={() => router.back()}
+      />
+    );
+  }
+
+  return <DailyInsightScreenContent />;
+}

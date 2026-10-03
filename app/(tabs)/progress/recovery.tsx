@@ -46,6 +46,8 @@ import {
 } from '@/components/recovery/recovery-trend-utils';
 import type { TrendPalette } from '@/components/recovery/recovery-trend-utils';
 import { safeBack } from '@/utils/navigation';
+import { ProLock } from '@/components/paywall/ProLock';
+import { useProAccess } from '@/hooks/use-pro-access';
 
 type Period = 'D' | 'W' | 'M';
 type P = ReturnType<typeof usePalette>;
@@ -508,7 +510,7 @@ function formatDate(iso: string): string {
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
-export default function RecoveryScreen() {
+function RecoveryScreenContent() {
   const P      = usePalette();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -830,3 +832,33 @@ const s = StyleSheet.create({
   },
 
 });
+
+
+/**
+ * Pro gate for recovery detail.
+ *
+ * A wrapper rather than an early return inside the screen: the content
+ * component never mounts while locked, so none of its hooks, fetches or
+ * HealthKit reads run for a user who cannot see the result.
+ */
+export default function RecoveryScreen() {
+  const pro = useProAccess();
+  const router = useRouter();
+
+  // Never flash a lock at a subscriber whose entitlement is still resolving.
+  if (!pro.ready) return null;
+
+  if (!pro.isPro) {
+    return (
+      <ProLock
+        title="Recovery detail"
+        description="HRV, resting heart rate and sleep debt over time, so you can see why today feels the way it does."
+        icon="pulse-outline"
+        source="progress_recovery"
+        onBack={() => router.back()}
+      />
+    );
+  }
+
+  return <RecoveryScreenContent />;
+}

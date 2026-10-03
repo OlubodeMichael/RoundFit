@@ -32,6 +32,7 @@ import { useToast } from '@/components/ui/Toast';
 import { FoodLogActionsRow } from '@/components/log/food/FoodLogActionsRow';
 import { FoodLogCaloriesCard } from '@/components/log/food/FoodLogCaloriesCard';
 import { DayNavigator, usePalette, type Palette } from '@/lib/log-theme';
+import { useProAccess } from '@/hooks/use-pro-access';
 import {
   MEAL_ROW_GAP,
   MEAL_ROW_MIN_HEIGHT,
@@ -234,6 +235,15 @@ export default function FoodLogScreen() {
   const scanLoopRef  = useRef<Animated.CompositeAnimation | null>(null);
 
   const [cameraMode, setCameraMode]       = useState<CameraMode | null>(null);
+
+  // Photo analysis, barcode scanning and food search are Pro. Manual entry is
+  // not, so food logging stays usable on the free tier.
+  const pro = useProAccess();
+  const requirePro = (source: string): boolean => {
+    if (pro.isPro) return true;
+    router.push({ pathname: '/paywall', params: { source } } as never);
+    return false;
+  };
   const [scanned, setScanned]             = useState<BarcodeResult | null>(null);
   const [CameraView, setCameraView]       = useState<React.ComponentType<Record<string, unknown>> | null>(null);
   const [manualVisible, setManualVisible] = useState(false);
@@ -333,11 +343,13 @@ export default function FoodLogScreen() {
   };
 
   const openPhoto = async () => {
+    if (!requirePro('food_photo')) return;
     const ok = await ensureCameraPermission();
     if (!ok) return;
     setCameraMode('photo');
   };
   const openScan = async () => {
+    if (!requirePro('food_scan')) return;
     const ok = await ensureCameraPermission();
     if (!ok) return;
     setPendingBarcode(null);
@@ -518,7 +530,11 @@ export default function FoodLogScreen() {
           <FoodLogActionsRow
             onPhoto={openPhoto}
             onManual={() => openManual()}
-            onSearch={() => router.push('/(tabs)/log/food/search')}
+            onSearch={() => {
+              if (!requirePro('food_search')) return;
+              router.push('/(tabs)/log/food/search');
+            }}
+            proLocked={!pro.isPro}
           />
         </View>
 

@@ -37,6 +37,8 @@ import { useWeeklyInsights } from "@/hooks/use-weekly-insights";
 import { usePalette } from "@/lib/log-theme";
 import { getLocalDateString } from "@/utils/date";
 import { filterInsightsByDate } from "@/utils/insight-filters";
+import { useProAccess } from "@/hooks/use-pro-access";
+import { ProLock } from "@/components/paywall/ProLock";
 import {
     formatSleepHours,
     getDayLetter,
@@ -268,6 +270,8 @@ export default function InsightsScreen() {
     setActiveTab(tab);
   };
 
+  const pro = useProAccess();
+
   const {
     todayInsight,
     claudeInsight,
@@ -284,7 +288,9 @@ export default function InsightsScreen() {
   const todayDay = weekData?.days.find((d) => d.date === todayStr) ?? null;
   const todayTargets = weekData?.targets_snapshot ?? null;
 
-  const heroSource = claudeInsight ?? todayInsight;
+  // Same split as the home card: the LLM insight is Pro, the rule-based one is
+  // free. See `components/home/InsightCard.tsx`.
+  const heroSource = pro.isPro ? (claudeInsight ?? todayInsight) : todayInsight;
   const heroDisplay = heroSource
     ? toDisplay(heroSource, new Date().toISOString())
     : null;
@@ -608,6 +614,25 @@ function WeekView({
   isLoading: boolean;
 }) {
   const P = usePalette();
+  const pro = useProAccess();
+
+  // The whole week tab is the weekly report, so the lock replaces it rather
+  // than sitting inside it. Skeleton while the entitlement resolves — a lock
+  // that appears and then vanishes reads as a bug to a paying subscriber.
+  if (!pro.ready) return <WeekInsightsSkeleton />;
+  if (!pro.isPro) {
+    return (
+      <View style={s.stack}>
+        <ProLock
+          variant="card"
+          title="Weekly insights"
+          description="A full week of training, food, sleep and recovery pulled into one report, with the trend that actually explains it."
+          icon="calendar-outline"
+          source="insights_week_tab"
+        />
+      </View>
+    );
+  }
 
   if (isLoading && !data) {
     return <WeekInsightsSkeleton />;

@@ -48,6 +48,20 @@ export interface SubscriptionValue {
   /** Whole days left until `currentPeriodEnd` (>= 0), or null. */
   daysLeft: number | null;
   offerings: PurchasesOfferings | null;
+  /**
+   * True once the offerings fetch has settled and produced no sellable package.
+   *
+   * This is the "the paywall has nothing to sell" signal, and it is deliberately
+   * distinct from `status === "loading"`. `loadOfferings()` swallows its error,
+   * so a hard `getOfferings()` failure and a still-in-flight fetch both leave
+   * `offerings` null; only `ready` tells them apart.
+   *
+   * The hard paywall gate in `app/_layout.tsx` must not trap a user behind a
+   * paywall in this state: there would be no purchase to make and no way into
+   * the app. See SUBMISSION_CHECKLIST.md, "Harden the paywall against a failed
+   * offerings load".
+   */
+  offeringsUnavailable: boolean;
   /** Buy a package. Resolves true when the entitlement is active afterwards. */
   purchase: (pkg: PurchasesPackage) => Promise<boolean>;
   /** Restore prior purchases (required on the hard paywall by Apple). */
@@ -183,6 +197,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   const currentPeriodEnd = entitlement?.expirationDate ?? null;
 
+  // `status` is "loading" until `ready`, so reaching here with no packages means
+  // the fetch settled empty rather than being mid-flight.
+  const offeringsUnavailable =
+    status !== "disabled" &&
+    status !== "loading" &&
+    (offerings?.current?.availablePackages?.length ?? 0) === 0;
+
   const value: SubscriptionValue = {
     status,
     isPremium: status === "premium",
@@ -190,6 +211,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     currentPeriodEnd,
     daysLeft: daysUntil(currentPeriodEnd),
     offerings,
+    offeringsUnavailable,
     purchase,
     restore,
     refresh,

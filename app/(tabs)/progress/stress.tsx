@@ -19,6 +19,8 @@ import { usePalette } from '@/lib/log-theme';
 import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/context/recovery-context';
 import { getHealthKitModule, readIntradayHRVSamples, type HRVSample } from '@/utils/healthkit';
+import { ProLock } from '@/components/paywall/ProLock';
+import { useProAccess } from '@/hooks/use-pro-access';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -257,7 +259,7 @@ const ringStyles = StyleSheet.create({
 
 // ── Main screen ────────────────────────────────────────────────────────────
 
-export default function StressScreen() {
+function StressScreenContent() {
   const P      = usePalette();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -895,3 +897,33 @@ const ss = StyleSheet.create({
     fontWeight: '500',
   },
 });
+
+
+/**
+ * Pro gate for stress detail.
+ *
+ * A wrapper rather than an early return inside the screen: the content
+ * component never mounts while locked, so none of its hooks, fetches or
+ * HealthKit reads run for a user who cannot see the result.
+ */
+export default function StressScreen() {
+  const pro = useProAccess();
+  const router = useRouter();
+
+  // Never flash a lock at a subscriber whose entitlement is still resolving.
+  if (!pro.ready) return null;
+
+  if (!pro.isPro) {
+    return (
+      <ProLock
+        title="Stress detail"
+        description="Your intraday stress curve from HRV, so you can see when the day loads up and when it lets go."
+        icon="flash-outline"
+        source="progress_stress"
+        onBack={() => router.back()}
+      />
+    );
+  }
+
+  return <StressScreenContent />;
+}

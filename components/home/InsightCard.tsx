@@ -3,6 +3,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { GradientCard, getCardAccent } from '@/components/ui/GradientCard';
 import { useInsights } from '@/context/insights-context';
+import { useProAccess } from '@/hooks/use-pro-access';
 
 export interface InsightCardPalette {
   card: string;
@@ -22,7 +23,12 @@ export interface InsightCardProps {
 /** Home-screen daily insight — subtle grey wash from the top-right. */
 export function InsightCard({ P, delay = 0, onPress }: InsightCardProps) {
   const { todayInsight, claudeInsight } = useInsights();
-  const insight = claudeInsight ?? todayInsight;
+  const pro = useProAccess();
+
+  // The LLM-written insight is Pro. The rule-based one is not, so a free user
+  // still gets a real daily insight here rather than an empty card — the
+  // decision engine produced it either way, Pro only buys the phrasing.
+  const insight = pro.isPro ? (claudeInsight ?? todayInsight) : todayInsight;
 
   if (!insight) return null;
 

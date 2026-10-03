@@ -21,6 +21,8 @@ import { useUnits } from '@/hooks/use-units';
 import { useProfile } from '@/hooks/use-profile';
 import { WeightHistoryCurrentCard } from '@/components/weight/WeightHistoryCurrentCard';
 import { formatMonthDayLocal, localCalendarDaysAgo, localWeekdayLong } from '@/utils/date';
+import { ProLock } from '@/components/paywall/ProLock';
+import { useProAccess } from '@/hooks/use-pro-access';
 
 
 function histLabel(iso: string): string {
@@ -39,7 +41,7 @@ function xLabel(iso: string): string {
   return formatMonthDayLocal(iso);
 }
 
-export default function WeightLogScreen() {
+function WeightLogScreenContent() {
   const P      = usePalette();
   const pad    = useScreenPadding();
   const insets = useSafeAreaInsets();
@@ -211,3 +213,33 @@ const styles = StyleSheet.create({
     color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: -0.2,
   },
 });
+
+
+/**
+ * Pro gate for weight trends.
+ *
+ * A wrapper rather than an early return inside the screen: the content
+ * component never mounts while locked, so none of its hooks, fetches or
+ * HealthKit reads run for a user who cannot see the result.
+ */
+export default function WeightLogScreen() {
+  const pro = useProAccess();
+  const router = useRouter();
+
+  // Never flash a lock at a subscriber whose entitlement is still resolving.
+  if (!pro.ready) return null;
+
+  if (!pro.isPro) {
+    return (
+      <ProLock
+        title="Weight trends"
+        description="The trend line through the noise, pace against your goal, and the projection that comes with it."
+        icon="trending-down-outline"
+        source="progress_weight"
+        onBack={() => router.back()}
+      />
+    );
+  }
+
+  return <WeightLogScreenContent />;
+}

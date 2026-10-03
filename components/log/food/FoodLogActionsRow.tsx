@@ -26,6 +26,8 @@ interface FoodLogActionTileProps {
   corner: GradientCardCorner;
   delay: number;
   layout: 'primary' | 'secondary';
+  /** Shows the Pro marker. The tile still responds — it routes to the paywall. */
+  locked?: boolean;
   onPress: () => void;
 }
 
@@ -37,6 +39,7 @@ function FoodLogActionTile({
   corner,
   delay,
   layout,
+  locked = false,
   onPress,
 }: FoodLogActionTileProps) {
   const P = usePalette();
@@ -49,7 +52,7 @@ function FoodLogActionTile({
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${title}, ${subtitle}`}
+      accessibilityLabel={locked ? `${title}, ${subtitle}, requires RoundFit Pro` : `${title}, ${subtitle}`}
       style={({ pressed }) => [
         isPrimary ? styles.primaryPressable : styles.secondaryPressable,
         pressed && styles.pressed,
@@ -75,6 +78,7 @@ function FoodLogActionTile({
           iconSize={iconSize}
           accent={accent}
           isPrimary={isPrimary}
+          locked={locked}
         />
       </GradientCard>
     </Pressable>
@@ -88,6 +92,7 @@ function ActionTileBody({
   iconSize,
   accent,
   isPrimary,
+  locked,
 }: {
   title: string;
   subtitle: string;
@@ -95,12 +100,19 @@ function ActionTileBody({
   iconSize: number;
   accent: CardAccent;
   isPrimary: boolean;
+  locked: boolean;
 }) {
   const P = usePalette();
 
   return (
     <View style={isPrimary ? styles.primaryBody : styles.secondaryBody}>
       <Ionicons name={icon} size={iconSize} color={accent.iconBg} />
+      {locked ? (
+        <View style={[styles.proPill, { backgroundColor: accent.iconSoft }]}>
+          <Ionicons name="lock-closed" size={9} color={accent.iconBg} />
+          <Text style={[styles.proPillText, { color: accent.iconBg }]}>PRO</Text>
+        </View>
+      ) : null}
       <View style={styles.copy}>
         <Text
           style={[
@@ -126,6 +138,12 @@ export interface FoodLogActionsRowProps {
   onPhoto: () => void;
   onManual: () => void;
   onSearch: () => void;
+  /**
+   * Marks the Pro tiles. Manual entry is never marked — it is the free path
+   * that keeps food logging usable without a subscription, and the whole point
+   * of showing the marker here is that nobody taps into a lock by surprise.
+   */
+  proLocked?: boolean;
   baseDelay?: number;
 }
 
@@ -133,6 +151,7 @@ export function FoodLogActionsRow({
   onPhoto,
   onManual,
   onSearch,
+  proLocked = false,
   baseDelay = 160,
 }: FoodLogActionsRowProps) {
   const P = usePalette();
@@ -149,6 +168,7 @@ export function FoodLogActionsRow({
         corner="top-right"
         delay={baseDelay}
         layout="primary"
+        locked={proLocked}
         onPress={onPhoto}
       />
 
@@ -171,6 +191,7 @@ export function FoodLogActionsRow({
           corner="bottom-right"
           delay={baseDelay + STAGGER_MS * 2}
           layout="secondary"
+          locked={proLocked}
           onPress={onSearch}
         />
       </View>
@@ -195,6 +216,22 @@ const styles = StyleSheet.create({
   secondaryPressable: {
     flex: 1,
     minWidth: 0,
+  },
+  proPill: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  proPillText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   pressed: {
     opacity: 0.92,

@@ -137,22 +137,25 @@ function AppNavigator() {
       return;
     }
 
-    // ── Hard paywall gate (SUBSCRIPTION_PLAN §7) ──────────────────────────────
-    // Inert unless PAYWALL_ENABLED. When on, a signed-in user with no active
-    // entitlement can only be on `/paywall`. `reveal.tsx` → setupOAuthProfile →
-    // status flips to authenticated → this gate fires → the paywall IS the
-    // onboarding paywall (no onboarding screen changes needed).
-    if (PAYWALL_ENABLED && hasActiveUserSession(status, user)) {
-      const subStatus = subscription?.status ?? "disabled";
-      const isPremium = subscription?.isPremium ?? false;
-      if (subStatus !== "loading" && !isPremium && (top as string) !== "paywall") {
-        router.replace("/paywall" as Href);
-        return;
-      }
-      if (isPremium && (top as string) === "paywall") {
-        router.replace("/(tabs)");
-        return;
-      }
+    // The hard launch gate that used to live here is gone. RoundFit gates
+    // individual Pro surfaces instead (`useProAccess` + `ProLock`), so the app
+    // always opens and the free tier is genuinely usable. A single failure to
+    // load offerings can no longer make the whole app unreachable, which is the
+    // failure mode that bricked TestFlight.
+    //
+    // The paywall is still reached two ways: once after sign-up (below, and
+    // dismissible), and from any locked surface or Settings.
+    //
+    // A subscriber who lands on it anyway — deep link, stale history — is sent
+    // home rather than left staring at plans they already bought.
+    if (
+      PAYWALL_ENABLED &&
+      hasActiveUserSession(status, user) &&
+      (subscription?.isPremium ?? false) &&
+      (top as string) === "paywall"
+    ) {
+      router.replace("/(tabs)");
+      return;
     }
 
     const passwordScreen =

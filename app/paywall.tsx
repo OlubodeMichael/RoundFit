@@ -36,7 +36,7 @@ export default function HardPaywallScreen() {
   const params = useLocalSearchParams<{ source?: string }>();
   const posthog = usePostHog();
   const { status: authStatus, user } = useAuth();
-  const { status, offerings, purchase, restore } = useSubscription();
+  const { status, offerings, offeringsUnavailable, purchase, restore } = useSubscription();
   const [purchasing, setPurchasing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [annualTrialEligible, setAnnualTrialEligible] = useState(false);
@@ -159,13 +159,19 @@ export default function HardPaywallScreen() {
   const plansUnavailable =
     !isPurchasesConfigured() || status === 'loading' || !annual || !monthly;
 
+  // Order matters: `offeringsUnavailable` means the fetch settled with nothing to
+  // sell, which otherwise reads as a permanent "Loading plans…". When it is set
+  // the router gate stands down, so Close genuinely leaves the paywall and the
+  // copy has to say so.
   const unavailableMessage = !isPurchasesConfigured()
     ? 'Subscriptions are unavailable on this build.'
-    : status === 'loading' || !offerings
-      ? 'Loading plans…'
-      : !annual || !monthly
-        ? 'Plans are temporarily unavailable.'
-        : null;
+    : offeringsUnavailable
+      ? 'Plans are unavailable right now. You can keep using the app and subscribe later.'
+      : status === 'loading' || !offerings
+        ? 'Loading plans…'
+        : !annual || !monthly
+          ? 'Plans are temporarily unavailable.'
+          : null;
 
   return (
     <RoundFitPaywall

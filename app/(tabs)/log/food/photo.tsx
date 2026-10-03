@@ -12,8 +12,10 @@ import {
   useScreenPadding,
 } from '@/lib/log-theme';
 import { usePostHog } from 'posthog-react-native';
+import { ProLock } from '@/components/paywall/ProLock';
+import { useProAccess } from '@/hooks/use-pro-access';
 
-export default function PhotoAnalysisScreen() {
+function PhotoAnalysisScreenContent() {
   const P       = usePalette();
   const router  = useRouter();
   const pad     = useScreenPadding();
@@ -215,3 +217,33 @@ const styles = StyleSheet.create({
     marginTop:  12,
   },
 });
+
+
+/**
+ * Pro gate for photo food logging.
+ *
+ * A wrapper rather than an early return inside the screen: the content
+ * component never mounts while locked, so the camera is never opened and no
+ * analysis request is made for a user who cannot see the result.
+ */
+export default function PhotoAnalysisScreen() {
+  const pro = useProAccess();
+  const router = useRouter();
+
+  // Never flash a lock at a subscriber whose entitlement is still resolving.
+  if (!pro.ready) return null;
+
+  if (!pro.isPro) {
+    return (
+      <ProLock
+        title="Photo food logging"
+        description="Point the camera at a plate and get calories and macros back, without weighing or searching anything."
+        icon="camera-outline"
+        source="food_photo"
+        onBack={() => router.back()}
+      />
+    );
+  }
+
+  return <PhotoAnalysisScreenContent />;
+}

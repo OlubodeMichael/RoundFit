@@ -16,6 +16,8 @@ import { AnimatedCard, usePalette, useScreenPadding } from '@/lib/log-theme';
 import { FoodRow } from '@/components/log/FoodRow';
 import { useFood, defaultPortion, macrosForGrams, type Food } from '@/hooks/use-food';
 import { usePostHog } from 'posthog-react-native';
+import { ProLock } from '@/components/paywall/ProLock';
+import { useProAccess } from '@/hooks/use-pro-access';
 
 /** Long enough to skip most mid-word keystrokes without feeling laggy. */
 const SEARCH_DEBOUNCE_MS = 350;
@@ -34,7 +36,7 @@ function toRow(food: Food) {
   };
 }
 
-export default function FoodSearchScreen() {
+function FoodSearchScreenContent() {
   const P      = usePalette();
   const router = useRouter();
   const pad    = useScreenPadding();
@@ -244,3 +246,33 @@ const styles = StyleSheet.create({
     letterSpacing:  0.1,
   },
 });
+
+
+/**
+ * Pro gate for food search and barcode.
+ *
+ * A wrapper rather than an early return inside the screen: the content
+ * component never mounts while locked, so the camera is never opened and no
+ * analysis request is made for a user who cannot see the result.
+ */
+export default function FoodSearchScreen() {
+  const pro = useProAccess();
+  const router = useRouter();
+
+  // Never flash a lock at a subscriber whose entitlement is still resolving.
+  if (!pro.ready) return null;
+
+  if (!pro.isPro) {
+    return (
+      <ProLock
+        title="Food search and barcode"
+        description="Search millions of foods and scan any barcode, with the macros filled in for you."
+        icon="barcode-outline"
+        source="food_search"
+        onBack={() => router.back()}
+      />
+    );
+  }
+
+  return <FoodSearchScreenContent />;
+}

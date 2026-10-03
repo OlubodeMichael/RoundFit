@@ -18,6 +18,9 @@ import {
   useScreenPadding,
 } from '@/lib/log-theme';
 import { useWeeklyInsights } from '@/hooks/use-weekly-insights';
+import { useRouter } from 'expo-router';
+import { ProLock } from '@/components/paywall/ProLock';
+import { useProAccess } from '@/hooks/use-pro-access';
 import {
   dayHasChartData,
   formatWeekRange,
@@ -42,7 +45,7 @@ function minutesAgo(iso: string): string {
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
-export default function WeeklyReportScreen() {
+function WeeklyReportScreenContent() {
   const P      = usePalette();
   const pad    = useScreenPadding();
   const insets = useSafeAreaInsets();
@@ -629,3 +632,33 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
 });
+
+
+/**
+ * Pro gate for weekly insights.
+ *
+ * A wrapper rather than an early return inside the screen: the content
+ * component never mounts while locked, so none of its hooks, fetches or
+ * HealthKit reads run for a user who cannot see the result.
+ */
+export default function WeeklyReportScreen() {
+  const pro = useProAccess();
+  const router = useRouter();
+
+  // Never flash a lock at a subscriber whose entitlement is still resolving.
+  if (!pro.ready) return null;
+
+  if (!pro.isPro) {
+    return (
+      <ProLock
+        title="Weekly insights"
+        description="A full week of training, food, sleep and recovery pulled into one report, with the trend that actually explains it."
+        icon="calendar-outline"
+        source="insights_weekly"
+        onBack={() => router.back()}
+      />
+    );
+  }
+
+  return <WeeklyReportScreenContent />;
+}
