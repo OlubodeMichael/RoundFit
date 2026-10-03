@@ -24,40 +24,44 @@ export const ENTITLEMENT_ID = "Roundfit Pro";
 /**
  * Use RevenueCat's simulated **Test Store** instead of the real App Store.
  *
- * ON while the App Store products sit in `WAITING_FOR_REVIEW`: StoreKit returns
- * no products for them yet, so `getOfferings()` fails with "None of the products
- * registered in the RevenueCat dashboard could be fetched from App Store Connect"
- * and the paywall has no plans to show. The Test Store serves the same offering
- * (`RoundFit Pro`, with `$rc_annual` + `$rc_monthly`) from RevenueCat's own
- * backend, so offerings load, purchases complete, and the `Roundfit Pro`
- * entitlement turns on, all without App Store Connect or a real device.
+ * Tied to `__DEV__` on purpose, never hand-flipped. The RevenueCat SDK refuses a
+ * `test_…` key in any release build: it shows a "Wrong API Key" alert and then
+ * terminates the app. TestFlight and App Review both run release builds, so a
+ * Test Store key there is not "a key that works until Apple approves the IAPs",
+ * it is a guaranteed launch crash and an automatic review rejection.
  *
- * ⚠️ MUST be `false` before any build that reaches real users. Test Store
- * purchases are simulated: they take no money and would hand every installer a
- * free entitlement. `configurePurchases()` logs a release-visible warning while
- * this is on, and SUBMISSION_CHECKLIST.md tracks flipping it back.
+ * Debug builds (simulator, `expo run:ios`, dev client) therefore get the Test
+ * Store, where offerings load and purchases complete without App Store Connect.
+ * Every release build gets the real `appl_…` key, which in TestFlight and review
+ * transacts against the **StoreKit sandbox**: free simulated purchases against
+ * the real products, which is the behaviour the Test Store was standing in for.
  *
- * Flip to `false` once the IAPs are approved in App Store Connect.
+ * This needs the products to be fetchable from App Store Connect. They are so
+ * long as the Paid Applications Agreement is active, including while they sit in
+ * `WAITING_FOR_REVIEW`. "None of the products registered in the RevenueCat
+ * dashboard could be fetched" almost always means the agreement, not the review
+ * state.
  */
-export const USE_TEST_STORE = true;
+export const USE_TEST_STORE = __DEV__;
 
 /**
  * Master switch for the hard paywall gate.
  *
- * **OFF until Phase 0 of SUBSCRIPTION_PLAN.md is complete** — i.e. real App Store
- * Connect products are approved, a real iOS RevenueCat public SDK key is set in
- * `EXPO_PUBLIC_REVENUECAT_IOS_KEY`, and the legal pages are hosted.
+ * ON. RoundFit is a hard-gated app: a signed-in user with no active entitlement
+ * is redirected to `/paywall` on every launch, and the gate in `app/_layout.tsx`
+ * sends them straight back if they dismiss it.
  *
- * While `false`:
- *  - `Purchases` still configures and the SubscriptionProvider still runs, so
- *    `useIsPremium()` reflects any real entitlement (keeps cloud AI paths honest).
- *  - The router gate in `app/_layout.tsx` does NOT force-redirect to `/paywall`,
- *    so the app is fully usable in dev/TestFlight without a subscription.
+ * That makes the paywall a single point of failure. If `getOfferings()` returns
+ * nothing, the purchase button is disabled and there is no way past the screen
+ * except Restore, so the whole app is unreachable. Offerings loading on a real
+ * device is therefore a release blocker, not a nice-to-have: verify it in
+ * TestFlight before every submission. See `app/paywall.tsx` for the
+ * `plansUnavailable` state and SUBSCRIPTION_PLAN.md §7 for the gate itself.
  *
- * Flipping this to `true` turns RoundFit into a hard-gated app: no entitlement →
- * every launch lands on `/paywall`. Do not enable until offerings load on device.
+ * Requires the real `appl_…` key (`REVENUECAT_IOS_KEY`, reaching the app through
+ * `app.config.js` → `extra.revenueCatIosKey`) and the hosted legal pages.
  */
-export const PAYWALL_ENABLED = false;
+export const PAYWALL_ENABLED = true;
 
 /** Source key of a `paywall_viewed` / analytics event, per SUBSCRIPTION_PLAN §9. */
 export type PaywallSource = "onboarding" | "settings" | "trial_expired";

@@ -17,10 +17,12 @@
  *    paywall and every entitlement path are testable in the simulator and in
  *    dev builds while Apple review is pending.
  *
- * `USE_TEST_STORE` in `constants/subscription.ts` picks between them. A Test
- * Store key cannot validate real StoreKit purchases, so that flag MUST be false
- * before any build that goes to real users. Configuration is a no-op when the
- * selected key is missing.
+ * `USE_TEST_STORE` in `constants/subscription.ts` picks between them, and is
+ * `__DEV__`, so the Test Store can only ever be reached from a debug build. The
+ * RevenueCat SDK kills any release build configured with a `test_…` key, so a
+ * TestFlight or App Review build must use the App Store key; there it transacts
+ * against the StoreKit sandbox. Configuration is a no-op when the selected key
+ * is missing.
  */
 import Constants from "expo-constants";
 import { Platform } from "react-native";
@@ -98,7 +100,8 @@ export function configurePurchases(): boolean {
   if (store === "test_store") {
     console.warn(
       "[purchases] RevenueCat is running against the TEST STORE. " +
-        "Purchases are simulated. Set USE_TEST_STORE to false before shipping.",
+        "Purchases are simulated. Debug builds only: the SDK terminates a " +
+          "release build configured this way.",
     );
   }
 
