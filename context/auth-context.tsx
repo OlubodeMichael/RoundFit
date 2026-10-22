@@ -4,6 +4,7 @@ import {
     apiFetch,
     clearTokens,
     getStoredAccessToken,
+    getStoredTokenUserMetadata,
     hasStoredAccessToken,
     proactiveRefreshIfNeeded,
     proactiveRefreshStateIfNeeded,
@@ -25,6 +26,10 @@ import {
 import { prefetchAvatarImage } from "@/utils/avatar-image-cache";
 import { markJustSignedUp, clearSignupPaywall } from "@/utils/post-signup-paywall";
 import { createAppleSignInNonce } from "@/utils/apple-sign-in-nonce";
+import {
+  firstNameFromFullName,
+  firstNameFromUserMetadata,
+} from "@/utils/social-first-name";
 import * as AppleAuthentication from "expo-apple-authentication";
 import Constants from "expo-constants";
 import * as WebBrowser from "expo-web-browser";
@@ -170,9 +175,16 @@ interface AuthContextValue {
   profileSetupPending: boolean;
 
   /**
+   * First name shared by Apple / Google during OAuth sign-in, or null when the
+   * provider gave none (e.g. Apple on a repeat authorisation).
+   */
+  socialFirstName: string | null;
+
+  /**
    * Creates a RoundFit profile for an OAuth user who just completed onboarding.
    * Calls POST /auth/oauth-setup with the collected profile data, then fetches
-   * the full profile and transitions to `authenticated`.
+   * the full profile and transitions to `authenticated`. The provider's first
+   * name, when available, replaces the name typed during onboarding.
    */
   setupOAuthProfile: (
     profile: Omit<
@@ -474,6 +486,22 @@ async function fetchMe(emailFallback = ""): Promise<UserProfile> {
   return profile;
 }
 
+/**
+ * Apple shares the name only on the first authorisation and never puts it in
+ * the identity token, so write it to Supabase `user_metadata`. Later tokens
+ * then carry it, which keeps it available after an app restart mid-onboarding.
+ */
+async function persistAppleName(
+  givenName: string,
+  familyName: string | null | undefined,
+): Promise<void> {
+  const fullName = [givenName, familyName?.trim()].filter(Boolean).join(" ");
+  const { error } = await supabase.auth.updateUser({
+    data: { given_name: givenName, full_name: fullName },
+  });
+  if (error) console.warn("[auth] saving Apple name to user_metadata failed:", error.message);
+}
+
 /** Profile row returned by POST /auth/oauth-setup (`{ data: { profile } }`). */
 function profileFromOAuthSetupBody(
   body: Record<string, unknown>,
@@ -513,6 +541,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<AuthError | null>(null);
   const [profileSetupPending, setProfileSetupPending] = useState(false);
+  const [socialFirstName, setSocialFirstName] = useState<string | null>(null);
 
   // Stable ref so updateProfile's rollback always sees the latest snapshot.
   const userRef = useRef<UserProfile | null>(null);
@@ -582,6 +611,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       void writeCachedAuthUser(user);
     }
   }, [user]);
+
+  // Google (and Apple after a restart) carry the name in the token's
+  // user_metadata rather than in an in-memory credential.
+  useEffect(() => {
+    if (!profileSetupPending || socialFirstName) return;
+    let cancelled = false;
+    getStoredTokenUserMetadata()
+      .then((meta) => {
+        const firstName = firstNameFromUserMetadata(meta);
+        if (!cancelled && firstName) setSocialFirstName(firstName);
+      })
+      .catch((err: unknown) => {
+        console.warn(
+          "[auth] reading social first name from token failed:",
+          err instanceof Error ? err.message : err,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profileSetupPending, socialFirstName]);
 
   // ── Restore session on mount ─────────────────────────────────────────────
   useEffect(() => {
@@ -968,6 +1018,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      setSocialFirstName(null);
+
       if (provider === "apple") {
         if (Platform.OS !== "ios") {
           setError("OAUTH_FAILED");
@@ -1024,6 +1076,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data.session.access_token,
           data.session.refresh_token,
         );
+
+        const appleFirstName = firstNameFromFullName(credential.fullName?.givenName);
+        if (appleFirstName) {
+          setSocialFirstName(appleFirstName);
+          await persistAppleName(appleFirstName, credential.fullName?.familyName);
+        }
       } else {
         // ── Google — browser OAuth flow ───────────────────────────────────
         const redirectTo = OAUTH_REDIRECT_URL;
@@ -1145,7 +1203,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return false;
         }
 
-        const apiBody = toApiBody(profile);
+        const apiBody = toApiBody({
+          ...profile,
+          name: socialFirstName ?? profile.name,
+        });
         if (__DEV__) {
           // Body contains weight, age, sex, etc. — keep out of prod logs.
           console.log("[auth] oauth-setup request body:", JSON.stringify(apiBody));
@@ -1199,7 +1260,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
       }
     },
-    [loadUserFromServer],
+    [loadUserFromServer, socialFirstName],
   );
 
   // ── Sign out ─────────────────────────────────────────────────────────────
@@ -1231,6 +1292,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setUser(null);
     setProfileSetupPending(false);
+    setSocialFirstName(null);
     lastMeFetchAtRef.current = 0;
     setStatus("unauthenticated");
   }, []);
@@ -1262,6 +1324,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await clearUserCachesOnLogout();
     setUser(null);
     setProfileSetupPending(false);
+    setSocialFirstName(null);
     lastMeFetchAtRef.current = 0;
     setStatus("unauthenticated");
   }, []);
@@ -1394,6 +1457,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signInWithOAuth,
         profileSetupPending,
+        socialFirstName,
         setupOAuthProfile,
         signOut,
         deleteAccount,

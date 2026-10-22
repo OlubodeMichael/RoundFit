@@ -175,7 +175,10 @@ function AppNavigator() {
           // to restore (reinstall, second device).
           if ((subscription?.status ?? "disabled") === "loading") return;
           consumeSignupPaywall();
-          if (!(subscription?.isPremium ?? false)) {
+          // `disabled` has nothing to sell: an empty paywall is a dead end and
+          // an App Review rejection.
+          const canSell = (subscription?.status ?? "disabled") !== "disabled";
+          if (canSell && !(subscription?.isPremium ?? false)) {
             router.replace("/paywall" as Href);
             return;
           }

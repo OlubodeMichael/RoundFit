@@ -26,21 +26,16 @@ export const ENTITLEMENT_ID = "Roundfit Pro";
  *
  * Tied to `__DEV__` on purpose, never hand-flipped. The RevenueCat SDK refuses a
  * `test_…` key in any release build: it shows a "Wrong API Key" alert and then
- * terminates the app. TestFlight and App Review both run release builds, so a
- * Test Store key there is not "a key that works until Apple approves the IAPs",
- * it is a guaranteed launch crash and an automatic review rejection.
+ * terminates the app. TestFlight and App Review both run release builds, so
+ * they must use the `appl_…` key, which transacts against the StoreKit sandbox.
  *
- * Debug builds (simulator, `expo run:ios`, dev client) therefore get the Test
- * Store, where offerings load and purchases complete without App Store Connect.
- * Every release build gets the real `appl_…` key, which in TestFlight and review
- * transacts against the **StoreKit sandbox**: free simulated purchases against
- * the real products, which is the behaviour the Test Store was standing in for.
+ * Debug builds (simulator, `expo run:ios`, dev client) get the Test Store, where
+ * offerings load and purchases complete without App Store Connect.
  *
- * This needs the products to be fetchable from App Store Connect. They are so
- * long as the Paid Applications Agreement is active, including while they sit in
- * `WAITING_FOR_REVIEW`. "None of the products registered in the RevenueCat
- * dashboard could be fetched" almost always means the agreement, not the review
- * state.
+ * Release builds need the products to be fetchable from App Store Connect: an
+ * active Paid Applications Agreement and subscriptions that are not in
+ * `MISSING_METADATA`. "None of the products registered in the RevenueCat
+ * dashboard could be fetched" almost always means one of those two.
  */
 export const USE_TEST_STORE = __DEV__;
 

@@ -9,6 +9,7 @@ import Svg, { Path } from 'react-native-svg';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
 import { OnboardingQuestion } from '@/components/onboarding/onboarding-question';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
+import { useNameStepRoute } from '@/hooks/use-name-step-route';
 import {
   getHealthKitModule,
   HEALTHKIT_READ_IDENTIFIERS,
@@ -27,6 +28,7 @@ export default function HealthConnectScreen() {
     goal: string; activity: string; unit: string;
   }>();
   const { width: screenW } = useWindowDimensions();
+  const nameStepRoute = useNameStepRoute();
   const [isConnecting, setIsConnecting] = useState(false);
 
   // ── Layout ─────────────────────────────────────────────────────────────────
@@ -61,7 +63,7 @@ export default function HealthConnectScreen() {
 
   useEffect(() => {
     if (Platform.OS !== 'ios') {
-      router.replace({ pathname: '/onboarding/name', params });
+      router.replace(nameStepRoute(params));
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -88,7 +90,7 @@ export default function HealthConnectScreen() {
   if (Platform.OS !== 'ios') return null;
 
   const expoGo     = isExpoGoEnvironment();
-  const goToName = () => router.push({ pathname: '/onboarding/name', params });
+  const goToName = () => router.push(nameStepRoute(params));
 
   const handleConnect = async () => {
     if (isConnecting) return;

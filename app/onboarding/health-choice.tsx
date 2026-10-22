@@ -7,6 +7,7 @@ import { OnboardingQuestion } from '@/components/onboarding/onboarding-question'
 import { useOnboardingDraft } from '@/components/onboarding/onboarding-draft';
 import { PrimaryCTA } from '@/components/onboarding/primary-cta';
 import { WhyWeAsk } from '@/components/onboarding/why-we-ask';
+import { useNameStepRoute } from '@/hooks/use-name-step-route';
 
 type HealthChoice = 'connect' | 'skip';
 
@@ -40,11 +41,12 @@ export default function HealthChoiceScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<OnboardingParams>();
   const { draft, updateDraft } = useOnboardingDraft();
+  const nameStepRoute = useNameStepRoute();
   const selected: HealthChoice | null = draft.healthChoice;
 
   useEffect(() => {
     if (Platform.OS !== 'ios') {
-      router.replace({ pathname: '/onboarding/name', params });
+      router.replace(nameStepRoute(params));
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -57,7 +59,7 @@ export default function HealthChoiceScreen() {
     }
 
     if (selected === 'skip') {
-      router.push({ pathname: '/onboarding/name', params });
+      router.push(nameStepRoute(params));
     }
   };
 

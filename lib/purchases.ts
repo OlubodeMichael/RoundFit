@@ -17,10 +17,10 @@
  *    paywall and every entitlement path are testable in the simulator and in
  *    dev builds while Apple review is pending.
  *
- * `USE_TEST_STORE` in `constants/subscription.ts` picks between them, and is
- * `__DEV__`, so the Test Store can only ever be reached from a debug build. The
+ * `USE_TEST_STORE` in `constants/subscription.ts` picks exactly one of them and
+ * is `__DEV__`, so the Test Store can only be reached from a debug build. The
  * RevenueCat SDK kills any release build configured with a `test_…` key, so a
- * TestFlight or App Review build must use the App Store key; there it transacts
+ * TestFlight or App Review build always uses the App Store key and transacts
  * against the StoreKit sandbox. Configuration is a no-op when the selected key
  * is missing.
  */
@@ -64,30 +64,15 @@ export function configurePurchases(): boolean {
   if (configured) return true;
   if (Platform.OS !== "ios") return false;
 
-  // Test Store first when the flag is on. Falling back to the App Store key
-  // rather than disabling purchases keeps a build usable if the test key is
-  // missing from the environment, which is what happens on EAS builds until
-  // REVENUECAT_TEST_STORE_KEY is added there.
-  const store: PurchasesStore =
-    USE_TEST_STORE && TEST_STORE_KEY ? "test_store" : "app_store";
-  const apiKey = store === "test_store" ? TEST_STORE_KEY : APP_STORE_KEY;
+  const store: PurchasesStore = USE_TEST_STORE ? "test_store" : "app_store";
+  const apiKey = USE_TEST_STORE ? TEST_STORE_KEY : APP_STORE_KEY;
 
   if (!apiKey) {
-    if (__DEV__) {
-      console.warn(
-        "[purchases] no RevenueCat key configured, RevenueCat is disabled. " +
-          "Set REVENUECAT_IOS_KEY (appl_…) or, with USE_TEST_STORE on, " +
-          "REVENUECAT_TEST_STORE_KEY (test_…).",
-      );
-    }
-    return false;
-  }
-
-  if (USE_TEST_STORE && !TEST_STORE_KEY && __DEV__) {
     console.warn(
-      "[purchases] USE_TEST_STORE is on but extra.revenueCatTestStoreKey is " +
-        "unset, falling back to the App Store key.",
+      `[purchases] no RevenueCat key for the ${store}, RevenueCat is disabled. Set ` +
+        (USE_TEST_STORE ? "REVENUECAT_TEST_STORE_KEY (test_…)." : "REVENUECAT_IOS_KEY (appl_…)."),
     );
+    return false;
   }
 
   if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.WARN);

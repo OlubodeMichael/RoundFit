@@ -65,10 +65,20 @@ function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
     let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
     // base64url strips padding — add it back so atob doesn't throw
     while (b64.length % 4 !== 0) b64 += "=";
-    return JSON.parse(atob(b64));
+    return JSON.parse(utf8FromBinaryString(atob(b64)));
   } catch {
     return null;
   }
+}
+
+// atob yields one char per byte; re-decode as UTF-8 so non-ASCII claims
+// (e.g. a user_metadata name like "José") survive intact.
+function utf8FromBinaryString(binary: string): string {
+  let percentEncoded = "";
+  for (let i = 0; i < binary.length; i += 1) {
+    percentEncoded += `%${binary.charCodeAt(i).toString(16).padStart(2, "0")}`;
+  }
+  return decodeURIComponent(percentEncoded);
 }
 
 function tokenExpiresAt(jwt: string): number | null {
@@ -392,6 +402,14 @@ export async function isStoredTokenOAuth(): Promise<boolean> {
     return providers.some((p) => typeof p === "string" && p !== "email");
   }
   return false;
+}
+
+/** `user_metadata` claim of the stored access token (provider profile data). */
+export async function getStoredTokenUserMetadata(): Promise<Record<string, unknown> | null> {
+  const token = (await readSecure(TOKEN_KEY)).value;
+  if (!token) return null;
+  const meta = decodeJwtPayload(token)?.user_metadata;
+  return meta && typeof meta === "object" ? (meta as Record<string, unknown>) : null;
 }
 
 export async function storeTokens(

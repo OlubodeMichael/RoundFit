@@ -19,7 +19,7 @@ module.exports = {
       // Bump with `npm run version:bump` — it syncs the watch app, watch
       // widget and Live Activity extension too, which App Store Connect
       // requires to carry identical versions to the host app.
-      buildNumber: "22",
+      buildNumber: "23",
       supportsTablet: false,
       infoPlist: {
         NSHealthShareUsageDescription:

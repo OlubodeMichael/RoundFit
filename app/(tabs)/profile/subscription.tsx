@@ -9,7 +9,7 @@ import {
   SettingsScreen,
   useSettingsPalette,
 } from '@/components/profile/settings-ui';
-import { useIsPremium } from '@/hooks/use-is-premium';
+import { useProAccess } from '@/hooks/use-pro-access';
 
 const MANAGE_SUBSCRIPTION_URL = Platform.select({
   ios: 'https://apps.apple.com/account/subscriptions',
@@ -21,8 +21,9 @@ export default function SubscriptionScreen() {
   const P = useSettingsPalette();
   const router = useRouter();
   // Offering "Upgrade to Premium" to someone who already pays reads as a bug,
-  // so the row only exists while there is something to upgrade to.
-  const isPremium = useIsPremium();
+  // and with nothing to sell it opens an empty paywall, so the row only exists
+  // while there is something to upgrade to.
+  const { isPro } = useProAccess();
 
   return (
     <SettingsScreen title="Subscription" subtitle="Manage your plan and billing.">
@@ -34,7 +35,7 @@ export default function SubscriptionScreen() {
           P={P}
           onPress={() => Linking.openURL(MANAGE_SUBSCRIPTION_URL)}
         />
-        {!isPremium && (
+        {!isPro && (
           <>
             <Divider P={P} inset={64} />
             <NavRow

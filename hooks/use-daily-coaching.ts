@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/context/auth-context';
 import { useCheckin } from '@/hooks/use-checkin';
 import { useCycle } from '@/hooks/use-cycle';
-import { useIsPremium } from '@/hooks/use-is-premium';
+import { useProAccess } from '@/hooks/use-pro-access';
 import { useHealth } from '@/hooks/use-health';
 import { useRecovery } from '@/hooks/use-recovery';
 import { useSummary } from '@/hooks/use-summary';
@@ -110,9 +110,9 @@ export function useDailyCoaching(date?: string): UseDailyCoachingResult {
   const { workouts: todayWorkouts } = useWorkouts();
   const { groups: workoutHistoryGroups } = useWorkoutHistory();
   const { pendingSleepSync } = useInsights();
-  const isPremium = useIsPremium();
+  const { isPro } = useProAccess();
 
-  const phraser = useMemo(() => makeCoachingPhraser(isPremium), [isPremium]);
+  const phraser = useMemo(() => makeCoachingPhraser(isPro), [isPro]);
 
   const today = getLocalDateString();
   const targetDate = date ?? today;

@@ -367,11 +367,11 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - PurchasesHybridCommon (18.4.0):
-    - RevenueCat (= 5.70.0)
-  - PurchasesHybridCommonUI (18.4.0):
-    - PurchasesHybridCommon (= 18.4.0)
-    - RevenueCatUI (= 5.70.0)
+  - PurchasesHybridCommon (19.14.1):
+    - RevenueCat (= 5.96.1)
+  - PurchasesHybridCommonUI (19.14.1):
+    - PurchasesHybridCommon (= 19.14.1)
+    - RevenueCatUI (= 5.96.1)
   - RCTDeprecation (0.81.5)
   - RCTRequired (0.81.5)
   - RCTTypeSafety (0.81.5):
@@ -2095,9 +2095,9 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - RevenueCat (5.70.0)
-  - RevenueCatUI (5.70.0):
-    - RevenueCat (= 5.70.0)
+  - RevenueCat (5.96.1)
+  - RevenueCatUI (5.96.1):
+    - RevenueCat (= 5.96.1)
   - RNCAsyncStorage (2.2.0):
     - hermes-engine
     - RCTRequired
@@ -2164,11 +2164,11 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - RNPaywalls (10.1.0):
-    - PurchasesHybridCommonUI (= 18.4.0)
+  - RNPaywalls (10.15.1):
+    - PurchasesHybridCommonUI (= 19.14.1)
     - React-Core
-  - RNPurchases (10.1.0):
-    - PurchasesHybridCommon (= 18.4.0)
+  - RNPurchases (10.15.1):
+    - PurchasesHybridCommon (= 19.14.1)
     - React-Core
   - RNReanimated (4.1.7):
     - hermes-engine
@@ -2865,8 +2865,8 @@ SPEC CHECKSUMS:
   libdav1d: 23581a4d8ec811ff171ed5e2e05cd27bad64c39f
   libwebp: 02b23773aedb6ff1fd38cec7a77b81414c6842a8
   NitroModules: f107a83deb0c79256ef0dadd644017117c073db6
-  PurchasesHybridCommon: 2cd3e4b74c60f5a61603d78e4071274217cd9f6b
-  PurchasesHybridCommonUI: 3b62fb69d17b6f8b6855b38d26a4c62c269bff49
+  PurchasesHybridCommon: 81e6091516e7b1b1a980fc3a5c1cacc38e7249c2
+  PurchasesHybridCommonUI: ce92788c58a601b0632f8b77e3cb2f059943807b
   RCTDeprecation: 943572d4be82d480a48f4884f670135ae30bf990
   RCTRequired: 8f3cfc90cc25cf6e420ddb3e7caaaabc57df6043
   RCTTypeSafety: 16a4144ca3f959583ab019b57d5633df10b5e97c
@@ -2934,13 +2934,13 @@ SPEC CHECKSUMS:
   ReactCommon: e6e232202a447d353e5531f2be82f50f47cbaa9a
   ReactNativeDependencies: 71ce9c28beb282aa720ea7b46980fff9669f428a
   ReactNativeHealthkit: 3a33edf8a12d3417a808e2d7e84ffe440dcc906d
-  RevenueCat: f30d8ee4fd36ce56afa40923d314239761eb58a2
-  RevenueCatUI: f7e36aa08d5d8de905c0c864c1523d4f39708be3
+  RevenueCat: 443ec5cf3d378f2f1d4b09f94f7395277e9229b4
+  RevenueCatUI: f1ca5a24d46f022bb8aa8c375b47bd614ecf5fb6
   RNCAsyncStorage: e85a99325df9eb0191a6ee2b2a842644c7eb29f4
   RNDateTimePicker: 6fdd63f5d1e0f21faf4cc8674957c52958a7efae
   RNGestureHandler: 6a488ce85c88e82d8610db1108daf04e9b2d5162
-  RNPaywalls: 3e3d3b0b078f7e6d4ae312f329335bafbd572124
-  RNPurchases: 617c1e3c17253e3391d05e778ea53045fc4fdb71
+  RNPaywalls: 7e011e6e896318ca8ce1e4d029d9e31537ff5eea
+  RNPurchases: 9dac6915445ddb77a3eaf39108a824582d2bb390
   RNReanimated: ccdeb3ccba11e8117b3d2bf50fb9c0543a8af11a
   RNScreens: dd61bc3a3e6f6901ad833efa411917d44827cf51
   RNSVG: 90d3bba2a63b5a16b442a3b0d4b400745d84c69a
